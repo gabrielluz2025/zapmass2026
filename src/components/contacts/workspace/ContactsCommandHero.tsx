@@ -127,27 +127,19 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
         </div>
       </div>
 
-      {/* Barra de temperatura */}
-      {stats.total > 0 && (
+      {/* Barra de temperatura — só aparece quando o cálculo terminou */}
+      {stats.total > 0 && contactTempsReady && (
         <div className="crm-temp-row crm-fade-up">
           <span className="text-[10px] font-bold uppercase tracking-widest shrink-0" style={{ color: 'var(--text-3, #94a3b8)' }}>
             Temperatura
           </span>
           <div className="crm-temp-bar">
-            {contactTempsReady ? (
-              <>
-                {stats.hot > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.hot / displayTotal) * 100}%`, background: '#ef4444' }} />}
-                {stats.warm > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.warm / displayTotal) * 100}%`, background: '#f59e0b' }} />}
-                {stats.cold > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.cold / displayTotal) * 100}%`, background: '#06b6d4' }} />}
-              </>
-            ) : (
-              <div className="crm-temp-seg animate-pulse" style={{ width: '100%', background: 'var(--border)' }} />
-            )}
+            {stats.hot > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.hot / displayTotal) * 100}%`, background: '#ef4444' }} />}
+            {stats.warm > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.warm / displayTotal) * 100}%`, background: '#f59e0b' }} />}
+            {stats.cold > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.cold / displayTotal) * 100}%`, background: '#06b6d4' }} />}
           </div>
-          <span className="text-[11px] font-semibold shrink-0" style={{ color: 'var(--text-2, #64748b)' }}>
-            {contactTempsReady
-              ? `🔥 ${stats.hot} · 🌡️ ${stats.warm} · ❄️ ${stats.cold}`
-              : 'calculando…'}
+          <span className="text-[11px] font-semibold shrink-0 tabular-nums" style={{ color: 'var(--text-2, #64748b)' }}>
+            🔥 {stats.hot.toLocaleString('pt-BR')} · 🌡️ {stats.warm.toLocaleString('pt-BR')} · ❄️ {stats.cold.toLocaleString('pt-BR')}
           </span>
         </div>
       )}

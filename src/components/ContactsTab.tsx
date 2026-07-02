@@ -4088,7 +4088,7 @@ export const ContactsTab: React.FC = () => {
               onCopyPhone={handleCopyPhone}
               onAddToList={handleAddSingleToList}
               selectedContactId={selectedContact?.id || null}
-              loading={contacts.length === 0 && (contactsLoadingMore || contactsSavedTotalLoading) && !contactsBootstrapStale}
+              loading={false}
               heightClass="h-[calc(100vh-320px)]"
               emptyHint={
                 contactsBootstrapStale

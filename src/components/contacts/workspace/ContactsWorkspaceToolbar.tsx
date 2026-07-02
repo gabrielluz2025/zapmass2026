@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, Layers, Filter, RotateCw, Loader2 } from 'lucide-react';
+import { Filter, RotateCw } from 'lucide-react';
 import type { SmartFilterId } from './ContactsSidebar';
 
 const FILTER_LABELS: Record<string, string> = {
@@ -41,15 +41,10 @@ type Props = {
 export const ContactsWorkspaceToolbar: React.FC<Props> = ({
   activeFilter,
   listName,
-  listManageMode = false,
   searchTerm,
   contactsSavedTotal,
   contactsSavedTotalLoading,
-  contactsLoaded,
   filteredCount,
-  contactsHasMore,
-  contactsLoadingMore,
-  contactsLoadPaused = false,
   onRefreshTotals
 }) => {
   const title = listName
@@ -57,6 +52,8 @@ export const ContactsWorkspaceToolbar: React.FC<Props> = ({
     : activeFilter.startsWith('list:')
       ? 'Lista selecionada'
       : FILTER_LABELS[activeFilter] || 'Base de contatos';
+
+  const total = contactsSavedTotal ?? 0;
 
   return (
     <div className="crm-workspace-bar">
@@ -66,49 +63,38 @@ export const ContactsWorkspaceToolbar: React.FC<Props> = ({
         </span>
         {searchTerm.trim() && (
           <span className="ml-2 text-[11px]" style={{ color: 'var(--crm-dim)' }}>
-            — busca: "{searchTerm.trim()}"
+            — "{searchTerm.trim()}"
           </span>
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5 ml-auto">
-        <span className="crm-mini-stat">
-          <Database className="w-3 h-3" style={{ color: 'var(--crm-dim)' }} />
-          {contactsSavedTotalLoading ? '…' : (contactsSavedTotal ?? 0).toLocaleString('pt-BR')}
-        </span>
-        <span className="crm-mini-stat" style={{ borderColor: 'rgba(99,102,241,0.3)', color: 'var(--crm-brand)' }}>
-          <Filter className="w-3 h-3" />
-          {filteredCount.toLocaleString('pt-BR')}
-        </span>
+      <div className="flex items-center gap-1.5 ml-auto">
+        {/* Total na base */}
+        {total > 0 && (
+          <span className="crm-mini-stat tabular-nums">
+            {total.toLocaleString('pt-BR')} contatos
+          </span>
+        )}
+
+        {/* Filtrados (só mostra quando há filtro ativo) */}
+        {(activeFilter !== 'all' || searchTerm.trim()) && (
+          <span className="crm-mini-stat tabular-nums" style={{ borderColor: 'rgba(99,102,241,0.3)', color: 'var(--crm-brand)' }}>
+            <Filter className="w-3 h-3" />
+            {filteredCount.toLocaleString('pt-BR')}
+          </span>
+        )}
+
+        {/* Botão de sincronizar total — sem spinner agressivo */}
         <button
           type="button"
           onClick={onRefreshTotals}
           disabled={contactsSavedTotalLoading}
           className="crm-mini-stat"
-          style={{ cursor: 'pointer' }}
+          style={{ cursor: contactsSavedTotalLoading ? 'default' : 'pointer', opacity: contactsSavedTotalLoading ? 0.5 : 1 }}
           title="Sincronizar total"
         >
           <RotateCw className={`w-3 h-3 ${contactsSavedTotalLoading ? 'animate-spin' : ''}`} />
         </button>
-        {(contactsLoadingMore || (contactsHasMore && contactsSavedTotal != null && contactsSavedTotal > contactsLoaded)) && (
-          <span
-            className="crm-mini-stat"
-            style={{
-              color: contactsLoadPaused ? '#f59e0b' : '#10b981',
-              borderColor: contactsLoadPaused ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.3)'
-            }}
-            title={
-              contactsLoadPaused
-                ? 'Carregamento pausado para manter a interface fluida — use Carregar mais na barra abaixo.'
-                : undefined
-            }
-          >
-            {contactsLoadingMore && <Loader2 className="w-3 h-3 animate-spin" />}
-            {contactsSavedTotal != null && contactsSavedTotal > contactsLoaded
-              ? `${contactsLoaded.toLocaleString('pt-BR')} / ${contactsSavedTotal.toLocaleString('pt-BR')}`
-              : 'Carregando…'}
-          </span>
-        )}
       </div>
     </div>
   );
