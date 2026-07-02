@@ -32,9 +32,11 @@ const resolveRedisFactory = async (): Promise<((url: string) => RedisLike) | nul
       return (url: string) => {
         const client = new RedisCtor(url, {
           maxRetriesPerRequest: null,
-          enableOfflineQueue: false,
+          // true: enfileira comandos enquanto conecta (evita "Stream isn't writeable" no boot)
+          enableOfflineQueue: true,
           retryStrategy: (times: number) => Math.min(times * 500, 5000),
           reconnectOnError: () => true,
+          connectTimeout: 10000,
         }) as RedisLike;
         (client as unknown as { on?: (ev: string, fn: (err: Error) => void) => void }).on?.(
           'error',

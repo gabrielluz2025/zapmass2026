@@ -174,7 +174,10 @@ export const startSessionControlPlane = async (): Promise<void> => {
   }, 10000);
 
   // Garante que a API (ou outro leitor) ve `worker-*` cedo, nao so daqui a 10s.
-  void publishWorkerEvent('worker-heartbeat', null);
+  // Tolerante a falha — se Redis ainda não conectou no boot, não derruba o processo.
+  publishWorkerEvent('worker-heartbeat', null).catch((err) =>
+    console.warn('[session] heartbeat inicial ignorado (Redis ainda conectando):', err?.message)
+  );
 };
 
 /** `SESSION_PROCESS_MODE=api` com Redis: comandos vao para o stream; o Chromium so no `wa-worker`. */
