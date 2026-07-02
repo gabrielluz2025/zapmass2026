@@ -782,10 +782,17 @@ export const ContactsTab: React.FC = () => {
   /** Evita travar a UI quando o socket atualiza conversas em alta frequência — o cálculo de temperatura acompanha com pequeno atraso. */
   const deferredConversations = useDeferredValue(conversations);
 
+  /**
+   * Versão adiada do array de contatos para cálculos pesados (O(n)).
+   * Enquanto um burst de preload chega, a UI continua respondendo com os
+   * dados anteriores; os memos pesados recalculam após o burst estabilizar.
+   */
+  const deferredContacts = useDeferredValue(contacts);
+
   /** Telefones que aparecem mais de uma vez — O(n), usado em filtros e segmentos (antes era O(n²) no segmento duplicados). */
   const phoneDupMeta = useMemo(() => {
     const cnt: Record<string, number> = {};
-    for (const c of contacts) {
+    for (const c of deferredContacts) {
       const k = normPhoneKey(c.phone);
       if (!k) continue;
       cnt[k] = (cnt[k] || 0) + 1;
@@ -793,12 +800,12 @@ export const ContactsTab: React.FC = () => {
     const phoneDupKeys = new Set<string>();
     for (const k in cnt) if (cnt[k] > 1) phoneDupKeys.add(k);
     let duplicateContactsCount = 0;
-    for (const c of contacts) {
+    for (const c of deferredContacts) {
       const k = normPhoneKey(c.phone);
       if (k && phoneDupKeys.has(k)) duplicateContactsCount++;
     }
     return { phoneDupKeys, duplicateContactsCount };
-  }, [contacts]);
+  }, [deferredContacts]);
   const { phoneDupKeys, duplicateContactsCount } = phoneDupMeta;
 
   /** IDs presentes em pelo menos uma lista — base para filtro "Sem lista". */
@@ -814,21 +821,21 @@ export const ContactsTab: React.FC = () => {
 
   const noListCount = useMemo(() => {
     let n = 0;
-    for (const c of contacts) {
+    for (const c of deferredContacts) {
       if (!contactIdsInAnyList.has(c.id)) n++;
     }
     return n;
-  }, [contacts, contactIdsInAnyList]);
+  }, [deferredContacts, contactIdsInAnyList]);
 
   const contactByPhoneKey = useMemo(() => {
     const map = new Map<string, Contact>();
-    for (const c of contacts) {
+    for (const c of deferredContacts) {
       const k = normPhoneKey(c.phone);
       if (!k) continue;
       if (!map.has(k)) map.set(k, c);
     }
     return map;
-  }, [contacts]);
+  }, [deferredContacts]);
 
   const contactsRef = useRef(contacts);
   useEffect(() => {
@@ -1896,7 +1903,7 @@ export const ContactsTab: React.FC = () => {
     let retorno_hoje = 0;
     let retorno_semana = 0;
 
-    for (const c of contacts) {
+    for (const c of deferredContacts) {
       const b = parseBirthday(c.birthday || '');
       if (b) {
         const mm = String(b.m).padStart(2, '0');
@@ -1961,13 +1968,13 @@ export const ContactsTab: React.FC = () => {
     }
 
     const addressPct =
-      contacts.length === 0 ? 0 : Math.round((addressComplete / contacts.length) * 100);
+      deferredContacts.length === 0 ? 0 : Math.round((addressComplete / deferredContacts.length) * 100);
 
     return {
       total:
-        contactsSavedTotal != null && contactsSavedTotal > contacts.length
+        contactsSavedTotal != null && contactsSavedTotal > deferredContacts.length
           ? contactsSavedTotal
-          : contacts.length,
+          : deferredContacts.length,
       hot,
       warm,
       cold: coldCount,
@@ -1991,7 +1998,7 @@ export const ContactsTab: React.FC = () => {
       retorno_hoje,
       retorno_semana
     };
-  }, [contacts, contactTemps, duplicateContactsCount, contactsSavedTotal]);
+  }, [deferredContacts, contactTemps, duplicateContactsCount, contactsSavedTotal]);
 
   // ============================================================
   //  SEGMENTOS INTELIGENTES — chips que aplicam filtros prontos
@@ -2085,22 +2092,22 @@ export const ContactsTab: React.FC = () => {
       ];
     const counts: Partial<Record<SmartSegmentId, number>> = {};
     for (const d of defs) counts[d.id] = 0;
-    for (const c of contacts) {
+    for (const c of deferredContacts) {
       for (const d of defs) {
         if (getSmartSegmentMatches(d.id, c)) counts[d.id]!++;
       }
     }
     return defs.map((s) => ({ ...s, count: counts[s.id] ?? 0 }));
-  }, [contacts, getSmartSegmentMatches, segment]);
+  }, [deferredContacts, getSmartSegmentMatches, segment]);
 
   const fileImportRowsView = useMemo(() => {
     if (fileImportRows.length === 0) return [];
     const basis =
       fileImportOpen && !fileImportDocked && fileImportDupBasisRef.current
         ? fileImportDupBasisRef.current
-        : buildFileImportDupBasis(contacts);
+        : buildFileImportDupBasis(deferredContacts);
     return buildFileImportRowsViewFromDupBasis(fileImportRows, basis);
-  }, [fileImportRows, contacts, fileImportOpen, fileImportDocked]);
+  }, [fileImportRows, deferredContacts, fileImportOpen, fileImportDocked]);
 
   const fileImportUiCounts = useMemo(() => {
     const v = fileImportRowsView;
@@ -2147,9 +2154,9 @@ export const ContactsTab: React.FC = () => {
 
   const smartImportRowsView = useMemo(() => {
     if (smartImportRows.length === 0) return [];
-    const existingKeys = new Set(contacts.map((c) => normPhoneKey(c.phone)).filter(Boolean));
+    const existingKeys = new Set(deferredContacts.map((c) => normPhoneKey(c.phone)).filter(Boolean));
     const nameByKey = new Map<string, string>();
-    contacts.forEach((c) => {
+    deferredContacts.forEach((c) => {
       const k = normPhoneKey(c.phone);
       if (k) nameByKey.set(k, c.name);
     });
@@ -2331,9 +2338,9 @@ export const ContactsTab: React.FC = () => {
       !activeSegment &&
       activeFilter === 'all'
     ) {
-      return contacts;
+      return deferredContacts;
     }
-    return contacts.filter((c) => {
+    return deferredContacts.filter((c) => {
       const matchesSearch =
         !q ||
         c.name.toLowerCase().includes(q) ||
@@ -2358,7 +2365,7 @@ export const ContactsTab: React.FC = () => {
       return matchesSearch && matchesStatus && matchesTag && matchesTemp && matchesSegment && matchesSmart;
     });
   }, [
-    contacts,
+    deferredContacts,
     deferredSearchTerm,
     filterStatus,
     filterTag,
@@ -4009,36 +4016,7 @@ export const ContactsTab: React.FC = () => {
               </Button>
             </div>
           )}
-          {contactsSavedTotal != null &&
-            contacts.length < contactsSavedTotal &&
-            (contactsHasMore || contactsLoadingMore) && (
-              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-amber-50/50 dark:bg-amber-950/10 border border-amber-200/50 dark:border-amber-900/30">
-                <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] text-amber-800 dark:text-amber-200/90 font-bold leading-tight">
-                    {contactsLoadingMore
-                      ? `Carregando contatos… ${contacts.length.toLocaleString('pt-BR')} de ${contactsSavedTotal.toLocaleString('pt-BR')}`
-                      : `Sincronizando… ${contacts.length.toLocaleString('pt-BR')} de ${contactsSavedTotal.toLocaleString('pt-BR')}`}
-                  </p>
-                  <p className="text-[10px] text-amber-700/70 dark:text-amber-400/60 mt-0.5">
-                    O carregamento continua em segundo plano em todas as abas — a barra no topo mostra o progresso.
-                  </p>
-                </div>
-                {!contactsLoadingMore && contactsHasMore && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    className="shrink-0"
-                    onClick={() => void loadAllContacts?.()}
-                  >
-                    Acelerar agora
-                  </Button>
-                )}
-              </div>
-            )}
+          {/* banner de carga parcial removido — indicador hairline no topo da janela já comunica o progresso sem deslocar layout */}
           {activeFilter === 'no_list' && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-orange-200/80 dark:border-orange-900/50 bg-orange-50/60 dark:bg-orange-950/20 px-3 py-2">
               <span className="text-[12px] text-orange-900 dark:text-orange-200 font-medium">

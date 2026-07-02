@@ -1174,25 +1174,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     if (stillLoading && loaded < total) {
       contactsPreloadStartedRef.current = true;
-      const now = Date.now();
-      if (now - contactsPreloadToastAtRef.current > 2_500 || loaded < 600) {
-        contactsPreloadToastAtRef.current = now;
-        const pct = Math.min(99, Math.round((loaded / total) * 100));
-        toast.loading(
-          `Carregando base de contatos… ${loaded.toLocaleString('pt-BR')} / ${total.toLocaleString('pt-BR')} (${pct}%)`,
-          { id: 'contacts-global-preload', duration: Infinity }
-        );
-      }
       return;
     }
 
     if (complete && contactsPreloadStartedRef.current && !contactsPreloadToastDoneRef.current) {
       contactsPreloadToastDoneRef.current = true;
-      toast.dismiss('contacts-global-preload');
-      toast.success(
-        `Base de contatos carregada com sucesso — ${loaded.toLocaleString('pt-BR')} contatos prontos.`,
-        { id: 'contacts-global-preload-success', duration: 5500 }
-      );
     }
   }, [contacts.length, contactsSavedTotal, contactsHasMore, contactsLoadingMore]);
 
@@ -1215,7 +1201,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactsPreloadStartedRef.current = false;
       contactsPreloadToastDoneRef.current = false;
       contactsPreloadToastAtRef.current = 0;
-      toast.dismiss('contacts-global-preload');
     }
     currentUidRef.current = dataUid;
   }, [effectiveWorkspaceUid, workspaceLoading, sessionUser?.uid]);
