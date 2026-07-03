@@ -731,6 +731,11 @@ export const DashboardTab: React.FC = () => {
       toast.error('Aguarde o anexo terminar de carregar.');
       return;
     }
+    const conn = connections.find((c) => c.id === sendingConnectionId);
+    if (!conn || conn.status !== ConnectionStatus.CONNECTED) {
+      toast.error('Canal offline ou suspenso. Reconecte o chip antes de enviar.');
+      return;
+    }
     const phone = selectedContact.phone?.replace(/\D/g, '');
     if (!phone) {
       toast.error('Contato sem numero de telefone.');
@@ -786,6 +791,11 @@ export const DashboardTab: React.FC = () => {
 
   const handleSendWeddingMessage = async () => {
     if (!selectedWedding || !sendingConnectionId || !weddingMessageText.trim()) return;
+    const conn = connections.find((c) => c.id === sendingConnectionId);
+    if (!conn || conn.status !== ConnectionStatus.CONNECTED) {
+      toast.error('Canal offline ou suspenso. Reconecte o chip antes de enviar.');
+      return;
+    }
     const phone = selectedWedding.phone?.replace(/\D/g, '');
     if (!phone) {
       toast.error('Contato sem número de telefone.');

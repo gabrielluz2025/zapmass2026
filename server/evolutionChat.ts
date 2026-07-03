@@ -40,6 +40,7 @@ import {
 import { chatRemoteJidFromFindChatsRow, formatChatListTime, isGarbagePersonChatJid, resolveChatRowTimestampMs } from './evolutionChatJid.js';
 import {
     formatEvolutionHttpError,
+    postEvolutionSendText,
     resolveOutboundSendTarget
 } from './evolutionChatSend.js';
 import {
@@ -1500,17 +1501,12 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const peer = await ensureSendablePeer(effectiveId, parsed);
         const { number } = resolveOutboundSendTarget(parsed.remoteJid, peer);
 
-        let response: { data?: { key?: { id?: string; _serialized?: string } } };
-        try {
-            response = await api.post(`/message/sendText/${evoInst(parsed.connectionId)}`, {
-                number,
-                text: trimmed,
-                delay: 1200,
-            });
-        } catch (err) {
-            throw new Error(formatEvolutionHttpError(err));
-        }
-        const messageId = response.data?.key?.id || response.data?.key?._serialized;
+        const { messageId } = await postEvolutionSendText(
+            api,
+            evoInst(parsed.connectionId),
+            number,
+            trimmed
+        );
         const nowMs = Date.now();
 
         const newMsg: ChatMessage = {

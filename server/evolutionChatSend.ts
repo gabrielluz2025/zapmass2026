@@ -1,3 +1,4 @@
+import type { AxiosInstance } from 'axios';
 import {
   hasResolvablePhone,
   isLidJid,
@@ -9,6 +10,78 @@ import {
 } from './evolutionLidResolve.js';
 
 export { normalizeOutboundDigits, plausiblePhoneDigits };
+
+type EvolutionSendTextResponse = {
+  key?: { id?: string; _serialized?: string };
+  message?: string;
+  messageId?: string;
+  id?: string;
+  status?: string;
+  error?: string;
+};
+
+/** Envia texto via Evolution API (v1 + v2) com validação da resposta. */
+export async function postEvolutionSendText(
+  api: AxiosInstance,
+  instanceName: string,
+  number: string,
+  text: string
+): Promise<{ messageId?: string }> {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) throw new Error('Mensagem vazia.');
+  if (!number) throw new Error('Número inválido para envio.');
+
+  let response: { data?: EvolutionSendTextResponse };
+  try {
+    response = await api.post(`/message/sendText/${instanceName}`, {
+      number,
+      options: { delay: 1200, presence: 'composing' },
+      textMessage: { text: trimmed },
+      // Campos legados v1 — mantidos para compatibilidade retroativa
+      text: trimmed,
+      delay: 1200,
+    });
+  } catch (err) {
+    throw new Error(formatEvolutionHttpError(err));
+  }
+
+  const responseData = response.data;
+  const messageId =
+    responseData?.key?.id ||
+    responseData?.key?._serialized ||
+    responseData?.messageId ||
+    responseData?.id;
+
+  if (
+    responseData?.key ||
+    responseData?.message === 'Message Sent' ||
+    responseData?.messageId ||
+    responseData?.id
+  ) {
+    return { messageId: messageId ? String(messageId) : undefined };
+  }
+
+  const statusOk =
+    typeof responseData?.status === 'string' &&
+    ['PENDING', 'SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'sent', 'delivered'].includes(
+      responseData.status
+    );
+  if (statusOk) return {};
+
+  const isExplicitError =
+    responseData?.error ||
+    (typeof responseData?.message === 'string' &&
+      /error|failed|invalid|unauthorized/i.test(responseData.message));
+  if (isExplicitError) {
+    throw new Error(String(responseData?.error || responseData?.message || 'Evolution recusou o envio.'));
+  }
+
+  if (responseData && typeof responseData === 'object') {
+    return {};
+  }
+
+  throw new Error('Evolution retornou resposta sem confirmação de envio.');
+}
 
 export type OutboundSendTarget = { number: string };
 
