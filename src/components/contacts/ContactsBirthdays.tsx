@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Cake, ChevronLeft, ChevronRight, Gift, MessageCircle, Send, Users, Sparkles } from 'lucide-react';
 import type { Contact } from '../../types';
+import { excludeGreetedBirthdayContacts, getBirthdayGreetedIds } from '../../utils/birthdayGreeted';
 
 interface BirthdayContact {
   contact: Contact;
@@ -11,6 +12,7 @@ interface BirthdayContact {
 
 interface ContactsBirthdaysProps {
   contacts: Contact[];
+  greetedBirthdayIds?: Set<string>;
   onOpenChat: (contact: Contact) => void;
   onBirthdayCampaign: (contacts: Contact[]) => void;
 }
@@ -46,6 +48,7 @@ function daysUntilNext(day: number, month: number): number {
 
 const ContactsBirthdaysBase: React.FC<ContactsBirthdaysProps> = ({
   contacts,
+  greetedBirthdayIds,
   onOpenChat,
   onBirthdayCampaign
 }) => {
@@ -55,8 +58,12 @@ const ContactsBirthdaysBase: React.FC<ContactsBirthdaysProps> = ({
   const [selectedDay, setSelectedDay] = useState<number | null>(today.getDate());
 
   const withBdays = useMemo<BirthdayContact[]>(() => {
+    const eligible = excludeGreetedBirthdayContacts(
+      contacts,
+      greetedBirthdayIds ?? getBirthdayGreetedIds()
+    );
     const out: BirthdayContact[] = [];
-    for (const c of contacts) {
+    for (const c of eligible) {
       const b = parseBirthday(c.birthday);
       if (!b) continue;
       if (b.month < 1 || b.month > 12 || b.day < 1 || b.day > 31) continue;
@@ -68,7 +75,7 @@ const ContactsBirthdaysBase: React.FC<ContactsBirthdaysProps> = ({
       });
     }
     return out;
-  }, [contacts]);
+  }, [contacts, greetedBirthdayIds]);
 
   // Próximos 30 dias
   const upcoming30 = useMemo(

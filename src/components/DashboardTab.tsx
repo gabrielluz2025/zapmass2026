@@ -30,8 +30,7 @@ import {
   BookOpen,
   UserPlus,
   MapPin,
-  Download,
-  Check
+  Download
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatus } from '../types';
@@ -67,7 +66,10 @@ import { SavedMediaLibraryPicker } from './campaigns/SavedMediaLibraryPicker';
 import { DEFAULT_BIRTHDAY_TEMPLATE } from '../constants/birthdayTemplates';
 import { prepareCampaignAttachmentPayload } from '../utils/campaignMediaLibrary';
 import {
+  excludeGreetedBirthdayContacts,
   getBirthdayGreetedIds,
+  hydrateBirthdayGreetedFromCampaigns,
+  hydrateBirthdayGreetedFromConversations,
   markBirthdayGreeted,
   markBirthdayGreetedMany
 } from '../utils/birthdayGreeted';
@@ -404,6 +406,13 @@ export const DashboardTab: React.FC = () => {
 
   const refreshGreetedBirthdays = () => setGreetedBirthdayIds(getBirthdayGreetedIds());
 
+  useEffect(() => {
+    const before = getBirthdayGreetedIds().size;
+    hydrateBirthdayGreetedFromCampaigns(campaigns, contacts);
+    hydrateBirthdayGreetedFromConversations(deferredConversations, contacts);
+    if (getBirthdayGreetedIds().size !== before) refreshGreetedBirthdays();
+  }, [campaigns, contacts, deferredConversations]);
+
   const leaveBirthdayContext = (target: 'contacts' | 'campaigns') => {
     if (target === 'contacts') {
       try {
@@ -487,8 +496,11 @@ export const DashboardTab: React.FC = () => {
       });
     }
 
-    return result.sort((a, b) => a.daysRemaining - b.daysRemaining);
-  }, [contacts]);
+    return excludeGreetedBirthdayContacts(
+      result.sort((a, b) => a.daysRemaining - b.daysRemaining),
+      greetedBirthdayIds
+    );
+  }, [contacts, greetedBirthdayIds]);
 
   const upcomingWeddings = useMemo<UpcomingWedding[]>(() => {
     if (segment !== 'religious') return [];
@@ -1283,19 +1295,15 @@ export const DashboardTab: React.FC = () => {
                   </Button>
                 </div>
               ) : (
-                upcomingBirthdaysVisible.map((contact) => {
-                  const alreadyGreeted = greetedBirthdayIds.has(contact.id);
-                  return (
+                upcomingBirthdaysVisible.map((contact) => (
                   <div
                     key={contact.id}
                     className={`p-2.5 rounded-xl transition-all flex items-center justify-between group border ${
-                      alreadyGreeted
-                        ? 'border-emerald-500/25 bg-emerald-500/[0.06] opacity-80'
-                        : contact.daysRemaining === 0
+                      contact.daysRemaining === 0
                         ? 'border-pink-500/30 bg-pink-500/[0.07] dark:bg-pink-500/10'
                         : 'border-transparent'
                     } hover:border-[var(--border-subtle)] hover:bg-[var(--surface-2)]`}
-                    style={!alreadyGreeted && contact.daysRemaining !== 0 ? { background: 'var(--surface-1)' } : undefined}
+                    style={contact.daysRemaining === 0 ? undefined : { background: 'var(--surface-1)' }}
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       {contact.profilePicUrl ? (
@@ -1337,29 +1345,17 @@ export const DashboardTab: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    {alreadyGreeted ? (
-                      <span
-                        className="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold px-2 py-1 rounded-lg"
-                        style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}
-                        title="Parabéns já enviado hoje"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        Enviado
-                      </span>
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleOpenChat(contact)}
-                        title="Enviar parabéns agora"
-                        className="shrink-0"
-                      >
-                        <MessageCircle className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
-                      </Button>
-                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleOpenChat(contact)}
+                      title="Enviar parabéns agora"
+                      className="shrink-0"
+                    >
+                      <MessageCircle className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
+                    </Button>
                   </div>
-                  );
-                })
+                ))
               )}
               {upcomingBirthdays.length > birthdaysVisible && (
                 <button

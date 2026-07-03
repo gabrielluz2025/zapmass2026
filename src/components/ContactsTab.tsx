@@ -60,6 +60,12 @@ import {
 import { normPhoneKey, normalizeBRPhone } from '../utils/brPhoneNormalize';
 import { findBestConversationForPhone, findConversationForPhoneOnChannel, findConversationsForPhone } from '../utils/findConversationByPhone';
 import { DEFAULT_BIRTHDAY_TEMPLATE } from '../constants/birthdayTemplates';
+import {
+  getBirthdayGreetedIds,
+  hydrateBirthdayGreetedFromCampaigns,
+  hydrateBirthdayGreetedFromConversations,
+  isBirthdayGreetedToday
+} from '../utils/birthdayGreeted';
 import { openChatByConversationIdNavigate } from '../utils/openChatByConversationIdNav';
 import { useContactPicturePrefetch } from '../hooks/useContactPicturePrefetch';
 import { normalizeContactPersonName, parseExtraPrefixes } from '../utils/contactNameNormalize';
@@ -774,6 +780,7 @@ export const ContactsTab: React.FC = () => {
     appendContactIdsToContactList,
     deleteContactList,
     updateContactList,
+    campaigns,
   } = useZapMassCore();
   const { currentView, setCurrentView } = useAppView();
   const { segment } = useAppProfile();
@@ -783,6 +790,16 @@ export const ContactsTab: React.FC = () => {
   const [aiEnrichLoading, setAiEnrichLoading] = useState(false);
   /** Evita travar a UI quando o socket atualiza conversas em alta frequência — o cálculo de temperatura acompanha com pequeno atraso. */
   const deferredConversations = useDeferredValue(conversations);
+  const [greetedBirthdayIds, setGreetedBirthdayIds] = useState(() => getBirthdayGreetedIds());
+
+  useEffect(() => {
+    const before = getBirthdayGreetedIds().size;
+    hydrateBirthdayGreetedFromCampaigns(campaigns, contacts);
+    hydrateBirthdayGreetedFromConversations(deferredConversations, contacts);
+    if (getBirthdayGreetedIds().size !== before) {
+      setGreetedBirthdayIds(getBirthdayGreetedIds());
+    }
+  }, [campaigns, contacts, deferredConversations]);
 
   /**
    * Versão adiada do array de contatos para cálculos pesados (O(n)).
@@ -1912,7 +1929,9 @@ export const ContactsTab: React.FC = () => {
 
     for (const c of deferredContacts) {
       const b = parseBirthday(c.birthday || '');
-      if (b) {
+      const bdayEligible =
+        b && !greetedBirthdayIds.has(c.id) && !isBirthdayGreetedToday(c.id);
+      if (bdayEligible && b) {
         const mm = String(b.m).padStart(2, '0');
         const dd = String(b.d).padStart(2, '0');
         if (`${mm}-${dd}` === todayMD) bdayToday++;
@@ -2005,7 +2024,7 @@ export const ContactsTab: React.FC = () => {
       retorno_hoje,
       retorno_semana
     };
-  }, [deferredContacts, contactTemps, duplicateContactsCount, contactsSavedTotal]);
+  }, [deferredContacts, contactTemps, duplicateContactsCount, contactsSavedTotal, greetedBirthdayIds]);
 
   // ============================================================
   //  SEGMENTOS INTELIGENTES — chips que aplicam filtros prontos
@@ -2306,6 +2325,7 @@ export const ContactsTab: React.FC = () => {
       }
       case 'bday_today':
       case 'bday_week': {
+        if (greetedBirthdayIds.has(c.id) || isBirthdayGreetedToday(c.id)) return false;
         if (!c.birthday) return false;
         const iso = c.birthday.match(/^(\d{4})-(\d{2})-(\d{2})/);
         const br = c.birthday.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
@@ -2331,7 +2351,7 @@ export const ContactsTab: React.FC = () => {
         return !!c.marketingOptOut;
       default: return true;
     }
-  }, [contactLists, contactTemps, phoneDupKeys, contactIdsInAnyList]);
+  }, [contactLists, contactTemps, phoneDupKeys, contactIdsInAnyList, greetedBirthdayIds]);
 
   // Filter Logic — memoizado: antes rodava filtro completo em todo re-render (digitar, modal, etc.).
   const filteredContacts = useMemo(() => {
@@ -4611,6 +4631,7 @@ export const ContactsTab: React.FC = () => {
         onApplyFilterOnBase={handleSegmentApplyFilter}
         onSegmentCampaign={handleSegmentCreateCampaign}
         onBirthdayCampaign={handleBirthdayCampaign}
+        greetedBirthdayIds={greetedBirthdayIds}
       />
       
       {/* ... Modal Code (unchanged logic, just inside this updated component) ... */}

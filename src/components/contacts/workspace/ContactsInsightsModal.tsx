@@ -37,13 +37,14 @@ interface Props {
   onApplyFilterOnBase: (segId: string) => void;
   onSegmentCampaign: (matches: Contact[], segmentLabel: string) => void;
   onBirthdayCampaign: (people: Contact[]) => void;
+  greetedBirthdayIds?: Set<string>;
 }
 
 export const ContactsInsightsModal: React.FC<Props> = ({
   open, onClose,
   contacts, contactTemps, segments,
   getSegmentMatches, onOpenChat, onCreateCampaignFiltered,
-  onApplyFilterOnBase, onSegmentCampaign, onBirthdayCampaign
+  onApplyFilterOnBase, onSegmentCampaign, onBirthdayCampaign, greetedBirthdayIds
 }) => {
   const [tab, setTab] = useState<Tab>('overview');
 
@@ -150,6 +151,7 @@ export const ContactsInsightsModal: React.FC<Props> = ({
             {tab === 'birthdays' && (
               <ContactsBirthdays
                 contacts={contacts}
+                greetedBirthdayIds={greetedBirthdayIds}
                 onOpenChat={(c) => { onOpenChat(c); onClose(); }}
                 onBirthdayCampaign={(people) => { onBirthdayCampaign(people); onClose(); }}
               />
