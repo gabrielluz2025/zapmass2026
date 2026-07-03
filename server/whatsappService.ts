@@ -28,6 +28,10 @@ import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
 import { campaignRotationIndexFromPhone, resolveCampaignSpintax } from '../shared/campaignSpintax.js';
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
+import {
+    cleanReplyTriggerToken,
+    matchReplyTriggerToken
+} from './replyFlowEngine.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
 import {
     appendChatArchiveMessages,
@@ -4792,15 +4796,8 @@ const replyMatchesGate = (
     if (!t && nonText) {
         return false;
     }
-    
-    // Remove pontuação para não falhar em casos como "Sim," ou "1."
-    const norm = t.toLowerCase().replace(/[^\w\s\u00C0-\u00FF0-9]/g, '').trim();
-    const first = norm.split(/\s+/)[0] || '';
-    
-    return tokens.some((tok) => {
-        const cleanTok = tok.replace(/[^\w\s\u00C0-\u00FF0-9]/g, '').trim();
-        return cleanTok === norm || cleanTok === first;
-    });
+
+    return tokens.some((tok) => matchReplyTriggerToken(cleanReplyTriggerToken(tok), t));
 };
 
 const enqueueReplyFlowOutbound = async (item: QueueItem) => {
@@ -4973,15 +4970,11 @@ const handleReplyFlowIncoming = async (
         
         let matchedOption: any = null;
         if (t || nonText) {
-            const norm = t.toLowerCase().replace(/[^\w\s\u00C0-\u00FF0-9]/g, '').trim();
-            const first = norm.split(/\s+/)[0] || '';
-            
             matchedOption = gateStep.options.find((opt) => {
                 const tokens = opt.tokens || [];
-                return tokens.some((tok) => {
-                    const cleanTok = tok.replace(/[^\w\s\u00C0-\u00FF0-9]/g, '').trim();
-                    return cleanTok === norm || cleanTok === first;
-                });
+                return tokens.some((tok) =>
+                    matchReplyTriggerToken(cleanReplyTriggerToken(tok), t)
+                );
             });
         }
 

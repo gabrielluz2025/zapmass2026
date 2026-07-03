@@ -162,6 +162,45 @@ export const sanitizeReplyFlowSteps = (
         .filter((s) => s.body.length > 0);
 };
 
+/** Remove pontuação e separa palavras para comparar gatilhos do fluxo por resposta. */
+export function normalizeReplyBodyForMatch(text: string): {
+    norm: string;
+    first: string;
+    words: string[];
+} {
+    const norm = String(text || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^\w\s\u00C0-\u00FF0-9]/g, '')
+        .trim();
+    const words = norm.split(/\s+/).filter(Boolean);
+    return { norm, first: words[0] || '', words };
+}
+
+export function cleanReplyTriggerToken(raw: string): string {
+    return String(raw || '')
+        .toLowerCase()
+        .replace(/[^\w\s\u00C0-\u00FF0-9]/g, '')
+        .trim();
+}
+
+/**
+ * Reconhece palavra-chave na resposta:
+ * - mensagem inteira ("1", "excluir")
+ * - primeira palavra ("1 sim", "excluir minha conta")
+ * - qualquer palavra da frase ("OI 1", "quero excluir")
+ * - frases com espaço no gatilho ("nao quero")
+ */
+export function matchReplyTriggerToken(cleanTok: string, bodyText: string): boolean {
+    if (!cleanTok) return false;
+    const { norm, first, words } = normalizeReplyBodyForMatch(bodyText);
+    if (!norm) return false;
+    if (cleanTok === norm || cleanTok === first) return true;
+    if (words.includes(cleanTok)) return true;
+    if (cleanTok.includes(' ') && norm.includes(cleanTok)) return true;
+    return false;
+}
+
 export const replyMatchesGate = (
     step: ReplyFlowStepDef,
     bodyText: string,
@@ -179,13 +218,7 @@ export const replyMatchesGate = (
         return false;
     }
 
-    const norm = t.toLowerCase().replace(/[^\w\s\u00C0-\u00FF0-9]/g, '').trim();
-    const first = norm.split(/\s+/)[0] || '';
-
-    return tokens.some((tok) => {
-        const cleanTok = tok.replace(/[^\w\s\u00C0-\u00FF0-9]/g, '').trim();
-        return cleanTok === norm || cleanTok === first;
-    });
+    return tokens.some((tok) => matchReplyTriggerToken(cleanReplyTriggerToken(tok), t));
 };
 
 export function pickWeightedChannel(
@@ -511,14 +544,11 @@ export class ReplyFlowEngine {
             let matchedOption: ReplyFlowStepOption | null = null;
 
             if (t || nonText) {
-                const norm = t.toLowerCase().replace(/[^\w\s\u00C0-\u00FF0-9]/g, '').trim();
-                const first = norm.split(/\s+/)[0] || '';
                 matchedOption =
                     gateStep.options.find((opt) =>
-                        (opt.tokens || []).some((tok) => {
-                            const cleanTok = tok.replace(/[^\w\s\u00C0-\u00FF0-9]/g, '').trim();
-                            return cleanTok === norm || cleanTok === first;
-                        })
+                        (opt.tokens || []).some((tok) =>
+                            matchReplyTriggerToken(cleanReplyTriggerToken(tok), t)
+                        )
                     ) || null;
             }
 

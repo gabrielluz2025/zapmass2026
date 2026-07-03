@@ -348,7 +348,7 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                           Rotas do menu
                         </p>
                         <p className="text-[10.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
-                          O contato digita o gatilho; você define a mensagem com {'{nome}'}, {'{cidade}'}, etc.
+                          O contato digita o gatilho (ex.: 1, excluir) — vale sozinho ou dentro da frase (“OI 1”, “quero excluir”).
                         </p>
                       </div>
                     </div>
