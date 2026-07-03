@@ -416,9 +416,10 @@ html[data-mode='light'] {
 
   /* ── Page layout (Fase 1) ── */
   .zm-page-shell {
-    max-width: 1800px;
+    max-width: min(1800px, 100%);
     margin-inline: auto;
     width: 100%;
+    min-width: 0;
     padding-bottom: var(--space-page);
   }
 

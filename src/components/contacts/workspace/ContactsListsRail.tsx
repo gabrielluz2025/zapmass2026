@@ -74,7 +74,7 @@ export const ContactsListsRail: React.FC<Props> = ({
           <ChevronRight className="w-3 h-3" />
         </button>
       </div>
-      <div className="flex gap-2 zm-scroll-x-hidden pb-0.5">
+      <div className="crm-lists-rail__chips">
         <RailChip
           label="Todos"
           count={null}
@@ -128,10 +128,10 @@ const RailChip: React.FC<{
       type="button"
       onClick={onClick}
       title={label}
-      className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold border transition"
+      className="crm-lists-rail__chip shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold border transition max-w-full"
       style={active ? { ...activeStyle, fontWeight: 700 } : idleStyle}
     >
-      <span className="max-w-[200px] truncate">{label}</span>
+      <span className="max-w-[min(220px,100%)] truncate">{label}</span>
       {count != null && count > 0 && (
         <span
           className="text-[10px] font-black px-1.5 py-0.5 rounded-md tabular-nums"

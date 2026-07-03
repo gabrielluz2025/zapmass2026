@@ -562,6 +562,26 @@
   white-space: nowrap;
 }
 
+/* ── Listas rápidas (rail) ─────────────────────────────────── */
+.crm-lists-rail__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  max-width: 100%;
+}
+
+.crm-lists-rail__chip {
+  min-width: 0;
+}
+
+@media (max-width: 639px) {
+  .crm-lists-rail__chip {
+    font-size: 11px;
+    padding: 0.35rem 0.65rem;
+  }
+}
+
 /* ── Filter strip ─────────────────────────────────────────── */
 .ch-filter-strip {
   display: flex;
@@ -569,6 +589,8 @@
   gap: 0.4rem;
   flex-wrap: wrap;
   padding: 0.1rem 0;
+  max-width: 100%;
+  min-width: 0;
 }
 
 /* ── Filter chip ──────────────────────────────────────────── */

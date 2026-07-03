@@ -21,6 +21,7 @@ import toast from 'react-hot-toast';
 import { Badge, BrDateInput, Button, Card, EmptyState, Modal, PageShell, SectionHeader, StatCard } from './ui';
 import { ContactsHeaderBar } from './contacts/workspace/ContactsHeaderBar';
 import { ContactsListsRail } from './contacts/workspace/ContactsListsRail';
+import { ContactsListsPanel } from './contacts/workspace/ContactsListsPanel';
 import { type SmartFilterId, type SidebarCounts } from './contacts/workspace/ContactsSidebar';
 // ContactsSidebar mantida no arquivo mas não renderizada no novo layout hub fullwidth
 import { ContactsWorkspaceToolbar } from './contacts/workspace/ContactsWorkspaceToolbar';
@@ -875,7 +876,6 @@ export const ContactsTab: React.FC = () => {
     }
     setCurrentPage(1);
   }, []);
-  const [listsUiFocus, setListsUiFocus] = useState<'none' | 'tab' | 'create'>('none');
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   /** Fotos buscadas em background (já persistidas no servidor). */
   const [picOverrides, setPicOverrides] = useState<Record<string, string>>({});
@@ -1037,6 +1037,7 @@ export const ContactsTab: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showCreateList, setShowCreateList] = useState(false);
   const [newListName, setNewListName] = useState('');
+  const [showListsManageModal, setShowListsManageModal] = useState(false);
   /** Lista aberta para gerir membros (sub-aba Na lista / Adicionar). */
   const [listManageSubTab, setListManageSubTab] = useState<'members' | 'add'>('members');
   const [showMoreFilters, setShowMoreFilters] = useState(false);
@@ -3657,9 +3658,6 @@ export const ContactsTab: React.FC = () => {
       handleOpenList(id.slice(5));
       return;
     }
-    if (id === 'no_list') {
-      setListsUiFocus('tab');
-    }
     setActiveFilter(id);
     setSelectedIds([]);
     setListAddSelectedIds([]);
@@ -3677,6 +3675,17 @@ export const ContactsTab: React.FC = () => {
       toast.error('Não foi possível criar a lista.');
     }
   }, [createContactList, handleOpenList]);
+
+  const submitNewListModal = useCallback(async () => {
+    const trimmed = newListName.trim();
+    if (!trimmed) {
+      toast.error('Informe um nome para a lista.');
+      return;
+    }
+    await handleCreateListQuick(trimmed);
+    setNewListName('');
+    setShowCreateList(false);
+  }, [newListName, handleCreateListQuick]);
 
   const activeListName = useMemo(() => {
     if (!activeFilter.startsWith('list:')) return undefined;
@@ -3917,8 +3926,11 @@ export const ContactsTab: React.FC = () => {
         noListCount={noListCount}
         activeFilter={activeFilter}
         onSelectFilter={handleSelectSmartFilter}
-        onOpenListsTab={() => setListsUiFocus('tab')}
-        onCreateList={() => setListsUiFocus('create')}
+        onOpenListsTab={() => setShowListsManageModal(true)}
+        onCreateList={() => {
+          setNewListName('');
+          setShowCreateList(true);
+        }}
       />
 
       {/* ── Faixa de filtros horizontais ── */}
@@ -4238,6 +4250,92 @@ export const ContactsTab: React.FC = () => {
       />
 
       {/* Modal de Insights (lazy — só carrega ao abrir) */}
+      <Modal
+        isOpen={showCreateList}
+        onClose={() => {
+          setShowCreateList(false);
+          setNewListName('');
+        }}
+        title="Nova lista"
+        subtitle="Crie uma lista vazia e adicione contatos depois."
+        icon={<ListPlus className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
+        size="sm"
+        footer={
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 w-full">
+            <Button variant="ghost" type="button" onClick={() => { setShowCreateList(false); setNewListName(''); }}>
+              Cancelar
+            </Button>
+            <Button variant="primary" type="button" onClick={() => void submitNewListModal()}>
+              Criar lista
+            </Button>
+          </div>
+        }
+      >
+        <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-3)' }}>
+          Nome da lista
+        </label>
+        <input
+          type="text"
+          autoFocus
+          value={newListName}
+          onChange={(e) => setNewListName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void submitNewListModal();
+          }}
+          placeholder="Ex.: Clientes VIP, Aniversariantes…"
+          className="w-full px-3 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-500)]/30"
+          style={{
+            background: 'var(--surface-0)',
+            border: '1px solid var(--border-subtle)',
+            color: 'var(--text-1)',
+          }}
+        />
+      </Modal>
+
+      <Modal
+        isOpen={showListsManageModal}
+        onClose={() => setShowListsManageModal(false)}
+        title="Gerenciar listas"
+        subtitle={`${contactLists.length} lista(s) · organize segmentos para campanhas`}
+        icon={<Layers className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
+        size="md"
+        footer={
+          <Button variant="ghost" type="button" onClick={() => setShowListsManageModal(false)}>
+            Fechar
+          </Button>
+        }
+      >
+        <div className="max-h-[min(70vh,520px)] min-h-[280px] overflow-hidden flex flex-col">
+          <ContactsListsPanel
+            lists={contactLists}
+            activeListId={activeFilter.startsWith('list:') ? activeFilter.slice(5) : null}
+            noListCount={noListCount}
+            noListActive={activeFilter === 'no_list'}
+            openCreateSignal={0}
+            onSelectNoList={() => {
+              handleSelectSmartFilter('no_list');
+              setShowListsManageModal(false);
+            }}
+            onSelectList={(listId) => {
+              handleOpenList(listId);
+              setShowListsManageModal(false);
+            }}
+            onCreateList={(name) => {
+              void handleCreateListQuick(name);
+            }}
+            onManageList={(listId) => {
+              handleOpenList(listId);
+              setShowListsManageModal(false);
+            }}
+            onDeleteList={handleDeleteList}
+            onShowAll={() => {
+              handleSelectSmartFilter('all');
+              setShowListsManageModal(false);
+            }}
+          />
+        </div>
+      </Modal>
+
       <Modal
         isOpen={pickListPayload !== null}
         onClose={() => setPickListPayload(null)}
