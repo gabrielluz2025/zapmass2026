@@ -12,12 +12,13 @@ import {
   ChevronRight,
   Flame,
   Goal,
-  HeartCrack,
   Layers,
   Radar,
+  Reply,
   Send,
   Signal,
   Snowflake,
+  Sparkles,
   Thermometer,
   TrendingUp,
   Trophy,
@@ -42,7 +43,8 @@ import {
   getMonthlyGoal,
   setMonthlyGoal
 } from '../../utils/dashboardLocalStats';
-import { buildDashboardActivityFeed, qualityScoreLabel } from '../../utils/dashboardActivityFeed';
+import { qualityScoreLabel } from '../../utils/dashboardActivityFeed';
+import { buildDashboardRecentReplies } from '../../utils/dashboardRecentReplies';
 
 const FUNNEL_CHART_MAX_PX = 72;
 
@@ -67,27 +69,20 @@ function formatSendChartDay(dateStr: string): { day: string; weekday: string; is
     .slice(0, 3);
   return { day: String(d || 0).padStart(2, '0'), weekday, isToday };
 }
-import { computeContactTemperatures } from '../../utils/contactTemperature';
+import { computeContactTemperatures, CONTACT_TEMP_LABEL, type ContactTemperature } from '../../utils/contactTemperature';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
-import { parseFirestoreDateToIso } from '../../utils/followUp';
 
 const RATE_CAP_MESSAGES_PER_HOUR = 100;
 
-function sameLocalDay(isoOrStr: string): boolean {
-  let d: Date;
-  const iso = parseFirestoreDateToIso(isoOrStr as never);
-  if (iso) d = new Date(iso);
-  else {
-    d = new Date(isoOrStr);
-    if (Number.isNaN(d.getTime())) return false;
-  }
-  const now = new Date();
-  return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  );
-}
+const TEMP_VISUAL: Record<
+  ContactTemperature,
+  { fg: string; icon: React.ReactNode }
+> = {
+  hot: { fg: '#ef4444', icon: <Flame className="w-4 h-4" /> },
+  warm: { fg: '#f59e0b', icon: <Thermometer className="w-4 h-4" /> },
+  cold: { fg: '#3b82f6', icon: <Snowflake className="w-4 h-4" /> },
+  new: { fg: '#10b981', icon: <Sparkles className="w-4 h-4" /> }
+};
 
 function computeBaseQuality(contacts: Contact[]): { validPct: number; namedPct: number; uniquePct: number; score: number } {
   const n = contacts.length;
@@ -240,9 +235,9 @@ export const DashboardIntelPanel: React.FC<Props> = ({
   const quality = useMemo(() => computeBaseQuality(contacts), [contacts]);
   const qualityMeta = useMemo(() => qualityScoreLabel(quality.score), [quality.score]);
 
-  const activityFeed = useMemo(
-    () => buildDashboardActivityFeed(systemLogs, campaigns, 6),
-    [systemLogs, campaigns]
+  const recentReplies = useMemo(
+    () => buildDashboardRecentReplies(deferredConversations, contacts, systemLogs, 8),
+    [deferredConversations, contacts, systemLogs]
   );
 
   const breakerSet = useMemo(() => new Set(circuitBreakerOpenIds), [circuitBreakerOpenIds]);
@@ -251,24 +246,6 @@ export const DashboardIntelPanel: React.FC<Props> = ({
     () => computeContactTemperatures(contacts, deferredConversations),
     [contacts, deferredConversations]
   );
-
-  const hotStale7d = useMemo(() => {
-    const DAY = 86400000;
-    const now = Date.now();
-    const cut = now - 7 * DAY;
-    const rows: Contact[] = [];
-    for (const c of contacts) {
-      const t = tempMap[c.id];
-      if (!t || t.temp !== 'hot') continue;
-      if (!t.lastSentTs || t.lastSentTs >= cut) continue;
-      rows.push(c);
-    }
-    return rows.sort((a, b) => (tempMap[a.id]?.lastSentTs || 0) - (tempMap[b.id]?.lastSentTs || 0)).slice(0, 6);
-  }, [contacts, tempMap]);
-
-  const followUpsToday = useMemo(() => {
-    return contacts.filter((c) => c.followUpAt && sameLocalDay(c.followUpAt)).slice(0, 8);
-  }, [contacts]);
 
   const tempBaseCounts = useMemo(() => {
     let hot = 0;
@@ -284,6 +261,16 @@ export const DashboardIntelPanel: React.FC<Props> = ({
     }
     return { hot, warm, cold, neu, total: contacts.length };
   }, [contacts, tempMap]);
+
+  const tempCounts: Record<ContactTemperature, number> = useMemo(
+    () => ({
+      hot: tempBaseCounts.hot,
+      warm: tempBaseCounts.warm,
+      cold: tempBaseCounts.cold,
+      new: tempBaseCounts.neu
+    }),
+    [tempBaseCounts]
+  );
 
   const maxBar = Math.max(
     1,
@@ -791,103 +778,63 @@ export const DashboardIntelPanel: React.FC<Props> = ({
           <div className="p-4">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div className="flex items-center gap-2">
-                <HeartCrack className="w-4 h-4 text-rose-400" />
-                <h3 className="ui-title text-[14px]">Precisam de atenção</h3>
+                <TrendingUp className="w-4 h-4" style={{ color: '#10b981' }} />
+                <h3 className="ui-title text-[14px]">Temperatura dos contatos</h3>
               </div>
-              <div className="flex flex-wrap gap-1.5 text-[9px]">
-                <span
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold"
-                  style={{ background: 'rgba(244,63,94,0.12)', color: '#fb7185' }}
-                >
-                  <Flame className="w-3 h-3" />
-                  {hotStale7d.length} quente{hotStale7d.length === 1 ? '' : 's'} parado{hotStale7d.length === 1 ? '' : 's'}
+              {tempBaseCounts.total > 0 && (
+                <span className="text-[10px] font-semibold tabular-nums" style={{ color: 'var(--text-3)' }}>
+                  {tempBaseCounts.total.toLocaleString('pt-BR')} na base
                 </span>
-                <span
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold"
-                  style={{ background: 'rgba(245,158,11,0.12)', color: '#fbbf24' }}
-                >
-                  <CalendarClock className="w-3 h-3" />
-                  {followUpsToday.length} lembrete{followUpsToday.length === 1 ? '' : 's'} hoje
-                </span>
-              </div>
+              )}
             </div>
 
-            {tempBaseCounts.total > 0 && (
-              <p className="text-[10px] mb-3" style={{ color: 'var(--text-3)' }}>
-                Base: {tempBaseCounts.hot} quentes · {tempBaseCounts.warm} mornos · {tempBaseCounts.cold} frios
-                {tempBaseCounts.neu > 0 ? ` · ${tempBaseCounts.neu} sem histórico` : ''}
-              </p>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <p className="font-bold text-[10px] uppercase mb-2" style={{ color: 'var(--text-3)' }}>
-                  Quentes sem mensagem há 7+ dias
-                </p>
-                {hotStale7d.length ? (
-                  <ul className="space-y-2">
-                    {hotStale7d.map((c) => {
-                      const lastTs = tempMap[c.id]?.lastSentTs || 0;
-                      const days = lastTs ? Math.floor((Date.now() - lastTs) / 86400000) : 0;
-                      return (
-                        <li
-                          key={c.id}
-                          className="flex justify-between items-center gap-2 text-[12px] rounded-lg px-2 py-1.5"
-                          style={{ background: 'rgba(244,63,94,0.06)' }}
-                        >
-                          <div className="min-w-0">
-                            <span className="truncate font-medium block" style={{ color: 'var(--text-1)' }}>
-                              {c.name}
-                            </span>
-                            <span className="text-[9px]" style={{ color: 'var(--text-3)' }}>
-                              {days > 0 ? `Última mensagem há ${days} dia${days === 1 ? '' : 's'}` : 'Sem envio recente'}
-                            </span>
-                          </div>
-                          <Button variant="ghost" size="xs" type="button" onClick={() => onNavigateToChat(c.phone, c.name)}>
-                            Chat
-                          </Button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                    Nenhum contato quente parado. Quando alguém responder e depois ficar 7+ dias sem mensagem sua, aparece aqui.
-                  </p>
-                )}
-              </div>
-              <div>
-                <p className="font-bold text-[10px] uppercase mb-2" style={{ color: 'var(--text-3)' }}>
-                  Lembretes para hoje
-                </p>
-                {followUpsToday.length ? (
-                  <ul className="space-y-2">
-                    {followUpsToday.map((c) => (
-                      <li
-                        key={c.id}
-                        className="flex justify-between items-center gap-2 text-[12px] rounded-lg px-2 py-1.5"
-                        style={{ background: 'rgba(245,158,11,0.06)' }}
-                      >
-                        <span className="truncate font-medium" style={{ color: 'var(--text-1)' }}>
-                          {c.name}
+            <div className="space-y-3">
+              {(Object.keys(tempCounts) as ContactTemperature[]).map((t) => {
+                const count = tempCounts[t];
+                const pct = tempBaseCounts.total > 0 ? Math.round((count / tempBaseCounts.total) * 100) : 0;
+                const col = TEMP_VISUAL[t];
+                return (
+                  <div key={t}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-1.5" style={{ color: col.fg }}>
+                        {col.icon}
+                        <span className="text-[12px] font-semibold">{CONTACT_TEMP_LABEL[t]}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] font-bold tabular-nums" style={{ color: 'var(--text-1)' }}>
+                          {count.toLocaleString('pt-BR')}
                         </span>
-                        <Button variant="ghost" size="xs" type="button" onClick={() => onNavigateToChat(c.phone, c.name)}>
-                          Chat
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                    Nenhum retorno marcado para hoje. Defina a data de retorno no contato para lembrar de falar com ele.
-                  </p>
-                )}
-              </div>
+                        <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-3)' }}>
+                          {pct}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--surface-3)' }}>
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${pct}%`, background: col.fg }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <Button variant="ghost" size="sm" className="mt-3 w-full justify-between" onClick={onOpenContacts}>
-              Abrir contatos
-              <ChevronRight className="w-4 h-4" />
-            </Button>
+
+            <div className="mt-4 pt-3 flex flex-col sm:flex-row gap-2" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="flex-1 justify-center"
+                leftIcon={<Send className="w-3.5 h-3.5" />}
+                onClick={onOpenCampaigns}
+              >
+                Criar campanha segmentada
+              </Button>
+              <Button variant="ghost" size="sm" className="flex-1 justify-between" onClick={onOpenContacts}>
+                Ver contatos
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
         </Card>
 
@@ -961,41 +908,57 @@ export const DashboardIntelPanel: React.FC<Props> = ({
         <Card className="zm-intel-card xl:col-span-3 p-0 overflow-hidden">
           <div className="zm-activity-accent" aria-hidden />
           <div className="p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Activity className="w-4 h-4" style={{ color: '#94a3b8' }} />
-              <h3 className="ui-title text-[14px]">Atividade recente</h3>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <Reply className="w-4 h-4" style={{ color: '#a78bfa' }} />
+                <h3 className="ui-title text-[14px]">Respostas em tempo real</h3>
+              </div>
+              {recentReplies.length > 0 && (
+                <span
+                  className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-full animate-pulse"
+                  style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa' }}
+                >
+                  Ao vivo
+                </span>
+              )}
             </div>
-            {activityFeed.length ? (
-              <ul className="space-y-2.5">
-                {activityFeed.map((item) => {
-                  const col =
-                    item.tone === 'err'
-                      ? '#f43f5e'
-                      : item.tone === 'warn'
-                        ? '#f59e0b'
-                        : item.tone === 'success'
-                          ? '#10b981'
-                          : '#64748b';
-                  return (
-                    <li
-                      key={item.id}
-                      className="text-[11px] leading-snug border-l-2 pl-2"
-                      style={{ borderColor: col }}
-                    >
-                      <span className="font-semibold block" style={{ color: 'var(--text-1)' }}>
-                        {item.title}
-                      </span>
-                      <span style={{ color: 'var(--text-2)' }}>{item.sub}</span>
-                      <span className="block text-[9px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                        {formatTimeAgo(item.ts)}
-                      </span>
-                    </li>
-                  );
-                })}
+            {recentReplies.length ? (
+              <ul className="space-y-2.5 max-h-[280px] overflow-y-auto pr-0.5">
+                {recentReplies.map((item) => (
+                  <li
+                    key={item.id}
+                    className="rounded-lg px-2.5 py-2 text-[11px]"
+                    style={{ background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.12)' }}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <span className="font-semibold block truncate" style={{ color: 'var(--text-1)' }}>
+                          {item.name}
+                        </span>
+                        <p className="mt-0.5 leading-snug line-clamp-2" style={{ color: 'var(--text-2)' }}>
+                          “{item.preview}”
+                        </p>
+                        <span className="block text-[9px] mt-1" style={{ color: 'var(--text-3)' }}>
+                          {formatTimeAgo(item.ts)}
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        type="button"
+                        className="shrink-0"
+                        onClick={() => onNavigateToChat(item.phone, item.name)}
+                      >
+                        Chat
+                      </Button>
+                    </div>
+                  </li>
+                ))}
               </ul>
             ) : (
               <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                Ainda sem movimentação para mostrar. Quando você disparar campanhas ou agendar envios, os últimos eventos aparecem aqui.
+                Ninguém respondeu ainda nas conversas carregadas. Quando um contato responder no Atendimento ou em
+                campanha, aparece aqui automaticamente.
               </p>
             )}
           </div>
