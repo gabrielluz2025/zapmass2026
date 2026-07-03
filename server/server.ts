@@ -1742,8 +1742,10 @@ const registerSocketHandlers = () => {
               callback?.({ ok: false, error: errMsg });
               socket.emit('campaign-error', { error: errMsg, campaignId });
               notifyCampaignSocketError(uid, errMsg, campaignId);
+            } else {
+              // Confirma ao cliente mesmo se o evento campaign-started não chegar (bridge Redis).
+              callback?.({ ok: true });
             }
-            // ok === true: 'campaign-started' já foi emitido pelo startCampaign internamente
           } catch (error: any) {
             const messageText = error?.message || 'Falha ao iniciar campanha.';
             userLog('campaign:error', { campaignId, reason: messageText, connectionIds });

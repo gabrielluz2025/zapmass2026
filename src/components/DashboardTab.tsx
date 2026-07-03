@@ -663,9 +663,29 @@ export const DashboardTab: React.FC = () => {
   };
 
   const handleBulkBirthdaySubmit = async () => {
-    if (!bulkConnectionId || bulkSelectedList.length === 0 || !bulkTemplate.trim()) return;
+    if (!bulkTemplate.trim()) {
+      toast.error('Escreva a mensagem que será enviada.');
+      return;
+    }
+    if (bulkSelectedList.length === 0) {
+      toast.error('Selecione pelo menos um aniversariante.');
+      return;
+    }
 
-    const conn = connections.find((c) => c.id === bulkConnectionId);
+    let channelId = bulkConnectionId;
+    if (!channelId) {
+      const firstOnline = connections.find((c) => c.status === ConnectionStatus.CONNECTED);
+      if (firstOnline) {
+        channelId = firstOnline.id;
+        setBulkConnectionId(firstOnline.id);
+      }
+    }
+    if (!channelId) {
+      toast.error('Selecione um canal online para disparar.');
+      return;
+    }
+
+    const conn = connections.find((c) => c.id === channelId);
     if (!conn || conn.status !== ConnectionStatus.CONNECTED) {
       toast.error('Canal offline ou suspenso. Reconecte o chip antes de disparar.');
       return;
@@ -693,15 +713,20 @@ export const DashboardTab: React.FC = () => {
         mediaAttachment = await prepareCampaignAttachmentPayload(bulkAttachment.file);
       }
       await startCampaign(
-        bulkConnectionId,
+        channelId,
         numbers,
         bulkTemplate.trim(),
-        [bulkConnectionId],
+        [channelId],
         { id: undefined, name: `Aniversariantes (${bulkSelectedList.length})` },
         `Parabens automatico - ${new Date().toLocaleDateString('pt-BR')}`,
-        { delaySeconds: 10, recipients, ...(mediaAttachment ? { mediaAttachment } : {}) }
+        {
+          delaySeconds: 10,
+          recipients,
+          skipFrequencyCap: true,
+          ...(mediaAttachment ? { mediaAttachment } : {})
+        }
       );
-      toast.success(`Disparo de parabens iniciado para ${bulkSelectedList.length} contatos.`);
+      toast.success(`Disparo iniciado para ${bulkSelectedList.length} contato(s). Acompanhe em Campanhas.`);
       setBulkBirthdayOpen(false);
       setBulkSelectedIds(new Set());
       setBulkStep('compose');
@@ -869,6 +894,7 @@ export const DashboardTab: React.FC = () => {
   };
 
   const currentChannel = connections.find((c) => c.id === sendingConnectionId);
+  const bulkChannel = connections.find((c) => c.id === bulkConnectionId);
 
   // --- METRICAS REAIS (acumulador persistente do servidor) ---
   // funnelStats sobrevive a reinicios do servidor e a delecao de campanhas.
@@ -2100,7 +2126,7 @@ export const DashboardTab: React.FC = () => {
                 variant="primary"
                 leftIcon={<Send className="w-4 h-4" />}
                 disabled={bulkSubmitting || bulkAttachment?.preparing}
-                onClick={handleBulkBirthdaySubmit}
+                onClick={() => void handleBulkBirthdaySubmit()}
               >
                 {bulkSubmitting ? 'Disparando...' : `Confirmar e disparar para ${bulkSelectedList.length}`}
               </Button>
@@ -2244,6 +2270,40 @@ export const DashboardTab: React.FC = () => {
         </div>
         ) : (
           <div className="space-y-4">
+            {/* Canal selecionado — visível na revisão */}
+            <div
+              className="flex flex-wrap items-center gap-3 p-3 rounded-xl"
+              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+            >
+              <Smartphone className="w-4 h-4 shrink-0" style={{ color: 'var(--text-3)' }} />
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+                  Canal de envio
+                </p>
+                <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                  {bulkChannel?.name || 'Nenhum canal selecionado'}
+                  {bulkChannel?.phoneNumber ? ` · ${bulkChannel.phoneNumber}` : ''}
+                </p>
+              </div>
+              {bulkChannel?.status === ConnectionStatus.CONNECTED ? (
+                <Badge variant="success" dot>Online</Badge>
+              ) : (
+                <Badge variant="warning">Offline — reconecte</Badge>
+              )}
+              <Select
+                className="w-full sm:w-auto sm:min-w-[200px]"
+                value={bulkConnectionId}
+                onChange={(e) => setBulkConnectionId(e.target.value)}
+              >
+                <option value="">Trocar canal...</option>
+                {connections.map((c) => (
+                  <option key={c.id} value={c.id} disabled={c.status !== ConnectionStatus.CONNECTED}>
+                    {c.name} {c.status !== ConnectionStatus.CONNECTED ? '(offline)' : ''}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
             {bulkSelectedList.length === 0 ? (
               <div className="py-10 text-center text-[13px]" style={{ color: 'var(--text-3)' }}>
                 Nenhum aniversariante selecionado.
