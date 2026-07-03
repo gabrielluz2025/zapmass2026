@@ -1480,7 +1480,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
       {/* ── Cabeçalho do wizard ── */}
       <div
-        className="rounded-2xl px-5 py-4 mb-5 flex items-center justify-between gap-4"
+        className="rounded-2xl px-4 py-3 sm:px-5 sm:py-4 mb-5 flex flex-wrap items-center justify-between gap-3"
         style={{
           background: 'var(--surface-1)',
           border: '1px solid var(--border-subtle)',
@@ -1539,7 +1539,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           }}
           aria-hidden
         />
-        <div className="relative z-10 grid grid-cols-4 gap-2">
+        <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-2">
           {STEPS.map((s) => {
             const isActive = step === s.id;
             const isDone = step > s.id;
@@ -2567,7 +2567,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
                     Mínimo (mais rápido)
                   </p>
-                <div className="grid grid-cols-6 gap-1.5">
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
                     {[10, 20, 30, 45, 60, 90].map((s) => (
                     <button
                       key={s}
@@ -2594,7 +2594,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
                     Máximo (mais humano)
                   </p>
-                  <div className="grid grid-cols-6 gap-1.5">
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
                     {[30, 60, 90, 120, 180, 240].map((s) => {
                       const invalid = s <= delaySeconds;
                       return (
@@ -2738,7 +2738,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     <div className="mt-4 pt-4 border-t border-white/5 space-y-4">
 
                       {/* ── Linha 1: Limite por canal e dias resultantes ── */}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
                             Mensagens por canal / dia

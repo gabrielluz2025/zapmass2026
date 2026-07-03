@@ -475,8 +475,9 @@ export const WarmupTab: React.FC = () => {
           {/* Badge servidor sempre ativo */}
           <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold"
             style={{ background: 'rgba(99,102,241,0.10)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.2)' }}>
-            <Server className="w-3 h-3" />
-            <span>Roda no servidor — persiste sem navegador</span>
+            <Server className="w-3 h-3 shrink-0" />
+            <span className="hidden sm:inline">Roda no servidor — persiste sem navegador</span>
+            <span className="sm:hidden">Servidor</span>
           </div>
 
           {enabledCount < 2 && (

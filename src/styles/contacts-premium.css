@@ -308,6 +308,41 @@
   .crm-kpi-tile:hover, .crm-btn-primary:hover { transform: none; }
 }
 
+/* ═══ RESPONSIVIDADE — Tabela de Contatos ═══════════════════════
+   Mobile  (<640px):  checkbox + nome + ações (3 colunas)
+   Tablet  (640px+):  + telefone + temperatura (5 colunas)
+   Desktop (1024px+): todas as 7 colunas
+   ═══════════════════════════════════════════════════════════════ */
+.crm-contacts-grid {
+  grid-template-columns: 36px minmax(0,1.8fr) 72px;
+}
+@media (min-width: 640px) {
+  .crm-contacts-grid {
+    grid-template-columns: 36px minmax(0,1.8fr) minmax(0,1fr) 96px 72px;
+  }
+}
+@media (min-width: 1024px) {
+  .crm-contacts-grid {
+    grid-template-columns: 36px minmax(0,1.8fr) minmax(0,1fr) minmax(0,0.9fr) minmax(0,120px) 100px 84px;
+  }
+}
+
+/* ═══ RESPONSIVIDADE — Hero de contatos ═══════════════════════ */
+@media (max-width: 639px) {
+  .ch-hero { padding: 0.75rem; }
+  .ch-search { min-width: 100%; }
+  .ch-hero__kpis { gap: 0.5rem; }
+  .ch-kpi-chip { padding: 0.5rem 0.6rem; min-width: 0; }
+  .ch-kpi-chip__value { font-size: 18px; }
+  .ch-btn { padding: 0 0.6rem; font-size: 11px; }
+}
+
+/* ═══ RESPONSIVIDADE — Filtros ════════════════════════════════ */
+@media (max-width: 639px) {
+  .ch-filter-strip { flex-wrap: wrap; gap: 0.3rem; }
+  .ch-fchip { font-size: 11px; padding: 0.25rem 0.6rem; }
+}
+
 /* ═══════════════════════════════════════════════════════════
    CONTACT HUB — Novo layout fullwidth (2026)
    ═══════════════════════════════════════════════════════════ */

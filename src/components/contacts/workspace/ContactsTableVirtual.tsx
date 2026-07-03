@@ -110,10 +110,9 @@ export const ContactsTableVirtual: React.FC<Props> = ({
     <div className="crm-table-shell flex flex-col overflow-hidden">
       {/* Header */}
       <div
-        className="shrink-0"
+        className="crm-contacts-grid shrink-0"
         style={{
           display: 'grid',
-          gridTemplateColumns: '36px minmax(0,1.8fr) minmax(0,1fr) minmax(0,0.9fr) minmax(0,120px) 100px 84px',
           gap: '0.5rem',
           alignItems: 'center',
           padding: '0 1rem',
@@ -136,10 +135,10 @@ export const ContactsTableVirtual: React.FC<Props> = ({
           {allVisible ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
         </button>
         <span>Contato</span>
-        <span>Telefone</span>
-        <span className="hidden md:inline">Cidade</span>
+        <span className="hidden sm:inline">Telefone</span>
+        <span className="hidden lg:inline">Cidade</span>
         <span className="hidden lg:inline">Disparos</span>
-        <span className="hidden md:inline">Temperatura</span>
+        <span className="hidden sm:inline">Temperatura</span>
         <span className="text-right">Ações</span>
       </div>
 
@@ -254,7 +253,7 @@ const ContactRow: React.FC<RowProps> = React.memo(({
       onClick={() => onRowClick(contact)}
       onDoubleClick={(e) => { e.preventDefault(); onOpenChat(contact); }}
       title="Duplo clique — abrir conversa"
-      className="crm-contact-row group"
+      className="crm-contact-row crm-contacts-grid group"
       style={{
         position: 'absolute',
         top: 0,
@@ -263,7 +262,6 @@ const ContactRow: React.FC<RowProps> = React.memo(({
         height: ROW_HEIGHT,
         transform: `translateY(${top}px)`,
         display: 'grid',
-        gridTemplateColumns: '36px minmax(0,1.8fr) minmax(0,1fr) minmax(0,0.9fr) minmax(0,120px) 100px 84px',
         gap: '0.5rem',
         alignItems: 'center',
         padding: '0 1rem',
@@ -342,25 +340,25 @@ const ContactRow: React.FC<RowProps> = React.memo(({
         </div>
       </div>
 
-      {/* Telefone */}
-      <div className="flex items-center gap-1.5 min-w-0" style={{ fontSize: 12.5, color: 'var(--crm-muted)' }}>
+      {/* Telefone — oculto em mobile (<640) */}
+      <div className="hidden sm:flex items-center gap-1.5 min-w-0" style={{ fontSize: 12.5, color: 'var(--crm-muted)' }}>
         <Phone className="w-3 h-3 shrink-0" style={{ color: 'var(--crm-dim)', opacity: 0.6 }} />
         <span className="truncate font-mono">{formatPhone(contact.phone || '')}</span>
       </div>
 
-      {/* Cidade */}
-      <div className="hidden md:flex items-center gap-1.5 min-w-0" style={{ fontSize: 12, color: 'var(--crm-muted)' }}>
+      {/* Cidade — só desktop */}
+      <div className="hidden lg:flex items-center gap-1.5 min-w-0" style={{ fontSize: 12, color: 'var(--crm-muted)' }}>
         <MapPin className="w-3 h-3 shrink-0" style={{ color: 'var(--crm-dim)', opacity: 0.6 }} />
         <span className="truncate">{cityLabel}</span>
       </div>
 
-      {/* Disparos */}
+      {/* Disparos — só desktop */}
       <div className="hidden lg:flex flex-col justify-center min-w-0">
         <DispatchBadge contact={contact} />
       </div>
 
-      {/* Temperatura — badge com fundo sólido */}
-      <div className="hidden md:flex items-center">
+      {/* Temperatura — tablet+ */}
+      <div className="hidden sm:flex items-center">
         <span
           style={{
             display: 'inline-flex',
