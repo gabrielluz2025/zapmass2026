@@ -636,7 +636,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   }>>({});
 
   /** Falhas ERROR por número na campanha: digest em vez de toast por entrada. */
-  const campaignRecipientErrorBurstRef = useRef<CampaignErrorBurstState>({ count: 0, timer: null });
+  const campaignRecipientErrorBurstRef = useRef<CampaignErrorBurstState>({
+    pending: 0,
+    timer: null,
+    lastToastAt: 0,
+    announcedTotal: 0
+  });
   /** Evita Rajada de toast em erros repetidos socket / envio único (throttle tempo). */
   const socketOperationErrorToastAtRef = useRef<number>(0);
   const sendMessageErrorToastAtRef = useRef<number>(0);
@@ -2263,7 +2268,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         const fail = Number(failCount) || 0;
         if (fail > 0) {
           toast.success(
-            `Campanha terminada: ${ok} com sucesso · ${fail} falharam. Abra relatório ou «Registos do sistema» por número — evitamos notificar número a número durante o disparo.`,
+            `Campanha terminada: ${ok} com sucesso · ${fail} falharam. Abra «Log do disparo» ou Relatório de envios na campanha para ver cada falha.`,
             { duration: 9500, icon: '✅' }
           );
         } else {
@@ -2353,7 +2358,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           campaigns.find((c) => c.id === campaignId)?.name || 'Campanha';
         if (fail > 0) {
           toast.success(
-            `Campanha terminada: ${ok} com sucesso · ${fail} falharam. Abra relatório ou «Registos do sistema» por número.`,
+            `Campanha terminada: ${ok} com sucesso · ${fail} falharam. Abra «Log do disparo» ou Relatório de envios na campanha para ver cada falha.`,
             { duration: 9500, icon: '✅' }
           );
         } else {
@@ -2523,7 +2528,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         const looksLikeRecipientNumber = digitsOnly.length >= 8;
 
         if (looksLikeRecipientNumber) {
-          scheduleCampaignRecipientErrorDigest(campaignRecipientErrorBurstRef);
+          const errRaw = payload.error ?? log.message;
+          scheduleCampaignRecipientErrorDigest(campaignRecipientErrorBurstRef, 2400, {
+            phone: typeof toRaw === 'string' ? toRaw : undefined,
+            reason: typeof errRaw === 'string' ? errRaw : undefined
+          });
         } else {
           const clip = typeof log.message === 'string' ? log.message.slice(0, 220) : 'Erro na campanha.';
           const cid = String(payload.campaignId || '').slice(0, 64);
