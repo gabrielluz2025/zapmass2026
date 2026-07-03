@@ -75,6 +75,8 @@ type MessageStageOptionDraft = {
   tokensText: string;
   reply: string;
   marketingEffect: 'none' | 'opt_in' | 'opt_out';
+  priority?: number;
+  matchMode?: 'word' | 'phrase' | 'contains' | 'numeric_exact';
 };
 
 type MessageStageDraft = {
@@ -87,6 +89,9 @@ type MessageStageDraft = {
   marketingEffect: 'none' | 'opt_in' | 'opt_out';
   optionsMode?: 'linear' | 'conditional';
   options?: MessageStageOptionDraft[];
+  matchMode?: 'word' | 'phrase' | 'contains' | 'numeric_exact';
+  timeoutHours?: number;
+  timeoutMessage?: string;
 };
 
 const newMessageStageOption = (): MessageStageOptionDraft => ({
@@ -198,6 +203,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [messageStages, setMessageStages] = useState<MessageStageDraft[]>(() => [newMessageStage()]);
   const [activeStageIdx, setActiveStageIdx] = useState(0);
   const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('single');
+  const [replyFlowGlobalOptOutEnabled, setReplyFlowGlobalOptOutEnabled] = useState(true);
+  const [replyFlowGlobalOptOutKeywordsText, setReplyFlowGlobalOptOutKeywordsText] = useState('');
   const [flowModeChosen, setFlowModeChosen] = useState(true);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [selectedListId, setSelectedListId] = useState('');
@@ -1309,6 +1316,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     const replyFlow: CampaignReplyFlow | undefined = useReplyFlow
         ? {
             enabled: true,
+            globalOptOutEnabled: replyFlowGlobalOptOutEnabled,
+            globalOptOutKeywords: parseValidTokensText(replyFlowGlobalOptOutKeywordsText),
           steps: messageStages.map((s) => {
             const hasMenuOptions = Array.isArray(s.options) && s.options.length > 0;
             return {
@@ -1317,12 +1326,17 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               validTokens: parseValidTokensText(s.validTokensText),
               invalidReplyBody: s.invalidReplyBody.trim(),
             marketingEffect: s.marketingEffect ?? 'none',
+            matchMode: s.matchMode,
+            timeoutHours: s.timeoutHours && s.timeoutHours > 0 ? s.timeoutHours : undefined,
+            timeoutMessage: s.timeoutMessage?.trim() || undefined,
             ...(hasMenuOptions
               ? {
                   options: s.options!.map((opt) => ({
                     tokens: parseValidTokensText(opt.tokensText),
                     reply: opt.reply.trim(),
-                    marketingEffect: opt.marketingEffect ?? 'none'
+                    marketingEffect: opt.marketingEffect ?? 'none',
+                    priority: opt.priority ?? 0,
+                    matchMode: opt.matchMode,
                   }))
                 }
               : {})
@@ -2124,6 +2138,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       onInsertInvalidVariable={insertInvalidReplyVariable}
                       campaignBrief={name.trim() || 'Campanha WhatsApp'}
                       previewDisplayName={previewDisplayName}
+                      globalOptOutEnabled={replyFlowGlobalOptOutEnabled}
+                      globalOptOutKeywordsText={replyFlowGlobalOptOutKeywordsText}
+                      onGlobalOptOutChange={(patch) => {
+                        if (patch.enabled !== undefined) setReplyFlowGlobalOptOutEnabled(patch.enabled);
+                        if (patch.keywordsText !== undefined) setReplyFlowGlobalOptOutKeywordsText(patch.keywordsText);
+                      }}
                           />
                         )}
                       </div>

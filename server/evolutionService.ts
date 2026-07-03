@@ -23,6 +23,7 @@ import {
     normalizePhoneKey,
     pickWeightedChannel,
     sanitizeReplyFlowSteps,
+    sanitizeReplyFlowMeta,
     type CampaignRecipient,
     type ReplyFlowSession,
 } from './replyFlowEngine.js';
@@ -4372,7 +4373,7 @@ export async function redispatchCampaign(
     const useReplyFlow = sanitizedReplySteps.length >= 1;
     if (useReplyFlow) {
         ensureReplyFlowEngine();
-        replyFlowEngine.registerDef(campaignId, sanitizedReplySteps);
+        replyFlowEngine.registerDef(campaignId, sanitizedReplySteps, sanitizeReplyFlowMeta(replyFlow));
     }
 
     const templates = (
@@ -4585,7 +4586,7 @@ export async function startCampaign(
     }
 
     if (useReplyFlow) {
-        replyFlowEngine.registerDef(cid, sanitizedReplySteps);
+        replyFlowEngine.registerDef(cid, sanitizedReplySteps, sanitizeReplyFlowMeta(replyFlow));
     }
 
     const activeConnectionIds = await filterActiveConnections(connectionIds);

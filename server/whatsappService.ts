@@ -29,8 +29,14 @@ import { campaignRotationIndexFromPhone, resolveCampaignSpintax } from '../share
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import {
-    cleanReplyTriggerToken,
-    matchReplyTriggerToken
+    detectGlobalOptOut,
+    findBestMatchingOption,
+    replyMatchesGate,
+    sanitizeReplyFlowSteps,
+    sanitizeReplyFlowMeta,
+    type ReplyFlowStepOption,
+    type ReplyFlowDefMeta,
+    type ReplyFlowStepDef,
 } from './replyFlowEngine.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
 import {
@@ -4623,22 +4629,6 @@ export const applyMessageVars = (
     return resolveCampaignSpintax(out, rot);
 };
 
-type ReplyFlowStepOption = {
-    tokens: string[];
-    reply: string;
-    marketingEffect?: 'none' | 'opt_in' | 'opt_out';
-};
-
-type ReplyFlowStepDef = {
-    body: string;
-    acceptAnyReply: boolean;
-    validTokens: string[];
-    invalidReplyBody: string;
-    /** CRM: opt_in / opt_out quando resposta valida nesta etapa */
-    marketingEffect?: 'none' | 'opt_in' | 'opt_out';
-    options?: ReplyFlowStepOption[];
-};
-
 type ReplyFlowSession = {
     campaignId: string;
     ownerUid?: string;
@@ -4654,7 +4644,7 @@ type ReplyFlowSession = {
     registeredConvKey?: string;
 };
 
-const replyFlowDefs = new Map<string, { steps: ReplyFlowStepDef[] }>();
+const replyFlowDefs = new Map<string, { steps: ReplyFlowStepDef[]; meta: ReplyFlowDefMeta }>();
 const replyFlowSessions = new Map<string, ReplyFlowSession>();
 /** conversationId (conn:jidSerialized) → chave canonica em replyFlowSessions (conn:digitosCampanha). */
 const replyFlowConvToCanonicalKey = new Map<string, string>();
@@ -4703,62 +4693,6 @@ const emitReplyFlowMarketingConsent = (
     });
 };
 
-const sanitizeReplyFlowSteps = (
-    raw: Array<{
-        body?: string;
-        acceptAnyReply?: boolean;
-        validTokens?: string[];
-        invalidReplyBody?: string;
-        marketingEffect?: string;
-        options?: Array<{
-            tokens?: string[];
-            reply?: string;
-            marketingEffect?: string;
-        }>;
-    }>
-): ReplyFlowStepDef[] => {
-    return raw
-        .map((s) => {
-            const me = String(s.marketingEffect || 'none').toLowerCase();
-            const marketingEffect: 'none' | 'opt_in' | 'opt_out' =
-                me === 'opt_in' || me === 'opt_out' ? me : 'none';
-
-            const sanitizedOptions = Array.isArray(s.options)
-                ? s.options
-                      .map((opt) => {
-                          const optMe = String(opt.marketingEffect || 'none').toLowerCase();
-                          const optMarketingEffect: 'none' | 'opt_in' | 'opt_out' =
-                              optMe === 'opt_in' || optMe === 'opt_out' ? optMe : 'none';
-                          return {
-                              tokens: Array.isArray(opt.tokens)
-                                  ? opt.tokens.map((t) => String(t || '').toLowerCase().trim()).filter(Boolean)
-                                  : [],
-                              reply: String(opt.reply || '').trim(),
-                              marketingEffect: optMarketingEffect
-                          };
-                      })
-                      .filter((opt) => opt.tokens.length > 0 && opt.reply.length > 0)
-                : undefined;
-
-            return {
-                body: String(s.body || '').trim(),
-                acceptAnyReply: Boolean(s.acceptAnyReply),
-                validTokens: Array.isArray(s.validTokens)
-                    ? s.validTokens.map((t) => String(t || '').toLowerCase().trim()).filter(Boolean)
-                    : [],
-                invalidReplyBody: String(s.invalidReplyBody || '').trim(),
-                marketingEffect,
-                options: sanitizedOptions
-            };
-        })
-        .filter((s) => s.body.length > 0);
-};
-
-/**
- * Extrai texto da resposta do contato para o reply flow e indica se houve "resposta"
- * sem texto (áudio sem transcrição, mídia sem legenda, botão, etc.).
- * Antes só se usava msg.body — ficava vazio e a etapa seguinte nunca era enfileirada.
- */
 const extractReplyFlowBodyFromIncoming = (msg: any): { bodyText: string; nonTextReply: boolean } => {
     const rawBody = typeof msg?.body === 'string' ? msg.body : '';
     const bodyTrim = rawBody.trim();
@@ -4780,26 +4714,6 @@ const extractReplyFlowBodyFromIncoming = (msg: any): { bodyText: string; nonText
     return { bodyText: '', nonTextReply };
 };
 
-const replyMatchesGate = (
-    step: ReplyFlowStepDef,
-    bodyText: string,
-    opts?: { nonTextReply?: boolean }
-): boolean => {
-    if (step.acceptAnyReply) return true;
-    const t = String(bodyText || '').trim();
-    const nonText = Boolean(opts?.nonTextReply);
-    if (!t && !nonText) return false;
-    const tokens = step.validTokens || [];
-    if (tokens.length === 0) {
-        return nonText || !!t;
-    }
-    if (!t && nonText) {
-        return false;
-    }
-
-    return tokens.some((tok) => matchReplyTriggerToken(cleanReplyTriggerToken(tok), t));
-};
-
 const enqueueReplyFlowOutbound = async (item: QueueItem) => {
     enqueueQueueItem(item);
     const conn = connectionsInfo.find((c) => c.id === item.connectionId);
@@ -4815,7 +4729,9 @@ const enqueueReplyFlowOutbound = async (item: QueueItem) => {
     }
 };
 
-const loadReplyFlowDefFromFirestore = async (campaignId: string): Promise<{ steps: ReplyFlowStepDef[] } | null> => {
+const loadReplyFlowDefFromFirestore = async (
+    campaignId: string
+): Promise<{ steps: ReplyFlowStepDef[]; meta: ReplyFlowDefMeta } | null> => {
     try {
         const admin = getFirebaseAdmin();
         if (!admin) return null;
@@ -4825,9 +4741,10 @@ const loadReplyFlowDefFromFirestore = async (campaignId: string): Promise<{ step
             const data = snap.docs[0].data();
             if (data?.replyFlow?.enabled && Array.isArray(data.replyFlow.steps)) {
                 const sanitized = sanitizeReplyFlowSteps(data.replyFlow.steps);
+                const meta = sanitizeReplyFlowMeta(data.replyFlow);
                 if (sanitized.length > 0) {
-                    replyFlowDefs.set(campaignId, { steps: sanitized });
-                    return { steps: sanitized };
+                    replyFlowDefs.set(campaignId, { steps: sanitized, meta });
+                    return { steps: sanitized, meta };
                 }
             }
         }
@@ -4944,6 +4861,24 @@ const handleReplyFlowIncoming = async (
     }
     if (pausedCampaigns.has(session.campaignId)) return;
 
+    const tBody = String(bodyText || '').trim();
+    const meta = def.meta || {};
+    if (meta.globalOptOutEnabled !== false && tBody) {
+        const optOut = detectGlobalOptOut(tBody, meta.globalOptOutKeywords);
+        if (optOut.matched) {
+            emitCampaignLog('INFO', 'Opt-out global reconhecido no fluxo por resposta', {
+                campaignId: session.campaignId,
+                connectionId,
+                phoneDigits,
+                matchedKeyword: optOut.keyword,
+                replyPreview: tBody.slice(0, 80),
+            });
+            emitReplyFlowMarketingConsent(session.ownerUid, session.campaignId, 'opt_out', phoneDigits, bodyText);
+            disposeReplyFlowSession(key, session);
+            return;
+        }
+    }
+
     const steps = def.steps;
     const awaiting = session.awaitingAfterStep;
 
@@ -4965,20 +4900,34 @@ const handleReplyFlowIncoming = async (
 
     // Se o passo atual tiver opções condicionais (Múltipla escolha com respostas específicas)
     if (gateStep.options && gateStep.options.length > 0) {
-        const t = String(bodyText || '').trim();
+        const t = tBody;
         const nonText = Boolean(nonTextReply);
         
-        let matchedOption: any = null;
+        let matchedOption: ReplyFlowStepOption | null = null;
+        let matchMeta: { matchedToken?: string; matchMode?: string; optionIndex?: number } = {};
         if (t || nonText) {
-            matchedOption = gateStep.options.find((opt) => {
-                const tokens = opt.tokens || [];
-                return tokens.some((tok) =>
-                    matchReplyTriggerToken(cleanReplyTriggerToken(tok), t)
-                );
-            });
+            const best = findBestMatchingOption(gateStep.options, t, gateStep.matchMode || 'word');
+            if (best) {
+                matchedOption = gateStep.options[best.optionIndex] || null;
+                matchMeta = {
+                    matchedToken: best.matchedToken,
+                    matchMode: best.matchMode,
+                    optionIndex: best.optionIndex,
+                };
+            }
         }
 
         if (matchedOption) {
+            emitCampaignLog('INFO', 'Gatilho reconhecido no fluxo por resposta', {
+                campaignId: session.campaignId,
+                connectionId,
+                phoneDigits,
+                currentStep: awaiting + 1,
+                matchedToken: matchMeta.matchedToken,
+                matchMode: matchMeta.matchMode,
+                matchedOptionIndex: matchMeta.optionIndex,
+                replyPreview: preview,
+            });
             // Se der match na opção, envia a resposta personalizada e encerra a sessão
             const replyBody = applyMessageVars(matchedOption.reply, phoneDigits, session.vars);
             void enqueueReplyFlowOutbound({
@@ -5166,7 +5115,10 @@ export const startCampaign = async (
     if (!useReplyFlow && templates.length === 0) return false;
 
     if (useReplyFlow && campaignId) {
-        replyFlowDefs.set(campaignId, { steps: sanitizedReplySteps });
+        replyFlowDefs.set(campaignId, {
+            steps: sanitizedReplySteps,
+            meta: sanitizeReplyFlowMeta(replyFlow),
+        });
     }
 
     const stageCount = useReplyFlow ? sanitizedReplySteps.length : templates.length;

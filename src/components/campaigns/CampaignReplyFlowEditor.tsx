@@ -15,13 +15,16 @@ import { CampaignMessageQuickStarters } from './CampaignMessageQuickStarters';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import type { CampaignAttachmentState } from './CampaignAttachmentBlock';
 import { Button, Textarea } from '../ui';
-import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
+import type { ReplyMatchMode } from '../../../shared/replyFlowMatch';
+import { DEFAULT_GLOBAL_OPT_OUT_KEYWORDS, simulateReplyFlowMatch } from '../../../shared/replyFlowMatch';
 
 export type ReplyStageOption = {
   id: string;
   tokensText: string;
   reply: string;
   marketingEffect: 'none' | 'opt_in' | 'opt_out';
+  priority?: number;
+  matchMode?: ReplyMatchMode;
 };
 
 export type ReplyMessageStage = {
@@ -33,6 +36,9 @@ export type ReplyMessageStage = {
   marketingEffect: 'none' | 'opt_in' | 'opt_out';
   optionsMode?: 'linear' | 'conditional';
   options?: ReplyStageOption[];
+  matchMode?: ReplyMatchMode;
+  timeoutHours?: number;
+  timeoutMessage?: string;
 };
 
 type Props = {
@@ -54,7 +60,17 @@ type Props = {
   onInsertInvalidVariable: (token: string) => void;
   campaignBrief?: string;
   previewDisplayName?: string;
+  globalOptOutEnabled?: boolean;
+  globalOptOutKeywordsText?: string;
+  onGlobalOptOutChange?: (patch: { enabled?: boolean; keywordsText?: string }) => void;
 };
+
+const MATCH_MODE_OPTIONS: Array<{ value: ReplyMatchMode; label: string }> = [
+  { value: 'word', label: 'Palavra (padrão)' },
+  { value: 'phrase', label: 'Frase exata' },
+  { value: 'contains', label: 'Contém' },
+  { value: 'numeric_exact', label: 'Número exato' },
+];
 
 const MENU_QUICK_TEMPLATES: Array<{ label: string; options: Array<{ tokens: string; reply: string }> }> = [
   {
@@ -93,7 +109,11 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
   onInsertInvalidVariable,
   campaignBrief = '',
   previewDisplayName = 'Maria',
+  globalOptOutEnabled = true,
+  globalOptOutKeywordsText = '',
+  onGlobalOptOutChange,
 }) => {
+  const [simulatorInput, setSimulatorInput] = useState('');
   const [, setInvalidOpen] = useState(false); // kept for compat; menu mode always shows the field
   const first = stages[0];
   const second = stages[1];
@@ -175,6 +195,25 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
 
   const openingPreview = applyCampaignMessagePreviewVars(first?.body || '', { nome: previewDisplayName });
   const followUpPreview = applyCampaignMessagePreviewVars(second?.body || '', { nome: previewDisplayName });
+
+  const simulatorResult = useMemo(() => {
+    if (!simulatorInput.trim()) return null;
+    return simulateReplyFlowMatch({
+      bodyText: simulatorInput,
+      acceptAnyReply: isAnyReply,
+      validTokens: (first?.validTokensText || '').split(/[,;\n\r]+/).map((t) => t.trim()).filter(Boolean),
+      matchMode: first?.matchMode,
+      options: isConditional
+        ? menuOptions.map((o) => ({
+            tokens: (o.tokensText || '').split(/[,;\n\r]+/).map((t) => t.trim()).filter(Boolean),
+            reply: o.reply,
+            priority: o.priority ?? 0,
+            matchMode: o.matchMode,
+          }))
+        : undefined,
+      invalidReplyBody: first?.invalidReplyBody,
+    });
+  }, [simulatorInput, isAnyReply, first, isConditional, menuOptions]);
 
   return (
     <div className="cw-reply-flow cw-reply-flow--simple">
@@ -348,7 +387,7 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                           Rotas do menu
                         </p>
                         <p className="text-[10.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
-                          O contato digita o gatilho (ex.: 1, excluir) — vale sozinho ou dentro da frase (“OI 1”, “quero excluir”).
+                          Sinônimos separados por vírgula (ex.: 1, sim, oi). Modo e prioridade definem desempate.
                         </p>
                       </div>
                     </div>
@@ -385,13 +424,36 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                           <div className="cw-reply-menu-item__row">
                             <div className="flex flex-col gap-2.5 shrink-0 w-[170px]">
                               <label className="cw-reply-menu-field">
-                                <span className="cw-reply-menu-field__label">Gatilhos (vírgula)</span>
+                                <span className="cw-reply-menu-field__label">Gatilhos / sinônimos</span>
                                 <input
                                   type="text"
                                   className="cw-reply-menu-field__input cw-reply-menu-field__input--trigger"
                                   placeholder={`Ex.: ${oIdx + 1}, sim, oi`}
                                   value={opt.tokensText}
                                   onChange={(e) => updateOption(opt.id, { tokensText: e.target.value })}
+                                />
+                              </label>
+                              <label className="cw-reply-menu-field">
+                                <span className="cw-reply-menu-field__label">Modo de match</span>
+                                <select
+                                  className="cw-reply-menu-field__input py-1 px-2 text-xs"
+                                  value={opt.matchMode || 'word'}
+                                  onChange={(e) => updateOption(opt.id, { matchMode: e.target.value as ReplyMatchMode })}
+                                >
+                                  {MATCH_MODE_OPTIONS.map((m) => (
+                                    <option key={m.value} value={m.value}>{m.label}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="cw-reply-menu-field">
+                                <span className="cw-reply-menu-field__label">Prioridade</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={999}
+                                  className="cw-reply-menu-field__input"
+                                  value={opt.priority ?? 0}
+                                  onChange={(e) => updateOption(opt.id, { priority: Number(e.target.value) || 0 })}
                                 />
                               </label>
                               <label className="cw-reply-menu-field">
@@ -488,6 +550,72 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                         style={{ minHeight: '72px', borderColor: !first?.invalidReplyBody?.trim() ? 'var(--accent-warn, #f59e0b)' : undefined }}
                       />
                     </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3 mt-4">
+                    <p className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>Testar resposta (simulador)</p>
+                    <input
+                      type="text"
+                      className="cw-reply-menu-field__input w-full"
+                      placeholder='Ex.: OI 1, quero excluir, "um"'
+                      value={simulatorInput}
+                      onChange={(e) => setSimulatorInput(e.target.value)}
+                    />
+                    {simulatorResult ? (
+                      <p className="text-[11px] leading-snug" style={{ color: simulatorResult.kind === 'invalid' || simulatorResult.kind === 'empty' ? 'var(--accent-warn, #f59e0b)' : 'var(--brand-600)' }}>
+                        {simulatorResult.kind === 'option' && `✅ Rota ${(simulatorResult.optionIndex ?? 0) + 1} — gatilho "${simulatorResult.matchedToken}" (${simulatorResult.matchMode || 'word'})`}
+                        {simulatorResult.kind === 'any' && '✅ Qualquer resposta → follow-up'}
+                        {simulatorResult.kind === 'gate' && '✅ Gate linear reconhecido'}
+                        {simulatorResult.kind === 'invalid' && `⚠️ Fallback: ${simulatorResult.message}`}
+                        {simulatorResult.kind === 'empty' && simulatorResult.message}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-xl border border-rose-200/60 dark:border-rose-900/40 bg-rose-50/30 dark:bg-rose-950/10 p-4 space-y-3 mt-4">
+                    <label className="flex items-center gap-2 text-[12px] font-bold cursor-pointer" style={{ color: 'var(--text-1)' }}>
+                      <input
+                        type="checkbox"
+                        checked={globalOptOutEnabled !== false}
+                        onChange={(e) => onGlobalOptOutChange?.({ enabled: e.target.checked })}
+                      />
+                      Opt-out global (sair, excluir, parar…)
+                    </label>
+                    <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                      Padrão: {DEFAULT_GLOBAL_OPT_OUT_KEYWORDS.slice(0, 6).join(', ')}… Marca lista negra antes do menu.
+                    </p>
+                    <input
+                      type="text"
+                      className="cw-reply-menu-field__input w-full"
+                      placeholder="Palavras extras (vírgula): cancelar promoções"
+                      value={globalOptOutKeywordsText || ''}
+                      onChange={(e) => onGlobalOptOutChange?.({ keywordsText: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3 mt-4">
+                    <p className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>Timeout sem resposta</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="cw-reply-menu-field">
+                        <span className="cw-reply-menu-field__label">Horas sem resposta (0 = off)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={168}
+                          className="cw-reply-menu-field__input"
+                          value={first?.timeoutHours ?? 0}
+                          onChange={(e) => patchFirst({ timeoutHours: Number(e.target.value) || 0 })}
+                        />
+                      </label>
+                    </div>
+                    {(first?.timeoutHours ?? 0) > 0 ? (
+                      <Textarea
+                        placeholder="Mensagem enviada se o contato não responder no prazo…"
+                        value={first?.timeoutMessage || ''}
+                        onChange={(e) => patchFirst({ timeoutMessage: e.target.value })}
+                        style={{ minHeight: '64px' }}
+                      />
+                    ) : null}
                   </div>
                 </div>
               )}

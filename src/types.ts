@@ -160,11 +160,20 @@ export interface CampaignReplyFlowStep {
    * Nao enviado = sem efeito (equivalente a `none`).
    */
   marketingEffect?: 'none' | 'opt_in' | 'opt_out';
+  /** Modo de reconhecimento dos gatilhos (padrão: word). */
+  matchMode?: 'word' | 'phrase' | 'contains' | 'numeric_exact';
+  /** Horas sem resposta antes de enviar timeoutMessage (opcional). */
+  timeoutHours?: number;
+  /** Mensagem enviada após timeoutHours sem resposta válida. */
+  timeoutMessage?: string;
   /** Rotas condicionais: gatilho → mensagem de resposta (fluxo por palavra/número). */
   options?: Array<{
     tokens: string[];
     reply: string;
     marketingEffect?: 'none' | 'opt_in' | 'opt_out';
+    /** Maior = vence quando dois gatilhos batem na mesma resposta. */
+    priority?: number;
+    matchMode?: 'word' | 'phrase' | 'contains' | 'numeric_exact';
   }>;
 }
 
@@ -172,6 +181,10 @@ export interface CampaignReplyFlowStep {
 export interface CampaignReplyFlow {
   enabled: boolean;
   steps: CampaignReplyFlowStep[];
+  /** Reconhece sair/excluir/stop etc. antes do menu (padrão: ligado). */
+  globalOptOutEnabled?: boolean;
+  /** Palavras extras além do padrão do sistema. */
+  globalOptOutKeywords?: string[];
 }
 
 export interface Campaign {

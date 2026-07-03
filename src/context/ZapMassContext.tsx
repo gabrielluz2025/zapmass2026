@@ -52,6 +52,7 @@ import {
   fetchContacts,
   fetchContactsCount
 } from '../services/contactsApi';
+import { normPhoneKey, normalizeBRPhone } from '../utils/brPhoneNormalize';
 import { applyAddressNormalizationToContact } from '../utils/contactAddressNormalize';
 import {
   apiCreateCampaign,
@@ -280,6 +281,18 @@ function appendContactsPage(prev: Contact[], batch: Contact[]): Contact[] {
   return prev.concat(batch);
 }
 
+function upsertContactInSortedList(prev: Contact[], contact: Contact): Contact[] {
+  const phoneKey = normPhoneKey(contact.phone);
+  const without = prev.filter((c) => {
+    if (c.id === contact.id) return false;
+    if (phoneKey && normPhoneKey(c.phone) === phoneKey) return false;
+    return true;
+  });
+  return [...without, contact].sort((a, b) =>
+    (a.name || '').localeCompare(b.name || '', 'pt-BR')
+  );
+}
+
 const ZapMassUiSnapshotContext = createContext<ZapMassUiSnapshot | null>(null);
 
 const ZapMassConnectionsSliceContext = createContext<{ connections: WhatsAppConnection[] } | null>(
@@ -425,6 +438,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const contactsBootstrapRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contactsVpsOffsetRef = useRef(0);
   const loadAllContactsInFlightRef = useRef(false);
+  const contactsReloadPendingRef = useRef(false);
   const contactsLastCachedLenRef = useRef(0);
   const contactsPreloadStartedRef = useRef(false);
   const contactsPreloadToastDoneRef = useRef(false);
@@ -885,7 +899,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     startOffset: number,
     opts: { reset?: boolean } = {}
   ): Promise<void> => {
-    if (loadAllContactsInFlightRef.current) return;
+    if (loadAllContactsInFlightRef.current) {
+      if (opts.reset) contactsReloadPendingRef.current = true;
+      return;
+    }
     loadAllContactsInFlightRef.current = true;
     if (opts.reset) {
       contactsVpsOffsetRef.current = 0;
@@ -951,6 +968,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     } finally {
       if (currentUidRef.current === requestUid) setContactsLoadingMore(false);
       loadAllContactsInFlightRef.current = false;
+      if (contactsReloadPendingRef.current && currentUidRef.current === requestUid) {
+        contactsReloadPendingRef.current = false;
+        queueMicrotask(() => {
+          const uid = currentUidRef.current;
+          if (uid) void syncContactPage(uid, 0, { reset: true });
+        });
+      }
     }
   };
 
@@ -2959,9 +2983,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addContact = async (contact: Contact, options?: { silent?: boolean }) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para adicionar contato.');
-    const { id, ...payload } = contact;
+    const { id: _clientId, ...payload } = contact;
     const newId = await apiCreateContact(payload);
-    await reloadVpsContactsRef.current();
+    const created: Contact = {
+      ...contact,
+      id: newId,
+      phone: normalizeBRPhone(contact.phone) || contact.phone
+    };
+    setContacts((prev) => upsertContactInSortedList(prev, created));
+    setContactsSavedTotal((t) => (t != null ? t + 1 : t));
+    contactsSavedTotalRef.current = (contactsSavedTotalRef.current ?? 0) + 1;
+    void reloadVpsContactsRef.current();
     void refreshContactsSavedTotal();
     if (!options?.silent) toast.success('Contato adicionado com sucesso!');
     return newId;
@@ -3017,7 +3049,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para atualizar contato.');
     await apiUpdateContact(id, updates);
-    await reloadVpsContactsRef.current();
+    setContacts((prev) =>
+      prev.map((c) => {
+        if (c.id !== id) return c;
+        const merged = { ...c, ...updates };
+        if (updates.phone !== undefined) {
+          merged.phone = normalizeBRPhone(updates.phone) || updates.phone;
+        }
+        return merged;
+      })
+    );
+    void reloadVpsContactsRef.current();
     if (!options?.silent) toast.success('Contato atualizado com sucesso!');
   };
 

@@ -1,4 +1,5 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket, Smartphone, Heart, Loader2, Minimize2, SpellCheck2, RotateCw, Database } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -71,6 +72,7 @@ import { useContactPicturePrefetch } from '../hooks/useContactPicturePrefetch';
 import { normalizeContactPersonName, parseExtraPrefixes } from '../utils/contactNameNormalize';
 import { applyAddressNormalizationToContact } from '../utils/contactAddressNormalize';
 import { consumeAtlasContactsHint } from '../utils/atlasRegionLaunch';
+import { getModalPortalContainer } from '../utils/domPortal';
 import { validateImportRow } from '../utils/contactImportSchema';
 import { apiFetchJson } from '../utils/apiFetchAuth';
 import { AiSparkButton } from './ai/AiSparkButton';
@@ -929,6 +931,7 @@ export const ContactsTab: React.FC = () => {
       contacts.length < contactsSavedTotal);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [savingContact, setSavingContact] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'VALID' | 'INVALID'>('ALL');
   const [filterTag, setFilterTag] = useState('');
@@ -2500,6 +2503,7 @@ export const ContactsTab: React.FC = () => {
   };
 
   const beginEditContact = (contact: Contact) => {
+    setSavingContact(false);
     setEditingContactId(contact.id);
     setCepLookupState('idle');
     setFollowUpDatetimeLocal(isoToDatetimeLocal(contact.followUpAt));
@@ -3258,7 +3262,10 @@ export const ContactsTab: React.FC = () => {
   ]);
 
   const handleSaveNewContact = async () => {
+    if (savingContact) return;
+    const wasEditing = Boolean(editingContactId);
     try {
+    setSavingContact(true);
     const canonicalName =
       normalizeContactPersonName((newContact.name || '').trim(), {
         stripPrefixes: true,
@@ -3411,9 +3418,16 @@ export const ContactsTab: React.FC = () => {
     setNewContactNewListName('');
     setFollowUpDatetimeLocal('');
     setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); setReligiousMemberForm(emptyForm());
+    if (!wasEditing) {
+      setActiveFilter('all');
+      setActiveSegment(null);
+      setCurrentPage(1);
+    }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Não foi possível salvar o contato.';
       toast.error(msg);
+    } finally {
+      setSavingContact(false);
     }
   };
 
@@ -3510,6 +3524,7 @@ export const ContactsTab: React.FC = () => {
   };
 
   const openNewContactModal = useCallback(() => {
+                setSavingContact(false);
                 setEditingContactId(null);
                 setFollowUpDatetimeLocal('');
                 setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); setReligiousMemberForm(emptyForm());
@@ -4635,9 +4650,12 @@ export const ContactsTab: React.FC = () => {
       />
       
       {/* ... Modal Code (unchanged logic, just inside this updated component) ... */}
-      {isModalOpen && (
+      {isModalOpen && createPortal(
         <div className="fixed inset-0 zm-layer-modal flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
-           <div className={`bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full animate-in fade-in zoom-in duration-200 flex flex-col my-auto border border-slate-200 dark:border-slate-800 ${segment === 'religious' ? 'max-w-3xl' : 'max-w-xl'}`}>
+           <div
+             className={`bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full animate-in fade-in zoom-in duration-200 flex flex-col my-auto border border-slate-200 dark:border-slate-800 ${segment === 'religious' ? 'max-w-3xl' : 'max-w-xl'}`}
+             onClick={(e) => e.stopPropagation()}
+           >
               
               {/* Modal Header */}
               <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 rounded-t-2xl">
@@ -5091,14 +5109,21 @@ export const ContactsTab: React.FC = () => {
                  </button>
                  <button
                     type="button"
+                    disabled={savingContact}
                     onClick={() => void handleSaveNewContact()}
-                    className="flex-1 px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 active:transform active:scale-95 transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2"
+                    className="flex-1 px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 active:transform active:scale-95 transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2 disabled:opacity-60 disabled:pointer-events-none"
                  >
-                    <Save className="w-4 h-4" /> {editingContactId ? 'Salvar alterações' : 'Salvar contato'}
+                    {savingContact ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    {savingContact ? 'Salvando…' : editingContactId ? 'Salvar alterações' : 'Salvar contato'}
                  </button>
               </div>
            </div>
-        </div>
+        </div>,
+        getModalPortalContainer()
       )}
 
       {/* Revisao de importacao por arquivo (XLSX/CSV ou vCard): filtros, problemas, duplicados */}

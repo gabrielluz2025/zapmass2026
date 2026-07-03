@@ -1,4 +1,14 @@
 import { campaignRotationIndexFromPhone, resolveCampaignSpintax } from '../shared/campaignSpintax.js';
+import {
+    cleanReplyTriggerToken,
+    detectGlobalOptOut,
+    findBestMatchingOption,
+    matchReplyTriggerToken,
+    normalizeReplyBodyForMatch,
+    replyMatchesGate,
+    type ReplyMatchMode,
+    DEFAULT_GLOBAL_OPT_OUT_KEYWORDS,
+} from '../shared/replyFlowMatch.js';
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { fetchCampaignDoc, usePostgresCampaigns } from './campaignStore.js';
@@ -10,6 +20,9 @@ export type ReplyFlowStepOption = {
     tokens: string[];
     reply: string;
     marketingEffect?: 'none' | 'opt_in' | 'opt_out';
+    /** Maior = vence em empate de gatilhos. */
+    priority?: number;
+    matchMode?: ReplyMatchMode;
 };
 
 export type ReplyFlowStepDef = {
@@ -19,6 +32,15 @@ export type ReplyFlowStepDef = {
     invalidReplyBody: string;
     marketingEffect?: 'none' | 'opt_in' | 'opt_out';
     options?: ReplyFlowStepOption[];
+    matchMode?: ReplyMatchMode;
+    /** Horas sem resposta antes de enviar timeoutMessage (0 = desligado). */
+    timeoutHours?: number;
+    timeoutMessage?: string;
+};
+
+export type ReplyFlowDefMeta = {
+    globalOptOutEnabled?: boolean;
+    globalOptOutKeywords?: string[];
 };
 
 export type ReplyFlowSession = {
@@ -118,13 +140,23 @@ export const sanitizeReplyFlowSteps = (
         validTokens?: string[];
         invalidReplyBody?: string;
         marketingEffect?: string;
+        matchMode?: string;
+        timeoutHours?: number;
+        timeoutMessage?: string;
         options?: Array<{
             tokens?: string[];
             reply?: string;
             marketingEffect?: string;
+            priority?: number;
+            matchMode?: string;
         }>;
     }>
 ): ReplyFlowStepDef[] => {
+    const parseMode = (v: unknown): ReplyMatchMode | undefined => {
+        const m = String(v || '').toLowerCase();
+        if (m === 'word' || m === 'phrase' || m === 'contains' || m === 'numeric_exact') return m;
+        return undefined;
+    };
     return raw
         .map((s) => {
             const me = String(s.marketingEffect || 'none').toLowerCase();
@@ -143,11 +175,14 @@ export const sanitizeReplyFlowSteps = (
                                   : [],
                               reply: String(opt.reply || '').trim(),
                               marketingEffect: optMarketingEffect,
+                              priority: Number.isFinite(Number(opt.priority)) ? Number(opt.priority) : 0,
+                              matchMode: parseMode(opt.matchMode),
                           };
                       })
                       .filter((opt) => opt.tokens.length > 0 && opt.reply.length > 0)
                 : undefined;
 
+            const timeoutHours = Number(s.timeoutHours);
             return {
                 body: String(s.body || '').trim(),
                 acceptAnyReply: Boolean(s.acceptAnyReply),
@@ -156,70 +191,38 @@ export const sanitizeReplyFlowSteps = (
                     : [],
                 invalidReplyBody: String(s.invalidReplyBody || '').trim(),
                 marketingEffect,
+                matchMode: parseMode(s.matchMode),
+                timeoutHours: Number.isFinite(timeoutHours) && timeoutHours > 0 ? timeoutHours : undefined,
+                timeoutMessage: String(s.timeoutMessage || '').trim() || undefined,
                 options: sanitizedOptions,
             };
         })
         .filter((s) => s.body.length > 0);
 };
 
-/** Remove pontuação e separa palavras para comparar gatilhos do fluxo por resposta. */
-export function normalizeReplyBodyForMatch(text: string): {
-    norm: string;
-    first: string;
-    words: string[];
-} {
-    const norm = String(text || '')
-        .trim()
-        .toLowerCase()
-        .replace(/[^\w\s\u00C0-\u00FF0-9]/g, '')
-        .trim();
-    const words = norm.split(/\s+/).filter(Boolean);
-    return { norm, first: words[0] || '', words };
+export function sanitizeReplyFlowMeta(raw: unknown): ReplyFlowDefMeta {
+    if (!raw || typeof raw !== 'object') return {};
+    const rf = raw as Record<string, unknown>;
+    const enabled = rf.globalOptOutEnabled !== false;
+    const kw = Array.isArray(rf.globalOptOutKeywords)
+        ? rf.globalOptOutKeywords.map((k) => String(k || '').trim()).filter(Boolean)
+        : [];
+    return {
+        globalOptOutEnabled: enabled,
+        globalOptOutKeywords: kw.length > 0 ? kw : undefined,
+    };
 }
 
-export function cleanReplyTriggerToken(raw: string): string {
-    return String(raw || '')
-        .toLowerCase()
-        .replace(/[^\w\s\u00C0-\u00FF0-9]/g, '')
-        .trim();
-}
-
-/**
- * Reconhece palavra-chave na resposta:
- * - mensagem inteira ("1", "excluir")
- * - primeira palavra ("1 sim", "excluir minha conta")
- * - qualquer palavra da frase ("OI 1", "quero excluir")
- * - frases com espaço no gatilho ("nao quero")
- */
-export function matchReplyTriggerToken(cleanTok: string, bodyText: string): boolean {
-    if (!cleanTok) return false;
-    const { norm, first, words } = normalizeReplyBodyForMatch(bodyText);
-    if (!norm) return false;
-    if (cleanTok === norm || cleanTok === first) return true;
-    if (words.includes(cleanTok)) return true;
-    if (cleanTok.includes(' ') && norm.includes(cleanTok)) return true;
-    return false;
-}
-
-export const replyMatchesGate = (
-    step: ReplyFlowStepDef,
-    bodyText: string,
-    opts?: { nonTextReply?: boolean }
-): boolean => {
-    if (step.acceptAnyReply) return true;
-    const t = String(bodyText || '').trim();
-    const nonText = Boolean(opts?.nonTextReply);
-    if (!t && !nonText) return false;
-    const tokens = step.validTokens || [];
-    if (tokens.length === 0) {
-        return nonText || !!t;
-    }
-    if (!t && nonText) {
-        return false;
-    }
-
-    return tokens.some((tok) => matchReplyTriggerToken(cleanReplyTriggerToken(tok), t));
+export {
+    cleanReplyTriggerToken,
+    matchReplyTriggerToken,
+    normalizeReplyBodyForMatch,
+    replyMatchesGate,
+    detectGlobalOptOut,
+    findBestMatchingOption,
+    DEFAULT_GLOBAL_OPT_OUT_KEYWORDS,
 };
+export type { ReplyMatchMode };
 
 export function pickWeightedChannel(
     activeIds: string[],
@@ -252,16 +255,17 @@ const stripBrNine = (n: string): string => {
 };
 
 export class ReplyFlowEngine {
-    private defs = new Map<string, { steps: ReplyFlowStepDef[] }>();
+    private defs = new Map<string, { steps: ReplyFlowStepDef[]; meta: ReplyFlowDefMeta }>();
     private sessions = new Map<string, ReplyFlowSession>();
     private convToCanonical = new Map<string, string>();
     private sessionCountByCampaign = new Map<string, number>();
+    private timeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
     constructor(private callbacks: ReplyFlowCallbacks) {}
 
-    registerDef(campaignId: string, steps: ReplyFlowStepDef[]) {
+    registerDef(campaignId: string, steps: ReplyFlowStepDef[], meta?: ReplyFlowDefMeta) {
         if (!campaignId || steps.length === 0) return;
-        this.defs.set(campaignId, { steps });
+        this.defs.set(campaignId, { steps, meta: meta || {} });
     }
 
     openSession(params: {
@@ -297,6 +301,7 @@ export class ReplyFlowEngine {
         }
         this.adjustSessionCount(params.campaignId, 1);
         this.callbacks.onSessionSave?.(params.connectionId, params.phoneDigits, session);
+        this.scheduleStepTimeout(params.connectionId, params.phoneDigits, session);
     }
 
     /** Restaura sessão perdida (ex.: após restart do servidor). Não incrementa contador se já existir. */
@@ -348,6 +353,7 @@ export class ReplyFlowEngine {
         if (sess) {
             sess.awaitingAfterStep = newAwaitingAfterStep;
             this.callbacks.onSessionSave?.(connectionId, phoneDigits, sess);
+            this.scheduleStepTimeout(connectionId, phoneDigits, sess);
         }
     }
 
@@ -376,7 +382,58 @@ export class ReplyFlowEngine {
         }
     }
 
+    private clearStepTimeout(canonicalKey: string) {
+        const tid = this.timeoutTimers.get(canonicalKey);
+        if (tid) {
+            clearTimeout(tid);
+            this.timeoutTimers.delete(canonicalKey);
+        }
+    }
+
+    private scheduleStepTimeout(connectionId: string, phoneDigits: string, session: ReplyFlowSession) {
+        const canonicalKey = `${connectionId}:${phoneDigits}`;
+        this.clearStepTimeout(canonicalKey);
+        const def = this.defs.get(session.campaignId);
+        const step = def?.steps[session.awaitingAfterStep];
+        const hours = step?.timeoutHours;
+        if (!hours || hours <= 0 || !step?.timeoutMessage?.trim()) return;
+
+        const ms = Math.min(hours * 3600_000, 7 * 24 * 3600_000);
+        const tid = setTimeout(() => {
+            void this.fireStepTimeout(canonicalKey, connectionId, phoneDigits);
+        }, ms);
+        this.timeoutTimers.set(canonicalKey, tid);
+    }
+
+    private async fireStepTimeout(canonicalKey: string, connectionId: string, phoneDigits: string) {
+        this.timeoutTimers.delete(canonicalKey);
+        const session = this.sessions.get(canonicalKey);
+        if (!session) return;
+        let def = this.defs.get(session.campaignId);
+        if (!def?.steps?.length) {
+            def = (await this.loadDefFromFirestore(session.campaignId, session.ownerUid)) ?? undefined;
+        }
+        const step = def?.steps[session.awaitingAfterStep];
+        if (!step?.timeoutMessage?.trim()) return;
+
+        const msg = applyMessageVars(step.timeoutMessage, phoneDigits, session.vars);
+        this.callbacks.onLog?.('Timeout do fluxo por resposta — fallback enviado', {
+            campaignId: session.campaignId,
+            connectionId,
+            phoneDigits,
+            currentStep: session.awaitingAfterStep + 1,
+        });
+        void this.callbacks.enqueue({
+            to: session.toRaw,
+            message: msg,
+            connectionId,
+            campaignId: session.campaignId,
+        });
+        this.disposeSession(canonicalKey, session);
+    }
+
     private disposeSession(canonicalKey: string, session: ReplyFlowSession) {
+        this.clearStepTimeout(canonicalKey);
         const reg = session.registeredConvKey;
         if (reg) {
             this.convToCanonical.delete(reg);
@@ -430,7 +487,10 @@ export class ReplyFlowEngine {
         return null;
     }
 
-    private async loadDefFromFirestore(campaignId: string, ownerUid?: string): Promise<{ steps: ReplyFlowStepDef[] } | null> {
+    private async loadDefFromFirestore(
+        campaignId: string,
+        ownerUid?: string
+    ): Promise<{ steps: ReplyFlowStepDef[]; meta: ReplyFlowDefMeta } | null> {
         try {
             const admin = getFirebaseAdmin();
             if (!admin) return null;
@@ -457,9 +517,10 @@ export class ReplyFlowEngine {
                 const rf = docData.replyFlow as Record<string, unknown>;
                 if (rf.enabled && Array.isArray(rf.steps)) {
                     const sanitized = sanitizeReplyFlowSteps(rf.steps as any[]);
+                    const meta = sanitizeReplyFlowMeta(rf);
                     if (sanitized.length > 0) {
-                        this.defs.set(campaignId, { steps: sanitized });
-                        return { steps: sanitized };
+                        this.defs.set(campaignId, { steps: sanitized, meta });
+                        return { steps: sanitized, meta };
                     }
                 }
             }
@@ -511,6 +572,30 @@ export class ReplyFlowEngine {
 
         if (this.callbacks.isCampaignPaused?.(session.campaignId)) return;
 
+        const tBody = String(bodyText || '').trim();
+        const meta = def.meta || {};
+        if (meta.globalOptOutEnabled !== false && tBody) {
+            const optOut = detectGlobalOptOut(tBody, meta.globalOptOutKeywords);
+            if (optOut.matched) {
+                this.callbacks.onLog?.('Opt-out global reconhecido no fluxo por resposta', {
+                    campaignId: session.campaignId,
+                    connectionId,
+                    phoneDigits,
+                    matchedKeyword: optOut.keyword,
+                    replyPreview: tBody.slice(0, 80),
+                });
+                this.callbacks.onMarketingConsent?.(
+                    session.ownerUid,
+                    session.campaignId,
+                    'opt_out',
+                    phoneDigits,
+                    bodyText
+                );
+                this.disposeSession(key, session);
+                return;
+            }
+        }
+
         this.callbacks.onInboundReply?.({
             campaignId: session.campaignId,
             connectionId,
@@ -539,20 +624,34 @@ export class ReplyFlowEngine {
         const gateStep = steps[awaiting];
 
         if (gateStep.options && gateStep.options.length > 0) {
-            const t = String(bodyText || '').trim();
+            const t = tBody;
             const nonText = Boolean(nonTextReply);
             let matchedOption: ReplyFlowStepOption | null = null;
+            let matchMeta: { matchedToken?: string; matchMode?: ReplyMatchMode; optionIndex?: number } = {};
 
             if (t || nonText) {
-                matchedOption =
-                    gateStep.options.find((opt) =>
-                        (opt.tokens || []).some((tok) =>
-                            matchReplyTriggerToken(cleanReplyTriggerToken(tok), t)
-                        )
-                    ) || null;
+                const best = findBestMatchingOption(gateStep.options, t, gateStep.matchMode || 'word');
+                if (best) {
+                    matchedOption = gateStep.options[best.optionIndex] || null;
+                    matchMeta = {
+                        matchedToken: best.matchedToken,
+                        matchMode: best.matchMode,
+                        optionIndex: best.optionIndex,
+                    };
+                }
             }
 
             if (matchedOption) {
+                this.callbacks.onLog?.('Gatilho reconhecido no fluxo por resposta', {
+                    campaignId: session.campaignId,
+                    connectionId,
+                    phoneDigits,
+                    currentStep: awaiting + 1,
+                    matchedToken: matchMeta.matchedToken,
+                    matchMode: matchMeta.matchMode,
+                    matchedOptionIndex: matchMeta.optionIndex,
+                    replyPreview: preview,
+                });
                 const replyBody = applyMessageVars(matchedOption.reply, phoneDigits, session.vars);
                 void this.callbacks.enqueue({
                     to: session.toRaw,
