@@ -1179,6 +1179,10 @@ export const ContactsTab: React.FC = () => {
       toast.error('Contato sem telefone válido.');
       return;
     }
+    if (activeFilter === 'bday_today' || activeFilter === 'bday_week') {
+      setActiveFilter('all');
+    }
+    setInsightsOpen(false);
     if (connections.length <= 1) {
       const only = connections[0];
       const existing = findBestConversationForPhone(deferredConversations, digits);
@@ -1193,7 +1197,7 @@ export const ContactsTab: React.FC = () => {
         ''
     );
     setChatChannelPicker({ contact, digits });
-  }, [connections, deferredConversations, navigateOpenChat]);
+  }, [connections, deferredConversations, navigateOpenChat, activeFilter]);
 
   /** Dispara a Wizard de nova campanha com base em um rascunho pré-preenchido. */
   const launchCampaignWithDraft = useCallback((draft: CampaignWizardDraft, toastMsg?: string) => {
@@ -3567,6 +3571,8 @@ export const ContactsTab: React.FC = () => {
     if (draft.messageStages[0]) {
       draft.messageStages[0].body = DEFAULT_BIRTHDAY_TEMPLATE;
     }
+    setActiveFilter('all');
+    setInsightsOpen(false);
     launchCampaignWithDraft(draft, 'Abrindo campanha de aniversário…');
   }, [buildDraftFromContacts, launchCampaignWithDraft]);
 

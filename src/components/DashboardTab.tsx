@@ -30,7 +30,8 @@ import {
   BookOpen,
   UserPlus,
   MapPin,
-  Download
+  Download,
+  Check
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatus } from '../types';
@@ -65,6 +66,11 @@ import { CampaignAttachmentBlock, type CampaignAttachmentState } from './campaig
 import { SavedMediaLibraryPicker } from './campaigns/SavedMediaLibraryPicker';
 import { DEFAULT_BIRTHDAY_TEMPLATE } from '../constants/birthdayTemplates';
 import { prepareCampaignAttachmentPayload } from '../utils/campaignMediaLibrary';
+import {
+  getBirthdayGreetedIds,
+  markBirthdayGreeted,
+  markBirthdayGreetedMany
+} from '../utils/birthdayGreeted';
 import { PerformanceFunnel } from './PerformanceFunnel';
 import { DashboardIntelPanel } from './dashboard/DashboardIntelPanel';
 import { Sparkline } from './Sparkline';
@@ -394,6 +400,20 @@ export const DashboardTab: React.FC = () => {
   const [birthdayAttachment, setBirthdayAttachment] = useState<CampaignAttachmentState | null>(null);
   const birthdayAttachmentInputRef = useRef<HTMLInputElement>(null);
   const [birthdaySending, setBirthdaySending] = useState(false);
+  const [greetedBirthdayIds, setGreetedBirthdayIds] = useState(() => getBirthdayGreetedIds());
+
+  const refreshGreetedBirthdays = () => setGreetedBirthdayIds(getBirthdayGreetedIds());
+
+  const leaveBirthdayContext = (target: 'contacts' | 'campaigns') => {
+    if (target === 'contacts') {
+      try {
+        localStorage.setItem('zapmass.contactsFilter', 'all');
+      } catch {
+        /* ignore */
+      }
+    }
+    setCurrentView(target);
+  };
 
   const [selectedWedding, setSelectedWedding] = useState<UpcomingWedding | null>(null);
   const [weddingMessageText, setWeddingMessageText] = useState('');
@@ -726,11 +746,14 @@ export const DashboardTab: React.FC = () => {
           ...(mediaAttachment ? { mediaAttachment } : {})
         }
       );
+      markBirthdayGreetedMany(bulkSelectedList.map((b) => b.id));
+      refreshGreetedBirthdays();
       toast.success(`Disparo iniciado para ${bulkSelectedList.length} contato(s). Acompanhe em Campanhas.`);
       setBulkBirthdayOpen(false);
       setBulkSelectedIds(new Set());
       setBulkStep('compose');
       pickCampaignAttachment(null, setBulkAttachment);
+      leaveBirthdayContext('campaigns');
     } catch (err: any) {
       toast.error(err?.message || 'Falha ao iniciar disparo de aniversariantes.');
     } finally {
@@ -739,6 +762,10 @@ export const DashboardTab: React.FC = () => {
   };
 
   const handleOpenChat = (contact: UpcomingBirthday) => {
+    if (greetedBirthdayIds.has(contact.id)) {
+      toast('Parabéns já enviado hoje para este contato.', { icon: '✅', duration: 4500 });
+      return;
+    }
     setSelectedWedding(null);
     setSelectedContact(contact);
     pickCampaignAttachment(null, setBirthdayAttachment);
@@ -789,11 +816,16 @@ export const DashboardTab: React.FC = () => {
         const res = await sendMessage(conversationId, messageText.trim());
         if (!res.ok) throw new Error(res.error || 'Falha ao enviar mensagem.');
       }
-      toast.success(`Mensagem enviada para ${selectedContact.name}.`);
+      const sentContactId = selectedContact.id;
+      const sentContactName = selectedContact.name;
+      markBirthdayGreeted(sentContactId);
+      refreshGreetedBirthdays();
+      toast.success(`Mensagem enviada para ${sentContactName}.`);
       setSelectedContact(null);
       setShowChannelSelector(false);
       setMessageText('');
       pickCampaignAttachment(null, setBirthdayAttachment);
+      leaveBirthdayContext('contacts');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Falha ao enviar mensagem.';
       toast.error(msg);
@@ -1251,15 +1283,19 @@ export const DashboardTab: React.FC = () => {
                   </Button>
                 </div>
               ) : (
-                upcomingBirthdaysVisible.map((contact) => (
+                upcomingBirthdaysVisible.map((contact) => {
+                  const alreadyGreeted = greetedBirthdayIds.has(contact.id);
+                  return (
                   <div
                     key={contact.id}
                     className={`p-2.5 rounded-xl transition-all flex items-center justify-between group border ${
-                      contact.daysRemaining === 0
+                      alreadyGreeted
+                        ? 'border-emerald-500/25 bg-emerald-500/[0.06] opacity-80'
+                        : contact.daysRemaining === 0
                         ? 'border-pink-500/30 bg-pink-500/[0.07] dark:bg-pink-500/10'
                         : 'border-transparent'
                     } hover:border-[var(--border-subtle)] hover:bg-[var(--surface-2)]`}
-                    style={contact.daysRemaining === 0 ? undefined : { background: 'var(--surface-1)' }}
+                    style={!alreadyGreeted && contact.daysRemaining !== 0 ? { background: 'var(--surface-1)' } : undefined}
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       {contact.profilePicUrl ? (
@@ -1301,17 +1337,29 @@ export const DashboardTab: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleOpenChat(contact)}
-                      title="Enviar parabéns agora"
-                      className="shrink-0"
-                    >
-                      <MessageCircle className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
-                    </Button>
+                    {alreadyGreeted ? (
+                      <span
+                        className="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold px-2 py-1 rounded-lg"
+                        style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}
+                        title="Parabéns já enviado hoje"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        Enviado
+                      </span>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleOpenChat(contact)}
+                        title="Enviar parabéns agora"
+                        className="shrink-0"
+                      >
+                        <MessageCircle className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
+                      </Button>
+                    )}
                   </div>
-                ))
+                  );
+                })
               )}
               {upcomingBirthdays.length > birthdaysVisible && (
                 <button
