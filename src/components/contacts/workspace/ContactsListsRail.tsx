@@ -54,6 +54,16 @@ export const ContactsListsRail: React.FC<Props> = ({
         <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--crm-dim)' }}>
           Listas rápidas
         </span>
+        {/* Botão Nova sempre visível — fora do scroll */}
+        <button
+          type="button"
+          onClick={onCreateList}
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border border-dashed transition hover:brightness-110"
+          style={{ borderColor: 'var(--crm-brand)', color: 'var(--crm-brand)' }}
+        >
+          <Plus className="w-3 h-3" />
+          Nova lista
+        </button>
         <button
           type="button"
           onClick={onOpenListsTab}
@@ -90,15 +100,6 @@ export const ContactsListsRail: React.FC<Props> = ({
             />
           );
         })}
-        <button
-          type="button"
-          onClick={onCreateList}
-          className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-bold border border-dashed transition"
-          style={{ borderColor: 'var(--crm-brand)', color: 'var(--crm-brand)' }}
-        >
-          <Plus className="w-3 h-3" />
-          Nova
-        </button>
       </div>
     </div>
   );
@@ -126,10 +127,11 @@ const RailChip: React.FC<{
     <button
       type="button"
       onClick={onClick}
+      title={label}
       className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold border transition"
       style={active ? { ...activeStyle, fontWeight: 700 } : idleStyle}
     >
-      <span className="max-w-[140px] truncate">{label}</span>
+      <span className="max-w-[200px] truncate">{label}</span>
       {count != null && count > 0 && (
         <span
           className="text-[10px] font-black px-1.5 py-0.5 rounded-md tabular-nums"
