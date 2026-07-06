@@ -8,7 +8,10 @@ export async function ensureZapmassDatabaseExists(
   const admin = new URL(zapmassUrl);
   admin.pathname = '/postgres';
 
-  const client = new pg.Client({ connectionString: admin.toString() });
+  const client = new pg.Client({
+    connectionString: admin.toString(),
+    connectionTimeoutMillis: 8_000
+  });
   await client.connect();
   try {
     const exists = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
