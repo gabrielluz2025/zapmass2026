@@ -28,6 +28,7 @@ import {
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { useLandingDocumentMeta } from '../hooks/useLandingDocumentMeta';
+import { PlatformLegalFooter } from './legal/PlatformLegalFooter';
 import { useAppConfig } from '../context/AppConfigContext';
 import { resolveLandingTrialCopy } from '../utils/landingTrialResolved';
 import { trackLandingEvent } from '../utils/marketingEvents';
@@ -1349,15 +1350,17 @@ export const PreLoginLanding: React.FC = () => {
           borderTop: `1px solid ${D.border}`,
           display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{
-              width: 26, height: 26, borderRadius: 7,
-              background: `linear-gradient(135deg, ${D.green}, #059669)`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
-            }}>
-              <Zap size={13} color="white" fill="white" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 200 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{
+                width: 26, height: 26, borderRadius: 7,
+                background: `linear-gradient(135deg, ${D.green}, #059669)`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}>
+                <Zap size={13} color="white" fill="white" />
+              </div>
+              <PlatformLegalFooter textColor={D.text3} mutedColor={D.text3} />
             </div>
-            <span style={{ fontSize: 12, color: D.text3 }}>© {new Date().getFullYear()} ZapMass — Disparos com organização</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: D.green, boxShadow: `0 0 6px ${D.green}` }} />

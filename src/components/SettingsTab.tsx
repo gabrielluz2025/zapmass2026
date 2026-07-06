@@ -34,6 +34,8 @@ import {
   WHATSAPP_RISK_BULLETS,
   WHATSAPP_RISK_SHORT
 } from '../constants/whatsappLegal';
+import { PlatformSupportCard } from './legal/PlatformSupportCard';
+import { usePlatformInfo } from '../hooks/usePlatformInfo';
 import {
   clearWhatsAppRiskAck,
   getWhatsAppRiskAck,
@@ -159,6 +161,7 @@ export const SettingsTab: React.FC = () => {
   const storageKey = settingsStorageKey(effectiveWorkspaceUid);
   const [savedSnapshot, setSavedSnapshot] = useState<SystemSettings>(() => readLocalSettings(storageKey));
 
+  const { info: platformInfo } = usePlatformInfo();
   const [section, setSection] = useState<Section>('disparo');
   const [minDelay, setMinDelay] = useState(savedSnapshot.minDelay);
   const [maxDelay, setMaxDelay] = useState(savedSnapshot.maxDelay);
@@ -873,6 +876,7 @@ export const SettingsTab: React.FC = () => {
       {/* LEGAL */}
       {section === 'legal' && (
         <div className="space-y-4">
+          {platformInfo ? <PlatformSupportCard info={platformInfo} /> : null}
           <Card className="p-6 space-y-4">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"

@@ -107,6 +107,7 @@ import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
 import { redisPing, redisPingWithFallback } from './redisPing.js';
 import { redisMemoryInfo } from './redisMemory.js';
 import { isRedisStressError } from './redisBullmqResilience.js';
+import { getPlatformLegalInfo } from './platformLegal.js';
 import { getRedisUrlCandidates, getRedisUrlMisconfigHint, parseRedisHost } from './redisConfig.js';
 import { configureTrustProxy } from './trustProxySetup.js';
 import { evolutionWebhookLimiter } from './httpRateLimit.js';
@@ -446,6 +447,12 @@ app.get('/api/health', async (_req, res) => {
     mercadopagoCheckoutAvailable: mp?.valid ?? false,
     mercadopagoMode: mp?.mode ?? null
   });
+});
+
+/** Operador legal da plataforma + contatos de suporte (público, sem auth). */
+app.get('/api/platform-info', (_req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.json(getPlatformLegalInfo());
 });
 
 /** Verifica Redis rapidamente (sem auth). Usado pelo frontend antes de iniciar disparo. */

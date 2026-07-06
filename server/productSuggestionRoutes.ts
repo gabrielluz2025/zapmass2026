@@ -36,7 +36,7 @@ export function registerProductSuggestionRoutes(app: Express): void {
       }
       const screen = typeof req.body?.screen === 'string' ? req.body.screen.slice(0, 64) : '';
       const categoryRaw = typeof req.body?.category === 'string' ? req.body.category.trim().toLowerCase() : '';
-      const allowedCat = new Set(['usability', 'campaigns', 'reports', 'integrations', 'other']);
+      const allowedCat = new Set(['usability', 'campaigns', 'reports', 'integrations', 'support', 'other']);
       const category = allowedCat.has(categoryRaw) ? categoryRaw : 'other';
       const email = (principal.email || '').slice(0, 320);
       const createdAt = new Date();

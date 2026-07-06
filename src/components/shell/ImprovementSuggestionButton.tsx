@@ -18,6 +18,8 @@ import { useAuth } from '../../context/AuthContext';
 import { Button } from '../ui/Button';
 import { Modal, Textarea } from '../ui';
 import { apiUrl } from '../../utils/apiBase';
+import { usePlatformInfo } from '../../hooks/usePlatformInfo';
+import { whatsAppHref } from '../../../shared/platformLegal';
 
 interface ImprovementSuggestionButtonProps {
   /** Tela atual (para contextualizar feedback no painel administrativo). */
@@ -44,7 +46,7 @@ const VIEW_LABEL_PT: Record<string, string> = {
   'religious-members': 'Ficha de membro (igreja)'
 };
 
-type SuggestionArea = 'usability' | 'campaigns' | 'reports' | 'integrations' | 'other';
+type SuggestionArea = 'usability' | 'campaigns' | 'reports' | 'integrations' | 'support' | 'other';
 
 const AREA_CHIPS: {
   id: SuggestionArea;
@@ -77,6 +79,12 @@ const AREA_CHIPS: {
     Icon: Link2
   },
   {
+    id: 'support',
+    label: 'Suporte da plataforma',
+    hint: 'Plano, acesso, falar com admin',
+    Icon: MessageCircle
+  },
+  {
     id: 'other',
     label: 'Outro tema',
     hint: 'Qualquer ideia livre',
@@ -102,6 +110,7 @@ export const ImprovementSuggestionButton: React.FC<ImprovementSuggestionButtonPr
   currentView
 }) => {
   const { user } = useAuth();
+  const { info: platformInfo } = usePlatformInfo();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [area, setArea] = useState<SuggestionArea>('usability');
@@ -250,7 +259,29 @@ export const ImprovementSuggestionButton: React.FC<ImprovementSuggestionButtonPr
           phase === 'form' ? (
             <div className="flex flex-col-reverse sm:flex-row sm:justify-between sm:items-center gap-3 w-full">
               <p className="text-[11px] text-left order-2 sm:order-1 max-w-[20rem]" style={{ color: 'var(--text-3)' }}>
-                Não usamos esta mensagem para marketing. Serve só para entender prioridades no produto.
+                {area === 'support' && platformInfo?.supportEmail ? (
+                  <>
+                    Suporte direto:{' '}
+                    <a href={`mailto:${platformInfo.supportEmail}`} className="underline">
+                      {platformInfo.supportEmail}
+                    </a>
+                    {platformInfo.supportWhatsApp ? (
+                      <>
+                        {' · '}
+                        <a
+                          href={whatsAppHref(platformInfo.supportWhatsApp)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline"
+                        >
+                          WhatsApp
+                        </a>
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  'Não usamos esta mensagem para marketing. Serve só para entender prioridades no produto.'
+                )}
               </p>
               <div className="flex flex-col-reverse sm:flex-row gap-2 order-1 sm:order-2 w-full sm:w-auto">
                 <Button variant="ghost" disabled={sending} onClick={requestClose}>
