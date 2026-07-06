@@ -111,7 +111,7 @@ export async function vpsRegister(
   password: string,
   displayName?: string
 ): Promise<VpsAuthUser> {
-  const r = await fetch(apiUrl('/api/auth/register'), {
+  const r = await authFetch(apiUrl('/api/auth/register'), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -129,7 +129,7 @@ export async function vpsRegister(
 }
 
 export async function vpsLogin(email: string, password: string): Promise<VpsAuthUser> {
-  const r = await fetch(apiUrl('/api/auth/login'), {
+  const r = await authFetch(apiUrl('/api/auth/login'), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -151,7 +151,7 @@ export async function vpsStaffLogin(
   loginName: string,
   password: string
 ): Promise<VpsAuthUser> {
-  const r = await fetch(apiUrl('/api/workspace/staff/sign-in'), {
+  const r = await authFetch(apiUrl('/api/workspace/staff/sign-in'), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
