@@ -33,7 +33,8 @@ export function getEvolutionPool(): pg.Pool | null {
     evolutionPool = new Pool({
       connectionString: url,
       max: Number(process.env.ZAPMASS_PG_POOL_MAX_EVOLUTION || 2),
-      idleTimeoutMillis: 30_000
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000
     });
     evolutionPool.on('error', (err) => {
       console.error('[EvolutionDB] pool error:', err?.message || err);
@@ -53,7 +54,8 @@ export function getZapmassPool(): pg.Pool | null {
     pool = new Pool({
       connectionString: zapmassDatabaseUrl(),
       max: Number(process.env.ZAPMASS_PG_POOL_MAX || 8),
-      idleTimeoutMillis: 30_000
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000
     });
     pool.on('error', (err) => {
       console.error('[ZapmassDB] pool error:', err?.message || err);
