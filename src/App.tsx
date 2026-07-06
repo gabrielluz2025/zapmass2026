@@ -41,6 +41,7 @@ import { AiAssistantTab } from './components/ai/AiAssistantTab';
 import { useAiStatus } from './hooks/useAiStatus';
 import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/openChannelExtraFlow';
 import { readClientSurveyTokenFromWindow } from './utils/readClientSurveyTokenFromWindow';
+import { readPublicLegalPageFromWindow } from './utils/readPublicLegalPageFromWindow';
 import { lazyWithRetry } from './utils/lazyWithRetry';
 import { prefetchDefaultAppViews } from './utils/prefetchAppViews';
 
@@ -51,6 +52,15 @@ const ClientSatisfactionSurveyPage = lazyWithRetry(
       default: m.ClientSatisfactionSurveyPage
     })),
   'survey'
+);
+
+/** Rotas públicas `/termos` e `/privacidade` — sem login. */
+const LegalDocumentPage = lazyWithRetry(
+  () =>
+    import('./components/legal/LegalDocumentPage').then((m) => ({
+      default: m.LegalDocumentPage
+    })),
+  'legal'
 );
 
 /** Painéis pesados — lazy + Suspense. Abas leves importadas acima abrem na hora. */
@@ -593,6 +603,7 @@ const AuthGate: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  const [legalPageSlug] = useState(() => readPublicLegalPageFromWindow());
   const [clientSurveyToken] = useState(() => readClientSurveyTokenFromWindow());
 
   useEffect(() => {
@@ -624,7 +635,13 @@ const App: React.FC = () => {
           }
         }}
       />
-      {clientSurveyToken ? (
+      {legalPageSlug ? (
+        <AppConfigProvider>
+          <Suspense fallback={<LazyViewSpinner />}>
+            <LegalDocumentPage slug={legalPageSlug} />
+          </Suspense>
+        </AppConfigProvider>
+      ) : clientSurveyToken ? (
         <AppConfigProvider>
           <Suspense fallback={<LazyViewSpinner />}>
             <ClientSatisfactionSurveyPage token={clientSurveyToken} />

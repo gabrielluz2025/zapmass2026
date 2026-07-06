@@ -7,7 +7,9 @@ import {
   CheckCircle2,
   Clock,
   ExternalLink,
+  FileText,
   FileWarning,
+  Shield,
   Layers,
   Moon,
   MapPin,
@@ -877,6 +879,32 @@ export const SettingsTab: React.FC = () => {
       {section === 'legal' && (
         <div className="space-y-4">
           {platformInfo ? <PlatformSupportCard info={platformInfo} /> : null}
+          <Card className="p-5">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: 'rgba(99,102,241,0.12)' }}>
+                <FileText className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                  Documentos legais da plataforma
+                </p>
+                <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                  Termos de uso e política de privacidade (LGPD) do operador do {platformInfo?.productName || 'ZapMass'}.
+                </p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[12px] font-semibold">
+                  <a href="/termos" target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 hover:underline" style={{ color: 'var(--brand-600)' }}>
+                    Termos de Uso <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                  <a href="/privacidade" target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 hover:underline" style={{ color: 'var(--brand-600)' }}>
+                    Política de Privacidade <Shield className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          </Card>
           <Card className="p-6 space-y-4">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"

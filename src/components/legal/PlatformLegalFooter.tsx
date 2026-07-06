@@ -36,6 +36,14 @@ export const PlatformLegalFooter: React.FC<{ textColor?: string; mutedColor?: st
           ) : null}
         </span>
       )}
+      <span style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 10.5, opacity: 0.9 }}>
+        <a href="/termos" style={{ color: mutedColor, textDecoration: 'underline' }}>
+          Termos de Uso
+        </a>
+        <a href="/privacidade" style={{ color: mutedColor, textDecoration: 'underline' }}>
+          Política de Privacidade
+        </a>
+      </span>
     </div>
   );
 };

@@ -590,7 +590,10 @@ const QuickAuthPanel: React.FC<{
 
       {/* footer */}
       <p style={{ fontSize: 10.5, textAlign: 'center', color: 'rgba(255,255,255,0.3)', margin: '4px 0 0', lineHeight: 1.5 }}>
-        Ao continuar você aceita as políticas do ZapMass
+        Ao continuar você aceita os{' '}
+        <a href="/termos" style={{ color: 'rgba(255,255,255,0.45)', textDecoration: 'underline' }}>Termos de Uso</a>
+        {' '}e a{' '}
+        <a href="/privacidade" style={{ color: 'rgba(255,255,255,0.45)', textDecoration: 'underline' }}>Política de Privacidade</a>
       </p>
     </div>
   );
