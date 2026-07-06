@@ -9,6 +9,7 @@ import {
   unreadCount
 } from './lib/conversationDisplay';
 import type { WaSocketStatus } from './hooks/useWaRealtime';
+import type { ConversationOrigin } from './lib/conversationOrigin';
 import { WaConvRow } from './WaConvRow';
 
 type Props = {
@@ -19,6 +20,10 @@ type Props = {
   selectedId: string | null;
   search: string;
   unreadOnly: boolean;
+  campaignOnly?: boolean;
+  totalSystem?: number;
+  onToggleCampaign?: () => void;
+  originById?: Map<string, ConversationOrigin>;
   connectionFilterId: string | 'ALL';
   onConnectionFilterChange: (id: string | 'ALL') => void;
   socketStatus: WaSocketStatus;
@@ -44,6 +49,10 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   selectedId,
   search,
   unreadOnly,
+  campaignOnly = false,
+  totalSystem = 0,
+  onToggleCampaign,
+  originById,
   connectionFilterId,
   onConnectionFilterChange,
   socketStatus,
@@ -135,12 +144,13 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
     return 'Conecte um chip em Conexões';
   }, [syncing, isOffline, isSlow, chipsConnected]);
 
-  const showAllActive = !unreadOnly && connectionFilterId === 'ALL';
+  const showAllActive = !unreadOnly && !campaignOnly && connectionFilterId === 'ALL';
 
   const handleShowAll = useCallback(() => {
     onConnectionFilterChange('ALL');
     if (unreadOnly) onToggleUnread();
-  }, [onConnectionFilterChange, unreadOnly, onToggleUnread]);
+    if (campaignOnly && onToggleCampaign) onToggleCampaign();
+  }, [onConnectionFilterChange, unreadOnly, onToggleUnread, campaignOnly, onToggleCampaign]);
 
   const handleChannelPill = useCallback(
     (id: string) => { onConnectionFilterChange(connectionFilterId === id ? 'ALL' : id); },
@@ -232,6 +242,17 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
           >
             Não lidas
             <span className="wa-pill-badge">{totalUnread}</span>
+          </button>
+        )}
+        {totalSystem > 0 && onToggleCampaign && (
+          <button
+            type="button"
+            className="wa-filter-pill"
+            data-active={campaignOnly ? 'true' : 'false'}
+            onClick={onToggleCampaign}
+          >
+            Disparo
+            <span className="wa-pill-badge">{totalSystem}</span>
           </button>
         )}
         {channelPills.map((pill) => (

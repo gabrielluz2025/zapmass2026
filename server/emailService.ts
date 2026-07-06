@@ -757,3 +757,69 @@ export async function sendPasswordResetEmail(params: PasswordResetEmailParams): 
     return false;
   }
 }
+
+async function sendSimpleTransactionalEmail(to: string, subject: string, html: string): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) {
+    console.log('[EmailService]', subject, '— RESEND_API_KEY ausente, não enviado para', to);
+    return false;
+  }
+  const from = (process.env.EMAIL_FROM || 'ZapMass <onboarding@resend.dev>').trim();
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: [to], subject, html }),
+    });
+    if (!res.ok) {
+      console.error('[EmailService]', subject, res.status, await res.text().catch(() => ''));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error('[EmailService]', subject, e);
+    return false;
+  }
+}
+
+export async function sendTenantChipOfflineEmail(p: {
+  to: string;
+  connectionLabel: string;
+  connectionId: string;
+}): Promise<boolean> {
+  const html = `<p>Olá,</p><p>O chip <strong>${p.connectionLabel}</strong> (${p.connectionId}) ficou <strong>offline</strong> no ZapMass.</p><p>Abra <strong>Conexões</strong> no painel para reconectar.</p>`;
+  return sendSimpleTransactionalEmail(p.to, 'ZapMass — chip offline', html);
+}
+
+export async function sendTenantCampaignCompleteEmail(p: {
+  to: string;
+  campaignName: string;
+  sent: number;
+  failed: number;
+  total: number;
+}): Promise<boolean> {
+  const html = `<p>Olá,</p><p>A campanha <strong>${p.campaignName}</strong> foi concluída.</p><ul><li>Enviados: ${p.sent}</li><li>Falhas: ${p.failed}</li><li>Total: ${p.total}</li></ul>`;
+  return sendSimpleTransactionalEmail(p.to, `ZapMass — campanha concluída: ${p.campaignName}`, html);
+}
+
+export async function sendTenantJobDeadEmail(p: {
+  to: string;
+  campaignId: string;
+  toNumber: string;
+  error: string;
+}): Promise<boolean> {
+  const html = `<p>Olá,</p><p>Uma mensagem da campanha <strong>${p.campaignId}</strong> falhou definitivamente após todas as tentativas.</p><p>Destino: ${p.toNumber}<br/>Erro: ${p.error}</p><p>Revise em <strong>Relatórios → Falhas de envio</strong>.</p>`;
+  return sendSimpleTransactionalEmail(p.to, 'ZapMass — falha definitiva de envio', html);
+}
+
+export async function sendSubscriptionRenewalReminderEmail(p: {
+  to: string;
+  name?: string;
+  accessEndsAt: Date;
+  subscriptionUrl: string;
+}): Promise<boolean> {
+  const expires = p.accessEndsAt.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+  const greeting = p.name ? `Olá, ${p.name.split(' ')[0]}!` : 'Olá!';
+  const html = `<p>${greeting}</p><p>Seu acesso ao ZapMass expira em <strong>${expires}</strong>.</p><p><a href="${p.subscriptionUrl}">Renovar assinatura</a></p>`;
+  return sendSimpleTransactionalEmail(p.to, 'ZapMass — lembrete de renovação', html);
+}

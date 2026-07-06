@@ -174,6 +174,54 @@ export const KNOWLEDGE_CHUNKS: KnowledgeChunk[] = [
     body:
       'Use **Buscar** na barra superior ou **Ctrl+K** (Mac: Cmd+K) para achar campanhas, contatos, chips e ações rápidas.',
     navigateTo: 'dashboard'
+  },
+  {
+    id: 'contacts-map',
+    title: 'Mapa de contatos',
+    keywords: ['mapa', 'território', 'região', 'ddd', 'bairro', 'geo', 'leads'],
+    body:
+      'Em **Mapa dos contatos** você vê distribuição geográfica, temperatura por região e pode planejar campanhas locais.',
+    navigateTo: 'contacts-map'
+  },
+  {
+    id: 'support-bot',
+    title: 'Atendimento automático',
+    keywords: ['bot', 'robô', 'atendimento', 'triagem', 'menu', 'handoff'],
+    body:
+      'Em **Atendimento automático** configure menu interativo, triagem e quando passar para humano no Bate-papo.',
+    navigateTo: 'support-bot'
+  },
+  {
+    id: 'lgpd-portal',
+    title: 'LGPD e privacidade',
+    keywords: ['lgpd', 'exportar', 'excluir', 'dados', 'privacidade', 'opt-out', 'lista negra'],
+    body:
+      'Em **Configurações → Legal** você exporta seus dados (JSON), solicita exclusão e gerencia a lista negra (opt-out).',
+    navigateTo: 'settings'
+  },
+  {
+    id: 'campaign-failures',
+    title: 'Falhas de envio (DLQ)',
+    keywords: ['falha', 'falhas', 'dlq', 'morto', 'erro envio', 'não entregue'],
+    body:
+      'Em **Relatórios → Falhas de campanha** aparecem mensagens que esgotaram tentativas. Revise chip, número ou reenvie em nova campanha.',
+    navigateTo: 'reports'
+  },
+  {
+    id: 'religious',
+    title: 'Segmento religioso',
+    keywords: ['igreja', 'membro', 'pastoral', 'visita', 'bodas', 'religioso'],
+    body:
+      'No segmento religioso há **Ficha de membro**, **Visitas pastorais** e modelos de mensagem para convites e visitas.',
+    navigateTo: 'religious-members'
+  },
+  {
+    id: 'reports-pdf',
+    title: 'Exportar relatório PDF',
+    keywords: ['pdf', 'imprimir', 'relatório', 'exportar relatório'],
+    body:
+      'Em **Relatórios**, além do CSV, use o botão **PDF** para gerar um resumo imprimível (Salvar como PDF no navegador).',
+    navigateTo: 'reports'
   }
 ];
 

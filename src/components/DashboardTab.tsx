@@ -75,6 +75,7 @@ import {
 } from '../utils/birthdayGreeted';
 import { PerformanceFunnel } from './PerformanceFunnel';
 import { DashboardIntelPanel } from './dashboard/DashboardIntelPanel';
+import { TenantOpsHealthCard } from './tenant/TenantOpsHealthCard';
 import { Sparkline } from './Sparkline';
 import {
   buildChannelSpotlightRows,
@@ -1070,6 +1071,7 @@ export const DashboardTab: React.FC = () => {
       }
     >
     <div className="zm-dashboard space-y-5">
+      <TenantOpsHealthCard />
       <DashboardCommandPanel
         firstName={firstName}
         greeting={greeting}

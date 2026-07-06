@@ -14,6 +14,8 @@ import {
   isContactPresenceOnline,
 } from '../../utils/evolutionPresence';
 
+import type { ConversationOrigin } from './lib/conversationOrigin';
+
 type Props = {
   conv: Conversation;
   display?: ConversationDisplay;
@@ -21,6 +23,7 @@ type Props = {
   selected: boolean;
   connections: WhatsAppConnection[];
   showChannelTag: boolean;
+  origin?: ConversationOrigin;
   style: React.CSSProperties;
   measureRef?: (el: HTMLElement | null) => void;
   dataIndex: number;
@@ -41,6 +44,7 @@ export const WaConvRow = memo(function WaConvRow({
   selected,
   connections,
   showChannelTag,
+  origin,
   style,
   measureRef,
   dataIndex,

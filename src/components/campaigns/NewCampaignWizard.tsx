@@ -59,6 +59,7 @@ import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { CampaignReplyFlowEditor } from './CampaignReplyFlowEditor';
 import { CampaignFlowModePicker, type CampaignFlowMode } from './CampaignFlowModePicker';
 import { CampaignSingleMessageEditor } from './CampaignSingleMessageEditor';
+import { CampaignPreflightEstimate } from './CampaignPreflightEstimate';
 import { CampaignMessageSetupProgress } from './CampaignMessageSetupProgress';
 import { createLibraryItem } from '../../services/campaignLibraryApi';
 import { apiCheckScheduledDuplicates } from '../../services/campaignsApi';
@@ -664,6 +665,17 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const filteredNumbers = useMemo(() => finalContacts.map((c) => c.phone), [finalContacts]);
   // Compat: nome antigo usado mais abaixo
   const filteredContacts = finalContacts;
+
+  const reviewRecipientCount = useMemo(() => {
+    if (sendMode === 'list') return selectedListContactsForSend.length;
+    if (sendMode === 'filter') return filteredContacts.length;
+    return numbers.length;
+  }, [sendMode, selectedListContactsForSend.length, filteredContacts.length, numbers.length]);
+
+  const reviewStageCount = useMemo(
+    () => (campaignFlowMode === 'single' ? 1 : Math.max(1, messageStages.filter((s) => s.body.trim()).length)),
+    [campaignFlowMode, messageStages]
+  );
 
   const toggleFilterValue = (set: Set<string>, setter: (s: Set<string>) => void, value: string) => {
     const next = new Set(set);
@@ -3074,6 +3086,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
             <Card>
               <h3 className="ui-title text-[15px] mb-1">Revisao final</h3>
               <p className="ui-subtitle text-[12.5px] mb-4">Confira os dados antes de iniciar o disparo.</p>
+
+              <CampaignPreflightEstimate
+                recipientCount={reviewRecipientCount}
+                delayMinSec={delaySeconds}
+                delayMaxSec={delaySecondsMax > delaySeconds ? delaySecondsMax : delaySeconds * 2}
+                channelCount={Math.max(1, connectedIds.length)}
+                stageCount={reviewStageCount}
+              />
 
               <div
                   className="mb-5 p-4 rounded-xl space-y-3"

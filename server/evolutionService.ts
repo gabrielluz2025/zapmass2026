@@ -13,6 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { evolutionConfig } from './evolutionConfig.js';
+import { notifyTenant } from './tenantNotifyService.js';
 import { getEffectiveRedisUrl } from './redisConfig.js';
 import {
     attachRedisStressGuard,
@@ -1232,6 +1233,17 @@ function applyConnectionStateUpdate(
     const ownerUid = resolveOwnerUid(instance);
     if (ownerUid) {
         publishOwnerEvent(ownerUid, 'connection-update', updatePayload);
+        if (prevStatus === 'open' && !open && status === 'OFFLINE') {
+            void notifyTenant(
+                ownerUid,
+                'chip_offline',
+                {
+                    connectionId: instance,
+                    connectionLabel: connAfter?.friendlyName || instance,
+                },
+                'chip_offline'
+            );
+        }
         publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
     } else {
         warnUnscopedConnectionEvent(instance, 'connection-update');
@@ -2718,6 +2730,18 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
                     failCount: state.failCount,
                     total: state.total,
                 });
+                void notifyTenant(
+                    state.ownerUid,
+                    'campaign_complete',
+                    {
+                        campaignId,
+                        campaignName: campaignId,
+                        sent: state.successCount,
+                        failed: state.failCount,
+                        total: state.total,
+                    },
+                    'campaign_complete'
+                );
             }
         }
 
@@ -4246,6 +4270,19 @@ function ensureCampaignWorker() {
                     connectionId: item.connectionId,
                     error: err.message,
                 });
+            }
+            if (campaignState?.ownerUid) {
+                void notifyTenant(
+                    campaignState.ownerUid,
+                    'campaign_job_dead',
+                    {
+                        campaignId: item.campaignId,
+                        to: item.to,
+                        connectionId: item.connectionId,
+                        error: err.message,
+                    },
+                    'job_dead'
+                );
             }
             emitCampaignLog(
                 'ERROR',

@@ -1,5 +1,7 @@
 import React from 'react';
-import { Sparkles, Hand, Calendar, Bell, Tag } from 'lucide-react';
+import { Sparkles, Hand, Calendar, Bell, Tag, Church, ShoppingBag, Stethoscope, Home } from 'lucide-react';
+import { SEGMENT_MESSAGE_STARTERS } from '../../constants/segmentMessageStarters';
+import { useAppProfile } from '../../context/AppProfileContext';
 
 export type MessageQuickStarter = {
   id: string;
@@ -50,17 +52,37 @@ type Props = {
   disabled?: boolean;
 };
 
+const SEGMENT_ICONS: Record<string, React.ReactNode> = {
+  culto: <Church className="w-3.5 h-3.5" />,
+  visita: <Hand className="w-3.5 h-3.5" />,
+  'promo-loja': <ShoppingBag className="w-3.5 h-3.5" />,
+  carrinho: <Tag className="w-3.5 h-3.5" />,
+  consulta: <Stethoscope className="w-3.5 h-3.5" />,
+  imovel: <Home className="w-3.5 h-3.5" />
+};
+
 /** Atalhos para quem não quer começar do zero — um clique preenche o editor. */
-export const CampaignMessageQuickStarters: React.FC<Props> = ({ onPick, disabled }) => (
+export const CampaignMessageQuickStarters: React.FC<Props> = ({ onPick, disabled }) => {
+  const { segment } = useAppProfile();
+  const segmentStarters = (segment && SEGMENT_MESSAGE_STARTERS[segment]) || [];
+  const all: MessageQuickStarter[] = [
+    ...MESSAGE_QUICK_STARTERS,
+    ...segmentStarters.map((s) => ({
+      ...s,
+      icon: SEGMENT_ICONS[s.id] || <Hand className="w-3.5 h-3.5" />
+    }))
+  ];
+
+  return (
   <div className="cw-quick-starters">
     <div className="flex items-center gap-2 mb-2">
       <Sparkles className="w-3.5 h-3.5" style={{ color: 'var(--brand-500)' }} />
       <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-        Começar com um modelo
+        Começar com um modelo{segmentStarters.length ? ' (incl. seu segmento)' : ''}
       </p>
     </div>
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-      {MESSAGE_QUICK_STARTERS.map((s) => (
+      {all.map((s) => (
         <button
           key={s.id}
           type="button"
@@ -85,4 +107,5 @@ export const CampaignMessageQuickStarters: React.FC<Props> = ({ onPick, disabled
       ))}
     </div>
   </div>
-);
+  );
+};

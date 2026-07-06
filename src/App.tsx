@@ -43,7 +43,7 @@ import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/op
 import { readClientSurveyTokenFromWindow } from './utils/readClientSurveyTokenFromWindow';
 import { readPublicLegalPageFromWindow } from './utils/readPublicLegalPageFromWindow';
 import { lazyWithRetry } from './utils/lazyWithRetry';
-import { prefetchDefaultAppViews } from './utils/prefetchAppViews';
+import { useRegisterLegalAcceptances } from './hooks/useRegisterLegalAcceptances';
 
 /** Rota pública `/avaliacao` — não entra no bundle principal. */
 const ClientSatisfactionSurveyPage = lazyWithRetry(
@@ -583,6 +583,7 @@ const MainLayoutWithPrefetch: React.FC = () => {
 
 const AuthGate: React.FC = () => {
   const { user, loading } = useAuth();
+  useRegisterLegalAcceptances();
 
   if (loading) {
     return <SessionSpinner label="Carregando sessao..." />;

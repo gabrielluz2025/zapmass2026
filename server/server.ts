@@ -102,6 +102,8 @@ import { registerConnectionsSyncRoutes } from './connectionsSyncRoutes.js';
 import { registerSupportBotRoutes } from './supportBotRoutes.js';
 import { registerAiAssistantRoutes } from './aiAssistantRoutes.js';
 import { registerAssistantRoutes } from './assistantRoutes.js';
+import { registerTenantExtrasRoutes } from './tenantExtrasRoutes.js';
+import { startRenewalReminderJob } from './renewalReminderJob.js';
 import { structuredLog } from './structuredLog.js';
 import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
 import { redisPing, redisPingWithFallback } from './redisPing.js';
@@ -374,6 +376,7 @@ registerConnectionsSyncRoutes(app);
 registerSupportBotRoutes(app);
 registerAiAssistantRoutes(app);
 registerAssistantRoutes(app);
+registerTenantExtrasRoutes(app);
 
 // --- API ROUTES ---
 /** /health — liveness probe simples para Uptime Kuma / Docker healthcheck */
@@ -2357,6 +2360,7 @@ const bootstrap = async () => {
   registerSocketHandlers();
   startScheduledCampaignRunner();
   startCampaignJobsReaper();
+  startRenewalReminderJob();
 
   // Registra a função de envio do auto-warmup do servidor via Evolution API
   waService.registerWarmupSendFn(async (connectionId, toPhone, message) => {

@@ -6,6 +6,7 @@ import {
   CheckCheck,
   Clock,
   Download,
+  FileText,
   Eye,
   Flame,
   MessageSquare,
@@ -21,6 +22,8 @@ import { PerformanceFunnel } from './PerformanceFunnel';
 import type { Campaign } from '../types';
 import { getCampaignDeliverySuccessRatePct, getCampaignPlannedSendTotal } from '../utils/campaignMetrics';
 import { ClientAttendanceFeedbackSection } from './reports/ClientAttendanceFeedbackSection';
+import { CampaignFailuresPanel } from './tenant/CampaignFailuresPanel';
+import { printReportsPdf } from '../utils/reportsPdfExport';
 
 type PeriodFilter = '7d' | '30d' | '90d';
 
@@ -258,6 +261,27 @@ export const ReportsTab: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadPdf = () => {
+    printReportsPdf({
+      title: 'Relatório ZapMass',
+      periodLabel: PERIOD_LABEL[period],
+      kpis: [
+        { label: 'Mensagens enviadas', value: fmt(totalSent) },
+        { label: 'Taxa de sucesso', value: `${healthRate}%` },
+        { label: 'Taxa de leitura', value: `${readRate}%` },
+        { label: 'Taxa de resposta', value: `${replyRate}%` }
+      ],
+      campaigns: current.map((c) => ({
+        name: c.name,
+        date: c.createdAt ? new Date(c.createdAt).toLocaleDateString('pt-BR') : '',
+        total: c.totalContacts,
+        success: c.successCount,
+        failed: c.failedCount,
+        rate: getCampaignDeliverySuccessRatePct(c)
+      }))
+    });
+  };
+
   return (
     <PageShell
       statusStrip={
@@ -282,6 +306,9 @@ export const ReportsTab: React.FC = () => {
           />
           <Button variant="primary" size="sm" leftIcon={<Download className="w-4 h-4" />} onClick={handleDownloadCSV}>
             CSV
+          </Button>
+          <Button variant="secondary" size="sm" leftIcon={<FileText className="w-4 h-4" />} onClick={handleDownloadPdf}>
+            PDF
           </Button>
         </>
       }
@@ -375,6 +402,10 @@ export const ReportsTab: React.FC = () => {
       </div>
 
       <ClientAttendanceFeedbackSection />
+
+      <CollapsibleSection title="Falhas de campanha (DLQ)" defaultOpen={false}>
+        <CampaignFailuresPanel />
+      </CollapsibleSection>
 
       <CollapsibleSection
         title="Gráficos de volume e horários"

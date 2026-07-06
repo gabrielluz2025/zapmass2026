@@ -37,6 +37,12 @@ import {
 } from './lib/conversationDisplay';
 import { getConversationPipelineAgg } from './lib/chatPreview';
 import {
+  buildOriginIndex,
+  countSystemConversations,
+  type ConversationOrigin,
+} from './lib/conversationOrigin';
+import { WaInboxTeamBar } from './WaInboxTeamBar';
+import {
   isInboxFullSyncDoneToday,
   markInboxFullSyncDoneForToday,
 } from '../../utils/tenantDailyCache';
@@ -46,7 +52,7 @@ export const WaWebChatApp: React.FC<{
   onClearAutoSelected?: () => void;
 }> = ({ autoSelectedConversationId, onClearAutoSelected }) => {
   const { user } = useAuth();
-  const { effectiveWorkspaceUid } = useWorkspace();
+  const { effectiveWorkspaceUid, authUid: workspaceAuthUid, isTeamMember, isWorkspaceOwner, loading: workspaceLoading } = useWorkspace();
   const tenantUid = effectiveWorkspaceUid ?? user?.uid ?? '';
   const crm = useClientCrm(user?.uid);
   const conversations = useZapMassConversations();
@@ -62,6 +68,7 @@ export const WaWebChatApp: React.FC<{
     hydrateFirestoreChatArchive,
     loadMessageMedia,
     patchChatMessageMediaUrl,
+    patchConversationInboxClaim,
     socket,
     isBackendConnected,
   } = useZapMassCore();
@@ -80,6 +87,7 @@ export const WaWebChatApp: React.FC<{
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [campaignOnly, setCampaignOnly] = useState(false);
   const [connectionFilterId, setConnectionFilterId] = useState<string | 'ALL'>('ALL');
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyExhausted, setHistoryExhausted] = useState<Record<string, boolean>>({});
@@ -203,11 +211,15 @@ export const WaWebChatApp: React.FC<{
     return map;
   }, [sortedConversations, displayById, profilePicByPhoneKey]);
 
+  const originById = useMemo(() => buildOriginIndex(sortedConversations), [sortedConversations]);
+  const totalSystem = useMemo(() => countSystemConversations(originById), [originById]);
+
   const filtered = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase();
     return sortedConversations.filter((c) => {
       if (connectionFilterId !== 'ALL' && c.connectionId !== connectionFilterId) return false;
       if (unreadOnly && unreadCount(c) === 0) return false;
+      if (campaignOnly && originById.get(c.id) !== 'system') return false;
       if (!q) return true;
       const disp = displayById.get(c.id);
       const primary = disp?.primary?.toLowerCase() ?? '';
@@ -216,7 +228,7 @@ export const WaWebChatApp: React.FC<{
       const preview = (c.lastMessage || '').toLowerCase();
       return primary.includes(q) || sub.includes(q) || phone.includes(q) || preview.includes(q);
     });
-  }, [sortedConversations, deferredSearch, unreadOnly, connectionFilterId, displayById]);
+  }, [sortedConversations, deferredSearch, unreadOnly, campaignOnly, connectionFilterId, displayById, originById]);
 
   const selected = useMemo(
     () => sortedConversations.find((c) => c.id === selectedId) ?? null,
@@ -790,6 +802,10 @@ export const WaWebChatApp: React.FC<{
         connections={connections}
         onSearch={setSearch}
         onToggleUnread={() => setUnreadOnly((v) => !v)}
+        campaignOnly={campaignOnly}
+        totalSystem={totalSystem}
+        onToggleCampaign={() => setCampaignOnly((v) => !v)}
+        originById={originById}
         onRefresh={handleRefresh}
         onSelect={selectChat}
         hideOnMobile={mobileShowThread}
@@ -799,6 +815,16 @@ export const WaWebChatApp: React.FC<{
         onRequestPicture={requestConversationPicture}
       />
 
+      <div className="flex flex-col flex-1 min-w-0 min-h-0">
+        <WaInboxTeamBar
+          conversation={selected}
+          isDraft={isSelectedDraft}
+          workspaceAuthUid={workspaceLoading ? null : workspaceAuthUid}
+          isTeamMember={isTeamMember}
+          isWorkspaceOwner={isWorkspaceOwner}
+          patchConversationInboxClaim={patchConversationInboxClaim}
+          socket={socket}
+        />
       <WaThread
         conversation={selected}
         display={selectedDisplay ?? null}
@@ -831,6 +857,7 @@ export const WaWebChatApp: React.FC<{
         draftChannelId={selectedDraftChannelId}
         onDraftChannelChange={handleDraftChannelChange}
       />
+      </div>
 
       {selected && (
         <WaContactDrawer

@@ -37,6 +37,10 @@ import {
   WHATSAPP_RISK_SHORT
 } from '../constants/whatsappLegal';
 import { PlatformSupportCard } from './legal/PlatformSupportCard';
+import { LgpdPrivacyPanel } from './tenant/LgpdPrivacyPanel';
+import { OptOutManagerPanel } from './tenant/OptOutManagerPanel';
+import { MySuggestionsPanel } from './tenant/MySuggestionsPanel';
+import { testTenantWebhook } from '../services/tenantExtrasApi';
 import { usePlatformInfo } from '../hooks/usePlatformInfo';
 import {
   clearWhatsAppRiskAck,
@@ -610,6 +614,29 @@ export const SettingsTab: React.FC = () => {
                 <p className="text-[11.5px] mt-1.5" style={{ color: 'var(--text-3)' }}>
                   Vamos fazer <span className="font-mono text-[11px]">POST</span> em JSON com o payload do evento. Deixe em branco para desativar.
                 </p>
+                <div className="mt-3">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    disabled={!webhookUrl.trim()}
+                    onClick={() => {
+                      void (async () => {
+                        if (!user) return;
+                        try {
+                          const token = await user.getIdToken();
+                          const res = await testTenantWebhook(token);
+                          if (res.ok) toast.success('Webhook de teste enviado. Verifique seu endpoint.');
+                          else toast.error(res.error || 'Falha no teste.');
+                        } catch {
+                          toast.error('Erro ao testar webhook.');
+                        }
+                      })();
+                    }}
+                  >
+                    Testar webhook
+                  </Button>
+                </div>
               </div>
             </div>
           </Card>
@@ -711,7 +738,7 @@ export const SettingsTab: React.FC = () => {
                     Segmento de uso — pode mudar quando quiser
                   </p>
                   <p className="text-[11.5px] mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>
-                    Usado para personalizar o produto no futuro. A equipa vê o mesmo segmento definido pelo gestor.
+                    Personaliza modelos de campanha e telas extras (ex.: religioso). Modelos do seu segmento aparecem ao criar campanha.
                   </p>
                   <p
                     className="text-[11.5px] mt-2 leading-snug rounded-lg px-2.5 py-2"
@@ -872,6 +899,7 @@ export const SettingsTab: React.FC = () => {
           <CollapsibleSection title="Novidades do app" defaultOpen={false}>
             <ChangelogPanel maxItems={3} showTitle={false} />
           </CollapsibleSection>
+          <MySuggestionsPanel />
         </div>
       )}
 
@@ -879,6 +907,8 @@ export const SettingsTab: React.FC = () => {
       {section === 'legal' && (
         <div className="space-y-4">
           {platformInfo ? <PlatformSupportCard info={platformInfo} /> : null}
+          <LgpdPrivacyPanel />
+          <OptOutManagerPanel />
           <Card className="p-5">
             <div className="flex items-start gap-3">
               <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
