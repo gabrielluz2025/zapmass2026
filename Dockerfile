@@ -102,7 +102,7 @@ RUN echo "${VITE_GIT_REF}" > VERSION
 EXPOSE 3001
 
 HEALTHCHECK --interval=30s --timeout=15s --start-period=180s --retries=5 \
-  CMD curl -fsS http://127.0.0.1:3001/api/health || exit 1
+  CMD curl -fsS --max-time 8 http://127.0.0.1:3001/api/health || exit 1
 
 # tini como PID 1: repasse de sinais ao grupo de processos e mais reaping de filhos (Chromium).
 ENTRYPOINT ["/usr/bin/tini", "-g", "--"]

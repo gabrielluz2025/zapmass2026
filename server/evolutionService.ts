@@ -14,6 +14,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { evolutionConfig } from './evolutionConfig.js';
 import { getEffectiveRedisUrl } from './redisConfig.js';
+import {
+    attachRedisStressGuard,
+    attachWorkerStressGuard,
+    type BullmqRecoveryHandler,
+} from './redisBullmqResilience.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
 import {
     ReplyFlowEngine,
@@ -1733,6 +1738,7 @@ function getRedisConnection(): IORedis | null {
         redisConnection.on('error', (err) => {
             console.warn('[campaign-queue] redis error:', err?.message || err);
         });
+        attachRedisStressGuard(redisConnection, getCampaignBullmqRecovery());
         // Quando a conexão se recupera, garantir que o worker está ativo.
         redisConnection.on('connect', () => {
             console.info('[campaign-queue] Redis reconectado — verificando worker…');
@@ -1759,6 +1765,14 @@ export function resetCampaignRedisConnection(): void {
         campaignWorker = null;
     }
     console.info('[campaign-queue] Conexão Redis resetada manualmente');
+}
+
+function getCampaignBullmqRecovery(): BullmqRecoveryHandler {
+    return {
+        name: 'campaign-queue',
+        reset: resetCampaignRedisConnection,
+        ensureWorker: ensureCampaignWorker,
+    };
 }
 
 /** Verifica se o Redis está acessível abrindo uma conexão independente (não interfere no BullMQ). */
@@ -4184,6 +4198,8 @@ function ensureCampaignWorker() {
         concurrency,
         limiter: { max: 20, duration: 1000 },
     });
+
+    attachWorkerStressGuard(campaignWorker, getCampaignBullmqRecovery());
 
     campaignWorker.on('failed', (job, err) => {
         const item = job?.data;

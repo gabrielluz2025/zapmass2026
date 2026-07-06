@@ -73,7 +73,7 @@ import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscription
 import { getPlanLimitsForSub } from './planLimits.js';
 import { getSystemMetrics } from './systemMetricsShared.js';
 import { getChatOpsMetricsSnapshot, recordInboxSyncDuration } from './chatOpsMetrics.js';
-import { getEvolutionWebhookQueueMetrics } from './evolutionWebhookQueue.js';
+import { getEvolutionWebhookQueueMetrics, resetEvolutionWebhookRedisConnection } from './evolutionWebhookQueue.js';
 import { startScheduledCampaignRunner } from './scheduledCampaignRunner.js';
 import { startOwnerEmitRedisSubscriber } from './redisOwnerEmitBridge.js';
 import { startCampaignJobsReaper, stopCampaignJobsReaper, getQueueHealthMetrics } from './campaignJobsResilience.js';
@@ -105,6 +105,8 @@ import { registerAssistantRoutes } from './assistantRoutes.js';
 import { structuredLog } from './structuredLog.js';
 import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
 import { redisPing, redisPingWithFallback } from './redisPing.js';
+import { redisMemoryInfo } from './redisMemory.js';
+import { isRedisStressError } from './redisBullmqResilience.js';
 import { getRedisUrlCandidates, getRedisUrlMisconfigHint, parseRedisHost } from './redisConfig.js';
 import { configureTrustProxy } from './trustProxySetup.js';
 import { evolutionWebhookLimiter } from './httpRateLimit.js';
@@ -459,8 +461,9 @@ app.get('/api/health/redis', async (_req, res) => {
     commandTimeout: 5000,
     maxRetriesPerRequest: 1,
   });
-  if (!ping.ok && ping.error?.includes('Connection is closed')) {
+  if (!ping.ok && (ping.error?.includes('Connection is closed') || isRedisStressError(new Error(ping.error ?? '')))) {
     evolutionService.resetCampaignRedisConnection();
+    resetEvolutionWebhookRedisConnection();
     ping = await redisPingWithFallback(redisUrl, {
       connectTimeout: 5000,
       commandTimeout: 5000,
@@ -501,8 +504,9 @@ async function buildDispatchHealthBody(): Promise<{ status: number; body: Record
   }
   const pingOpts = { connectTimeout: 5000, commandTimeout: 5000, maxRetriesPerRequest: 1 };
   let ping = await redisPingWithFallback(redisUrl, pingOpts);
-  if (!ping.ok && ping.error?.includes('Connection is closed')) {
+  if (!ping.ok && (ping.error?.includes('Connection is closed') || isRedisStressError(new Error(ping.error ?? '')))) {
     evolutionService.resetCampaignRedisConnection();
+    resetEvolutionWebhookRedisConnection();
     ping = await redisPingWithFallback(redisUrl, pingOpts);
   }
   const effectiveUrl = ping.usedUrl || redisUrl || '';
@@ -558,6 +562,7 @@ app.post('/api/health/dispatch/reconnect', async (_req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   dispatchHealthCache = null;
   evolutionService.resetCampaignRedisConnection();
+  resetEvolutionWebhookRedisConnection();
   await new Promise((r) => setTimeout(r, 400));
   const { status, body } = await buildDispatchHealthBody();
   if (status === 200) {
@@ -574,7 +579,24 @@ app.get('/api/health/deep', metricsAccessMiddleware, async (_req, res) => {
   };
   if (redisUrl) {
     const ping = await redisPing(redisUrl);
-    redis = { configured: true, ok: ping.ok, pingMs: ping.pingMs, error: ping.error };
+    const memory = ping.ok ? await redisMemoryInfo(redisUrl) : undefined;
+    redis = {
+      configured: true,
+      ok: ping.ok,
+      pingMs: ping.pingMs,
+      error: ping.error,
+      memory: memory?.ok
+        ? {
+            usedMemoryHuman: memory.usedMemoryHuman,
+            maxMemoryHuman: memory.maxMemoryHuman,
+            usedPct: memory.usedPct,
+            warnThresholdMb: memory.warnThresholdMb,
+            warn: memory.warn,
+          }
+        : memory?.error
+          ? { error: memory.error }
+          : undefined,
+    };
   }
   const sessionRouter = getSessionRouterMetrics();
   const whatsappWorkers = getWhatsappProcessWorkerCount();

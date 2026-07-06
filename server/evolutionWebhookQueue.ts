@@ -11,6 +11,11 @@ import {
   recordEvolutionWebhookLagMs,
   setEvolutionWebhookQueueDepth,
 } from './chatOpsMetrics.js';
+import {
+  attachRedisStressGuard,
+  attachWorkerStressGuard,
+  type BullmqRecoveryHandler,
+} from './redisBullmqResilience.js';
 
 export type EvolutionWebhookJobPayload = {
   event: unknown;
@@ -37,18 +42,56 @@ export function isEvolutionWebhookQueueEnabled(): boolean {
 function getRedisConnection(): IORedis | null {
   const url = getRedisUrl();
   if (!url) return null;
+
+  if (redisConnection && (redisConnection.status === 'end' || redisConnection.status === 'close')) {
+    console.warn('[evolution-webhook-queue] Conexão Redis fechada — recriando…');
+    resetEvolutionWebhookRedisConnection();
+  }
+
   if (!redisConnection) {
     redisConnection = new IORedis(url, {
       maxRetriesPerRequest: null,
       enableOfflineQueue: false,
-      retryStrategy: (times) => Math.min(times * 500, 5000),
+      connectTimeout: 8_000,
+      commandTimeout: 12_000,
+      retryStrategy: (times) => Math.min(times * 500, 10_000),
       reconnectOnError: () => true,
     });
     redisConnection.on('error', (err) => {
       console.warn('[evolution-webhook-queue] redis error:', err?.message || err);
     });
+    attachRedisStressGuard(redisConnection, getWebhookBullmqRecovery());
+    redisConnection.on('connect', () => {
+      console.info('[evolution-webhook-queue] Redis reconectado — verificando worker…');
+      ensureEvolutionWebhookWorker();
+    });
   }
   return redisConnection;
+}
+
+export function resetEvolutionWebhookRedisConnection(): void {
+  if (webhookWorker) {
+    webhookWorker.close().catch(() => {});
+    webhookWorker = null;
+  }
+  webhookQueue = null;
+  if (redisConnection) {
+    try {
+      redisConnection.disconnect();
+    } catch {
+      /* ignore */
+    }
+  }
+  redisConnection = null;
+  console.info('[evolution-webhook-queue] Conexão Redis resetada');
+}
+
+function getWebhookBullmqRecovery(): BullmqRecoveryHandler {
+  return {
+    name: 'evolution-webhook-queue',
+    reset: resetEvolutionWebhookRedisConnection,
+    ensureWorker: ensureEvolutionWebhookWorker,
+  };
 }
 
 function getWebhookQueue(): Queue<EvolutionWebhookJobPayload> | null {
@@ -166,6 +209,8 @@ export function ensureEvolutionWebhookWorker(): void {
       },
     }
   );
+
+  attachWorkerStressGuard(webhookWorker, getWebhookBullmqRecovery());
 
   webhookWorker.on('failed', (job, err) => {
     console.error('[evolution-webhook-queue] job falhou', {
