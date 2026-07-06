@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { getModalPortalContainer } from '../../utils/domPortal';
 import {
   BarChart3,
   BookOpen,
@@ -128,6 +130,15 @@ export const AssistantPanel: React.FC<Props> = ({
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
   const sendQuestion = async (raw: string) => {
     const question = raw.trim();
     if (!question || !user || sending) return;
@@ -173,9 +184,9 @@ export const AssistantPanel: React.FC<Props> = ({
     }
   };
 
-  if (!open) return null;
+  if (!open || typeof document === 'undefined') return null;
 
-  return (
+  return createPortal(
     <>
       <div className="zm-asst-backdrop" onClick={onClose} aria-hidden />
       <aside className="zm-asst-panel" role="dialog" aria-label="Assistente ZapMass">
@@ -339,6 +350,7 @@ export const AssistantPanel: React.FC<Props> = ({
           )}
         </footer>
       </aside>
-    </>
+    </>,
+    getModalPortalContainer()
   );
 };
