@@ -9,7 +9,7 @@ import { findUserById } from './auth/userRepository.js';
 import { listContacts } from './repositories/contactsRepository.js';
 import { listContactLists } from './repositories/contactListsRepository.js';
 import { getQueueHealthMetrics } from './campaignJobsResilience.js';
-import { WHATSAPP_RISK_VERSION } from '../src/constants/whatsappLegal.js';
+import { WHATSAPP_RISK_VERSION } from '../shared/whatsappLegal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DLQ_FILE = path.join(__dirname, '../data/dead_letter_queue.json');

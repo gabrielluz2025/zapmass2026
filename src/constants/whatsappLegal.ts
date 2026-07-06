@@ -8,7 +8,7 @@ export const WHATSAPP_META_CLOUD_GET_STARTED =
 
 export const WHATSAPP_META_POLICY = 'https://www.whatsapp.com/legal/business-policy';
 
-export const WHATSAPP_RISK_VERSION = '2026-04-17';
+export { WHATSAPP_RISK_VERSION } from '../../shared/whatsappLegal';
 
 export const WHATSAPP_RISK_SHORT =
   'O WhatsApp e de propriedade da Meta. Disparos em massa, automacao nao autorizada ou listas sem consentimento podem gerar banimento de numeros, bloqueio de contas e exigencias legais (incluindo LGPD no Brasil). Quem opera o sistema e o conteudo das mensagens e o cliente; o ZapMass e uma ferramenta.';
