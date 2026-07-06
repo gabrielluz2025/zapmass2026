@@ -233,7 +233,13 @@ export function registerVpsAuthRoutes(app: Express): void {
     if (!plain) {
       return res.status(401).json({ ok: false, error: 'Sessão expirada.' });
     }
-    const row = await findValidRefreshToken(hashRefreshToken(plain));
+    let row: Awaited<ReturnType<typeof findValidRefreshToken>> = null;
+    try {
+      row = await findValidRefreshToken(hashRefreshToken(plain));
+    } catch (e) {
+      console.error('[auth/refresh] Erro ao consultar refresh token:', (e as Error)?.message);
+      return res.status(503).json({ ok: false, error: 'Banco de dados temporariamente indisponível.' });
+    }
     if (!row) {
       return res.status(401).json({ ok: false, error: 'Sessão inválida ou expirada.' });
     }
