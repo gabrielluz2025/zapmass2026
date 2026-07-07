@@ -1,4 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useCallback } from 'react';
+import { pdf } from '@react-pdf/renderer';
+import { ZapMassPDF } from './ZapMassPDF';
 
 /* ─────────────────────────────────────────────────────────────
    ILUSTRAÇÕES SVG — uma por seção
@@ -564,11 +566,26 @@ const PrintStyles = () => (
    ───────────────────────────────────────────────────────────── */
 export const TutorialPage: React.FC = () => {
   const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const topRef = useRef<HTMLDivElement>(null);
 
-  const handleDownload = () => {
-    window.print();
-  };
+  const handleDownload = useCallback(async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const blob = await pdf(<ZapMassPDF />).toBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ZapMass-Guia-Completo.pdf';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Erro ao gerar PDF:', err);
+    } finally {
+      setDownloading(false);
+    }
+  }, [downloading]);
 
   const scrollTo = (id: string) => {
     const el = document.getElementById(`section-${id}`);
@@ -593,12 +610,12 @@ export const TutorialPage: React.FC = () => {
           <button
             onClick={handleDownload}
             className="tu-download-btn tu-no-print"
-            style={{ marginTop: 24, padding: '12px 28px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 20px rgba(16,185,129,0.4)' }}
+            style={{ marginTop: 24, padding: '12px 28px', background: downloading ? '#059669' : '#10b981', color: '#fff', border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: downloading ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 20px rgba(16,185,129,0.4)', transition: 'all 0.2s', opacity: downloading ? 0.8 : 1 }}
           >
-            ⬇️ Baixar como PDF
+            {downloading ? '⏳ Gerando PDF...' : '⬇️ Baixar como PDF'}
           </button>
           <p className="tu-no-print" style={{ color: '#8b949e', fontSize: 12, marginTop: 8 }}>
-            O navegador abrirá a janela de impressão — escolha "Salvar como PDF"
+            PDF profissional de 12 páginas — com capa, sumário e ilustrações
           </p>
         </div>
 
@@ -729,9 +746,9 @@ export const TutorialPage: React.FC = () => {
             <button
               onClick={handleDownload}
               className="tu-download-btn tu-no-print"
-              style={{ marginTop: 20, padding: '10px 24px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+              style={{ marginTop: 20, padding: '10px 24px', background: downloading ? '#059669' : '#10b981', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: downloading ? 'wait' : 'pointer', opacity: downloading ? 0.8 : 1 }}
             >
-              ⬇️ Baixar este guia em PDF
+              {downloading ? '⏳ Gerando...' : '⬇️ Baixar este guia em PDF'}
             </button>
           </div>
         </div>

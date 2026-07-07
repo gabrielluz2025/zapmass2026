@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1052.0",
+    "@react-pdf/renderer": "^4.5.1",
     "@tanstack/react-virtual": "^3.13.24",
     "axios": "^1.13.2",
     "bullmq": "^5.77.0",
