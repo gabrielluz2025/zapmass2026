@@ -196,6 +196,7 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
                     type="button"
                     className={`cw-vars-chip cw-greeting-kit-tab ${active ? 'cw-vars-chip--greeting' : 'cw-vars-chip--ficha'}`}
                     aria-pressed={active}
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => selectKit(kit.id)}
                   >
                     {kitButtonLabel(kit)}
@@ -236,6 +237,7 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
               <button
                 type="button"
                 className="cw-greeting-insert-btn"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => insertToken(activeKit.items)}
               >
                 <MousePointerClick className="w-3.5 h-3.5 shrink-0" />
@@ -256,6 +258,7 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
                       key={`${activeKit.id}-one-${g}`}
                       type="button"
                       className="cw-vars-chip cw-vars-chip--ficha"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => insertToken([g])}
                     >
                       {g}

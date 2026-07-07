@@ -87,6 +87,7 @@ export const CampaignMessageQuickStarters: React.FC<Props> = ({ onPick, disabled
           key={s.id}
           type="button"
           disabled={disabled}
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => onPick(s.body)}
           className="cw-quick-starter-card text-left transition-all disabled:opacity-50"
           style={{ borderColor: `${s.accent}30` }}

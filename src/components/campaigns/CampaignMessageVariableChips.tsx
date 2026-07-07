@@ -69,6 +69,7 @@ export const CampaignMessageVariableChips: React.FC<Props> = ({
                       ? 'Data em Brasília no envio'
                       : undefined
               }
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => onInsert(v)}
               className="cw-vars-chip cw-vars-chip--primary"
             >
@@ -79,7 +80,7 @@ export const CampaignMessageVariableChips: React.FC<Props> = ({
         <p className="cw-vars-group-label">{isFull ? 'Ficha do contato' : 'Ficha (mesmo campo)'}</p>
         <div className="flex flex-wrap gap-1 mb-1">
           {fichaVars.map((v) => (
-            <button key={v} type="button" onClick={() => onInsert(v)} className="cw-vars-chip cw-vars-chip--ficha">
+            <button key={v} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => onInsert(v)} className="cw-vars-chip cw-vars-chip--ficha">
               {v}
             </button>
           ))}
