@@ -1132,7 +1132,7 @@ const SortSelect: React.FC<{ value: SortKey; onChange: (v: SortKey) => void }> =
       </button>
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 rounded-xl z-30 py-1 min-w-[200px]"
+          className="absolute right-0 top-full mt-1 rounded-xl z-[9999] py-1 min-w-[200px]"
           style={{
             background: 'var(--surface)',
             border: '1px solid var(--border)',
