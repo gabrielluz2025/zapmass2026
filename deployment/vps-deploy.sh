@@ -454,6 +454,33 @@ else
   else
     docker compose up -d --build
   fi
+  # Auto-recuperação de corrupção de WAL do Postgres (PANIC: could not locate a valid checkpoint record).
+  # Aguarda até 20s para o postgres subir; se não subir e o log tiver o erro de WAL, faz pg_resetwal e reinicia.
+  _pg_ok=0
+  for _i in 1 2 3 4; do
+    sleep 5
+    if docker compose ps postgres 2>/dev/null | grep -qE 'healthy|running'; then
+      _pg_ok=1
+      break
+    fi
+  done
+  if [ "${_pg_ok}" -eq 0 ]; then
+    if docker compose logs --tail=30 postgres 2>/dev/null | grep -qiE 'checkpoint record|invalid page|PANIC|database system identifier'; then
+      echo "==> AVISO: Postgres com WAL corrompido detectado — executando pg_resetwal automaticamente"
+      docker compose stop postgres 2>/dev/null || true
+      _PG_VOL="$(docker volume ls -q | grep -E 'zapmass.?postgres' | head -1 || echo 'zapmass_zapmass-postgres')"
+      _PG_IMG="$(docker compose images postgres 2>/dev/null | awk 'NR>1{print $2":"$3}' | head -1 || echo 'postgres:15-alpine')"
+      docker run --rm -u 70 \
+        -v "${_PG_VOL}:/var/lib/postgresql/data" \
+        "${_PG_IMG}" \
+        pg_resetwal -f /var/lib/postgresql/data && echo "==> pg_resetwal OK" || echo "AVISO: pg_resetwal falhou — verifique manualmente"
+      docker compose start postgres 2>/dev/null || docker compose up -d postgres
+      sleep 8
+    else
+      echo "==> AVISO: Postgres não subiu em 20s mas sem erro de WAL nos logs — verificar manualmente."
+    fi
+  fi
+
   if docker compose ps --services 2>/dev/null | grep -q '^zapmass$'; then
     echo "==> (compose) forçar recriação do serviço zapmass"
     docker compose up -d --no-deps --build --force-recreate zapmass
