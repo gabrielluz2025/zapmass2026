@@ -562,16 +562,17 @@ const CoverPage = () => (
 /* ─── SUMÁRIO ────────────────────────────────────────────────── */
 const TOCPage = () => {
   const items = [
-    { icon: '📊', label: 'Painel (Dashboard)',       page: '3',  color: C.blue },
-    { icon: '📱', label: 'Conexões (Chips)',          page: '4',  color: C.green },
-    { icon: '💬', label: 'Bate-papo (Chat)',          page: '5',  color: C.purple },
-    { icon: '📣', label: 'Campanhas',                 page: '6',  color: C.amber },
-    { icon: '🔀', label: 'Fluxo por Resposta',        page: '7',  color: C.blue },
-    { icon: '👥', label: 'Contatos',                  page: '8',  color: C.green },
-    { icon: '📈', label: 'Relatórios',                page: '9',  color: C.purple },
-    { icon: '🔥', label: 'Aquecimento (Warmup)',       page: '10', color: C.amber },
-    { icon: '⚙️', label: 'Configurações',             page: '11', color: C.bodyMuted },
-    { icon: '✅', label: 'Boas Práticas',             page: '12', color: C.green },
+    { icon: '📊', label: 'Painel (Dashboard)',        page: '3',  color: C.blue },
+    { icon: '📱', label: 'Conexões (Chips)',           page: '4',  color: C.green },
+    { icon: '⚡', label: 'Pools de Chips',             page: '5',  color: C.blue },
+    { icon: '💬', label: 'Bate-papo (Chat)',           page: '6',  color: C.purple },
+    { icon: '📣', label: 'Campanhas',                  page: '7',  color: C.amber },
+    { icon: '🔀', label: 'Fluxo por Resposta',         page: '8',  color: C.blue },
+    { icon: '👥', label: 'Contatos',                   page: '9',  color: C.green },
+    { icon: '📈', label: 'Relatórios',                 page: '10', color: C.purple },
+    { icon: '🔥', label: 'Aquecimento (Warmup)',        page: '11', color: C.amber },
+    { icon: '⚙️', label: 'Configurações',              page: '12', color: C.bodyMuted },
+    { icon: '✅', label: 'Boas Práticas',              page: '13', color: C.green },
   ];
 
   return (
@@ -686,6 +687,65 @@ const ConexoesPage = () => (
     <Warn text="Nunca use um chip novo para disparos em massa imediatamente. Realize o aquecimento por pelo menos 2 semanas antes. Veja a seção Aquecimento." />
 
     <Footer pageNum="4" />
+  </Page>
+);
+
+/* ─── PÁGINA 2b: POOLS DE CHIPS ─────────────────────────────── */
+const PoolsPage = () => (
+  <Page size="A4" style={s.page}>
+    <Header section="Pools de Chips" />
+    <SectionPill icon="⚡" label="Pools de Chips" num="02b" color={C.blue} />
+    <Text style={s.h1}>Pools de Chips</Text>
+    <Accent color={C.blue} />
+    <Text style={s.lead}>
+      Pool de Chips é um grupo de números WhatsApp que trabalham juntos como uma equipe. O sistema distribui os envios automaticamente entre os chips do pool e faz failover instantâneo se algum chip cair — sem interromper a campanha.
+    </Text>
+
+    <Text style={s.h2}>Onde fica</Text>
+    <View style={[s.heroBlock, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+      <Text style={{ fontSize: 22 }}>📍</Text>
+      <Text style={[s.body, { flex: 1, margin: 0 }]}>
+        Aba <Text style={s.listBold}>Conexões</Text> → role até o final da página → seção <Text style={s.listBold}>"Pools de Chips"</Text>
+      </Text>
+    </View>
+
+    <Text style={s.h2}>Por que usar Pools?</Text>
+    <Li icon="⚡" bold="Failover automático:" text="Se um chip ficar offline, os outros assumem os envios sem interromper a campanha." />
+    <Li icon="📊" bold="Distribuição inteligente:" text="Escolha como os envios são divididos entre os chips do grupo." />
+    <Li icon="⏱️" bold="Menos configuração:" text="Crie a campanha uma vez usando o pool — não precisa escolher chip toda vez." />
+    <Li icon="🛡️" bold="Mais resiliência:" text="Campanhas longas não param por causa de um único chip offline." />
+
+    <Text style={s.h2}>3 estratégias de distribuição</Text>
+    <View style={s.table}>
+      <View style={s.tableHead}>
+        <Text style={[s.tableHeadCell, { flex: 0.8 }]}>Estratégia</Text>
+        <Text style={s.tableHeadCell}>Como funciona</Text>
+        <Text style={s.tableHeadCell}>Quando usar</Text>
+      </View>
+      {[
+        ['🔄 Rodízio igual',          'Divide igualmente entre todos os chips',                      'Padrão — melhor para a maioria'],
+        ['⚖️ Pesos personalizados',   'Você define % de cada chip (ex: 70% + 30%)',                 'Chips com capacidades diferentes'],
+        ['🥇 Prioridade (fallback)',  'Usa o 1º chip; se cair, passa para o 2º, depois o 3º',      'Preservar um chip principal'],
+      ].map(([est, como, quando], i) => (
+        <View key={est} style={[s.tableRow, i % 2 === 1 ? s.tableRowAlt : {}]}>
+          <Text style={[s.tableCell, { flex: 0.8, fontFamily: 'Helvetica-Bold', fontSize: 9 }]}>{est}</Text>
+          <Text style={s.tableCell}>{como}</Text>
+          <Text style={s.tableCell}>{quando}</Text>
+        </View>
+      ))}
+    </View>
+
+    <Text style={s.h2}>Como criar um Pool (passo a passo)</Text>
+    <Step num={1} text='Vá em Conexões → role até a seção "Pools de Chips" no final da página.' color={C.blue} />
+    <Step num={2} text='Clique em "Novo Pool" (botão verde no canto direito).' color={C.blue} />
+    <Step num={3} text='Digite um nome descritivo (ex.: "Pool Marketing", "Disparos Comerciais").' color={C.blue} />
+    <Step num={4} text='Escolha a estratégia de distribuição (Rodízio, Pesos ou Prioridade).' color={C.blue} />
+    <Step num={5} text='Marque os chips que farão parte do pool. Na estratégia Pesos, defina o peso de cada chip.' color={C.blue} />
+    <Step num={6} text='Clique em "Salvar pool". Na próxima campanha, selecione o pool em vez de chips individuais.' color={C.blue} />
+
+    <Tip text='Use a estratégia "Prioridade" para preservar um chip principal: o sistema só ativa os secundários quando o principal cair, mantendo-o mais descansado e com menor risco de bloqueio.' />
+
+    <Footer pageNum="4b" />
   </Page>
 );
 
@@ -1033,6 +1093,7 @@ export const ZapMassPDF: React.FC = () => (
     <TOCPage />
     <PainelPage />
     <ConexoesPage />
+    <PoolsPage />
     <BatePapoPage />
     <CampanhasPage />
     <FluxoPage />

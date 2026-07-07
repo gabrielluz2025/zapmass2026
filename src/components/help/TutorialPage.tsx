@@ -171,6 +171,30 @@ const IlluAquecimento = () => (
   </svg>
 );
 
+const IlluPools = () => (
+  <svg viewBox="0 0 320 180" fill="none" xmlns="http://www.w3.org/2000/svg" className="tu-illu">
+    <rect width="320" height="180" rx="14" fill="#0d1117"/>
+    {/* Pool central */}
+    <rect x="110" y="12" width="100" height="36" rx="10" fill="#161b22" stroke="#10b981" strokeWidth="1.5"/>
+    <text x="160" y="28" textAnchor="middle" fill="#10b981" fontSize="10" fontWeight="800">⚡ Pool Principal</text>
+    <text x="160" y="42" textAnchor="middle" fill="#8b949e" fontSize="8">Rodízio igual</text>
+    {/* Chips filhos */}
+    {[{x:20,y:78,n:"Chip 1",ok:true},{x:120,y:78,n:"Chip 2",ok:true},{x:220,y:78,n:"Chip 3",ok:false}].map((c,i)=>(
+      <g key={i}>
+        <line x1={160} y1={48} x2={c.x+40} y2={c.y} stroke="#8b949e" strokeWidth="1" strokeDasharray="3 2"/>
+        <rect x={c.x} y={c.y} width="80" height="36" rx="8" fill="#161b22" stroke={c.ok?"#10b981":"#ef4444"} strokeWidth="1.2"/>
+        <circle cx={c.x+12} cy={c.y+18} r="5" fill={c.ok?"#10b981":"#ef4444"}/>
+        <text x={c.x+40} y={c.y+14} textAnchor="middle" fill="#e6edf3" fontSize="9" fontWeight="700">{c.n}</text>
+        <text x={c.x+40} y={c.y+27} textAnchor="middle" fill={c.ok?"#10b981":"#ef4444"} fontSize="8">{c.ok?"Online":"Offline"}</text>
+      </g>
+    ))}
+    {/* Failover seta */}
+    <rect x="64" y="130" width="192" height="28" rx="8" fill="#1a2030" stroke="#3b82f6" strokeWidth="1"/>
+    <text x="160" y="143" textAnchor="middle" fill="#3b82f6" fontSize="9" fontWeight="700">🔀 Chip 3 offline → Failover automático</text>
+    <text x="160" y="154" textAnchor="middle" fill="#8b949e" fontSize="8">Chip 1 e Chip 2 assumem os envios</text>
+  </svg>
+);
+
 const IlluConfiguracoes = () => (
   <svg viewBox="0 0 320 180" fill="none" xmlns="http://www.w3.org/2000/svg" className="tu-illu">
     <rect width="320" height="180" rx="14" fill="#0d1117"/>
@@ -297,6 +321,56 @@ const sections = [
         ],
       },
       { type: 'tip', text: 'Boas práticas: nunca use chip novo para disparos em massa imediatamente. Faça o aquecimento por pelo menos 2 semanas.' },
+    ],
+  },
+  {
+    id: 'pools',
+    icon: '⚡',
+    title: 'Pools de Chips',
+    color: '#3b82f6',
+    illu: <IlluPools />,
+    content: [
+      { type: 'text', text: 'Pool de Chips é um grupo de números WhatsApp que trabalham juntos como uma equipe. Em vez de escolher um chip específico para cada campanha, você seleciona o pool e o sistema divide o trabalho automaticamente — com failover automático se algum chip cair.' },
+      {
+        type: 'list',
+        title: 'Onde fica:',
+        items: [
+          { icon: '📍', text: 'Aba Conexões → role até o final da página → seção "Pools de Chips"' },
+        ],
+      },
+      {
+        type: 'list',
+        title: 'Por que usar Pools?',
+        items: [
+          { icon: '⚡', text: 'Failover automático — se um chip ficar offline, os outros assumem os envios sem interromper a campanha' },
+          { icon: '📊', text: 'Distribuição inteligente — escolha como os envios são divididos entre os chips do grupo' },
+          { icon: '⏱️', text: 'Menos configuração — crie a campanha uma vez usando o pool; não precisa escolher chip toda vez' },
+          { icon: '🛡️', text: 'Mais resiliência — campanhas longas não param por causa de um único chip offline' },
+        ],
+      },
+      {
+        type: 'list',
+        title: '3 estratégias de distribuição:',
+        items: [
+          { icon: '🔄', text: 'Rodízio igual — divide os envios em partes iguais entre todos os chips do pool (recomendado para a maioria dos casos)' },
+          { icon: '⚖️', text: 'Pesos personalizados — você define quanto cada chip envia (ex.: Chip A = 70%, Chip B = 30%). Útil quando os chips têm capacidades diferentes' },
+          { icon: '🥇', text: 'Prioridade (fallback em ordem) — usa o 1º chip da lista; se ele cair, passa para o 2º, depois o 3º. Ideal quando quer preservar um chip principal' },
+        ],
+      },
+      {
+        type: 'steps',
+        title: 'Como criar um Pool:',
+        items: [
+          'Vá em Conexões → role até a seção "Pools de Chips" no final',
+          'Clique em "Novo Pool" (botão verde no canto direito)',
+          'Digite um nome (ex.: "Pool Marketing", "Disparos Comerciais")',
+          'Escolha a estratégia de distribuição',
+          'Marque os chips que farão parte do pool',
+          'Clique em "Salvar pool"',
+          'Na próxima campanha, selecione o pool em vez de chips individuais',
+        ],
+      },
+      { type: 'tip', text: 'Use o pool "Prioridade" para chips que você quer preservar: o sistema só usa o secundário quando o principal cair, mantendo o principal mais descansado.' },
     ],
   },
   {
