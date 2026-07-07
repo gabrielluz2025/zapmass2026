@@ -38,6 +38,12 @@ export interface WhatsAppConnection {
     port?: string;
     protocol?: string;
   };
+  /** Histórico de bloqueios WhatsApp. */
+  banCount?: number;
+  lastBannedAt?: number;
+  lastBanReason?: string;
+  /** Chip em quarentena (bloqueado de campanhas) até este timestamp. */
+  quarantineUntil?: number;
   dailyLimit?: number;
   growthRate?: number;
   growthType?: 'percent' | 'fixed';

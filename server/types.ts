@@ -37,6 +37,19 @@ export interface WhatsAppConnection {
   growthType?: 'percent' | 'fixed';
   limitAction?: 'ask' | 'redirect';
   limitExceededApproved?: boolean;
+  /** Proxy HTTP/SOCKS na Evolution API para este chip. */
+  proxy?: {
+    enabled: boolean;
+    host?: string;
+    port?: string;
+    protocol?: string;
+  };
+  /** Histórico de bloqueios WhatsApp. */
+  banCount?: number;
+  lastBannedAt?: number;
+  lastBanReason?: string;
+  /** Chip em quarentena (bloqueado de campanhas) até este timestamp. */
+  quarantineUntil?: number;
 }
 
 export interface DashboardMetrics {

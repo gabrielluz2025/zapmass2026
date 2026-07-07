@@ -1734,6 +1734,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
     });
 
+    socket.on('chip-banned', (data: { connectionId: string; connectionLabel?: string; banCount: number; reason?: string }) => {
+      const label = data.connectionLabel || data.connectionId;
+      const isHighRisk = data.banCount >= 2;
+      toast.error(
+        `🚫 Chip BLOQUEADO pelo WhatsApp: ${label}\n` +
+        `Ban #${data.banCount}${isHighRisk ? ' — ALTO RISCO' : ''}. ` +
+        `Evite campanhas por 24h. Ao gerar novo QR, as credenciais serão zeradas automaticamente.`,
+        { duration: 12000, id: `chip-banned-${data.connectionId}` }
+      );
+    });
+
     socket.on('warmup-chip-stats-update', (list: WarmupChipStats[]) => {
       if (!Array.isArray(list)) return;
       // O servidor já filtra por escopo (filterByConnectionScope). Não re-filtrar aqui
@@ -3663,6 +3674,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const clearWarmupChipStats = (connectionId?: string) => {
     socketRef.current?.emit('clear-warmup-chip-stats', connectionId);
     toast.success(connectionId ? 'Histórico deste chip zerado.' : 'Histórico de aquecimento zerado.');
+  };
+
+  const releaseChipQuarantine = (connectionId: string) => {
+    socketRef.current?.emit('release-quarantine', { connectionId });
+    toast.success('Quarentena liberada. O chip já pode receber campanhas.');
+  };
+
+  const clearChipBanHistory = (connectionId: string) => {
+    socketRef.current?.emit('clear-ban-history', { connectionId });
+    toast.success('Histórico de ban zerado para este chip.');
   };
 
   const startCampaign = async (

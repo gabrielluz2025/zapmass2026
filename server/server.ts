@@ -2241,6 +2241,31 @@ const registerSocketHandlers = () => {
       })();
     });
 
+    // Libera quarentena manualmente (admin ou próprio tenant)
+    socket.on('release-quarantine', ({ connectionId }: { connectionId?: string }) => {
+      if (!connectionId) return;
+      if (!ownsConnectionId(connectionId)) {
+        denyCrossTenant('release-quarantine', { connectionId });
+        return;
+      }
+      userLog('ban:release-quarantine', { connectionId });
+      evolutionService.releaseConnectionQuarantine(connectionId);
+      // Reenvia lista de conexões atualizada
+      socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
+    });
+
+    // Zera histórico de ban de uma conexão (admin)
+    socket.on('clear-ban-history', ({ connectionId }: { connectionId?: string }) => {
+      if (!connectionId) return;
+      if (!ownsConnectionId(connectionId)) {
+        denyCrossTenant('clear-ban-history', { connectionId });
+        return;
+      }
+      userLog('ban:clear-history', { connectionId });
+      evolutionService.clearConnectionBanHistory(connectionId);
+      socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
+    });
+
     socket.on('disconnect', () => {
       userLog('socket:disconnected', { socketId: socket.id });
     });

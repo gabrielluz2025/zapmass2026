@@ -133,8 +133,10 @@ interface EvolutionInstance {
     limitAction?: 'ask' | 'redirect';
     messagesSentToday?: number;
     limitExceededApproved?: boolean;
-    lastLimitResetDate?: string; // Data no formato YYYY-MM-DD da última verificação/reinício do limite diário
+    lastLimitResetDate?: string;
     lastActivity?: string;
+    /** Timestamp em que este chip ficou 'open' pela última vez — usado para detectar ban rápido. */
+    lastOpenAt?: number;
 }
 
 type ExtractedEvolutionQr = { displayValue: string; kind: 'code' | 'image' };
@@ -945,6 +947,99 @@ function parseConnectionStateFromData(data: unknown): string {
     return parseConnectionStatePayload(data);
 }
 
+/**
+ * Extrai o statusReason do webhook CONNECTION_UPDATE.
+ * Evolution API v2 envia 401 (unauthorized) ou "loggedOut" quando o número é banido ou removido pelo WhatsApp.
+ */
+function parseStatusReason(data: unknown): string | number | undefined {
+    if (!data || typeof data !== 'object') return undefined;
+    const row = data as Record<string, unknown>;
+    const direct = row.statusReason;
+    if (direct !== undefined) return direct as string | number;
+    const nested = row.instance;
+    if (nested && typeof nested === 'object') {
+        const inst = nested as Record<string, unknown>;
+        if (inst.statusReason !== undefined) return inst.statusReason as string | number;
+    }
+    return undefined;
+}
+
+/** Retorna true se o statusReason indica um ban ou logout forçado pelo WhatsApp. */
+function isBanStatusReason(reason: string | number | undefined): boolean {
+    if (reason === undefined) return false;
+    const s = String(reason).toLowerCase().trim();
+    // 401 = loggedOut (ban ou desconexão manual pelo WhatsApp)
+    // "loggedout" = mesmo, versão string da Evolution API
+    // "conflict" NÃO é ban — é múltiplas sessões abertas
+    return s === '401' || s === 'loggedout' || s === 'logged_out';
+}
+
+/** Registra um evento de ban para o chip. Persiste em settings e emite evento ao tenant. */
+function recordChipBan(connectionId: string, reason: string | number | undefined): void {
+    const now = Date.now();
+    const reasonStr = reason !== undefined ? String(reason) : 'unknown';
+    const current = connectionsSettingsCache[connectionId] ?? {};
+    const banCount = (current.banCount ?? 0) + 1;
+    mergeConnectionSettingsCache(connectionId, {
+        banCount,
+        lastBannedAt: now,
+        lastBanReason: reasonStr,
+        // Quarentena de 24h após reconectar
+        quarantineUntil: now + 24 * 60 * 60 * 1000,
+    });
+    saveConnectionsSettings();
+    const ownerUid = resolveOwnerUid(connectionId);
+    const label = connections.get(connectionId)?.friendlyName || connectionId;
+    log('warn', `[BanDetect] Chip BANIDO: ${connectionId} (ban #${banCount}, reason: ${reasonStr})`);
+    if (ownerUid) {
+        publishOwnerEvent(ownerUid, 'chip-banned', {
+            connectionId,
+            connectionLabel: label,
+            banCount,
+            reason: reasonStr,
+        });
+    }
+}
+
+/** Remove a quarentena de um chip (permite campanhas imediatamente). */
+export function releaseConnectionQuarantine(connectionId: string): void {
+    mergeConnectionSettingsCache(connectionId, { quarantineUntil: undefined });
+    saveConnectionsSettings();
+    log('info', `[BanDetect] Quarentena liberada manualmente: ${connectionId}`);
+}
+
+/** Zera o histórico de ban de um chip (reseta contador e timestamps). */
+export function clearConnectionBanHistory(connectionId: string): void {
+    mergeConnectionSettingsCache(connectionId, {
+        banCount: 0,
+        lastBannedAt: undefined,
+        lastBanReason: undefined,
+        quarantineUntil: undefined,
+    });
+    saveConnectionsSettings();
+    log('info', `[BanDetect] Histórico de ban zerado: ${connectionId}`);
+}
+
+/** Retorna info de ban/quarentena de um chip (de settings persistidos). */
+export function getConnectionBanInfo(connectionId: string): {
+    banCount: number;
+    lastBannedAt?: number;
+    lastBanReason?: string;
+    quarantineUntil?: number;
+    inQuarantine: boolean;
+} {
+    const row = connectionsSettingsCache[connectionId] ?? {};
+    const banCount = row.banCount ?? 0;
+    const quarantineUntil = row.quarantineUntil;
+    return {
+        banCount,
+        lastBannedAt: row.lastBannedAt,
+        lastBanReason: row.lastBanReason,
+        quarantineUntil,
+        inQuarantine: Boolean(quarantineUntil && quarantineUntil > Date.now()),
+    };
+}
+
 function emitScopedConversationsUpdate() {
     void (async () => {
         const { socketConversationsPayload } = await import('./conversationsEmit.js');
@@ -1195,6 +1290,7 @@ function applyConnectionStateUpdate(
             pairingStartedAt.delete(instance);
             clearAutoReconnect(instance);
             conn.qrCode = undefined;
+            conn.lastOpenAt = Date.now();
             const phone = phoneFromWebhookData(data);
             if (phone) conn.phoneNumber = phone;
         } else if (state === 'connecting' || state === 'created') {
@@ -1205,6 +1301,21 @@ function applyConnectionStateUpdate(
             stopQrWatch(instance);
             stopWatchingConnection(instance);
             pairingStartedAt.delete(instance);
+
+            // Detecção de ban: statusReason 401/"loggedOut" vindo do WhatsApp
+            const statusReason = parseStatusReason(data);
+            const banByReason = isBanStatusReason(statusReason);
+
+            // Heurística de "ban rápido": abriu e fechou em menos de 90s sem ação do usuário
+            const rapidClose = prevStatus === 'open' && conn.lastOpenAt
+                ? (Date.now() - conn.lastOpenAt) < 90_000
+                : false;
+
+            if (banByReason || (prevStatus === 'open' && rapidClose)) {
+                const finalReason = banByReason ? statusReason : 'rapid_close';
+                recordChipBan(instance, finalReason);
+                log('warn', `[BanDetect] ${instance}: reason=${finalReason}, banByReason=${banByReason}, rapidClose=${rapidClose}`);
+            }
         }
         connections.set(instance, conn);
         healConnectionOwnerFromSettings(instance);
@@ -1820,10 +1931,16 @@ interface ConnectionSettingsPayload {
     messagesSentToday?: number;
     limitExceededApproved?: boolean;
     lastLimitResetDate?: string;
-    ownerUid?: string; // Mantém o proprietário do canal de forma persistente
+    ownerUid?: string;
     /** Dono original — nunca apagado por updates de limite/envio; usado para curar órfãos. */
     createdByUid?: string;
     friendlyName?: string;
+    /** Histórico de bloqueios WhatsApp para este chip. */
+    banCount?: number;
+    lastBannedAt?: number;
+    lastBanReason?: string;
+    /** Quarentena: chip bloqueado de campanhas até este timestamp. */
+    quarantineUntil?: number;
 }
 
 function pickNonEmptyUid(...candidates: Array<string | undefined>): string | undefined {
@@ -3277,9 +3394,12 @@ export async function getConnectionState(
 }
 
 /**
- * Força novo QR Code
+ * Força novo QR Code.
+ * Se o chip foi banido anteriormente (banCount > 0), executa "reconexão limpa":
+ * deleta a instância na Evolution API e a recria com credenciais zeradas —
+ * evitando que o WhatsApp identifique o device fingerprint antigo.
  */
-export async function forceQr(id: string): Promise<{ qrCode?: string; error?: string }> {
+export async function forceQr(id: string): Promise<{ qrCode?: string; error?: string; cleanReconnect?: boolean }> {
     log('info', `Forçando novo QR para: ${id}`);
     stopWatchingConnection(id);
     stopQrWatch(id);
@@ -3294,19 +3414,98 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
         throw new Error('Canal não encontrado. Atualize a página ou crie um canal novo.');
     }
 
-    const active = connections.get(id)!;
-    active.phoneNumber = '';
-    active.qrCode = undefined;
-    active.status = 'connecting';
-    connections.set(id, active);
+    const banInfo = getConnectionBanInfo(id);
+    const needsCleanReconnect = banInfo.banCount > 0;
+
+    if (needsCleanReconnect) {
+        log('warn', `[CleanReconnect] Chip ${id} foi banido ${banInfo.banCount}x — apagando credenciais Evolution para reconexão limpa`);
+        // Preserva metadados do chip (dono, nome, configurações)
+        const cached = connectionsSettingsCache[id] ? { ...connectionsSettingsCache[id] } : undefined;
+        const connMem = connections.get(id);
+        const ownerUid = resolveOwnerUid(id);
+        const friendlyName = connMem?.friendlyName || cached?.friendlyName || id;
+        const proxy = connMem?.proxy;
+
+        // 1. Apaga a instância (zera device fingerprint, chaves, sessão)
+        try {
+            try { await api.delete(`/instance/logout/${evoInst(id)}`); } catch { /* ok */ }
+            await api.delete(`/instance/delete/${evoInst(id)}`);
+            connections.delete(id);
+            log('info', `[CleanReconnect] Instância ${id} apagada`);
+        } catch (err: any) {
+            log('warn', `[CleanReconnect] Falha ao apagar instância ${id}`, { error: err?.message });
+        }
+
+        await sleep(2000);
+
+        // 2. Recria a instância com credenciais zeradas
+        try {
+            await api.post('/instance/create', {
+                instanceName: evoInst(id),
+                token: evolutionConfig.apiKey,
+                qrcode: true,
+                integration: 'WHATSAPP-BAILEYS',
+            });
+            log('info', `[CleanReconnect] Instância ${id} recriada com credenciais limpas`);
+        } catch (err: any) {
+            log('warn', `[CleanReconnect] Falha ao recriar instância ${id}`, { error: err?.message });
+        }
+
+        await sleep(1500);
+
+        // 3. Restaura proxy se havia
+        if (proxy?.host) {
+            try {
+                await setConnectionProxy(id, {
+                    host: proxy.host,
+                    port: proxy.port || '8080',
+                    protocol: (proxy.protocol as any) || 'http',
+                });
+            } catch { /* ok */ }
+        }
+
+        // 4. Restaura metadados
+        if (ownerUid || friendlyName) {
+            if (!connectionsSettingsCache[id]) connectionsSettingsCache[id] = {};
+            if (ownerUid) {
+                connectionsSettingsCache[id].ownerUid = ownerUid;
+                connectionsSettingsCache[id].createdByUid = connectionsSettingsCache[id].createdByUid || ownerUid;
+            }
+            if (friendlyName && friendlyName !== id) connectionsSettingsCache[id].friendlyName = friendlyName;
+            saveConnectionsSettings();
+        }
+
+        // 5. Reinicia conexão RAM
+        await hydrateInstancesFromEvolution();
+        await setupWebhook(id).catch(() => { /* ok */ });
+    }
+
+    const active = connections.get(id);
+    if (!active) {
+        // Instância recém-criada pode não estar na RAM ainda — adiciona placeholder
+        const placeholder: EvolutionInstance = {
+            instanceName: id,
+            friendlyName: id,
+            status: 'connecting',
+        };
+        connections.set(id, placeholder);
+    } else {
+        active.phoneNumber = '';
+        active.qrCode = undefined;
+        active.status = 'connecting';
+        connections.set(id, active);
+    }
+
     pairingStartedAt.set(id, Date.now());
     emitConnectionProgress(id, 'loading-whatsapp-web');
     emitConnectionsUpdateForConnection(id);
 
-    try {
-        await api.delete(`/instance/logout/${evoInst(id)}`);
-    } catch {
-        /* instância pode já estar deslogada */
+    if (!needsCleanReconnect) {
+        try {
+            await api.delete(`/instance/logout/${evoInst(id)}`);
+        } catch {
+            /* instância pode já estar deslogada */
+        }
     }
 
     let extracted = await fetchConnectQr(id);
@@ -3320,12 +3519,12 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
         ensureQrDelivered(id, 25, 2000);
         applyConnectionStateUpdate(id, 'connecting', {});
         log('info', `forceQr: polling QR em background para ${id}`);
-        return { error: 'QR ainda não disponível. Aguarde alguns segundos.' };
+        return { error: 'QR ainda não disponível. Aguarde alguns segundos.', cleanReconnect: needsCleanReconnect };
     }
 
     emitQrToFrontend(id, extracted);
-    log('info', `Novo QR gerado para: ${id}`);
-    return { qrCode: extracted.displayValue };
+    log('info', `Novo QR gerado para: ${id}${needsCleanReconnect ? ' (reconexão limpa — credenciais zeradas)' : ''}`);
+    return { qrCode: extracted.displayValue, cleanReconnect: needsCleanReconnect };
 }
 
 /**
@@ -3768,6 +3967,22 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             await job.moveToDelayed(Date.now() + 60_000, token);
             throw new DelayedError();
         }
+    }
+
+    // Bloqueia chips em quarentena (recuperados de ban) para proteger contra novo bloqueio
+    const banInfoForJob = getConnectionBanInfo(item.connectionId);
+    if (banInfoForJob.inQuarantine) {
+        const remainMs = (banInfoForJob.quarantineUntil ?? 0) - Date.now();
+        const remainH = Math.ceil(remainMs / 3_600_000);
+        const connLabel = connections.get(item.connectionId)?.friendlyName || item.connectionId;
+        emitCampaignLog(
+            'WARN',
+            `Canal ${connLabel} em QUARENTENA (recuperado de ban). Aguarde mais ${remainH}h antes de usar em campanhas.`,
+            { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
+            campaignState?.ownerUid
+        );
+        await job.moveToDelayed(Date.now() + Math.min(remainMs, 3_600_000), token);
+        throw new DelayedError();
     }
 
     const conn = connections.get(item.connectionId);
@@ -5287,6 +5502,7 @@ export function getConnections(): WhatsAppConnection[] {
         else if (conn.status === 'connecting') status = ConnectionStatus.CONNECTING;
         else if (conn.status === 'created') status = ConnectionStatus.QR_READY;
 
+        const banInfo = getConnectionBanInfo(id);
         result.push({
             id,
             name: resolveDisplayFriendlyName(id, conn),
@@ -5299,6 +5515,10 @@ export function getConnections(): WhatsAppConnection[] {
             signalStrength: 'STRONG',
             profilePicUrl: conn.profilePicUrl,
             batteryLevel: 100,
+            banCount: banInfo.banCount,
+            lastBannedAt: banInfo.lastBannedAt,
+            lastBanReason: banInfo.lastBanReason,
+            quarantineUntil: banInfo.quarantineUntil,
             ...(conn.qrCode ? { qrCode: conn.qrCode } : {}),
             ...(conn.proxy?.host
                 ? {

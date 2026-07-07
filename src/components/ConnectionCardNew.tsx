@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Wifi, WifiOff, Trash2, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw, Pencil, Check, X, Settings, Flame, Thermometer, Snowflake, TrendingUp, TrendingDown, Minus, LogOut, Activity } from 'lucide-react';
+import { Wifi, WifiOff, Trash2, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw, Pencil, Check, X, Settings, Flame, Thermometer, Snowflake, TrendingUp, TrendingDown, Minus, LogOut, Activity, AlertTriangle, Lock, Eraser } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { QRCodeModal } from './QRCodeModal';
 import { QrCanvas } from './QrCanvas';
@@ -149,6 +149,17 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
   const statusColor = isConnected ? '#10B981' : isConnecting ? '#F59E0B' : '#F87171';
   const statusLabel = isConnected ? 'Online' : isConnecting ? 'Conectando' : 'Offline';
   const healthScore = connection.healthScore ?? 100;
+
+  // ── Risco de ban ────────────────────────────────────────────────────────────
+  const banCount = connection.banCount ?? 0;
+  const quarantineUntil = connection.quarantineUntil ?? 0;
+  const inQuarantine = quarantineUntil > Date.now();
+  const quarantineRemainH = inQuarantine ? Math.ceil((quarantineUntil - Date.now()) / 3_600_000) : 0;
+
+  const riskLevel: 'low' | 'medium' | 'high' = banCount >= 2 ? 'high' : banCount === 1 ? 'medium' : 'low';
+  const riskColor = riskLevel === 'high' ? '#ef4444' : riskLevel === 'medium' ? '#f59e0b' : '#10b981';
+  const riskLabel = riskLevel === 'high' ? 'Alto risco' : riskLevel === 'medium' ? '1 ban anterior' : 'Sem histórico';
+  const RiskIcon = riskLevel === 'high' ? AlertTriangle : riskLevel === 'medium' ? ShieldAlert : ShieldCheck;
   const dispatchInsights = useMemo(
     () => buildChannelDispatchInsights(connection, chipStats),
     [connection, chipStats, connection.messagesSentToday]
@@ -279,8 +290,71 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
               {connection.phoneNumber ||
                 (isConnected ? 'Sem número — reconecte ou gere novo QR' : 'Aguardando conexão...')}
             </p>
+
+            {/* Badges de risco e quarentena */}
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              {banCount > 0 && (
+                <span
+                  className="flex items-center gap-1 text-[9.5px] font-black px-2 py-0.5 rounded-full"
+                  style={{ background: `${riskColor}15`, color: riskColor, border: `1px solid ${riskColor}30` }}
+                  title={`Este número foi bloqueado ${banCount}x pelo WhatsApp. ${riskLevel === 'high' ? 'Use um novo número ou chip.' : 'Faça aquecimento antes de campanhas.'}`}
+                >
+                  <RiskIcon className="w-3 h-3" />
+                  {riskLabel} ({banCount}x)
+                </span>
+              )}
+              {inQuarantine && (
+                <span
+                  className="flex items-center gap-1 text-[9.5px] font-black px-2 py-0.5 rounded-full animate-pulse"
+                  style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }}
+                  title="Chip em quarentena — campanhas bloqueadas até o período terminar."
+                >
+                  <Lock className="w-3 h-3" />
+                  Quarentena: {quarantineRemainH}h restantes
+                </span>
+              )}
+              {banCount > 0 && !isConnected && (
+                <span
+                  className="flex items-center gap-1 text-[9.5px] font-semibold px-2 py-0.5 rounded-full"
+                  style={{ background: 'rgba(99,102,241,0.10)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.20)' }}
+                  title="O sistema apagará as credenciais antigas e gerará um novo QR limpo ao clicar em Forçar QR."
+                >
+                  <Eraser className="w-3 h-3" />
+                  Creds. serão zeradas no QR
+                </span>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Banner de quarentena */}
+        {inQuarantine && isConnected && (
+          <div className="mb-4 p-3 rounded-xl flex items-start gap-2.5"
+            style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.20)' }}>
+            <Lock className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-[11px] font-black text-red-500">Chip em Quarentena — Campanhas Bloqueadas</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                Recuperado de bloqueio. Só o aquecimento está permitido por mais <strong className="text-red-400">{quarantineRemainH}h</strong>.
+                Após esse período, as campanhas serão desbloqueadas automaticamente.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Banner de alto risco (sem quarentena ativa) */}
+        {riskLevel === 'high' && !inQuarantine && banCount >= 2 && (
+          <div className="mb-4 p-3 rounded-xl flex items-start gap-2.5"
+            style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
+            <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-[11px] font-black text-red-500">Número de alto risco ({banCount} bloqueios)</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                Este número foi bloqueado várias vezes. Considere usar um número novo. Se reconectar, o QR será zerado automaticamente.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* QR / Auth / Connecting state */}
         {isAuthenticating ? (
