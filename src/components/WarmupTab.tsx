@@ -455,7 +455,7 @@ export const WarmupTab: React.FC = () => {
             <span className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>Intervalo entre rodadas:</span>
           </div>
           <div className="flex items-center gap-1.5">
-            {[3, 5, 10, 15, 30].map((min) => (
+            {[5, 10, 15, 30, 60].map((min) => (
               <button
                 key={min}
                 onClick={() => setIntervalMinutes(min)}
@@ -594,9 +594,9 @@ export const WarmupTab: React.FC = () => {
 
                       {/* Toggle switch personalizado */}
                       <button
-                        onClick={(e) => { e.stopPropagation(); if (isConnected && !warmupActive) toggleChannel(channel.connectionId); }}
-                        disabled={!isConnected || warmupActive}
-                        className={`flex-shrink-0 relative w-11 h-6 rounded-full transition-all duration-300 ${(!isConnected || warmupActive) ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                        onClick={(e) => { e.stopPropagation(); if (isConnected && !serverModeActive) toggleChannel(channel.connectionId); }}
+                        disabled={!isConnected || serverModeActive}
+                        className={`flex-shrink-0 relative w-11 h-6 rounded-full transition-all duration-300 ${(!isConnected || serverModeActive) ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
                         style={{
                           background: channel.enabled ? maturity.color : 'var(--surface-2)',
                           border: channel.enabled ? `1px solid ${maturity.color}` : '1px solid var(--border-subtle)',

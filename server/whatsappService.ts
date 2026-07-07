@@ -6333,14 +6333,23 @@ export const registerWarmupSendFn = (fn: WarmupSendFn) => {
     _warmupSendFn = fn;
 };
 
+// Getter de conexões registrado externamente (Evolution API mode)
+type WarmupGetConnectionsFn = () => Array<{ id: string; phoneNumber?: string | null; status: string }>;
+let _warmupGetConnectionsFn: WarmupGetConnectionsFn | null = null;
+
+/** Registra o getter de conexões da Evolution API para ser usado pelo auto-warmup. */
+export const registerWarmupGetConnectionsFn = (fn: WarmupGetConnectionsFn) => {
+    _warmupGetConnectionsFn = fn;
+};
+
 export const sendWarmupMessage = async (connectionId: string, toPhone: string, message: string) => {
     const normalizedPhone = toPhone.replace(/\D/g, '');
 
     // Modo API (Evolution API): sem clientes Baileys locais — usa função registrada
+    // Nota: _warmupSendFn já chama recordWarmupExchange internamente (não chamar recordWarmupSent para evitar dupla contagem)
     if (_warmupSendFn) {
         try {
             await _warmupSendFn(connectionId, normalizedPhone, message);
-            recordWarmupSent(connectionId, normalizedPhone);
             console.log(`[Warmup] ✅ Enviado via API de ${connectionId} para ${normalizedPhone}`);
         } catch (err) {
             recordWarmupFailed(connectionId);
@@ -7039,12 +7048,13 @@ const chipHasDailyCapacity = (connectionId: string): boolean => {
 };
 
 const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
-    const allConns = getConnections();
-    const activeConns = allConns.filter(
+    // Usa o getter da Evolution API se disponível; senão usa o do Baileys local
+    const rawConns = _warmupGetConnectionsFn ? _warmupGetConnectionsFn() : getConnections();
+    const activeConns = rawConns.filter(
         (c) => c.status === 'CONNECTED' && connectionIds.includes(c.id) && c.phoneNumber
     );
     if (activeConns.length < 2) {
-        console.log(`[AutoWarmup] [${uid}] Menos de 2 canais conectados ativos para o aquecimento.`);
+        console.log(`[AutoWarmup] [${uid}] Menos de 2 canais conectados ativos para o aquecimento. IDs solicitados: ${connectionIds.join(',')}, conectados com número: ${activeConns.map(c => c.id).join(',')}`);
         return;
     }
 

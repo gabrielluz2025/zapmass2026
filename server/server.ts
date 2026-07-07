@@ -2384,6 +2384,10 @@ const bootstrap = async () => {
     await evolutionService.sendMessage(`${connectionId}:${toPhone}`, message);
     waService.recordWarmupExchange(connectionId, toPhone, evolutionService.getConnections());
   });
+
+  // Registra getter de conexões da Evolution API para o auto-warmup
+  // (whatsappService.getConnections retorna apenas conexões Baileys locais; em modo API, precisamos das conexões Evolution)
+  waService.registerWarmupGetConnectionsFn(() => evolutionService.getConnections());
   setTimeout(() => { void warmupLeadsGeoCache(); }, 45_000);
   await startSessionControlPlane();
   if (isSessionBusRemote()) {
