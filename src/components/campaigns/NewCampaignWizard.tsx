@@ -666,6 +666,20 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   // Compat: nome antigo usado mais abaixo
   const filteredContacts = finalContacts;
 
+  // rawNumbers e numbers precisam ser declarados ANTES de reviewRecipientCount
+  // para evitar TDZ (Cannot access before initialization) no bundle minificado.
+  const rawNumbers =
+    sendMode === 'list'
+      ? selectedListNumbers
+      : sendMode === 'manual'
+      ? manualNumbersForSend
+      : filteredNumbers;
+
+  const numbers = useMemo(
+    () => rawNumbers.filter((n) => !excludedDuplicatePhones.has(normPhoneKey(n))),
+    [rawNumbers, excludedDuplicatePhones]
+  );
+
   const reviewRecipientCount = useMemo(() => {
     if (sendMode === 'list') return selectedListContactsForSend.length;
     if (sendMode === 'filter') return filteredContacts.length;
@@ -1007,16 +1021,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     });
   };
 
-  const rawNumbers =
-    sendMode === 'list'
-      ? selectedListNumbers
-      : sendMode === 'manual'
-      ? manualNumbersForSend
-      : filteredNumbers;
-
-  const numbers = useMemo(() => {
-    return rawNumbers.filter((n) => !excludedDuplicatePhones.has(normPhoneKey(n)));
-  }, [rawNumbers, excludedDuplicatePhones]);
   const connectedIds = getConnectedSelectedIds();
 
   const previewSample = useMemo((): CampaignPreviewSample => {
