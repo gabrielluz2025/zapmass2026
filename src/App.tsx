@@ -14,6 +14,7 @@ import { PreLoginLanding } from './components/PreLoginLanding';
 import { HardGateScreen } from './components/billing/HardGateScreen';
 import { TrialAutoStart } from './components/billing/TrialAutoStart';
 import { TrialEndedModal } from './components/billing/TrialEndedModal';
+import { SleepModeCampaignPrompt } from './components/campaigns/SleepModeCampaignPrompt';
 import { UpgradeProModal } from './components/billing/UpgradeProModal';
 import { ProHeaderPromo } from './components/shell/ProHeaderPromo';
 import { ImprovementSuggestionButton } from './components/shell/ImprovementSuggestionButton';
@@ -471,6 +472,7 @@ const MainLayout: React.FC = () => {
       </MainLayoutNavProvider>
       <UpgradeProModal isOpen={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
       <TrialEndedModal isOpen={trialEndedOpen} onClose={() => setTrialEndedOpen(false)} />
+      <SleepModeCampaignPrompt />
       {searchOpen && (
         <GlobalSearchOverlay onNavigate={setCurrentView} onClose={() => setSearchOpen(false)} />
       )}

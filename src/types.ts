@@ -762,4 +762,10 @@ export interface ZapMassContextType {
   patchConversationInboxClaim: (conversationId: string, inboxClaimedByAuthUid: string | undefined) => void;
   /** Conexões com circuit-breaker aberto no servidor (envios temporariamente bloqueados). */
   circuitBreakerOpenConnectionIds: string[];
+  /** Campanhas aguardando confirmação do modo silêncio noturno (uma por campanha). */
+  sleepModePrompts: Array<{ campaignId: string; message?: string }>;
+  continueCampaignInSleepMode: (campaignId: string) => void;
+  dismissCampaignSleepMode: (campaignId: string) => void;
+  /** Solicita ao servidor atualização dos contadores de aquecimento. */
+  refreshWarmupChipStats: () => void;
 }

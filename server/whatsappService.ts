@@ -1083,14 +1083,44 @@ function phonesMatch(a: string, b: string): boolean {
     return va.some((x) => vb.includes(x));
 }
 
+/** Regista troca entre dois chips conhecidos (IDs) — contabilização confiável. */
+export const recordWarmupPair = (fromId: string, toId: string) => {
+    const now = Date.now();
+    const fromStats = getOrCreateChipStats(fromId);
+    if (!fromStats.firstWarmedAt) fromStats.firstWarmedAt = now;
+    fromStats.lastActiveAt = now;
+    fromStats.totalSent += 1;
+    ensureTodayEntry(fromStats).sent += 1;
+
+    if (toId && toId !== fromId) {
+        const toStats = getOrCreateChipStats(toId);
+        if (!toStats.firstWarmedAt) toStats.firstWarmedAt = now;
+        toStats.lastActiveAt = now;
+        toStats.totalReceived += 1;
+        ensureTodayEntry(toStats).received += 1;
+    }
+    scheduleWarmupStatsSave();
+    emitWarmupChipStats();
+};
+
 /** Regista troca de aquecimento (envio + recebimento no chip destino, se for nosso). */
 export const recordWarmupExchange = (
     fromId: string,
     toPhone: string,
-    connections: Array<{ id: string; phoneNumber?: string }> = connectionsInfo
+    connections: Array<{ id: string; phoneNumber?: string }> = connectionsInfo,
+    toConnectionId?: string
 ) => {
+    if (toConnectionId) {
+        recordWarmupPair(fromId, toConnectionId);
+        return;
+    }
     const now = Date.now();
-    recordConnectionDispatch(fromId);
+    const fromStats = getOrCreateChipStats(fromId);
+    if (!fromStats.firstWarmedAt) fromStats.firstWarmedAt = now;
+    fromStats.lastActiveAt = now;
+    fromStats.totalSent += 1;
+    ensureTodayEntry(fromStats).sent += 1;
+
     const normalized = toPhone.replace(/\D/g, '');
     const targetConn = connections.find((c) => phonesMatch(c.phoneNumber || '', normalized));
     if (targetConn) {
@@ -1099,9 +1129,9 @@ export const recordWarmupExchange = (
         toStats.lastActiveAt = now;
         toStats.totalReceived += 1;
         ensureTodayEntry(toStats).received += 1;
-        scheduleWarmupStatsSave();
-        emitWarmupChipStats();
     }
+    scheduleWarmupStatsSave();
+    emitWarmupChipStats();
 };
 
 export const recordWarmupFailed = (fromId: string) => {
@@ -7094,6 +7124,7 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
             // A envia para B
             const msgAtoB = WARMUP_MESSAGES[Math.floor(Math.random() * WARMUP_MESSAGES.length)];
             await sendWarmupMessage(a.id, b.phoneNumber, msgAtoB);
+            recordWarmupPair(a.id, b.id);
 
             // Delay aleatório 3-8s
             await new Promise((r) => setTimeout(r, 3000 + Math.random() * 5000));
@@ -7104,6 +7135,7 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
             if (chipHasDailyCapacity(b.id) && chipHasDailyCapacity(a.id)) {
                 const msgBtoA = WARMUP_MESSAGES[Math.floor(Math.random() * WARMUP_MESSAGES.length)];
                 await sendWarmupMessage(b.id, a.phoneNumber, msgBtoA);
+                recordWarmupPair(b.id, a.id);
             }
 
             await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
@@ -7111,6 +7143,7 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
             console.error(`[AutoWarmup] Erro no par ${a.id} <-> ${b.id}:`, err?.message || err);
         }
     }
+    emitWarmupChipStats();
 };
 
 export const startAutoWarmup = async (uid: string, connectionIds: string[], intervalMinutes: number) => {

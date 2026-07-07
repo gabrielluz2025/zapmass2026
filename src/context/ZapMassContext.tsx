@@ -372,7 +372,11 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   startAutoWarmup: () => {},
   stopAutoWarmup: () => {},
   patchConversationInboxClaim: () => {},
-  circuitBreakerOpenConnectionIds: []
+  circuitBreakerOpenConnectionIds: [],
+  sleepModePrompts: [],
+  continueCampaignInSleepMode: () => {},
+  dismissCampaignSleepMode: () => {},
+  refreshWarmupChipStats: () => {},
 };
 
 export type ZapMassCoreContextValue = Omit<ZapMassContextWithSocket, 'conversations'>;
@@ -562,6 +566,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [funnelStats, setFunnelStats] = useState<FunnelStats>(INITIAL_FUNNEL);
   const [campaignGeo, setCampaignGeo] = useState<CampaignGeoState>(INITIAL_CAMPAIGN_GEO);
   const [warmupChipStats, setWarmupChipStats] = useState<Record<string, WarmupChipStats>>({});
+  const [sleepModePrompts, setSleepModePrompts] = useState<Array<{ campaignId: string; message?: string }>>([]);
   const [circuitBreakerOpenIds, setCircuitBreakerOpenIds] = useState<Set<string>>(new Set());
   const [sessionLiveStats, setSessionLiveStats] = useState<{
     workersAlive: number;
@@ -1744,6 +1749,23 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         { duration: 12000, id: `chip-banned-${data.connectionId}` }
       );
     });
+
+    socket.on(
+      'campaign-sleep-mode-pause',
+      (data: { campaignId?: string; message?: string; untilHour?: number }) => {
+        const campaignId = String(data?.campaignId || '').trim();
+        if (!campaignId) return;
+        setSleepModePrompts((prev) => {
+          if (prev.some((p) => p.campaignId === campaignId)) return prev;
+          return [...prev, { campaignId, message: data.message }];
+        });
+        toast('Modo silêncio noturno pausou uma campanha — confirme se deseja continuar.', {
+          icon: '🌙',
+          duration: 8000,
+          id: `sleep-mode-${campaignId}`,
+        });
+      }
+    );
 
     socket.on('warmup-chip-stats-update', (list: WarmupChipStats[]) => {
       if (!Array.isArray(list)) return;
@@ -3676,6 +3698,24 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     toast.success(connectionId ? 'Histórico deste chip zerado.' : 'Histórico de aquecimento zerado.');
   };
 
+  const refreshWarmupChipStats = () => {
+    socketRef.current?.emit('request-warmup-stats');
+  };
+
+  const continueCampaignInSleepMode = (campaignId: string) => {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return;
+    socketRef.current?.emit('campaign-sleep-mode-continue', { campaignId: cid });
+    setSleepModePrompts((prev) => prev.filter((p) => p.campaignId !== cid));
+    toast.success('Campanha autorizada a continuar durante a noite.');
+  };
+
+  const dismissCampaignSleepMode = (campaignId: string) => {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return;
+    setSleepModePrompts((prev) => prev.filter((p) => p.campaignId !== cid));
+  };
+
   const releaseChipQuarantine = (connectionId: string) => {
     socketRef.current?.emit('release-quarantine', { connectionId });
     toast.success('Quarentena liberada. O chip já pode receber campanhas.');
@@ -4099,6 +4139,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const stableScheduleCampaign = useStableCallback(scheduleCampaign);
   const stableClearFunnelStats = useStableCallback(clearFunnelStats);
   const stableClearWarmupChipStats = useStableCallback(clearWarmupChipStats);
+  const stableRefreshWarmupChipStats = useStableCallback(refreshWarmupChipStats);
+  const stableContinueCampaignInSleepMode = useStableCallback(continueCampaignInSleepMode);
+  const stableDismissCampaignSleepMode = useStableCallback(dismissCampaignSleepMode);
   const stableClearAllUserData = useStableCallback(clearAllUserData);
   const stableStartWarmupTimer = useStableCallback(startWarmupTimer);
   const stableStopWarmupTimer = useStableCallback(stopWarmupTimer);
@@ -4221,6 +4264,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       campaignGeo,
       warmupChipStats,
       clearWarmupChipStats: stableClearWarmupChipStats,
+      refreshWarmupChipStats: stableRefreshWarmupChipStats,
+      sleepModePrompts,
+      continueCampaignInSleepMode: stableContinueCampaignInSleepMode,
+      dismissCampaignSleepMode: stableDismissCampaignSleepMode,
       clearAllUserData: stableClearAllUserData,
       warmupActive,
       startWarmupTimer: stableStartWarmupTimer,
@@ -4253,6 +4300,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       funnelStats,
       campaignGeo,
       warmupChipStats,
+      sleepModePrompts,
       warmupActive,
       circuitBreakerOpenIds
     ]

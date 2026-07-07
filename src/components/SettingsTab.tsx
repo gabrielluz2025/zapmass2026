@@ -447,7 +447,8 @@ export const SettingsTab: React.FC = () => {
                     onChange={(e) => setDailyLimit(Number(e.target.value))}
                   />
                   <p className="text-[11.5px] mt-1.5" style={{ color: 'var(--text-3)' }}>
-                    Cada número para quando atinge esse total no dia.
+                    Cada chip para de enviar campanhas ao atingir esse total no dia (horário de Brasília).
+                    <strong> Reinicia sozinho à meia-noite</strong> — não precisa fazer nada.
                   </p>
                 </div>
 
@@ -471,7 +472,8 @@ export const SettingsTab: React.FC = () => {
                     </button>
                   </div>
                   <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
-                    Pausa a fila automaticamente das <strong>20h às 8h</strong>.
+                    Pausa campanhas das <strong>20h às 8h</strong> (horário de Brasília).
+                    Quando chegar esse horário, o sistema exibe um aviso e pergunta <strong>por campanha</strong> se deseja continuar enviando ou manter pausada até 8h.
                   </p>
                 </div>
               </div>

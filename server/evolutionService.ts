@@ -7,7 +7,7 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
-import { Queue, Worker, Job, DelayedError } from 'bullmq';
+import { Queue, Worker, Job, DelayedError, UnrecoverableError } from 'bullmq';
 import IORedis from 'ioredis';
 import fs from 'fs';
 import path from 'path';
@@ -56,6 +56,14 @@ import {
     type TenantSettingsClientPayload,
 } from './tenantSettings.js';
 import {
+    grantSleepModeOverride,
+    hasSleepModeOverride,
+    isBrazilNightHour,
+    markSleepModeNotified,
+    msUntilBrazil8am,
+    pruneSleepModeNotified,
+} from './sleepModeService.js';
+import {
     evolutionRegisterCampaign,
     evolutionTrackIncomingReply,
     evolutionTrackMessageAck,
@@ -93,6 +101,7 @@ import {
 } from './campaignTenantScope.js';
 import type { Server as SocketIOServer } from 'socket.io';
 import { isEvolutionOpenState } from './evolutionOpenState.js';
+import { formatEvolutionHttpError } from './evolutionChatSend.js';
 import type { CampaignStageConfig } from '../src/types.js';
 import {
     initMultiStepContactStates,
@@ -277,6 +286,105 @@ function normalizeOutboundNumber(raw: string): string {
     if (digits.startsWith('55')) return digits;
     if (digits.length === 10 || digits.length === 11) return `55${digits}`;
     return digits;
+}
+
+/** Variantes BR com/sem 9º dígito (5511 9XXXX ↔ 5511 XXXX). */
+function buildBrE164Variants(formattedNum: string): string[] {
+    const variants: string[] = [formattedNum];
+    if (formattedNum.startsWith('55') && formattedNum.length === 13 && formattedNum[4] === '9') {
+        const ddd = formattedNum.substring(2, 4);
+        const rest = formattedNum.substring(5);
+        variants.push(`55${ddd}${rest}`);
+    } else if (formattedNum.startsWith('55') && formattedNum.length === 12) {
+        const ddd = formattedNum.substring(2, 4);
+        const rest = formattedNum.substring(4);
+        variants.push(`55${ddd}9${rest}`);
+    }
+    return [...new Set(variants)];
+}
+
+function isRetryableOutbound400(errorDetail?: string): boolean {
+    return isUnrecoverableOutboundError(errorDetail);
+}
+
+function isUnrecoverableOutboundError(errorDetail?: string): boolean {
+    if (!errorDetail) return false;
+    return /HTTP 400|status code 400|exists:\s*false|não encontrado no WhatsApp|não encontrado|recusou o envio \(400\)|Número inválido|não foi possível obter o número|Contato não encontrado|mensagem vazia/i.test(
+        errorDetail
+    );
+}
+
+type WhatsAppNumberCheckRow = { exists?: boolean; jid?: string; number?: string };
+
+/** Consulta Evolution `/chat/whatsappNumbers` — evita HTTP 400 no sendText. */
+async function checkWhatsAppNumberExists(
+    connectionId: string,
+    digits: string
+): Promise<{ exists: boolean; canonicalNumber?: string; checkFailed?: boolean }> {
+    try {
+        const response = await api.post(`/chat/whatsappNumbers/${evoInst(connectionId)}`, {
+            numbers: [digits],
+        });
+        const rows = Array.isArray(response.data) ? (response.data as WhatsAppNumberCheckRow[]) : [];
+        const row =
+            rows.find((r) => String(r.number || '').replace(/\D/g, '') === digits) ||
+            rows.find((r) => r.exists) ||
+            rows[0];
+        if (row?.exists) {
+            const canonical = String(row.number || digits).replace(/\D/g, '') || digits;
+            return { exists: true, canonicalNumber: canonical };
+        }
+        return { exists: false };
+    } catch (error: unknown) {
+        const ax = error as { message?: string };
+        log('warn', 'whatsappNumbers indisponível — seguindo com envio direto', {
+            connectionId,
+            digits,
+            error: ax?.message,
+        });
+        return { exists: true, canonicalNumber: digits, checkFailed: true };
+    }
+}
+
+/** Escolhe o E.164 válido no WhatsApp (tenta variantes BR com/sem 9º dígito). */
+async function resolveOutboundNumberForSend(
+    connectionId: string,
+    to: string
+): Promise<{ number: string } | { error: string }> {
+    const normalized = normalizeOutboundNumber(to);
+    if (!normalized) {
+        return { error: `Número inválido: ${to}` };
+    }
+
+    const variants = buildBrE164Variants(normalized);
+    let sawDefiniteMissing = false;
+
+    for (const variant of variants) {
+        const check = await checkWhatsAppNumberExists(connectionId, variant);
+        if (check.checkFailed) {
+            return { number: normalized };
+        }
+        if (check.exists && check.canonicalNumber) {
+            if (check.canonicalNumber !== normalized) {
+                log('info', 'Número corrigido via whatsappNumbers', {
+                    connectionId,
+                    from: normalized,
+                    to: check.canonicalNumber,
+                    variantTried: variant,
+                });
+            }
+            return { number: check.canonicalNumber };
+        }
+        sawDefiniteMissing = true;
+    }
+
+    if (sawDefiniteMissing) {
+        return {
+            error: `Contato não encontrado no WhatsApp (${normalized}). Confira DDD, 9º dígito (celular BR) e se o número usa WhatsApp.`,
+        };
+    }
+
+    return { number: normalized };
 }
 
 function extractEvolutionQr(source: unknown): ExtractedEvolutionQr | null {
@@ -1040,6 +1148,17 @@ export function clearConnectionBanHistory(connectionId: string): void {
     });
     saveConnectionsSettings();
     log('info', `[BanDetect] Histórico de ban zerado: ${connectionId}`);
+}
+
+/** Usuário autorizou continuar campanha durante modo silêncio noturno. */
+export function approveCampaignSleepModeContinue(campaignId: string, ownerUid: string): boolean {
+    const cid = String(campaignId || '').trim();
+    if (!cid || !ownerUid) return false;
+    const state = campaignsById.get(cid);
+    if (state?.ownerUid && state.ownerUid !== ownerUid) return false;
+    grantSleepModeOverride(cid);
+    log('info', `[SleepMode] Campanha ${cid} autorizada a continuar durante a noite`);
+    return true;
 }
 
 /** Retorna info de ban/quarentena de um chip (de settings persistidos). */
@@ -3731,77 +3850,104 @@ async function sendMediaInternal(
     mimeType: string,
     fileName: string,
     caption?: string
-): Promise<{ ok: boolean; messageId?: string }> {
-    try {
-        const number = normalizeOutboundNumber(to);
-        log('info', `Enviando media via ${connectionId}`, { to: number, mimeType, fileName });
+): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
+    const number = normalizeOutboundNumber(to);
+    if (!number) {
+        return { ok: false, errorDetail: `Número inválido: ${to}` };
+    }
 
-        let type = 'document';
-        if (mimeType.startsWith('image/')) type = 'image';
-        else if (mimeType.startsWith('video/')) type = 'video';
-        else if (mimeType.startsWith('audio/')) type = 'audio';
+    let type = 'document';
+    if (mimeType.startsWith('image/')) type = 'image';
+    else if (mimeType.startsWith('video/')) type = 'video';
+    else if (mimeType.startsWith('audio/')) type = 'audio';
 
-        const { url } = await saveMediaFromBase64(base64, mimeType, fileName);
+    const { url } = await saveMediaFromBase64(base64, mimeType, fileName);
+    const variants = buildBrE164Variants(number);
+    let lastResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
 
-        // Evolution API v2: campos na raiz (SendMediaDto extends Metadata), sem wrapper mediaMessage
-        const endpoint = `/message/sendMedia/${evoInst(connectionId)}`;
-        const payload = {
-            number,
-                delay: 1200,
-                mediatype: type,
-            mimetype: mimeType,
-                caption: caption || '',
-                media: url,
-                fileName,
-        };
-        const response = await api.post(endpoint, payload);
-        const messageId = response.data?.key?.id || response.data?.key?._serialized;
-
-        if (response.data?.key) {
-            log('info', `✅ Media enviada com sucesso`, { to: number, messageId, url });
-            return { ok: true, messageId: messageId ? String(messageId) : undefined };
+    for (let i = 0; i < variants.length; i++) {
+        const tryNumber = variants[i];
+        if (i === 0) {
+            log('info', `Enviando media via ${connectionId}`, { to: tryNumber, mimeType, fileName });
+        } else {
+            log('info', `Retentando mídia com variante BR do número`, {
+                connectionId,
+                toOriginal: to,
+                variant: tryNumber,
+                previousError: lastResult.errorDetail,
+            });
         }
 
-        return { ok: false };
-    } catch (error: any) {
+        lastResult = await attemptEvolutionSendMedia(
+            connectionId,
+            tryNumber,
+            to,
+            { mediatype: type, mimetype: mimeType, caption: caption || '', media: url, fileName }
+        );
+        if (lastResult.ok) return lastResult;
+        if (i >= variants.length - 1 || !isRetryableOutbound400(lastResult.errorDetail)) break;
+    }
+
+    return lastResult;
+}
+
+async function attemptEvolutionSendMedia(
+    connectionId: string,
+    number: string,
+    toOriginal: string,
+    payload: {
+        mediatype: string;
+        mimetype: string;
+        caption: string;
+        media: string;
+        fileName: string;
+    }
+): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
+    try {
+        const response = await api.post(`/message/sendMedia/${evoInst(connectionId)}`, {
+            number,
+            delay: 1200,
+            mediatype: payload.mediatype,
+            mimetype: payload.mimetype,
+            caption: payload.caption,
+            media: payload.media,
+            fileName: payload.fileName,
+        });
+        const messageId = response.data?.key?.id || response.data?.key?._serialized;
+        if (response.data?.key) {
+            log('info', `✅ Media enviada com sucesso`, { to: number, messageId, url: payload.media });
+            return { ok: true, messageId: messageId ? String(messageId) : undefined };
+        }
+        return { ok: false, errorDetail: 'Evolution retornou resposta sem confirmação de mídia' };
+    } catch (error: unknown) {
+        const detail = formatEvolutionHttpError(error);
+        const ax = error as { message?: string; response?: { status?: number; data?: unknown } };
         log('error', `Erro ao enviar media`, {
             connectionId,
-            to,
-            error: error.message,
-            response: error.response?.data,
+            toOriginal,
+            toNormalized: number,
+            error: ax?.message || detail,
+            httpStatus: ax?.response?.status,
+            responseBody: JSON.stringify(ax?.response?.data || {}).slice(0, 500),
         });
-        return { ok: false };
+        return { ok: false, errorDetail: detail };
     }
 }
 
 /**
- * Envia uma mensagem - FUNÇÃO INTERNA (3 argumentos)
+ * Uma tentativa de sendText na Evolution (sem retry de variante).
  */
-async function sendMessageInternal(
+async function attemptEvolutionSendText(
     connectionId: string,
-    to: string,
-    message: string
+    number: string,
+    message: string,
+    toOriginal: string
 ): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
     try {
-        const number = normalizeOutboundNumber(to);
-
-        if (!number) {
-            log('warn', `Número inválido após normalização — envio ignorado`, { to, connectionId });
-            return { ok: false, errorDetail: `Número inválido: ${to}` };
-        }
-
-        // Log explícito do número normalizado para facilitar diagnóstico de entrega
-        log('info', `Enviando mensagem via ${connectionId}`, { toNormalized: number, toOriginal: to });
-
-        // Formato compatível com Evolution API v1 e v2.x:
-        //  - v1: aceita { number, text, delay }
-        //  - v2: aceita { number, options: { delay }, textMessage: { text } }
-        // Enviamos ambos os campos para máxima compatibilidade.
         const response = await api.post(`/message/sendText/${evoInst(connectionId)}`, {
             number,
             options: { delay: 1200, presence: 'composing' },
             textMessage: { text: message },
-            // Campos legados v1 — mantidos para compatibilidade retroativa
             text: message,
             delay: 1200,
         });
@@ -3818,20 +3964,17 @@ async function sendMessageInternal(
             return { ok: true, messageId: messageId ? String(messageId) : undefined };
         }
 
-        // Fallback: algumas versões da Evolution respondem sem campo 'key'
         if (responseData?.message === 'Message Sent' || responseData?.id) {
             const altId = String(responseData?.id || '');
             log('info', `✅ Mensagem aceita (formato alternativo)`, { toNormalized: number, altId });
             return { ok: true, messageId: altId || undefined };
         }
 
-        // Evolution v2: campo 'messageId' direto na raiz
         if (responseData?.messageId) {
             log('info', `✅ Mensagem aceita (Evolution v2 — campo messageId)`, { toNormalized: number, messageId: responseData.messageId });
             return { ok: true, messageId: String(responseData.messageId) };
         }
 
-        // Evolution v2: resposta com 'status' indicando sucesso, sem 'key'
         const statusOk = typeof responseData?.status === 'string' &&
             ['PENDING', 'SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'sent', 'delivered'].includes(responseData.status);
         if (statusOk) {
@@ -3839,7 +3982,6 @@ async function sendMessageInternal(
             return { ok: true };
         }
 
-        // Qualquer outra resposta 2xx que não seja um erro explícito — assumir sucesso
         const isExplicitError =
             responseData?.error ||
             (typeof responseData?.message === 'string' && /error|failed|invalid|unauthorized/i.test(responseData.message));
@@ -3851,34 +3993,68 @@ async function sendMessageInternal(
             return { ok: true };
         }
 
-        // Evolution retornou 2xx mas com indicação de erro
         const errMsg2xx = String(responseData?.error || responseData?.message || 'Evolution retornou resposta sem confirmação');
         log('warn', `Evolution respondeu com possível falha de entrega`, {
             toNormalized: number,
-            toOriginal: to,
+            toOriginal,
             connectionId,
             responseSnippet: JSON.stringify(responseData).slice(0, 400),
         });
         return { ok: false, errorDetail: errMsg2xx };
-    } catch (error: any) {
-        const httpStatus: number | undefined = error.response?.status;
-        const respBody = error.response?.data;
-        const respMsg = typeof respBody === 'object'
-            ? (respBody?.message || respBody?.error || JSON.stringify(respBody).slice(0, 200))
-            : String(respBody || '').slice(0, 200);
-        const detail = httpStatus
-            ? `HTTP ${httpStatus}: ${respMsg || error.message}`
-            : error.message;
+    } catch (error: unknown) {
+        const detail = formatEvolutionHttpError(error);
+        const ax = error as { response?: { status?: number; data?: unknown }; message?: string };
         log('error', `Erro HTTP ao enviar mensagem`, {
             connectionId,
-            toOriginal: to,
-            toNormalized: normalizeOutboundNumber(to),
-            error: error.message,
-            httpStatus,
-            responseBody: JSON.stringify(respBody || {}).slice(0, 500),
+            toOriginal,
+            toNormalized: number,
+            error: ax?.message || detail,
+            httpStatus: ax?.response?.status,
+            responseBody: JSON.stringify(ax?.response?.data || {}).slice(0, 500),
         });
         return { ok: false, errorDetail: detail };
     }
+}
+
+/**
+ * Envia uma mensagem - FUNÇÃO INTERNA (3 argumentos)
+ */
+async function sendMessageInternal(
+    connectionId: string,
+    to: string,
+    message: string
+): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
+    const number = normalizeOutboundNumber(to);
+
+    if (!number) {
+        log('warn', `Número inválido após normalização — envio ignorado`, { to, connectionId });
+        return { ok: false, errorDetail: `Número inválido: ${to}` };
+    }
+
+    const variants = buildBrE164Variants(number);
+    let lastResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
+
+    for (let i = 0; i < variants.length; i++) {
+        const tryNumber = variants[i];
+        if (i === 0) {
+            log('info', `Enviando mensagem via ${connectionId}`, { toNormalized: tryNumber, toOriginal: to });
+        } else {
+            log('info', `Retentando envio com variante BR do número`, {
+                connectionId,
+                toOriginal: to,
+                variant: tryNumber,
+                previousError: lastResult.errorDetail,
+            });
+        }
+
+        lastResult = await attemptEvolutionSendText(connectionId, tryNumber, message, to);
+        if (lastResult.ok) return lastResult;
+
+        const hasMoreVariants = i < variants.length - 1;
+        if (!hasMoreVariants || !isRetryableOutbound400(lastResult.errorDetail)) break;
+    }
+
+    return lastResult;
 }
 
 const ENQUEUE_CAMPAIGN_TIMEOUT_MS = 45_000;
@@ -3987,13 +4163,31 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const campaignState = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
     const dispatchSettings = getTenantDispatchSettings(campaignState?.ownerUid);
 
-    if (dispatchSettings.sleepMode) {
-        const hour = new Date().getHours();
-        if (hour >= 20 || hour < 8) {
-            log('info', '😴 Sleep mode ativo - adiando envio', { ownerUid: campaignState?.ownerUid });
-            await job.moveToDelayed(Date.now() + 60_000, token);
-            throw new DelayedError();
+    if (dispatchSettings.sleepMode && isBrazilNightHour() && !hasSleepModeOverride(item.campaignId)) {
+        const ownerUid = campaignState?.ownerUid;
+        if (item.campaignId && ownerUid && markSleepModeNotified(item.campaignId)) {
+            publishOwnerEvent(ownerUid, 'campaign-sleep-mode-pause', {
+                campaignId: item.campaignId,
+                untilHour: 8,
+                message:
+                    'Modo silêncio noturno (20h–8h, horário de Brasília). A campanha foi pausada. Deseja continuar enviando agora?',
+            });
+            emitCampaignLog(
+                'WARN',
+                'Modo silêncio noturno (20h–8h). Campanha pausada — confirme na tela se deseja continuar enviando.',
+                { campaignId: item.campaignId },
+                ownerUid
+            );
         }
+        pruneSleepModeNotified();
+        const delayMs = Math.min(Math.max(msUntilBrazil8am(), 60_000), 300_000);
+        log('info', '😴 Sleep mode ativo — campanha aguardando confirmação ou 8h', {
+            ownerUid,
+            campaignId: item.campaignId,
+            delayMs,
+        });
+        await job.moveToDelayed(Date.now() + delayMs, token);
+        throw new DelayedError();
     }
 
     // Bloqueia chips em quarentena (recuperados de ban) para proteger contra novo bloqueio
@@ -4096,6 +4290,15 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     const normalizedDest = normalizeOutboundNumber(item.to);
+    if (!normalizedDest) {
+        await failCampaignSend(job, item, item.to, `Número inválido: ${item.to}`, campaignState);
+    }
+
+    const resolvedOutbound = await resolveOutboundNumberForSend(item.connectionId, item.to);
+    if ('error' in resolvedOutbound) {
+        await failCampaignSend(job, item, normalizedDest, resolvedOutbound.error, campaignState);
+    }
+    const sendTo = resolvedOutbound.number;
 
     // ── Limite de frequência: não reenviar para o mesmo contato em 24 h ───────
     if (
@@ -4120,15 +4323,15 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     // ──────────────────────────────────────────────────────────────────────────
 
     log('info', 'Tentando envio', {
-        toNormalized: normalizedDest,
+        toNormalized: sendTo,
         toOriginal: item.to,
         connectionId: item.connectionId,
         campaignId: item.campaignId,
     });
     emitCampaignLog(
         'INFO',
-        `Enviando para ${normalizedDest}`,
-        { campaignId: item.campaignId, to: normalizedDest, connectionId: item.connectionId },
+        `Enviando para ${sendTo}`,
+        { campaignId: item.campaignId, to: sendTo, connectionId: item.connectionId },
         campaignState?.ownerUid
     );
 
@@ -4160,7 +4363,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         if (mediaToSend.url) {
             sendResult = await sendMediaByUrlInternal(
                 item.connectionId,
-                item.to,
+                sendTo,
                 mediaToSend.url,
                 mediaToSend.mimeType,
                 mediaToSend.fileName,
@@ -4169,7 +4372,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         } else if (mediaToSend.base64) {
             sendResult = await sendMediaInternal(
                 item.connectionId,
-                item.to,
+                sendTo,
                 mediaToSend.base64,
                 mediaToSend.mimeType,
                 mediaToSend.fileName,
@@ -4177,7 +4380,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             );
         }
     } else {
-        sendResult = await sendMessageInternal(item.connectionId, item.to, item.message);
+        sendResult = await sendMessageInternal(item.connectionId, sendTo, item.message);
     }
 
     if (!sendResult.ok) {
@@ -4200,10 +4403,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                     );
                     item.connectionId = altId;
                     await job.updateData(item).catch(() => {});
-                    // Retenta o envio com o novo chip
                     const altRetry = item.media
-                        ? await sendMediaInternal(altId, item.to, item.media.base64 || '', item.media.mimeType, item.media.fileName, item.media.caption || item.message)
-                        : await sendMessageInternal(altId, item.to, item.message);
+                        ? await sendMediaInternal(altId, sendTo, item.media.base64 || '', item.media.mimeType, item.media.fileName, item.media.caption || item.message)
+                        : await sendMessageInternal(altId, sendTo, item.message);
                     if (altRetry.ok) {
                         sendResult = altRetry;
                         switched = true;
@@ -4213,26 +4415,17 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             }
             if (!switched) {
                 const errDetail = sendResult.errorDetail || 'Todos os chips do pool falharam';
-                emitCampaignLog('ERROR', `Falha ao enviar para ${normalizedDest} (todos os chips tentados)`,
-                    { campaignId: item.campaignId, to: normalizedDest, error: errDetail },
-                    campaignState?.ownerUid
+                await failCampaignSend(
+                    job,
+                    item,
+                    sendTo,
+                    `${errDetail} (todos os chips tentados)`,
+                    campaignState
                 );
-                throw new Error(`Falha no envio para ${normalizedDest} — ${errDetail}`);
             }
         } else {
             const errDetail = sendResult.errorDetail || 'Evolution API não confirmou entrega';
-            emitCampaignLog(
-                'ERROR',
-                `Falha ao enviar para ${normalizedDest}`,
-                {
-                    campaignId: item.campaignId,
-                    to: normalizedDest,
-                    connectionId: item.connectionId,
-                    error: errDetail,
-                },
-                campaignState?.ownerUid
-            );
-            throw new Error(`Falha no envio para ${normalizedDest} — ${errDetail}`);
+            await failCampaignSend(job, item, sendTo, errDetail, campaignState);
         }
     }
 
@@ -4419,35 +4612,82 @@ async function sendMediaByUrlInternal(
     mimeType: string,
     fileName: string,
     caption?: string
-): Promise<{ ok: boolean; messageId?: string }> {
-    try {
-        const number = normalizeOutboundNumber(to);
-        let type = 'document';
-        if (mimeType.startsWith('image/')) type = 'image';
-        else if (mimeType.startsWith('video/')) type = 'video';
-        else if (mimeType.startsWith('audio/')) type = 'audio';
-
-        // Evolution API v2: campos na raiz (SendMediaDto extends Metadata), sem wrapper mediaMessage
-        const response = await api.post(`/message/sendMedia/${evoInst(connectionId)}`, {
-            number,
-            delay: 1200,
-                mediatype: type,
-            mimetype: mimeType,
-                caption: caption || '',
-                media: mediaUrl,
-                fileName,
-        });
-        const messageId = response.data?.key?.id || response.data?.key?._serialized;
-        return { ok: Boolean(response.data?.key), messageId: messageId ? String(messageId) : undefined };
-    } catch (error: any) {
-        log('error', 'Erro ao enviar media por URL', {
-            connectionId,
-            to,
-            mediaUrl,
-            error: error.message,
-        });
-        return { ok: false };
+): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
+    const number = normalizeOutboundNumber(to);
+    if (!number) {
+        return { ok: false, errorDetail: `Número inválido: ${to}` };
     }
+
+    let type = 'document';
+    if (mimeType.startsWith('image/')) type = 'image';
+    else if (mimeType.startsWith('video/')) type = 'video';
+    else if (mimeType.startsWith('audio/')) type = 'audio';
+
+    const variants = buildBrE164Variants(number);
+    let lastResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
+
+    for (let i = 0; i < variants.length; i++) {
+        const tryNumber = variants[i];
+        lastResult = await attemptEvolutionSendMedia(
+            connectionId,
+            tryNumber,
+            to,
+            { mediatype: type, mimetype: mimeType, caption: caption || '', media: mediaUrl, fileName }
+        );
+        if (lastResult.ok) return lastResult;
+        if (i >= variants.length - 1 || !isRetryableOutbound400(lastResult.errorDetail)) break;
+    }
+
+    return lastResult;
+}
+
+type CampaignRuntimeState = {
+    ownerUid?: string;
+    total?: number;
+    processed?: number;
+    successCount?: number;
+    failCount?: number;
+    isRunning?: boolean;
+};
+
+/** Falha de envio: contabiliza uma vez e não re-tenta jobs irrecuperáveis (HTTP 400). */
+async function failCampaignSend(
+    job: Job<MessageQueueItem>,
+    item: MessageQueueItem,
+    destLabel: string,
+    errDetail: string,
+    campaignState?: CampaignRuntimeState
+): Promise<never> {
+    const msg = `Falha no envio para ${destLabel} — ${errDetail}`;
+    emitCampaignLog(
+        'ERROR',
+        `Falha ao enviar para ${destLabel}`,
+        {
+            campaignId: item.campaignId,
+            to: destLabel,
+            connectionId: item.connectionId,
+            error: errDetail,
+        },
+        campaignState?.ownerUid
+    );
+
+    bumpQueueSize(item.connectionId, -1);
+    await accountCampaignJobOnce(job, item, false);
+    publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {
+        campaignId: item.campaignId,
+        to: item.to,
+        success: false,
+        error: msg,
+    });
+    void finalizeCampaignJob(job.id ?? '', { status: 'dead', error: msg }).catch(() => undefined);
+    if (item.campaignId && item.to) {
+        void updateContactStateOnFailure(item.campaignId, item.to, msg);
+    }
+
+    if (isUnrecoverableOutboundError(errDetail)) {
+        throw new UnrecoverableError(msg);
+    }
+    throw new Error(msg);
 }
 
 function ensureCampaignWorker() {

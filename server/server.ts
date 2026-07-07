@@ -2241,6 +2241,29 @@ const registerSocketHandlers = () => {
       })();
     });
 
+    socket.on('request-warmup-stats', () => {
+      socket.emit('warmup-chip-stats-update', filterByConnectionScope(uid, waService.getWarmupChipStats()));
+    });
+
+    socket.on('campaign-sleep-mode-continue', ({ campaignId }: { campaignId?: string }) => {
+      void (async () => {
+        try {
+          if (!(await requireActiveSubscription())) return;
+          const cid = String(campaignId || '').trim();
+          if (!cid) return;
+          const ok = evolutionService.approveCampaignSleepModeContinue(cid, uid);
+          if (!ok) {
+            socket.emit('campaign-sleep-mode-continue-result', { ok: false, campaignId: cid });
+            return;
+          }
+          userLog('campaign:sleep-mode-continue', { campaignId: cid });
+          socket.emit('campaign-sleep-mode-continue-result', { ok: true, campaignId: cid });
+        } catch (e) {
+          reportSocketAsyncError('campaign-sleep-mode-continue', e);
+        }
+      })();
+    });
+
     // Libera quarentena manualmente (admin ou próprio tenant)
     socket.on('release-quarantine', ({ connectionId }: { connectionId?: string }) => {
       if (!connectionId) return;
@@ -2407,7 +2430,7 @@ const bootstrap = async () => {
   // Registra a função de envio do auto-warmup do servidor via Evolution API
   waService.registerWarmupSendFn(async (connectionId, toPhone, message) => {
     await evolutionService.sendMessage(`${connectionId}:${toPhone}`, message);
-    waService.recordWarmupExchange(connectionId, toPhone, evolutionService.getConnections());
+    // Contabilização feita em runAutoWarmupRound via recordWarmupPair (IDs conhecidos)
   });
 
   // Registra getter de conexões da Evolution API para o auto-warmup

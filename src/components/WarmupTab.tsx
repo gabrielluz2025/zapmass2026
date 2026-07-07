@@ -150,7 +150,7 @@ export const WarmupTab: React.FC = () => {
   const { user } = useAuth();
   const {
     connections, socket, warmupActive, startWarmupTimer, stopWarmupTimer,
-    warmupQueue, warmedCount, warmupChipStats, clearWarmupChipStats
+    warmupQueue, warmedCount, warmupChipStats, clearWarmupChipStats, refreshWarmupChipStats
   } = useZapMassCore();
 
   const [channels, setChannels] = useState<WarmupChannel[]>([]);
@@ -165,6 +165,18 @@ export const WarmupTab: React.FC = () => {
   const runWarmupRoundRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => { channelsRef.current = channels; }, [channels]);
+
+  // Atualiza contadores ao abrir a aba e enquanto o aquecimento roda no servidor
+  useEffect(() => {
+    refreshWarmupChipStats();
+  }, [refreshWarmupChipStats]);
+
+  useEffect(() => {
+    if (!serverModeActive) return;
+    refreshWarmupChipStats();
+    const id = window.setInterval(refreshWarmupChipStats, 30_000);
+    return () => window.clearInterval(id);
+  }, [serverModeActive, refreshWarmupChipStats]);
 
   useEffect(() => {
     if (!warmupActive) { setWarmupCountdownUi(0); return; }
@@ -485,6 +497,9 @@ export const WarmupTab: React.FC = () => {
               <AlertTriangle className="w-3.5 h-3.5" /> Ative pelo menos 2 chips
             </span>
           )}
+          <span className="text-[11px] w-full sm:w-auto" style={{ color: 'var(--text-3)' }}>
+            Meta diária de aquecimento: ao atingir o limite do chip, ele pausa sozinho e <strong>retoma no dia seguinte</strong>.
+          </span>
         </div>
 
         {/* ═══ LEGENDA DE MATURIDADE ══════════════════════════════════════════ */}
