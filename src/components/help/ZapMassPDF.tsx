@@ -5,7 +5,6 @@ import {
   Text,
   View,
   StyleSheet,
-  Font,
 } from '@react-pdf/renderer';
 
 /* ─── Paleta ─────────────────────────────────────────────────── */
@@ -437,10 +436,112 @@ const s = StyleSheet.create({
   },
 });
 
+/* ─── Ícones compatíveis com PDF (Helvetica não renderiza emoji) ─── */
+const pdfUi = StyleSheet.create({
+  badge: { alignItems: 'center', justifyContent: 'center' },
+  badgeText: { fontFamily: 'Helvetica-Bold', color: C.white },
+  bullet: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: C.green,
+    marginTop: 4,
+    minWidth: 6,
+  },
+  marker: { width: 10, height: 10, borderRadius: 3, marginBottom: 6 },
+  markOk: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: C.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+    minWidth: 14,
+  },
+  markNo: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: C.red,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+    minWidth: 14,
+  },
+  markTiny: { color: C.white, fontSize: 8, fontFamily: 'Helvetica-Bold' },
+  tipMark: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: C.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+    minWidth: 18,
+  },
+});
+
+const PdfIconBadge = ({
+  glyph,
+  bg,
+  size = 28,
+  textColor = C.white,
+}: {
+  glyph: string;
+  bg: string;
+  size?: number;
+  textColor?: string;
+}) => (
+  <View
+    style={[
+      pdfUi.badge,
+      { width: size, height: size, borderRadius: Math.round(size * 0.28), backgroundColor: bg },
+    ]}
+  >
+    <Text style={[pdfUi.badgeText, { fontSize: Math.max(8, Math.round(size * 0.28)), color: textColor }]}>
+      {glyph}
+    </Text>
+  </View>
+);
+
+const PdfCardMarker = ({ color }: { color: string }) => (
+  <View style={[pdfUi.marker, { backgroundColor: color }]} />
+);
+
+const sectionGlyph = (label: string): string => {
+  const words = label.replace(/[^\p{L}\s-]/gu, ' ').trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  return (words[0] || 'ZM').slice(0, 2).toUpperCase();
+};
+
+const COVER_GLYPHS: Record<string, string> = {
+  Conexões: 'CH',
+  Campanhas: 'CP',
+  'Bate-papo': 'BT',
+  Contatos: 'CT',
+  Relatórios: 'RL',
+  Aquecimento: 'AQ',
+};
+
+const TOC_GLYPHS: Record<string, string> = {
+  'Painel (Dashboard)': 'PD',
+  'Conexões (Chips)': 'CH',
+  'Pools de Chips': 'PL',
+  'Bate-papo (Chat)': 'BT',
+  Campanhas: 'CP',
+  'Fluxo por Resposta': 'FX',
+  Contatos: 'CT',
+  Relatórios: 'RL',
+  'Aquecimento (Warmup)': 'AQ',
+  Configurações: 'CF',
+  'Boas Práticas': 'OK',
+};
+
 /* ─── Helpers ─────────────────────────────────────────────────── */
 const Header = ({ section }: { section: string }) => (
   <View style={s.header} fixed>
-    <Text style={s.headerLogo}>⚡ ZapMass</Text>
+    <Text style={s.headerLogo}>ZapMass</Text>
     <Text style={s.headerSection}>{section.toUpperCase()}</Text>
   </View>
 );
@@ -458,7 +559,9 @@ const Accent = ({ color }: { color: string }) => (
 
 const Tip = ({ text }: { text: string }) => (
   <View style={s.tip}>
-    <Text style={s.tipIcon}>💡</Text>
+    <View style={pdfUi.tipMark}>
+      <Text style={pdfUi.markTiny}>i</Text>
+    </View>
     <View style={{ flex: 1 }}>
       <Text style={s.tipLabel}>DICA</Text>
       <Text style={s.tipText}>{text}</Text>
@@ -468,19 +571,33 @@ const Tip = ({ text }: { text: string }) => (
 
 const Warn = ({ text }: { text: string }) => (
   <View style={s.warn}>
-    <Text style={s.warnText}>⚠️  {text}</Text>
+    <Text style={s.warnText}>ATENÇÃO: {text}</Text>
   </View>
 );
 
-const Li = ({ icon, bold, text }: { icon: string; bold?: string; text: string }) => (
-  <View style={s.listItem}>
-    <Text style={s.listIcon}>{icon}</Text>
-    <Text style={s.listText}>
-      {bold ? <Text style={s.listBold}>{bold} </Text> : null}
-      {text}
-    </Text>
-  </View>
-);
+const Li = ({ icon, bold, text }: { icon?: string; bold?: string; text: string }) => {
+  const negative = icon === '❌';
+  const positive = icon === '✅';
+  return (
+    <View style={s.listItem}>
+      {negative ? (
+        <View style={pdfUi.markNo}>
+          <Text style={pdfUi.markTiny}>X</Text>
+        </View>
+      ) : positive ? (
+        <View style={pdfUi.markOk}>
+          <Text style={pdfUi.markTiny}>✓</Text>
+        </View>
+      ) : (
+        <View style={pdfUi.bullet} />
+      )}
+      <Text style={s.listText}>
+        {bold ? <Text style={s.listBold}>{bold} </Text> : null}
+        {text}
+      </Text>
+    </View>
+  );
+};
 
 const Step = ({ num, text, color }: { num: number; text: string; color: string }) => (
   <View style={s.stepItem}>
@@ -498,10 +615,20 @@ const Check = ({ text }: { text: string }) => (
   </View>
 );
 
-const SectionPill = ({ icon, label, num, color }: { icon: string; label: string; num: string; color: string }) => (
+const SectionPill = ({
+  glyph,
+  label,
+  num,
+  color,
+}: {
+  glyph?: string;
+  label: string;
+  num: string;
+  color: string;
+}) => (
   <View style={s.sectionPill}>
     <View style={[s.pillBox, { backgroundColor: color }]}>
-      <Text style={s.pillIcon}>{icon}</Text>
+      <Text style={s.pillIcon}>{glyph || sectionGlyph(label)}</Text>
       <Text style={s.pillText}>{label.toUpperCase()}</Text>
     </View>
     <Text style={s.sectionNum}>SEÇÃO {num}</Text>
@@ -533,16 +660,23 @@ const CoverPage = () => (
       {/* Grade de features */}
       <View style={{ flexDirection: 'row', gap: 10, marginTop: 40, flexWrap: 'wrap', justifyContent: 'center' }}>
         {[
-          { icon: '📱', t: 'Conexões' },
-          { icon: '📣', t: 'Campanhas' },
-          { icon: '💬', t: 'Bate-papo' },
-          { icon: '👥', t: 'Contatos' },
-          { icon: '📈', t: 'Relatórios' },
-          { icon: '🔥', t: 'Aquecimento' },
+          { t: 'Conexões' },
+          { t: 'Campanhas' },
+          { t: 'Bate-papo' },
+          { t: 'Contatos' },
+          { t: 'Relatórios' },
+          { t: 'Aquecimento' },
         ].map((f) => (
           <View key={f.t} style={{ alignItems: 'center', width: 70 }}>
-            <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(16,185,129,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 6, borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)' }}>
-              <Text style={{ fontSize: 20 }}>{f.icon}</Text>
+            <View
+              style={{
+                marginBottom: 6,
+                borderWidth: 1,
+                borderColor: 'rgba(16,185,129,0.3)',
+                borderRadius: 12,
+              }}
+            >
+              <PdfIconBadge glyph={COVER_GLYPHS[f.t] || sectionGlyph(f.t)} bg="#065f46" size={44} />
             </View>
             <Text style={{ color: '#a7f3d0', fontSize: 9 }}>{f.t}</Text>
           </View>
@@ -562,17 +696,17 @@ const CoverPage = () => (
 /* ─── SUMÁRIO ────────────────────────────────────────────────── */
 const TOCPage = () => {
   const items = [
-    { icon: '📊', label: 'Painel (Dashboard)',        page: '3',  color: C.blue },
-    { icon: '📱', label: 'Conexões (Chips)',           page: '4',  color: C.green },
-    { icon: '⚡', label: 'Pools de Chips',             page: '5',  color: C.blue },
-    { icon: '💬', label: 'Bate-papo (Chat)',           page: '6',  color: C.purple },
-    { icon: '📣', label: 'Campanhas',                  page: '7',  color: C.amber },
-    { icon: '🔀', label: 'Fluxo por Resposta',         page: '8',  color: C.blue },
-    { icon: '👥', label: 'Contatos',                   page: '9',  color: C.green },
-    { icon: '📈', label: 'Relatórios',                 page: '10', color: C.purple },
-    { icon: '🔥', label: 'Aquecimento (Warmup)',        page: '11', color: C.amber },
-    { icon: '⚙️', label: 'Configurações',              page: '12', color: C.bodyMuted },
-    { icon: '✅', label: 'Boas Práticas',              page: '13', color: C.green },
+    { label: 'Painel (Dashboard)', page: '3', color: C.blue },
+    { label: 'Conexões (Chips)', page: '4', color: C.green },
+    { label: 'Pools de Chips', page: '5', color: C.blue },
+    { label: 'Bate-papo (Chat)', page: '6', color: C.purple },
+    { label: 'Campanhas', page: '7', color: C.amber },
+    { label: 'Fluxo por Resposta', page: '8', color: C.blue },
+    { label: 'Contatos', page: '9', color: C.green },
+    { label: 'Relatórios', page: '10', color: C.purple },
+    { label: 'Aquecimento (Warmup)', page: '11', color: C.amber },
+    { label: 'Configurações', page: '12', color: C.bodyMuted },
+    { label: 'Boas Práticas', page: '13', color: C.green },
   ];
 
   return (
@@ -587,7 +721,9 @@ const TOCPage = () => {
       {items.map((item) => (
         <View key={item.label} style={s.tocItem}>
           <View style={[s.tocIcon, { backgroundColor: `${item.color}20` }]}>
-            <Text style={s.tocIconText}>{item.icon}</Text>
+            <Text style={[s.tocIconText, { fontFamily: 'Helvetica-Bold', color: item.color }]}>
+              {TOC_GLYPHS[item.label] || sectionGlyph(item.label)}
+            </Text>
           </View>
           <Text style={s.tocLabel}>{item.label}</Text>
           <View style={s.tocDots} />
@@ -596,7 +732,9 @@ const TOCPage = () => {
       ))}
 
       <View style={[s.tip, { marginTop: 28 }]}>
-        <Text style={s.tipIcon}>📖</Text>
+        <View style={pdfUi.tipMark}>
+          <Text style={pdfUi.markTiny}>i</Text>
+        </View>
         <View style={{ flex: 1 }}>
           <Text style={s.tipText}>Este guia cobre todas as funcionalidades do ZapMass em detalhes. Recomendamos ler na sequência para iniciantes ou consultar seções específicas conforme a necessidade.</Text>
         </View>
@@ -611,7 +749,7 @@ const TOCPage = () => {
 const PainelPage = () => (
   <Page size="A4" style={s.page}>
     <Header section="Painel" />
-    <SectionPill icon="📊" label="Painel" num="01" color={C.blue} />
+    <SectionPill glyph="PD" label="Painel" num="01" color={C.blue} />
     <Text style={s.h1}>Painel (Dashboard)</Text>
     <Accent color={C.blue} />
     <Text style={s.lead}>
@@ -622,12 +760,12 @@ const PainelPage = () => (
 
     <View style={s.cardRow}>
       {[
-        { icon: '📈', t: 'Envios do dia', d: 'Total de mensagens enviadas hoje com destaque em relação ao dia anterior', c: C.blue },
-        { icon: '📱', t: 'Chips online',  d: 'Quantidade de números WhatsApp conectados e disponíveis agora',            c: C.green },
-        { icon: '✅', t: 'Taxa de sucesso', d: 'Percentual de mensagens entregues com êxito na sessão atual',           c: C.purple },
+        { icon: 'EV', t: 'Envios do dia', d: 'Total de mensagens enviadas hoje com destaque em relação ao dia anterior', c: C.blue },
+        { icon: 'CH', t: 'Chips online', d: 'Quantidade de números WhatsApp conectados e disponíveis agora', c: C.green },
+        { icon: 'OK', t: 'Taxa de sucesso', d: 'Percentual de mensagens entregues com êxito na sessão atual', c: C.purple },
       ].map((card) => (
         <View key={card.t} style={[s.card, { borderLeftColor: card.c }]}>
-          <Text style={s.cardIcon}>{card.icon}</Text>
+          <PdfCardMarker color={card.c} />
           <Text style={s.cardTitle}>{card.t}</Text>
           <Text style={s.cardDesc}>{card.d}</Text>
         </View>
@@ -649,7 +787,7 @@ const PainelPage = () => (
 const ConexoesPage = () => (
   <Page size="A4" style={s.page}>
     <Header section="Conexões" />
-    <SectionPill icon="📱" label="Conexões" num="02" color={C.green} />
+    <SectionPill glyph="CH" label="Conexões" num="02" color={C.green} />
     <Text style={s.h1}>Conexões (Chips WhatsApp)</Text>
     <Accent color={C.green} />
     <Text style={s.lead}>
@@ -671,10 +809,10 @@ const ConexoesPage = () => (
         <Text style={s.tableHeadCell}>O que fazer</Text>
       </View>
       {[
-        ['🟢 Online',     'Chip conectado e ativo',           'Pronto para enviar'],
-        ['🟡 Conectando', 'Sincronizando com o WhatsApp',     'Aguardar alguns segundos'],
-        ['🔴 Offline',    'Chip desconectado',                'Reconectar com QR Code'],
-        ['⚠️ Banido',     'Número bloqueado pelo WhatsApp',   'Ver seção de Aquecimento'],
+        ['Online', 'Chip conectado e ativo', 'Pronto para enviar'],
+        ['Conectando', 'Sincronizando com o WhatsApp', 'Aguardar alguns segundos'],
+        ['Offline', 'Chip desconectado', 'Reconectar com QR Code'],
+        ['Banido', 'Número bloqueado pelo WhatsApp', 'Ver seção de Aquecimento'],
       ].map(([status, sig, acao], i) => (
         <View key={status} style={[s.tableRow, i % 2 === 1 ? s.tableRowAlt : {}]}>
           <Text style={[s.tableCell, { flex: 0.5, fontFamily: 'Helvetica-Bold', fontSize: 9 }]}>{status}</Text>
@@ -694,7 +832,7 @@ const ConexoesPage = () => (
 const PoolsPage = () => (
   <Page size="A4" style={s.page}>
     <Header section="Pools de Chips" />
-    <SectionPill icon="⚡" label="Pools de Chips" num="02b" color={C.blue} />
+    <SectionPill glyph="PL" label="Pools de Chips" num="02b" color={C.blue} />
     <Text style={s.h1}>Pools de Chips</Text>
     <Accent color={C.blue} />
     <Text style={s.lead}>
@@ -703,7 +841,7 @@ const PoolsPage = () => (
 
     <Text style={s.h2}>Onde fica</Text>
     <View style={[s.heroBlock, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
-      <Text style={{ fontSize: 22 }}>📍</Text>
+      <PdfIconBadge glyph="IR" bg={C.blue} size={28} />
       <Text style={[s.body, { flex: 1, margin: 0 }]}>
         Aba <Text style={s.listBold}>Conexões</Text> → role até o final da página → seção <Text style={s.listBold}>"Pools de Chips"</Text>
       </Text>
@@ -723,9 +861,9 @@ const PoolsPage = () => (
         <Text style={s.tableHeadCell}>Quando usar</Text>
       </View>
       {[
-        ['🔄 Rodízio igual',          'Divide igualmente entre todos os chips',                      'Padrão — melhor para a maioria'],
-        ['⚖️ Pesos personalizados',   'Você define % de cada chip (ex: 70% + 30%)',                 'Chips com capacidades diferentes'],
-        ['🥇 Prioridade (fallback)',  'Usa o 1º chip; se cair, passa para o 2º, depois o 3º',      'Preservar um chip principal'],
+        ['Rodízio igual', 'Divide igualmente entre todos os chips', 'Padrão — melhor para a maioria'],
+        ['Pesos personalizados', 'Você define % de cada chip (ex: 70% + 30%)', 'Chips com capacidades diferentes'],
+        ['Prioridade (fallback)', 'Usa o 1º chip; se cair, passa para o 2º, depois o 3º', 'Preservar um chip principal'],
       ].map(([est, como, quando], i) => (
         <View key={est} style={[s.tableRow, i % 2 === 1 ? s.tableRowAlt : {}]}>
           <Text style={[s.tableCell, { flex: 0.8, fontFamily: 'Helvetica-Bold', fontSize: 9 }]}>{est}</Text>
@@ -753,7 +891,7 @@ const PoolsPage = () => (
 const BatePapoPage = () => (
   <Page size="A4" style={s.page}>
     <Header section="Bate-papo" />
-    <SectionPill icon="💬" label="Bate-papo" num="03" color={C.purple} />
+    <SectionPill glyph="BT" label="Bate-papo" num="03" color={C.purple} />
     <Text style={s.h1}>Bate-papo (Chat)</Text>
     <Accent color={C.purple} />
     <Text style={s.lead}>
@@ -792,7 +930,7 @@ const BatePapoPage = () => (
 const CampanhasPage = () => (
   <Page size="A4" style={s.page}>
     <Header section="Campanhas" />
-    <SectionPill icon="📣" label="Campanhas" num="04" color={C.amber} />
+    <SectionPill glyph="CP" label="Campanhas" num="04" color={C.amber} />
     <Text style={s.h1}>Campanhas</Text>
     <Accent color={C.amber} />
     <Text style={s.lead}>
@@ -814,12 +952,12 @@ const CampanhasPage = () => (
     <Text style={s.h2}>Tipos de disparo</Text>
     <View style={s.cardRow}>
       {[
-        { icon: '📢', t: 'Disparo único',     d: 'Uma mensagem para cada contato — ideal para avisos e promoções',         c: C.amber },
-        { icon: '🔀', t: 'Fluxo por resposta', d: 'Sistema aguarda o contato responder antes de enviar a próxima mensagem', c: C.blue },
-        { icon: '📅', t: 'Agendado',           d: 'Programe o disparo para qualquer data/hora futura',                     c: C.green },
+        { t: 'Disparo único', d: 'Uma mensagem para cada contato — ideal para avisos e promoções', c: C.amber },
+        { t: 'Fluxo por resposta', d: 'Sistema aguarda o contato responder antes de enviar a próxima mensagem', c: C.blue },
+        { t: 'Agendado', d: 'Programe o disparo para qualquer data/hora futura', c: C.green },
       ].map((card) => (
         <View key={card.t} style={[s.card, { borderLeftColor: card.c }]}>
-          <Text style={s.cardIcon}>{card.icon}</Text>
+          <PdfCardMarker color={card.c} />
           <Text style={s.cardTitle}>{card.t}</Text>
           <Text style={s.cardDesc}>{card.d}</Text>
         </View>
@@ -836,7 +974,7 @@ const CampanhasPage = () => (
 const FluxoPage = () => (
   <Page size="A4" style={s.page}>
     <Header section="Fluxo por Resposta" />
-    <SectionPill icon="🔀" label="Fluxo por Resposta" num="05" color={C.blue} />
+    <SectionPill glyph="FX" label="Fluxo por Resposta" num="05" color={C.blue} />
     <Text style={s.h1}>Fluxo por Resposta</Text>
     <Accent color={C.blue} />
     <Text style={s.lead}>
@@ -870,7 +1008,7 @@ const FluxoPage = () => (
 const ContatosPage = () => (
   <Page size="A4" style={s.page}>
     <Header section="Contatos" />
-    <SectionPill icon="👥" label="Contatos" num="06" color={C.green} />
+    <SectionPill glyph="CT" label="Contatos" num="06" color={C.green} />
     <Text style={s.h1}>Contatos</Text>
     <Accent color={C.green} />
     <Text style={s.lead}>
@@ -887,12 +1025,12 @@ const ContatosPage = () => (
     <Text style={s.h2}>Temperatura dos contatos</Text>
     <View style={s.cardRow}>
       {[
-        { icon: '🔥', t: 'Quente',  d: 'Engajado — respondeu recentemente ou abriu mensagens',   c: C.red },
-        { icon: '🌡️', t: 'Morno',   d: 'Moderado — alguma interação nos últimos 30 dias',         c: C.amber },
-        { icon: '❄️', t: 'Frio',    d: 'Inativo — sem interação há mais de 30 dias',              c: C.blue },
+        { t: 'Quente', d: 'Engajado — respondeu recentemente ou abriu mensagens', c: C.red },
+        { t: 'Morno', d: 'Moderado — alguma interação nos últimos 30 dias', c: C.amber },
+        { t: 'Frio', d: 'Inativo — sem interação há mais de 30 dias', c: C.blue },
       ].map((card) => (
         <View key={card.t} style={[s.card, { borderLeftColor: card.c }]}>
-          <Text style={s.cardIcon}>{card.icon}</Text>
+          <PdfCardMarker color={card.c} />
           <Text style={s.cardTitle}>{card.t}</Text>
           <Text style={s.cardDesc}>{card.d}</Text>
         </View>
@@ -915,7 +1053,7 @@ const ContatosPage = () => (
 const RelatoriosPage = () => (
   <Page size="A4" style={s.page}>
     <Header section="Relatórios" />
-    <SectionPill icon="📈" label="Relatórios" num="07" color={C.purple} />
+    <SectionPill glyph="RL" label="Relatórios" num="07" color={C.purple} />
     <Text style={s.h1}>Relatórios</Text>
     <Accent color={C.purple} />
     <Text style={s.lead}>
@@ -925,12 +1063,12 @@ const RelatoriosPage = () => (
     <Text style={s.h2}>Métricas disponíveis</Text>
     <View style={s.cardRow}>
       {[
-        { icon: '📤', t: 'Envios totais',    d: 'Total de mensagens disparadas no período filtrado',         c: C.blue },
-        { icon: '✅', t: 'Taxa de sucesso',  d: 'Percentual de mensagens entregues com êxito',               c: C.green },
-        { icon: '💬', t: 'Respostas',        d: 'Contatos que responderam a alguma mensagem do período',      c: C.purple },
+        { t: 'Envios totais', d: 'Total de mensagens disparadas no período filtrado', c: C.blue },
+        { t: 'Taxa de sucesso', d: 'Percentual de mensagens entregues com êxito', c: C.green },
+        { t: 'Respostas', d: 'Contatos que responderam a alguma mensagem do período', c: C.purple },
       ].map((card) => (
         <View key={card.t} style={[s.card, { borderLeftColor: card.c }]}>
-          <Text style={s.cardIcon}>{card.icon}</Text>
+          <PdfCardMarker color={card.c} />
           <Text style={s.cardTitle}>{card.t}</Text>
           <Text style={s.cardDesc}>{card.d}</Text>
         </View>
@@ -962,7 +1100,7 @@ const RelatoriosPage = () => (
 const AquecimentoPage = () => (
   <Page size="A4" style={s.page}>
     <Header section="Aquecimento" />
-    <SectionPill icon="🔥" label="Aquecimento" num="08" color={C.amber} />
+    <SectionPill glyph="AQ" label="Aquecimento" num="08" color={C.amber} />
     <Text style={s.h1}>Aquecimento (Warmup)</Text>
     <Accent color={C.amber} />
     <Text style={s.lead}>
@@ -1009,7 +1147,7 @@ const AquecimentoPage = () => (
 const ConfiguracoesPage = () => (
   <Page size="A4" style={s.page}>
     <Header section="Configurações" />
-    <SectionPill icon="⚙️" label="Configurações" num="09" color={C.bodyMuted} />
+    <SectionPill glyph="CF" label="Configurações" num="09" color={C.bodyMuted} />
     <Text style={s.h1}>Configurações</Text>
     <Accent color="#6b7280" />
     <Text style={s.lead}>
@@ -1045,7 +1183,7 @@ const ConfiguracoesPage = () => (
 const BoasPraticasPage = () => (
   <Page size="A4" style={s.page}>
     <Header section="Boas Práticas" />
-    <SectionPill icon="✅" label="Boas Práticas" num="10" color={C.green} />
+    <SectionPill glyph="OK" label="Boas Práticas" num="10" color={C.green} />
     <Text style={s.h1}>Boas Práticas</Text>
     <Accent color={C.green} />
     <Text style={s.lead}>
