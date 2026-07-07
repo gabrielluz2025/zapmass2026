@@ -459,7 +459,7 @@ else
   _pg_ok=0
   for _i in 1 2 3 4; do
     sleep 5
-    if docker compose ps postgres 2>/dev/null | grep -qE 'healthy|running'; then
+    if docker compose ps postgres 2>/dev/null | grep -qE 'healthy|Up'; then
       _pg_ok=1
       break
     fi
