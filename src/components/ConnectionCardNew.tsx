@@ -577,7 +577,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
         )}
 
         {/* Footer actions */}
-        <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex items-center justify-between pt-3 border-t pr-1" style={{ borderColor: 'var(--border)' }}>
           {/* Battery */}
           {connection.batteryLevel !== undefined ? (
             <div className="flex items-center gap-1.5">
