@@ -2413,6 +2413,10 @@ const bootstrap = async () => {
   // Registra getter de conexões da Evolution API para o auto-warmup
   // (whatsappService.getConnections retorna apenas conexões Baileys locais; em modo API, precisamos das conexões Evolution)
   waService.registerWarmupGetConnectionsFn(() => evolutionService.getConnections());
+
+  // Remove quarentenas incorretas geradas por heurística rapid_close (removida)
+  evolutionService.clearFalsePositiveQuarantines();
+
   setTimeout(() => { void warmupLeadsGeoCache(); }, 45_000);
   await startSessionControlPlane();
   if (isSessionBusRemote()) {

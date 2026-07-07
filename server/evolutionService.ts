@@ -1001,6 +1001,28 @@ function recordChipBan(connectionId: string, reason: string | number | undefined
     }
 }
 
+/**
+ * Remove quarentenas incorretas causadas por heurística "rapid_close" (removida).
+ * Deve ser chamado na inicialização do servidor para não bloquear chips legítimos.
+ */
+export function clearFalsePositiveQuarantines(): number {
+    let cleared = 0;
+    for (const [connId, row] of Object.entries(connectionsSettingsCache)) {
+        if (!row?.quarantineUntil || row.quarantineUntil <= Date.now()) continue;
+        const reason = (row.lastBanReason || '').toLowerCase();
+        const isConfirmedBan = reason === '401' || reason === 'loggedout' || reason === 'logged_out';
+        if (!isConfirmedBan) {
+            mergeConnectionSettingsCache(connId, { quarantineUntil: undefined });
+            cleared++;
+        }
+    }
+    if (cleared > 0) {
+        saveConnectionsSettings();
+        log('info', `[BanDetect] ${cleared} quarentena(s) de falso-positivo removida(s) na inicialização`);
+    }
+    return cleared;
+}
+
 /** Remove a quarentena de um chip (permite campanhas imediatamente). */
 export function releaseConnectionQuarantine(connectionId: string): void {
     mergeConnectionSettingsCache(connectionId, { quarantineUntil: undefined });
@@ -1293,6 +1315,17 @@ function applyConnectionStateUpdate(
             conn.lastOpenAt = Date.now();
             const phone = phoneFromWebhookData(data);
             if (phone) conn.phoneNumber = phone;
+            // Ao reconectar com sucesso, libera quarentenas causadas por razões não-confirmadas
+            // (rapid_close, unknown) para evitar bloqueio indevido de campanhas.
+            const banRow = connectionsSettingsCache[instance];
+            if (banRow?.quarantineUntil && banRow.quarantineUntil > Date.now()) {
+                const reason = (banRow.lastBanReason || '').toLowerCase();
+                const isConfirmedBan = reason === '401' || reason === 'loggedout' || reason === 'logged_out';
+                if (!isConfirmedBan) {
+                    mergeConnectionSettingsCache(instance, { quarantineUntil: undefined });
+                    log('info', `[BanDetect] Quarentena liberada ao reconectar (razão não confirmada: ${reason}): ${instance}`);
+                }
+            }
         } else if (state === 'connecting' || state === 'created') {
             if (!pairingStartedAt.has(instance)) {
                 pairingStartedAt.set(instance, Date.now());
@@ -1302,19 +1335,13 @@ function applyConnectionStateUpdate(
             stopWatchingConnection(instance);
             pairingStartedAt.delete(instance);
 
-            // Detecção de ban: statusReason 401/"loggedOut" vindo do WhatsApp
+            // Detecção de ban: SOMENTE via statusReason 401/"loggedOut" do WhatsApp.
+            // Heurística de "rapid_close" foi removida — causava falsos positivos em
+            // reconexões legítimas (deploy, queda de rede, restart do Evolution API).
             const statusReason = parseStatusReason(data);
-            const banByReason = isBanStatusReason(statusReason);
-
-            // Heurística de "ban rápido": abriu e fechou em menos de 90s sem ação do usuário
-            const rapidClose = prevStatus === 'open' && conn.lastOpenAt
-                ? (Date.now() - conn.lastOpenAt) < 90_000
-                : false;
-
-            if (banByReason || (prevStatus === 'open' && rapidClose)) {
-                const finalReason = banByReason ? statusReason : 'rapid_close';
-                recordChipBan(instance, finalReason);
-                log('warn', `[BanDetect] ${instance}: reason=${finalReason}, banByReason=${banByReason}, rapidClose=${rapidClose}`);
+            if (isBanStatusReason(statusReason)) {
+                recordChipBan(instance, statusReason);
+                log('warn', `[BanDetect] ${instance}: ban detectado via statusReason=${statusReason}`);
             }
         }
         connections.set(instance, conn);
