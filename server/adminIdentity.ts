@@ -15,6 +15,9 @@ export function adminEmailSet(): Set<string> {
   if (!emails.includes('festaimportgabriel@gmail.com')) {
     emails.push('festaimportgabriel@gmail.com');
   }
+  if (!emails.includes('zion@zap-mass.com')) {
+    emails.push('zion@zap-mass.com');
+  }
   return new Set(emails);
 }
 
