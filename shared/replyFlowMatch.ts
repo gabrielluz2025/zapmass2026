@@ -62,25 +62,30 @@ export function expandNumericReplyAliases(text: string): string {
   return mapped.join(' ');
 }
 
+/** Remove acentos/diacríticos para matching tolerante em português. */
+function stripDiacritics(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 export function normalizeReplyBodyForMatch(text: string): {
   norm: string;
   first: string;
   words: string[];
 } {
   const expanded = expandNumericReplyAliases(text);
-  const norm = String(expanded || '')
+  const norm = stripDiacritics(String(expanded || ''))
     .trim()
     .toLowerCase()
-    .replace(/[^\w\s\u00C0-\u00FF0-9]/g, '')
+    .replace(/[^\w\s0-9]/g, '')
     .trim();
   const words = norm.split(/\s+/).filter(Boolean);
   return { norm, first: words[0] || '', words };
 }
 
 export function cleanReplyTriggerToken(raw: string): string {
-  return String(raw || '')
+  return stripDiacritics(String(raw || ''))
     .toLowerCase()
-    .replace(/[^\w\s\u00C0-\u00FF0-9]/g, '')
+    .replace(/[^\w\s0-9]/g, '')
     .trim();
 }
 

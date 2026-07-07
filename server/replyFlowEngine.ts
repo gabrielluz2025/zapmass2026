@@ -574,7 +574,17 @@ export class ReplyFlowEngine {
 
         const tBody = String(bodyText || '').trim();
         const meta = def.meta || {};
-        if (meta.globalOptOutEnabled !== false && tBody) {
+
+        // Verificar opt-out global SOMENTE se a resposta não casar com nenhuma opção
+        // configurada pelo usuário. Isso permite que palavras como "sair" sejam usadas
+        // como opção de menu sem acionar o opt-out automático.
+        const gateStepForOptOut = def.steps[session.awaitingAfterStep];
+        const hasConfiguredOptions = (gateStepForOptOut?.options?.length ?? 0) > 0;
+        const matchesConfiguredOption = hasConfiguredOptions && tBody
+            ? findBestMatchingOption(gateStepForOptOut!.options!, tBody, gateStepForOptOut?.matchMode || 'word') !== null
+            : false;
+
+        if (meta.globalOptOutEnabled !== false && tBody && !matchesConfiguredOption) {
             const optOut = detectGlobalOptOut(tBody, meta.globalOptOutKeywords);
             if (optOut.matched) {
                 this.callbacks.onLog?.('Opt-out global reconhecido no fluxo por resposta', {
