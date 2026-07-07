@@ -76,7 +76,8 @@ export const startOwnerEmitRedisSubscriber = (
         void emitConversationsFilteredPerSocket(io, tenantUid, parsed.payload);
         return;
       }
-      io.to(`user:${parsed.uid}`).emit(parsed.event, parsed.payload ?? {});
+      const payload = parsed.payload ?? {};
+      io.to(`user:${parsed.uid}`).emit(parsed.event, payload);
     } catch (e) {
       console.warn('[owner-emit-redis] mensagem inválida:', (e as Error)?.message);
     }

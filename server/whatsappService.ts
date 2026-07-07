@@ -795,6 +795,7 @@ interface WarmupDailyEntry {
 }
 interface WarmupChipStats {
     connectionId: string;
+    ownerUid?: string;
     firstWarmedAt?: number;
     lastActiveAt?: number;
     totalSent: number;
@@ -824,7 +825,12 @@ const loadWarmupChipStats = async () => {
         const raw = await fs.promises.readFile(warmupChipStatsFile, 'utf8');
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-            warmupChipStats = new Map(parsed.map((s: WarmupChipStats) => [s.connectionId, s]));
+            warmupChipStats = new Map(
+                parsed.map((s: WarmupChipStats) => {
+                    const enriched = attachOwnerUidToWarmupStat(s);
+                    return [enriched.connectionId, enriched];
+                })
+            );
             console.log(`[WarmupChipStats] Carregado historico de ${warmupChipStats.size} chip(s).`);
         }
     } catch {
@@ -850,6 +856,7 @@ const getOrCreateChipStats = (connectionId: string): WarmupChipStats => {
     if (!stats) {
         stats = {
             connectionId,
+            ownerUid: resolveWarmupStatOwnerUid(connectionId),
             firstWarmedAt: undefined,
             lastActiveAt: undefined,
             totalSent: 0,
@@ -858,6 +865,9 @@ const getOrCreateChipStats = (connectionId: string): WarmupChipStats => {
             dailyHistory: []
         };
         warmupChipStats.set(connectionId, stats);
+    } else if (!stats.ownerUid) {
+        const ownerUid = resolveWarmupStatOwnerUid(connectionId);
+        if (ownerUid) stats.ownerUid = ownerUid;
     }
     return stats;
 };
@@ -887,12 +897,12 @@ const getConnectedSocketsSafe = (): Socket[] => {
 };
 
 const emitWarmupChipStats = () => {
-    const list = Array.from(warmupChipStats.values());
+    const list = Array.from(warmupChipStats.values()).map(attachOwnerUidToWarmupStat);
     if (list.length === 0) return;
 
     const byOwner = new Map<string, WarmupChipStats[]>();
     for (const stat of list) {
-        const owner = ownerUidFromConnectionId(stat.connectionId) || 'anonymous';
+        const owner = stat.ownerUid || resolveWarmupStatOwnerUid(stat.connectionId) || 'anonymous';
         const bucket = byOwner.get(owner) ?? [];
         bucket.push(stat);
         byOwner.set(owner, bucket);
@@ -1068,7 +1078,8 @@ export function emitScheduledCampaignUserNotice(
     }).catch(() => {});
 }
 
-export const getWarmupChipStats = (): WarmupChipStats[] => Array.from(warmupChipStats.values());
+export const getWarmupChipStats = (): WarmupChipStats[] =>
+    Array.from(warmupChipStats.values()).map(attachOwnerUidToWarmupStat);
 
 /** Regista disparo do canal (campanha ou aquecimento) no histórico diário persistido. */
 export const recordConnectionDispatch = (connectionId: string) => {
@@ -6380,6 +6391,28 @@ export const registerWarmupSendFn = (fn: WarmupSendFn) => {
 type WarmupConnRef = { id: string; phoneNumber?: string | null; status: string };
 type WarmupGetConnectionsFn = () => WarmupConnRef[];
 let _warmupGetConnectionsFn: WarmupGetConnectionsFn | null = null;
+
+type WarmupOwnerResolverFn = (connectionId: string) => string | undefined;
+let _warmupOwnerResolverFn: WarmupOwnerResolverFn | null = null;
+
+/** Resolve ownerUid de conn_* legado (Evolution) para filtro multi-tenant dos stats. */
+export const registerWarmupStatsOwnerResolver = (fn: WarmupOwnerResolverFn) => {
+    _warmupOwnerResolverFn = fn;
+};
+
+const resolveWarmupStatOwnerUid = (connectionId: string): string | undefined => {
+    const fromPrefix = ownerUidFromConnectionId(connectionId);
+    if (fromPrefix) return fromPrefix;
+    const fromEvolution = _warmupOwnerResolverFn?.(connectionId);
+    if (fromEvolution) return fromEvolution;
+    const fromLocal = resolveConnectionOwnerUid(connectionId);
+    return fromLocal || undefined;
+};
+
+const attachOwnerUidToWarmupStat = (stat: WarmupChipStats): WarmupChipStats => {
+    const ownerUid = stat.ownerUid || resolveWarmupStatOwnerUid(stat.connectionId);
+    return ownerUid ? { ...stat, ownerUid } : stat;
+};
 
 /** Registra o getter de conexões da Evolution API para ser usado pelo auto-warmup. */
 export const registerWarmupGetConnectionsFn = (fn: WarmupGetConnectionsFn) => {

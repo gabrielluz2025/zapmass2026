@@ -4057,6 +4057,15 @@ async function sendMessageInternal(
     return lastResult;
 }
 
+/** Envio direto na Evolution (aquecimento) — sem inbox/LID do chat. */
+export async function sendTextToPhoneDirect(
+    connectionId: string,
+    toPhone: string,
+    message: string
+): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
+    return sendMessageInternal(connectionId, toPhone, message);
+}
+
 const ENQUEUE_CAMPAIGN_TIMEOUT_MS = 45_000;
 
 async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {

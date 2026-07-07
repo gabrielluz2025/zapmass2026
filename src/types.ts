@@ -324,6 +324,8 @@ export interface WarmupDailyEntry {
 }
 export interface WarmupChipStats {
   connectionId: string;
+  /** Dono do chip (conn_* legado) — preenchido pelo servidor para escopo multi-tenant. */
+  ownerUid?: string;
   firstWarmedAt?: number;
   lastActiveAt?: number;
   totalSent: number;
