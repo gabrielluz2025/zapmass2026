@@ -4291,12 +4291,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     const normalizedDest = normalizeOutboundNumber(item.to);
     if (!normalizedDest) {
-        await failCampaignSend(job, item, item.to, `Número inválido: ${item.to}`, campaignState);
+        return await failCampaignSend(job, item, item.to, `Número inválido: ${item.to}`, campaignState);
     }
 
     const resolvedOutbound = await resolveOutboundNumberForSend(item.connectionId, item.to);
     if ('error' in resolvedOutbound) {
-        await failCampaignSend(job, item, normalizedDest, resolvedOutbound.error, campaignState);
+        return await failCampaignSend(job, item, normalizedDest, resolvedOutbound.error, campaignState);
     }
     const sendTo = resolvedOutbound.number;
 
@@ -4415,7 +4415,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             }
             if (!switched) {
                 const errDetail = sendResult.errorDetail || 'Todos os chips do pool falharam';
-                await failCampaignSend(
+                return await failCampaignSend(
                     job,
                     item,
                     sendTo,
@@ -4425,7 +4425,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             }
         } else {
             const errDetail = sendResult.errorDetail || 'Evolution API não confirmou entrega';
-            await failCampaignSend(job, item, sendTo, errDetail, campaignState);
+            return await failCampaignSend(job, item, sendTo, errDetail, campaignState);
         }
     }
 
@@ -4640,15 +4640,6 @@ async function sendMediaByUrlInternal(
 
     return lastResult;
 }
-
-type CampaignRuntimeState = {
-    ownerUid?: string;
-    total?: number;
-    processed?: number;
-    successCount?: number;
-    failCount?: number;
-    isRunning?: boolean;
-};
 
 /** Falha de envio: contabiliza uma vez e não re-tenta jobs irrecuperáveis (HTTP 400). */
 async function failCampaignSend(
