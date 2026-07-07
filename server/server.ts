@@ -2217,6 +2217,10 @@ const registerSocketHandlers = () => {
         try {
           if (!(await requireActiveSubscription())) return;
           const ids = Array.isArray(connectionIds) ? connectionIds.filter(id => ownsConnectionId(id)) : [];
+          if (ids.length < 2) {
+            socket.emit('warmup-send-error', { error: 'Ative pelo menos 2 chips conectados para o aquecimento.' });
+            return;
+          }
           if (ids.length === 0) return;
           const interval = Math.max(5, Math.min(120, Number(intervalMinutes) || 10));
           userLog('warmup:auto-start', { connectionIds: ids, intervalMinutes: interval });
@@ -2436,6 +2440,7 @@ const bootstrap = async () => {
   // Registra getter de conexões da Evolution API para o auto-warmup
   // (whatsappService.getConnections retorna apenas conexões Baileys locais; em modo API, precisamos das conexões Evolution)
   waService.registerWarmupGetConnectionsFn(() => evolutionService.getConnections());
+  waService.resumeAutoWarmupsAfterBoot();
 
   // Remove quarentenas incorretas geradas por heurística rapid_close (removida)
   evolutionService.clearFalsePositiveQuarantines();

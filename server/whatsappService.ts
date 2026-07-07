@@ -887,8 +887,21 @@ const getConnectedSocketsSafe = (): Socket[] => {
 };
 
 const emitWarmupChipStats = () => {
-    if (!io) return;
     const list = Array.from(warmupChipStats.values());
+    if (list.length === 0) return;
+
+    const byOwner = new Map<string, WarmupChipStats[]>();
+    for (const stat of list) {
+        const owner = ownerUidFromConnectionId(stat.connectionId) || 'anonymous';
+        const bucket = byOwner.get(owner) ?? [];
+        bucket.push(stat);
+        byOwner.set(owner, bucket);
+    }
+    for (const [ownerUid, stats] of byOwner) {
+        publishOwnerEvent(ownerUid, 'warmup-chip-stats-update', filterByConnectionScope(ownerUid, stats));
+    }
+
+    if (!io) return;
     for (const socket of getConnectedSocketsSafe()) {
         const uid = String((socket.data as { uid?: string }).uid ?? 'anonymous');
         socket.emit('warmup-chip-stats-update', filterByConnectionScope(uid, list));
@@ -6364,7 +6377,8 @@ export const registerWarmupSendFn = (fn: WarmupSendFn) => {
 };
 
 // Getter de conexões registrado externamente (Evolution API mode)
-type WarmupGetConnectionsFn = () => Array<{ id: string; phoneNumber?: string | null; status: string }>;
+type WarmupConnRef = { id: string; phoneNumber?: string | null; status: string };
+type WarmupGetConnectionsFn = () => WarmupConnRef[];
 let _warmupGetConnectionsFn: WarmupGetConnectionsFn | null = null;
 
 /** Registra o getter de conexões da Evolution API para ser usado pelo auto-warmup. */
@@ -6372,14 +6386,36 @@ export const registerWarmupGetConnectionsFn = (fn: WarmupGetConnectionsFn) => {
     _warmupGetConnectionsFn = fn;
 };
 
-export const sendWarmupMessage = async (connectionId: string, toPhone: string, message: string) => {
+const isWarmupEligibleConnection = (c: WarmupConnRef, allowedIds: Set<string>): boolean => {
+    if (!allowedIds.has(c.id)) return false;
+    const phone = String(c.phoneNumber || '').replace(/\D/g, '');
+    if (phone.length < 10) return false;
+    const st = String(c.status || '').toUpperCase();
+    return st === 'CONNECTED' || st === 'OPEN';
+};
+
+export const sendWarmupMessage = async (
+    connectionId: string,
+    toPhone: string,
+    message: string,
+    toConnectionId?: string
+) => {
     const normalizedPhone = toPhone.replace(/\D/g, '');
 
+    const recordSuccess = () => {
+        const connList = _warmupGetConnectionsFn ? _warmupGetConnectionsFn() : getConnections();
+        if (toConnectionId) {
+            recordWarmupPair(connectionId, toConnectionId);
+        } else {
+            recordWarmupExchange(connectionId, normalizedPhone, connList);
+        }
+    };
+
     // Modo API (Evolution API): sem clientes Baileys locais — usa função registrada
-    // Nota: _warmupSendFn já chama recordWarmupExchange internamente (não chamar recordWarmupSent para evitar dupla contagem)
     if (_warmupSendFn) {
         try {
             await _warmupSendFn(connectionId, normalizedPhone, message);
+            recordSuccess();
             console.log(`[Warmup] ✅ Enviado via API de ${connectionId} para ${normalizedPhone}`);
         } catch (err) {
             recordWarmupFailed(connectionId);
@@ -6400,7 +6436,7 @@ export const sendWarmupMessage = async (connectionId: string, toPhone: string, m
     try {
         await client.sendMessage(chatId, message);
         console.log(`[Warmup] ✅ Mensagem enviada com sucesso`);
-        recordWarmupSent(connectionId, normalizedPhone);
+        recordSuccess();
     } catch (err) {
         recordWarmupFailed(connectionId);
         throw err;
@@ -7078,13 +7114,14 @@ const chipHasDailyCapacity = (connectionId: string): boolean => {
 };
 
 const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
-    // Usa o getter da Evolution API se disponível; senão usa o do Baileys local
+    const allowedIds = new Set(connectionIds.filter(Boolean));
     const rawConns = _warmupGetConnectionsFn ? _warmupGetConnectionsFn() : getConnections();
-    const activeConns = rawConns.filter(
-        (c) => c.status === 'CONNECTED' && connectionIds.includes(c.id) && c.phoneNumber
-    );
+    const activeConns = rawConns.filter((c) => isWarmupEligibleConnection(c, allowedIds));
     if (activeConns.length < 2) {
-        console.log(`[AutoWarmup] [${uid}] Menos de 2 canais conectados ativos para o aquecimento. IDs solicitados: ${connectionIds.join(',')}, conectados com número: ${activeConns.map(c => c.id).join(',')}`);
+        console.log(
+            `[AutoWarmup] [${uid}] Menos de 2 canais conectados ativos para o aquecimento. ` +
+                `IDs solicitados: ${connectionIds.join(',')}, prontos: ${activeConns.map((c) => c.id).join(',') || 'nenhum'}`
+        );
         return;
     }
 
@@ -7100,7 +7137,7 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
         return;
     }
 
-    const pairs: Array<[any, any]> = [];
+    const pairs: Array<[WarmupConnRef, WarmupConnRef]> = [];
     for (let i = 0; i < availableConns.length; i++) {
         for (let j = i + 1; j < availableConns.length; j++) {
             pairs.push([availableConns[i], availableConns[j]]);
@@ -7115,27 +7152,24 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
             console.log(`[AutoWarmup] [${uid}] Aquecimento foi interrompido.`);
             break;
         }
-        // Verifica capacidade antes de cada envio (pode ter atingido durante a rodada)
         if (!chipHasDailyCapacity(a.id) || !chipHasDailyCapacity(b.id)) {
             console.log(`[AutoWarmup] [${uid}] Par ${a.id} <-> ${b.id} atingiu meta diária, pulando.`);
             continue;
         }
+        const phoneA = String(a.phoneNumber || '').replace(/\D/g, '');
+        const phoneB = String(b.phoneNumber || '').replace(/\D/g, '');
+        if (!phoneA || !phoneB) continue;
         try {
-            // A envia para B
             const msgAtoB = WARMUP_MESSAGES[Math.floor(Math.random() * WARMUP_MESSAGES.length)];
-            await sendWarmupMessage(a.id, b.phoneNumber, msgAtoB);
-            recordWarmupPair(a.id, b.id);
+            await sendWarmupMessage(a.id, phoneB, msgAtoB, b.id);
 
-            // Delay aleatório 3-8s
             await new Promise((r) => setTimeout(r, 3000 + Math.random() * 5000));
 
             if (!activeAutoWarmups.has(uid)) break;
 
-            // B responde para A (só se B ainda tiver capacidade)
             if (chipHasDailyCapacity(b.id) && chipHasDailyCapacity(a.id)) {
                 const msgBtoA = WARMUP_MESSAGES[Math.floor(Math.random() * WARMUP_MESSAGES.length)];
-                await sendWarmupMessage(b.id, a.phoneNumber, msgBtoA);
-                recordWarmupPair(b.id, a.id);
+                await sendWarmupMessage(b.id, phoneA, msgBtoA, a.id);
             }
 
             await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
@@ -7217,12 +7251,12 @@ export const loadAndResumeAutoWarmups = async () => {
     }
 };
 
+/** Retoma aquecimentos após registrar Evolution API (evita race no boot). */
+export const resumeAutoWarmupsAfterBoot = () => {
+    void loadAndResumeAutoWarmups();
+};
+
 const emitAutoWarmupStateToUser = (uid: string) => {
     const state = getAutoWarmupState(uid);
     emitToOwnerUid('auto-warmup-state', uid, state);
 };
-
-// Carrega os aquecimentos salvos em background
-setTimeout(() => {
-    void loadAndResumeAutoWarmups();
-}, 5000);
