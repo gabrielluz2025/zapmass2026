@@ -1453,21 +1453,37 @@ export const ContactsTab: React.FC = () => {
     h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
 
   const HEADER_MAP: Record<string, keyof Contact | 'tags'> = {
+    // Nome
     nome: 'name', name: 'name', fullname: 'name', nomecompleto: 'name',
+    nomecontato: 'name', contato: 'name', cliente: 'name', pessoa: 'name',
+    primeironome: 'name', firstname: 'name', sobrenome: 'name', lastname: 'name',
+    razaosocial: 'name', responsavel: 'name', destinatario: 'name',
+    // Telefone
     telefone: 'phone', phone: 'phone', celular: 'phone', whatsapp: 'phone', numero: 'phone',
-    email: 'email', mail: 'email',
-    aniversario: 'birthday', aniversariodddmaaaammdd: 'birthday', birthday: 'birthday', datadenascimento: 'birthday', nascimento: 'birthday',
-    cidade: 'city', city: 'city',
-    uf: 'state', estado: 'state', state: 'state',
-    rua: 'street', logradouro: 'street', endereco: 'street', street: 'street',
+    fone: 'phone', tel: 'phone', mob: 'phone', mobile: 'phone', cell: 'phone',
+    telefonecell: 'phone', celularwhatsapp: 'phone', wpp: 'phone', zap: 'phone',
+    numerodowpp: 'phone', numerowhatsapp: 'phone', numerocelular: 'phone',
+    numerodocelular: 'phone', fonecelular: 'phone', phonenum: 'phone', phonenumber: 'phone',
+    // E-mail
+    email: 'email', mail: 'email', emailcontato: 'email', correioeletronico: 'email',
+    // Aniversário
+    aniversario: 'birthday', aniversariodddmaaaammdd: 'birthday', birthday: 'birthday',
+    datadenascimento: 'birthday', nascimento: 'birthday', dtnascimento: 'birthday', dtnasc: 'birthday',
+    // Cidade / UF / Endereço
+    cidade: 'city', city: 'city', municipio: 'city',
+    uf: 'state', estado: 'state', state: 'state', siglaestado: 'state',
+    rua: 'street', logradouro: 'street', endereco: 'street', street: 'street', address: 'street',
     numeroendereco: 'number', numerocasa: 'number', num: 'number',
-    bairro: 'neighborhood', neighborhood: 'neighborhood',
-    cep: 'zipCode', zipcode: 'zipCode', zip: 'zipCode',
-    igreja: 'church', church: 'church', congregacao: 'church',
-    cargoigreja: 'role', cargo: 'role', role: 'role', posicionamento: 'role',
-    cargoprofissional: 'profession', profissao: 'profession', profession: 'profession',
-    tags: 'tags', tag: 'tags', etiquetas: 'tags',
-    observacoes: 'notes', obs: 'notes', notes: 'notes',
+    bairro: 'neighborhood', neighborhood: 'neighborhood', distrito: 'neighborhood',
+    cep: 'zipCode', zipcode: 'zipCode', zip: 'zipCode', codigopostal: 'zipCode',
+    // Igreja / Cargo
+    igreja: 'church', church: 'church', congregacao: 'church', ministerio: 'church',
+    cargoigreja: 'role', cargo: 'role', role: 'role', posicionamento: 'role', funcao: 'role',
+    cargoprofissional: 'profession', profissao: 'profession', profession: 'profession', ocupacao: 'profession',
+    // Tags / Notas
+    tags: 'tags', tag: 'tags', etiquetas: 'tags', categoria: 'tags', categorias: 'tags', grupos: 'tags',
+    observacoes: 'notes', obs: 'notes', notes: 'notes', anotacoes: 'notes', descricao: 'notes',
+    // Retorno
     dataretorno: 'followUpAt', datadoretorno: 'followUpAt', retornoiso: 'followUpAt',
     followupat: 'followUpAt', followup: 'followUpAt', horaretorno: 'followUpAt',
     notaretorno: 'followUpNote', notadoretorno: 'followUpNote', followupnote: 'followUpNote'
@@ -1480,16 +1496,51 @@ export const ContactsTab: React.FC = () => {
     let phoneSeen = false;
     rawHeaders.forEach((raw) => {
       const norm = normalizeHeader(raw);
-      // Deteccao por palavra exata primeiro
       let key: keyof Contact | 'tags' | null = HEADER_MAP[norm] || null;
-      // Deteccao heuristica: "numero" padrao = telefone. Se ja temos telefone mapeado, vira numero da casa.
+      // "numero" padrão = telefone. Se já temos telefone mapeado, vira número da casa.
       if (norm === 'numero') {
         key = phoneSeen ? 'number' : 'phone';
+      }
+      // Detecção parcial: verifica se a chave normalizada CONTÉM palavras-chave conhecidas
+      if (!key) {
+        if (/nome|name|contato|cliente|pessoa|responsavel|destinatario/.test(norm)) key = 'name';
+        else if (/phone|fone|cel|tel|mob|whats|wpp|zap|numero/.test(norm)) key = phoneSeen ? 'number' : 'phone';
+        else if (/email|mail/.test(norm)) key = 'email';
+        else if (/cidade|city|munic/.test(norm)) key = 'city';
+        else if (/estado|uf|state/.test(norm)) key = 'state';
+        else if (/nasc|birth|aniv/.test(norm)) key = 'birthday';
       }
       if (key === 'phone') phoneSeen = true;
       index.push(key);
     });
     return index;
+  };
+
+  /**
+   * Heurística de último recurso: analisa até 10 linhas de dados para inferir
+   * quais colunas são nome e telefone quando os cabeçalhos não foram reconhecidos.
+   */
+  const inferNamePhoneColumns = (rows: string[][]): { nameCol: number; phoneCol: number } | null => {
+    const phoneRe = /^[\d\s()\-+]{7,20}$/;
+    const nameRe = /^[A-Za-zÀ-ÖØ-öø-ÿ\s]{3,50}$/;
+    const sample = rows.slice(1, Math.min(11, rows.length));
+    const colCount = rows[0].length;
+    const phoneCandidates: number[] = [];
+    const nameCandidates: number[] = [];
+    for (let col = 0; col < colCount; col++) {
+      let phoneHits = 0; let nameHits = 0;
+      for (const row of sample) {
+        const val = String(row[col] || '').trim();
+        if (phoneRe.test(val.replace(/\D/g, '').padEnd(8))) phoneHits++;
+        if (nameRe.test(val)) nameHits++;
+      }
+      if (phoneHits >= Math.ceil(sample.length * 0.5)) phoneCandidates.push(col);
+      if (nameHits >= Math.ceil(sample.length * 0.5)) nameCandidates.push(col);
+    }
+    const phoneCol = phoneCandidates[0] ?? -1;
+    const nameCol = nameCandidates.find((c) => c !== phoneCol) ?? nameCandidates[0] ?? -1;
+    if (phoneCol < 0 || nameCol < 0 || nameCol === phoneCol) return null;
+    return { nameCol, phoneCol };
   };
 
   /** Monta contato a partir da linha (mesmo incompleto) para revisao antes de importar. */
@@ -1628,11 +1679,34 @@ export const ContactsTab: React.FC = () => {
       }
 
       const rawHeaders = rows[0].map((h: any) => String(h || ''));
-      const headerIndex = buildHeaderIndex(rawHeaders);
-      const hasName = headerIndex.includes('name');
-      const hasPhone = headerIndex.includes('phone');
+      let headerIndex = buildHeaderIndex(rawHeaders);
+      let hasName = headerIndex.includes('name');
+      let hasPhone = headerIndex.includes('phone');
+
+      // Fallback: tenta inferir colunas por heurística nos dados
       if (!hasName || !hasPhone) {
-        toast.error('Arquivo invalido: nao encontrei colunas de Nome e/ou Telefone.');
+        const inferred = inferNamePhoneColumns(rows);
+        if (inferred) {
+          // Preenche o índice com as colunas inferidas
+          headerIndex = headerIndex.map((key, col) => {
+            if (col === inferred.nameCol && !hasName) return 'name';
+            if (col === inferred.phoneCol && !hasPhone) return 'phone';
+            return key;
+          });
+          hasName = headerIndex.includes('name');
+          hasPhone = headerIndex.includes('phone');
+        }
+      }
+
+      if (!hasName || !hasPhone) {
+        const detected = rawHeaders
+          .map((h, i) => headerIndex[i] ? `"${h}" → ${headerIndex[i]}` : `"${h}" (não reconhecida)`)
+          .join(', ');
+        const missing = [!hasName && 'Nome', !hasPhone && 'Telefone'].filter(Boolean).join(' e ');
+        toast.error(
+          `Colunas de ${missing} não encontradas.\n\nCabeçalhos detectados: ${detected || '(nenhum)'}\n\nRenomeie as colunas para "Nome" e "Telefone" e tente novamente.`,
+          { duration: 8000 }
+        );
         return;
       }
 
