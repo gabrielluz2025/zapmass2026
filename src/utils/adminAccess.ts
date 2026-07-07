@@ -20,11 +20,13 @@ function parseUidList(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
+const HARDCODED_ADMIN_EMAILS = ['festaimportgabriel@gmail.com', 'zion@zap-mass.com'];
+
 /** E-mails admin no front (menu). Gravação em /api/admin exige ADMIN_EMAILS ou ADMIN_UIDS no servidor. */
 export function isAdminUserEmail(email: string | null | undefined): boolean {
   if (!email) return false;
   const targetEmail = email.trim().toLowerCase();
-  if (targetEmail === 'festaimportgabriel@gmail.com') return true;
+  if (HARDCODED_ADMIN_EMAILS.includes(targetEmail)) return true;
   const list = parseList(import.meta.env.VITE_ADMIN_EMAILS as string | undefined);
   return list.includes(targetEmail);
 }
