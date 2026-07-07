@@ -317,77 +317,125 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
   color: #d1f4e0;
 }
 
-/* ── Cards de conversa (novo visual) ──────── */
+/* ══════════════════════════════════════════════
+   Cards de conversa — design premium v3
+   ══════════════════════════════════════════════ */
 .wa-conv-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 11px;
-  padding: 10px 12px;
-  margin: 2px 6px;
-  border-radius: 12px;
+  padding: 9px 14px 9px 16px;
+  margin: 1px 0;
+  border-radius: 0;
   background: transparent;
   border: none;
   cursor: pointer;
   text-align: left;
-  width: calc(100% - 12px);
-  position: relative;
-  transition: background 0.12s ease, box-shadow 0.12s;
+  width: 100%;
+  position: absolute;
+  left: 0;
+  transition: background 0.14s ease, transform 0.1s ease;
+  overflow: hidden;
+}
+
+/* Accent bar lateral (ativo) */
+.wa-conv-accent {
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: transparent;
+  transition: background 0.14s ease, transform 0.14s ease;
+  transform: scaleY(0.4);
+  flex-shrink: 0;
 }
 
 .wa-conv-row:hover {
   background: var(--wa-hover);
 }
 
+.wa-conv-row:hover .wa-conv-accent {
+  background: rgba(16,185,129,0.35);
+  transform: scaleY(0.7);
+}
+
 .wa-conv-row[data-active='true'] {
-  background: color-mix(in srgb, var(--wa-green) 12%, var(--wa-panel));
-  box-shadow: inset 0 0 0 1px rgba(16,185,129,0.25);
+  background: color-mix(in srgb, var(--wa-green) 10%, var(--wa-panel));
+}
+
+.wa-conv-row[data-active='true'] .wa-conv-accent {
+  background: var(--wa-green);
+  transform: scaleY(1);
+  box-shadow: 0 0 8px rgba(16,185,129,0.5);
 }
 
 .wa-conv-row[data-unread='true']:not([data-active='true']) {
-  background: rgba(255,255,255,0.03);
+  background: rgba(255,255,255,0.025);
 }
 
-.wa-conv-body {
-  flex: 1;
-  min-width: 0;
-  padding-bottom: 0;
-  border-bottom: none;
+/* Separador sutil entre linhas */
+.wa-conv-row::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 68px;
+  right: 0;
+  height: 1px;
+  background: var(--wa-divider);
+  opacity: 0.5;
 }
 
+.wa-conv-row:last-child::after { display: none; }
+
+/* ── Avatar ──────────────────────────────── */
 .wa-conv-avatar-wrap {
-  width: 49px;
-  height: 49px;
+  width: 46px;
+  height: 46px;
   flex-shrink: 0;
+  position: relative;
 }
 
 .wa-conv-avatar {
-  width: 49px;
-  height: 49px;
-  border-radius: 9999px;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
   object-fit: cover;
   flex-shrink: 0;
   background: var(--wa-divider);
+  transition: border-radius 0.15s ease, box-shadow 0.15s ease;
 }
 
+.wa-conv-row:hover .wa-conv-avatar {
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+
+.wa-conv-row[data-active='true'] .wa-conv-avatar {
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px var(--wa-green), 0 4px 12px rgba(16,185,129,0.25);
+}
+
+/* ── Presença ────────────────────────────── */
 .wa-presence-dot {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 12px;
-  height: 12px;
+  right: -1px;
+  bottom: -1px;
+  width: 11px;
+  height: 11px;
   border-radius: 9999px;
   background: #25d366;
   border: 2px solid var(--wa-panel, #111115);
   box-sizing: border-box;
 }
 
-/* Presença online — anel pulsante */
 .wa-presence-ring {
   position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 14px;
-  height: 14px;
+  right: -2px;
+  bottom: -2px;
+  width: 13px;
+  height: 13px;
   border-radius: 9999px;
   background: #25d366;
   border: 2.5px solid var(--wa-panel, #111115);
@@ -396,45 +444,125 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
 }
 
 @keyframes wa-presence-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(37,211,102,0.5); }
-  50% { box-shadow: 0 0 0 4px rgba(37,211,102,0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37,211,102,0.55); }
+  50%       { box-shadow: 0 0 0 5px rgba(37,211,102,0); }
+}
+
+/* ── Corpo (nome + preview) ──────────────── */
+.wa-conv-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.wa-conv-topline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.wa-conv-bottomline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.wa-conv-bottomline-right {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
 }
 
 .wa-conv-name {
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--wa-text);
   letter-spacing: -0.01em;
-  line-height: 1.25;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
 }
 
 .wa-conv-name--bold {
   font-weight: 700;
-  color: var(--wa-text);
 }
 
 .wa-conv-name--crm {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
   letter-spacing: -0.015em;
 }
 
 .wa-conv-wa-alias {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--wa-text-3);
-  line-height: 1.25;
-  margin-top: 1px;
+  line-height: 1.2;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wa-conv-preview {
+  font-size: 12.5px;
+  color: var(--wa-text-3);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.wa-conv-preview--presence {
+  color: var(--wa-green);
+  font-weight: 500;
+}
+
+.wa-conv-time {
+  font-size: 11px;
+  color: var(--wa-text-3);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.wa-conv-time[data-unread='true'] {
+  color: var(--wa-green);
+  font-weight: 600;
+}
+
+/* ── Tags inline de canal ─────────────────── */
+.wa-conv-channel-inline {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70px;
+  flex-shrink: 0;
 }
 
 .wa-conv-channel-tag {
   display: inline-block;
   max-width: 100%;
-  margin-top: 4px;
-  padding: 1px 7px;
+  margin-top: 2px;
+  padding: 1px 6px;
   border-radius: 4px;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 9.5px;
+  font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--wa-green-strong);
   background: color-mix(in srgb, var(--wa-green) 10%, transparent);
@@ -444,12 +572,11 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
 .wa-conv-channel {
   display: inline-block;
   max-width: 100%;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.03em;
   line-height: 1.2;
-  margin-top: 3px;
-  padding: 2px 6px;
+  padding: 2px 5px;
   border-radius: 4px;
   border: 1px solid transparent;
 }
@@ -458,9 +585,9 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
   display: inline-flex;
   align-items: center;
   max-width: 42%;
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--wa-green-strong, #008069);
@@ -471,36 +598,22 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
   text-overflow: ellipsis;
 }
 
-.wa-conv-preview {
-  font-size: 14px;
-  color: var(--wa-text-3);
-  line-height: 1.3;
-}
-
-.wa-conv-preview--presence {
-  color: var(--wa-green-strong, #008069);
-  font-weight: 500;
-}
-
-.wa-conv-time {
-  font-size: 12px;
-  color: var(--wa-text-3);
-}
-.wa-conv-time[data-unread='true'] { color: var(--wa-green); font-weight: 500; }
-
+/* ── Badge de não-lidas ───────────────────── */
 .wa-unread-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 20px;
-  height: 20px;
+  min-width: 19px;
+  height: 19px;
   padding: 0 5px;
   border-radius: 9999px;
   background: var(--wa-green);
   color: #fff;
-  font-size: 11.5px;
-  font-weight: 700;
-  box-shadow: 0 0 0 1px rgba(37,211,102,0.35), 0 2px 8px rgba(16,185,129,0.4);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  box-shadow: 0 0 0 1.5px rgba(37,211,102,0.3), 0 2px 6px rgba(16,185,129,0.4);
+  flex-shrink: 0;
 }
 
 /* Badge de pill de filtro */
@@ -508,8 +621,8 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 16px;
+  min-width: 17px;
+  height: 15px;
   padding: 0 4px;
   border-radius: 999px;
   background: rgba(255,255,255,0.18);
@@ -519,8 +632,8 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
 }
 
 .wa-tick {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
   color: var(--wa-text-3);
 }

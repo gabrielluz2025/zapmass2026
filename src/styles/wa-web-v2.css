@@ -197,47 +197,49 @@ html .wa-chat-pro {
   white-space: nowrap;
 }
 
-/* ── Linhas de conversa (visual pro) ──────── */
+/* ── Linhas de conversa (visual pro v3) ───── */
 .wa-chat-pro .wa-conv-row {
   align-items: center;
-  gap: 12px;
-  padding: 9px 14px;
-  margin: 1px 8px;
-  border-radius: 10px;
-  min-height: 72px;
+  gap: 11px;
+  padding: 10px 14px 10px 18px;
+  margin: 0;
+  border-radius: 0;
+  min-height: 68px;
+  width: 100%;
 }
 
 .wa-chat-pro .wa-conv-row[data-active='true'] {
-  background: color-mix(in srgb, var(--wa-green) 10%, var(--wa-panel-2));
-  box-shadow: inset 3px 0 0 var(--wa-green);
+  background: color-mix(in srgb, var(--wa-green) 11%, var(--wa-panel));
 }
 
 .wa-chat-pro .wa-conv-avatar-wrap {
-  width: 52px;
-  height: 52px;
-  border-radius: 9999px;
-  overflow: hidden;
-  background: var(--wa-panel-2);
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
+  width: 46px;
+  height: 46px;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
 }
 
 .wa-chat-pro .wa-conv-avatar-wrap[data-channel='true'] {
-  box-shadow:
-    0 0 0 2px var(--wa-panel),
-    0 0 0 3.5px hsl(var(--wa-channel-hue, 160), 55%, 48%);
+  box-shadow: none;
 }
 
 .wa-chat-pro .wa-conv-avatar {
-  width: 52px;
-  height: 52px;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
   display: block;
 }
 
+.wa-chat-pro .wa-conv-row[data-active='true'] .wa-conv-avatar {
+  box-shadow: 0 0 0 2px var(--wa-green), 0 4px 12px rgba(16,185,129,0.3);
+}
+
 .wa-chat-pro .wa-presence-ring {
-  right: 1px;
-  bottom: 1px;
-  width: 12px;
-  height: 12px;
+  right: -2px;
+  bottom: -2px;
+  width: 13px;
+  height: 13px;
   border-width: 2px;
 }
 
@@ -245,12 +247,12 @@ html .wa-chat-pro {
 .wa-chat-pro .wa-conv-bottomline {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
 .wa-chat-pro .wa-conv-topline {
-  margin-bottom: 2px;
+  margin-bottom: 3px;
 }
 
 .wa-chat-pro .wa-conv-name {

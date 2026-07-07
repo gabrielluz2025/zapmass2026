@@ -93,6 +93,10 @@ export const WaConvRow = memo(function WaConvRow({
       style={style}
       onClick={() => onSelect(conv.id)}
     >
+      {/* Accent bar lateral */}
+      <span className="wa-conv-accent" aria-hidden />
+
+      {/* Avatar */}
       <span
         className="wa-conv-avatar-wrap relative flex-shrink-0"
         data-channel={showChannelTag && conv.connectionId ? 'true' : undefined}
@@ -106,8 +110,8 @@ export const WaConvRow = memo(function WaConvRow({
           src={avatarSrc}
           alt=""
           className="wa-conv-avatar"
-          width={52}
-          height={52}
+          width={46}
+          height={46}
           loading="lazy"
           decoding="async"
           referrerPolicy="no-referrer"
@@ -127,6 +131,7 @@ export const WaConvRow = memo(function WaConvRow({
         )}
       </span>
 
+      {/* Conteúdo */}
       <div className="wa-conv-body min-w-0 flex-1">
         <div className="wa-conv-topline">
           <span
@@ -156,24 +161,26 @@ export const WaConvRow = memo(function WaConvRow({
           >
             {preview}
           </span>
-          {showChannelTag && channelLabel && (
-            <span
-              className="wa-conv-channel-inline"
-              title={`Canal: ${channelLabel}`}
-              style={{
-                color: `hsl(${hue}, 55%, 68%)`,
-                background: `hsl(${hue}, 55%, 42%, 0.18)`,
-                borderColor: `hsl(${hue}, 55%, 50%, 0.35)`,
-              }}
-            >
-              {channelLabel}
-            </span>
-          )}
-          {unread > 0 && (
-            <span className="wa-unread-badge flex-shrink-0">
-              {unread > 99 ? '99+' : unread}
-            </span>
-          )}
+          <div className="wa-conv-bottomline-right">
+            {showChannelTag && channelLabel && (
+              <span
+                className="wa-conv-channel-inline"
+                title={`Canal: ${channelLabel}`}
+                style={{
+                  color: `hsl(${hue}, 55%, 68%)`,
+                  background: `hsla(${hue}, 55%, 42%, 0.18)`,
+                  borderColor: `hsla(${hue}, 55%, 50%, 0.35)`,
+                }}
+              >
+                {channelLabel}
+              </span>
+            )}
+            {unread > 0 && (
+              <span className="wa-unread-badge flex-shrink-0">
+                {unread > 99 ? '99+' : unread}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </button>

@@ -99,6 +99,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollPreserveRef = useRef<{ id: string; height: number; top: number } | null>(null);
+  const prevConvIdRef = useRef<string | null>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [isBotPaused, setIsBotPaused] = useState(false);
   const messages = conversation?.messages ?? [];
@@ -169,6 +170,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
     const el = scrollRef.current;
     if (!el || !conversation?.id) return;
 
+    // Restaurar posição ao carregar histórico mais antigo
     if (
       scrollPreserveRef.current &&
       conversation.id === scrollPreserveRef.current.id
@@ -180,6 +182,16 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
     }
 
     if (messages.length === 0) return;
+
+    // Sempre rolar até o fim ao trocar de conversa
+    const conversationChanged = prevConvIdRef.current !== conversation.id;
+    prevConvIdRef.current = conversation.id;
+    if (conversationChanged) {
+      scrollToBottom();
+      return;
+    }
+
+    // Para novas mensagens: só rola se já estiver perto do fim
     if (isNearBottom()) scrollToBottom();
   }, [conversation?.id, messages.length, messages[messages.length - 1]?.id, isNearBottom, scrollToBottom]);
 
