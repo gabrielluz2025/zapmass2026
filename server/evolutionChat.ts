@@ -3,7 +3,6 @@ import type { Server as SocketIOServer } from 'socket.io';
 import fs from 'fs';
 import path from 'path';
 import { Conversation, ChatMessage } from './types.js';
-import { extractEvolutionReplyBody } from './replyFlowEngine.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
 import {
     prepareConversationsForSocketEmit,
@@ -53,7 +52,12 @@ import {
     peerFromStoredMessages,
     resolveLidPeerFromEvolutionApi
 } from './evolutionLidResolve.js';
-import { resolvePhoneDigitsFromEvolutionMessage } from './evolutionWebhookMessages.js';
+import {
+    extractEvolutionMediaUrl,
+    parseEvolutionChatContent,
+    resolvePhoneDigitsFromEvolutionMessage,
+    unwrapEvolutionMessagePayload,
+} from './evolutionWebhookMessages.js';
 import {
     evolutionSyncMsgPrefetch,
     evolutionSyncSparseConvLimit,
@@ -286,67 +290,29 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         return formatChatListTime(tsMs);
     }
 
-    function inferMessageType(message: Record<string, unknown> | undefined): ChatMessage['type'] {
-        if (!message) return 'text';
-        if (message.imageMessage) return 'image';
-        if (message.videoMessage) return 'video';
-        if (message.audioMessage || message.pttMessage) return 'audio';
-        if (message.stickerMessage) return 'sticker';
-        if (message.documentMessage) return 'document';
-        return 'text';
-    }
-
-    const MEDIA_TYPE_LABEL: Record<string, string> = {
-        image: '📷 Imagem',
-        video: '🎥 Vídeo',
-        audio: '🎵 Áudio',
-        sticker: '🎭 Figurinha',
-        document: '📎 Documento',
-    };
-
-    function extractMessageText(message: Record<string, unknown> | undefined): string {
-        if (!message) return '';
-        const { bodyText } = extractEvolutionReplyBody(message as Parameters<typeof extractEvolutionReplyBody>[0]);
-        if (bodyText) return bodyText;
-        const doc = message.documentMessage as { fileName?: string; caption?: string } | undefined;
-        if (doc?.fileName) return doc.caption || doc.fileName;
-        return '';
-    }
-
-    function extractMediaUrl(message: Record<string, unknown> | undefined): string | undefined {
-        if (!message) return undefined;
-        for (const key of ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage']) {
-            const part = message[key] as { url?: string } | undefined;
-            if (part?.url && String(part.url).startsWith('http')) return String(part.url);
-        }
-        return undefined;
-    }
-
     function evolutionRawToChatMessage(raw: any, skipMedia: boolean): ChatMessage | null {
         if (!raw) return null;
         const key = raw.key || {};
         const remoteJid = String(key.remoteJid || '');
         if (!remoteJid || remoteJid === 'status@broadcast' || remoteJid.endsWith('@g.us')) return null;
 
-        const message = raw.message || raw.messageContent || {};
+        const rawMessage = (raw.message || raw.messageContent || {}) as Record<string, unknown>;
+        const parsed = parseEvolutionChatContent(rawMessage, { includeMediaUrl: !skipMedia });
         const msgId = String(key.id || raw.id || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
         const tsRaw = Number(raw.messageTimestamp || raw.message?.messageTimestamp || raw.timestamp || Date.now());
         const tsMs = tsRaw > 1_000_000_000_000 ? tsRaw : tsRaw * 1000;
         const fromMe = Boolean(key.fromMe);
-        const type = inferMessageType(message);
-        const text = extractMessageText(message) || MEDIA_TYPE_LABEL[type] || '';
-        const mediaUrl = skipMedia ? undefined : extractMediaUrl(message);
         const waRemoteJidAlt = pickSendableWaJidAlt(key.remoteJidAlt) || undefined;
         const waSenderPn = pickSendableWaJidAlt(key.senderPn, key.participant) || undefined;
 
         return {
             id: msgId,
-            text,
+            text: parsed.text,
             timestamp: formatTime(tsMs),
             sender: fromMe ? 'me' : 'them',
             status: fromMe ? 'sent' : 'delivered',
-            type,
-            ...(mediaUrl ? { mediaUrl } : {}),
+            type: parsed.type,
+            ...(parsed.mediaUrl ? { mediaUrl: parsed.mediaUrl } : {}),
             timestampMs: tsMs,
             ...(waRemoteJidAlt ? { waRemoteJidAlt } : {}),
             ...(waSenderPn ? { waSenderPn } : {}),
@@ -1816,7 +1782,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             /* fallback URL direta */
         }
 
-        const directUrl = extractMediaUrl(match.message);
+        const directUrl = extractEvolutionMediaUrl(unwrapEvolutionMessagePayload((match.message || {}) as Record<string, unknown>));
         if (directUrl) {
             if (local) {
                 local.mediaUrl = directUrl;

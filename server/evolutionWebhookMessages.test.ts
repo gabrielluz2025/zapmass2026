@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   extractEvolutionMessageBody,
   normalizeEvolutionWebhookMessages,
+  parseEvolutionChatContent,
   resolvePhoneDigitsFromEvolutionMessage
 } from './evolutionWebhookMessages.js';
 
@@ -54,5 +55,43 @@ describe('extractEvolutionMessageBody', () => {
       ephemeralMessage: { message: { conversation: 'oi' } }
     });
     expect(r.bodyText).toBe('oi');
+  });
+});
+
+describe('parseEvolutionChatContent', () => {
+  it('figurinha dentro de viewOnceMessage', () => {
+    const parsed = parseEvolutionChatContent({
+      viewOnceMessage: { message: { stickerMessage: { url: 'https://cdn.example/st.webp' } } },
+    });
+    expect(parsed.type).toBe('sticker');
+    expect(parsed.text).toContain('Figurinha');
+  });
+
+  it('mensagem interativa / cartão', () => {
+    const parsed = parseEvolutionChatContent({
+      interactiveMessage: {
+        body: { text: 'Feliz aniversário!' },
+        nativeFlowMessage: {
+          buttons: [{ name: 'cta_url', buttonParamsJson: '{"display_text":"Abrir presente"}' }],
+        },
+      },
+    });
+    expect(parsed.type).toBe('text');
+    expect(parsed.text).toContain('Feliz aniversário');
+    expect(parsed.text).toContain('Abrir presente');
+  });
+
+  it('contato compartilhado', () => {
+    const parsed = parseEvolutionChatContent({
+      contactMessage: { displayName: 'Maria Silva' },
+    });
+    expect(parsed.text).toContain('Maria Silva');
+  });
+
+  it('tipo desconhecido nunca fica vazio', () => {
+    const parsed = parseEvolutionChatContent({
+      unknownFutureMessage: { foo: 'bar' } as unknown as Record<string, unknown>,
+    });
+    expect(parsed.text.length).toBeGreaterThan(0);
   });
 });

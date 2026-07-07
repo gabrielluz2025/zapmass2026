@@ -210,5 +210,12 @@ export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia }) => {
   }
 
   /* ── Texto simples ── */
+  if (!text) {
+    return (
+      <span style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap', opacity: 0.85 }}>
+        💬 Mensagem recebida
+      </span>
+    );
+  }
   return <span style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{text}</span>;
 };
