@@ -484,6 +484,8 @@ else
   if docker compose ps --services 2>/dev/null | grep -q '^zapmass$'; then
     echo "==> (compose) forçar recriação do serviço zapmass"
     docker compose up -d --no-deps --build --force-recreate zapmass
+    echo "==> aguardando 15s para pools de conexão estabilizarem..."
+    sleep 15
   fi
   if docker compose --profile workers ps --services --status running 2>/dev/null | grep -q '^wa-worker$'; then
     echo "==> (compose) forçar recriação do serviço wa-worker (profile workers)"
