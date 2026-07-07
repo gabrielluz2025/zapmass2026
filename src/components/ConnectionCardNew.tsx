@@ -589,17 +589,17 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
             </div>
           ) : <div />}
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             {!isConnected && !isConnecting && (
               <>
                 <button onClick={() => onReconnect(connection.id)}
-                  className="flex items-center gap-1.5 px-4 py-2 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95 hover:shadow-lg"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95 hover:shadow-lg"
                   style={{ background: 'linear-gradient(135deg, #10b981, #059669)', boxShadow: '0 2px 12px rgba(16,185,129,0.3)' }}>
                   <Power className="w-3.5 h-3.5" />
                   Conectar
                 </button>
                 <button onClick={() => onForceQr(connection.id)}
-                  className="flex items-center gap-1.5 px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
                   style={{ background: 'rgba(245,158,11,0.1)', color: '#d97706', border: '1px solid rgba(245,158,11,0.2)' }}>
                   <QrCode className="w-3.5 h-3.5" />
                   QR
@@ -609,7 +609,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
             {isConnected && (
               <>
                 <button onClick={() => onReconnect(connection.id)}
-                  className="flex items-center gap-1.5 px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
                   style={{ background: 'var(--surface-2)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
                   <RotateCcw className="w-3.5 h-3.5" />
                   Reiniciar
@@ -623,7 +623,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                     )) return;
                     onLogoutConnection(connection.id);
                   }}
-                  className="flex items-center gap-1.5 px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
                   style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }}>
                   <LogOut className="w-3.5 h-3.5" />
                   Desconectar
@@ -632,7 +632,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
             )}
             {isConnecting && (
               <button onClick={() => onForceQr(connection.id)}
-                className="flex items-center gap-1.5 px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
+                className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
                 style={{ background: 'rgba(245,158,11,0.08)', color: '#d97706' }}>
                 <QrCode className="w-3.5 h-3.5" />
                 Forçar QR
