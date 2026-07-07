@@ -97,7 +97,6 @@ import {
   scheduleCampaignRecipientErrorDigest,
   type CampaignErrorBurstState
 } from '../utils/campaignIssueToast';
-import { normPhoneKey } from '../utils/brPhoneNormalize';
 import { getCampaignStageTotal } from '../utils/campaignStageCount';
 import {
   dedupeConversationsById,

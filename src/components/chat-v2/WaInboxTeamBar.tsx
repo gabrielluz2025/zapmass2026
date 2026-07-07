@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import { Star, UserRound, UserPlus, ArrowRightLeft, LogOut } from 'lucide-react';
-import type { Conversation } from '../../../types';
+import type { Conversation } from '../../types';
 import type { Socket } from 'socket.io-client';
 import { Button, Modal } from '../ui';
 import {

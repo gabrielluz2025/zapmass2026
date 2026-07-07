@@ -1,53 +1,48 @@
-import { apiUrl } from '../../../utils/apiBase';
 import { getSessionIdToken } from '../../../utils/sessionAuth';
+import { apiUrl } from '../../../utils/apiBase';
 
 export type InboxTeammateRow = {
   uid: string;
-  displayName: string | null;
-  email: string | null;
-  role: 'owner' | 'staff';
+  displayName?: string | null;
+  email?: string | null;
 };
 
-export type InboxFinishResponse = {
-  ok?: boolean;
-  clientSurveySent?: boolean;
-  clientSurveyError?: string;
-  error?: string;
-};
-
-export async function inboxWorkspaceApi(path: string, init?: RequestInit): Promise<void> {
+async function authHeaders(): Promise<Record<string, string>> {
   const token = await getSessionIdToken();
-  if (!token) throw new Error('Sessão expirada. Entre novamente.');
-  const r = await fetch(apiUrl(path), {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** Fetch autenticado genérico. Lança Error com mensagem do servidor em caso de falha. */
+export async function inboxWorkspaceApi(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = await authHeaders();
+  const res = await fetch(apiUrl(path), {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers || {}),
-    },
+    headers: { 'Content-Type': 'application/json', ...headers, ...(init.headers as Record<string, string> || {}) },
   });
-  const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-  if (!r.ok) throw new Error(j.error || `Erro HTTP ${r.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error || `Erro ${res.status}`);
+  }
+  return res;
 }
 
+/** GET autenticado com parse JSON. */
 export async function inboxWorkspaceGetJson<T>(path: string): Promise<T> {
-  const token = await getSessionIdToken();
-  if (!token) throw new Error('Sessão expirada. Entre novamente.');
-  const r = await fetch(apiUrl(path), { headers: { Authorization: `Bearer ${token}` } });
-  const j = (await r.json().catch(() => ({}))) as T & { error?: string };
-  if (!r.ok) throw new Error((j as { error?: string }).error || `Erro HTTP ${r.status}`);
-  return j as T;
+  const res = await inboxWorkspaceApi(path);
+  return res.json() as Promise<T>;
 }
 
-export async function inboxWorkspacePostFinish(body: Record<string, unknown>): Promise<InboxFinishResponse> {
-  const token = await getSessionIdToken();
-  if (!token) throw new Error('Sessão expirada. Entre novamente.');
-  const r = await fetch(apiUrl('/api/workspace/inbox-finish'), {
+/** POST para finalizar atendimento. */
+export async function inboxWorkspacePostFinish(body: {
+  conversationId: string;
+  skipSurvey?: boolean;
+  rating?: number;
+  comment?: string;
+  sendClientSurvey?: boolean;
+}): Promise<{ ok?: boolean; clientSurveySent?: boolean; clientSurveyError?: string }> {
+  const res = await inboxWorkspaceApi('/api/workspace/inbox-finish', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
   });
-  const j = (await r.json().catch(() => ({}))) as InboxFinishResponse;
-  if (!r.ok) throw new Error(j.error || `Erro HTTP ${r.status}`);
-  return j;
+  return res.json() as Promise<{ ok?: boolean; clientSurveySent?: boolean; clientSurveyError?: string }>;
 }

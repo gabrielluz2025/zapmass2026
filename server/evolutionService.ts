@@ -3960,7 +3960,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                     await job.updateData(item).catch(() => {});
                     // Retenta o envio com o novo chip
                     const altRetry = item.media
-                        ? await sendMediaInternal(altId, item.to, item.media, item.media.caption || item.message)
+                        ? await sendMediaInternal(altId, item.to, item.media.base64 || '', item.media.mimeType, item.media.fileName, item.media.caption || item.message)
                         : await sendMessageInternal(altId, item.to, item.message);
                     if (altRetry.ok) {
                         sendResult = altRetry;

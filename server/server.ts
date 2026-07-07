@@ -102,8 +102,6 @@ import { registerConnectionsSyncRoutes } from './connectionsSyncRoutes.js';
 import { registerSupportBotRoutes } from './supportBotRoutes.js';
 import { registerAiAssistantRoutes } from './aiAssistantRoutes.js';
 import { registerAssistantRoutes } from './assistantRoutes.js';
-import { registerTenantExtrasRoutes } from './tenantExtrasRoutes.js';
-import { startRenewalReminderJob } from './renewalReminderJob.js';
 import { structuredLog } from './structuredLog.js';
 import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
 import { redisPing, redisPingWithFallback } from './redisPing.js';
@@ -376,7 +374,6 @@ registerConnectionsSyncRoutes(app);
 registerSupportBotRoutes(app);
 registerAiAssistantRoutes(app);
 registerAssistantRoutes(app);
-registerTenantExtrasRoutes(app);
 
 // --- API ROUTES ---
 /** /health — liveness probe simples para Uptime Kuma / Docker healthcheck */
@@ -390,13 +387,8 @@ app.get('/ready', async (_req, res) => {
 
   // Redis
   try {
-    const { redisPingWithFallback } = await import('./healthUtils.js').catch(() => ({ redisPingWithFallback: null })) as any;
-    if (redisPingWithFallback) {
-      const ping = await redisPingWithFallback(process.env.REDIS_URL?.trim(), { connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 1 });
-      checks.redis = ping.ok;
-    } else {
-      checks.redis = true; // assume ok se helper não existir
-    }
+    const ping = await redisPingWithFallback(process.env.REDIS_URL?.trim(), { connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 1 });
+    checks.redis = ping.ok;
   } catch {
     checks.redis = false;
   }
@@ -584,7 +576,7 @@ app.post('/api/health/dispatch/reconnect', async (_req, res) => {
 /** Redis + router de sessão (útil com API + wa-worker). Em produção: redes não privadas ou METRICS_TOKEN. */
 app.get('/api/health/deep', metricsAccessMiddleware, async (_req, res) => {
   const redisUrl = process.env.REDIS_URL?.trim();
-  let redis: { configured: boolean; ok?: boolean; pingMs?: number; error?: string } = {
+  let redis: { configured: boolean; ok?: boolean; pingMs?: number; error?: string; memory?: unknown } = {
     configured: Boolean(redisUrl)
   };
   if (redisUrl) {
@@ -2360,7 +2352,6 @@ const bootstrap = async () => {
   registerSocketHandlers();
   startScheduledCampaignRunner();
   startCampaignJobsReaper();
-  startRenewalReminderJob();
 
   // Registra a função de envio do auto-warmup do servidor via Evolution API
   waService.registerWarmupSendFn(async (connectionId, toPhone, message) => {

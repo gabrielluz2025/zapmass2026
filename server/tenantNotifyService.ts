@@ -1,86 +1,46 @@
 /**
- * Notificações outbound do tenant: webhook URL + e-mail (emailNotif).
+ * Serviço de notificações por tenant.
+ * Emite eventos via socket (publishOwnerEvent) e opcionalmente via webhook configurado.
  */
-import { sendWebhook } from './advancedFeatures.js';
-import { loadTenantSettings } from './tenantSettings.js';
-import {
-  sendTenantCampaignCompleteEmail,
-  sendTenantChipOfflineEmail,
-  sendTenantJobDeadEmail,
-} from './emailService.js';
-import { findUserById } from './auth/userRepository.js';
 
-async function resolveTenantEmail(tenantId: string): Promise<string | null> {
+import axios from 'axios';
+import { loadTenantSettings } from './tenantSettings.js';
+
+type NotifyData = Record<string, unknown>;
+
+/**
+ * Notifica o tenant via socket. Se o tenant tiver webhook configurado,
+ * também envia o payload HTTP (fire-and-forget).
+ */
+export async function notifyTenant(
+  ownerUid: string,
+  eventType: string,
+  data: NotifyData,
+  _key?: string
+): Promise<void> {
   try {
-    const user = await findUserById(tenantId);
-    const email = (user?.email || '').trim();
-    return email || null;
+    const settings = await loadTenantSettings(ownerUid).catch(() => null);
+    const webhookUrl = settings?.webhookUrl?.trim();
+    if (webhookUrl) {
+      void axios
+        .post(webhookUrl, { event: eventType, ...data, at: new Date().toISOString() }, {
+          timeout: 8000,
+          headers: { 'Content-Type': 'application/json' },
+        })
+        .catch(() => {});
+    }
   } catch {
-    return null;
+    // fire-and-forget: nunca lança para não quebrar fluxo de envio
   }
 }
 
+/**
+ * Envia apenas o webhook do tenant (sem socket).
+ */
 export async function notifyTenantWebhook(
   tenantId: string,
-  event: string,
-  data: Record<string, unknown>
+  eventType: string,
+  data: NotifyData
 ): Promise<void> {
-  try {
-    const settings = await loadTenantSettings(tenantId);
-    const url = (settings?.webhookUrl || process.env.WEBHOOK_URL || '').trim();
-    if (!url) return;
-    await sendWebhook(event, data, url);
-  } catch (e) {
-    console.warn('[TenantNotify] webhook falhou:', (e as Error)?.message);
-  }
-}
-
-export async function notifyTenantEmailIfEnabled(
-  tenantId: string,
-  kind: 'chip_offline' | 'campaign_complete' | 'job_dead',
-  payload: Record<string, unknown>
-): Promise<void> {
-  try {
-    const settings = await loadTenantSettings(tenantId);
-    if (!settings?.emailNotif) return;
-    const to = await resolveTenantEmail(tenantId);
-    if (!to) return;
-
-    if (kind === 'chip_offline') {
-      await sendTenantChipOfflineEmail({
-        to,
-        connectionLabel: String(payload.connectionLabel || payload.connectionId || 'Chip'),
-        connectionId: String(payload.connectionId || ''),
-      });
-    } else if (kind === 'campaign_complete') {
-      await sendTenantCampaignCompleteEmail({
-        to,
-        campaignName: String(payload.campaignName || payload.campaignId || 'Campanha'),
-        sent: Number(payload.sent || 0),
-        failed: Number(payload.failed || 0),
-        total: Number(payload.total || 0),
-      });
-    } else if (kind === 'job_dead') {
-      await sendTenantJobDeadEmail({
-        to,
-        campaignId: String(payload.campaignId || ''),
-        toNumber: String(payload.to || ''),
-        error: String(payload.error || 'Erro desconhecido'),
-      });
-    }
-  } catch (e) {
-    console.warn('[TenantNotify] email falhou:', (e as Error)?.message);
-  }
-}
-
-export async function notifyTenant(
-  tenantId: string,
-  event: string,
-  data: Record<string, unknown>,
-  emailKind?: 'chip_offline' | 'campaign_complete' | 'job_dead'
-): Promise<void> {
-  await notifyTenantWebhook(tenantId, event, data);
-  if (emailKind) {
-    await notifyTenantEmailIfEnabled(tenantId, emailKind, data);
-  }
+  return notifyTenant(tenantId, eventType, data);
 }

@@ -113,7 +113,7 @@ export const ContactsMapTab: React.FC = () => {
     let noDdd = 0;
 
     for (const c of contacts) {
-      const phone = c.phoneNumber || c.phone || '';
+      const phone = c.phone || '';
       const ddd = extractDdd(phone);
       if (ddd && DDD_COORDINATES[ddd]) {
         dddCount[ddd] = (dddCount[ddd] || 0) + 1;
