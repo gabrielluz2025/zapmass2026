@@ -17,6 +17,7 @@ import type { CampaignAttachmentState } from './CampaignAttachmentBlock';
 import { Button, Textarea } from '../ui';
 import type { ReplyMatchMode } from '../../../shared/replyFlowMatch';
 import { DEFAULT_GLOBAL_OPT_OUT_KEYWORDS, simulateReplyFlowMatch } from '../../../shared/replyFlowMatch';
+import { applyCampaignMessagePreviewVars } from '../../utils/campaignMessageVariables';
 
 export type ReplyStageOption = {
   id: string;
