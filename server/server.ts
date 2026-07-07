@@ -141,7 +141,7 @@ function notifyCampaignSocketError(
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Capturar erros não tratados para evitar crash silencioso
+// Capturar erros não tratados — registrado UMA vez aqui; não adicionar novamente abaixo.
 process.on('uncaughtException', (err) => {
   console.error('[CRASH] uncaughtException:', err?.message || err, err?.stack?.split('\n')[1] || '');
 });
@@ -156,16 +156,23 @@ configureTrustProxy(app);
 app.use('/public/uploads', express.static(getUploadsDir()) as any);
 const httpServer = createServer(app);
 const serverStartedAt = new Date();
+
+// keepAliveTimeout maior que o default de 5s do Node evita 502 quando nginx
+// reutiliza conexões keep-alive que o Node já fechou.
+// Deve ser maior que o keepalive_timeout do nginx (padrão 75s).
+httpServer.keepAliveTimeout = 80_000;
+// headersTimeout deve ser maior que keepAliveTimeout para evitar ECONNRESET.
+httpServer.headersTimeout = 85_000;
+
 // Upload de mídia (send-media) chega via socket em base64. Base64 infla ~33%
-// o tamanho do binário, por isso este buffer precisa ser maior que o limite
-// do cliente (VITE_CHAT_UPLOAD_LIMIT_MB, padrão 200 MB).
-// 320 MB cobre 200 MB reais com folga (200 * 1.33 ≈ 266 MB).
-// Para documentos enormes (>500 MB), suba SOCKET_MAX_HTTP_BUFFER_MB e
-// VITE_CHAT_UPLOAD_LIMIT_MB no .env — atenção à RAM da VPS.
+// o tamanho do binário. Padrão conservador de 64 MB (48 MB reais).
+// Para uploads maiores, defina SOCKET_MAX_HTTP_BUFFER_MB no .env da VPS.
+// ATENÇÃO: buffers grandes multiplicados por muitas conexões simultâneas
+// consomem muita RAM e podem causar OOM → queda de TODAS as conexões.
 const socketMaxHttpBufferMb = (() => {
-  const raw = Number(process.env.SOCKET_MAX_HTTP_BUFFER_MB ?? 320);
-  if (!Number.isFinite(raw)) return 320;
-  return Math.max(1, Math.min(2048, Math.round(raw)));
+  const raw = Number(process.env.SOCKET_MAX_HTTP_BUFFER_MB ?? 64);
+  if (!Number.isFinite(raw)) return 64;
+  return Math.max(1, Math.min(512, Math.round(raw)));
 })();
 const jsonBodyLimitMb = (() => {
   const raw = Number(process.env.JSON_BODY_LIMIT_MB ?? 25);
@@ -338,12 +345,17 @@ const io = new Server(httpServer, {
     allowedHeaders: ['ngrok-skip-browser-warning'],
     credentials: true
   },
-  transports: ['websocket', 'polling'], // Garante suporte a ambos
-  // Upload de mídia base64 via socket exige buffer maior que o padrão.
+  transports: ['websocket', 'polling'],
   maxHttpBufferSize: socketMaxHttpBufferMb * 1024 * 1024,
-  // Heartbeat mais tolerante: separador em fundo / CPU sleep / proxies fecham WS cedo demais.
-  pingInterval: 20000,
-  pingTimeout: 120000
+  // pingInterval: tempo entre pings do servidor → cliente (mantém WS vivo no nginx).
+  // pingTimeout: se o cliente não responder ao ping neste tempo, desconecta.
+  pingInterval: 25000,
+  pingTimeout: 60000,
+  // connectionStateRecovery: permite reenvio de eventos perdidos durante reconexão breve.
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 30_000,
+    skipMiddlewares: true,
+  },
 });
 
 app.use(express.json({ limit: `${jsonBodyLimitMb}mb` }) as any);
@@ -2272,10 +2284,24 @@ const startServer = async (port: number): Promise<boolean> => {
     }
   }
 
+  // Monitorar memória a cada 2min: loga antes de chegar em OOM e derrubar o processo.
+  const MEM_WARN_MB = Number(process.env.MEM_WARN_MB ?? 900);
+  setInterval(() => {
+    const used = process.memoryUsage();
+    const heapMb = Math.round(used.heapUsed / 1024 / 1024);
+    const rssMb  = Math.round(used.rss / 1024 / 1024);
+    if (rssMb > MEM_WARN_MB) {
+      console.warn(`[MEM] Atenção: RSS ${rssMb}MB heap ${heapMb}MB — acima do limite de aviso ${MEM_WARN_MB}MB. Considere reiniciar.`);
+    } else {
+      console.log(`[MEM] RSS ${rssMb}MB heap ${heapMb}MB sockets=${io?.engine?.clientsCount ?? '?'}`);
+    }
+  }, 120_000).unref();
+
   // 0.0.0.0: acessível de fora do container e em IPv4 (evita bind só em :: em alguns ambientes).
   httpServer.listen(port, '0.0.0.0', () => {
     console.log(`🚀 Servidor rodando na porta ${port}`);
     console.log(`📦 Versão ativa: ${getAppVersion()}`);
+    console.log(`[Socket.IO] buffer máximo: ${socketMaxHttpBufferMb}MB | keepAliveTimeout: ${httpServer.keepAliveTimeout}ms`);
     void (async () => {
       const ping = await redisPingWithFallback(process.env.REDIS_URL, {
         connectTimeout: 5000,
@@ -2443,15 +2469,7 @@ const handleGracefulShutdown = (signal: string) => {
 process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
 process.on('SIGHUP', () => handleGracefulShutdown('SIGHUP'));
-// Nao derruba por uncaughtException — loga e segue (o servidor ja tem reconnect
-// automatico em varios pontos). Se o erro for irreversivel, o healthcheck
-// eventualmente devolve 500 e o compose reinicia o container.
-process.on('uncaughtException', (err) => {
-  console.error('[uncaughtException]', err);
-});
-process.on('unhandledRejection', (err) => {
-  console.error('[unhandledRejection]', err);
-});
+// Handlers de erro global registrados uma única vez no topo do arquivo.
 
 void bootstrap();
 
