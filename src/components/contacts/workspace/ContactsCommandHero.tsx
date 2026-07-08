@@ -1,7 +1,7 @@
 ﻿import React from 'react';
 import {
   UserPlus, Upload, Download, Wand2, FileSpreadsheet, Smartphone,
-  ChevronDown, SpellCheck2, BarChart3, Search, X,
+  ChevronDown, SpellCheck2, BarChart3, Search, X, Database,
   Users, Flame, Thermometer, Snowflake, Sparkles, Calendar
 } from 'lucide-react';
 
@@ -31,6 +31,7 @@ interface Props {
   onExport: () => void;
   onOpenInsights: () => void;
   onOpenNormalizeNames?: () => void;
+  onOpenFixBase?: () => void;
 }
 
 const KpiChip: React.FC<{
@@ -58,7 +59,7 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
   stats, contactTempsReady, savedTotal,
   searchTerm, onSearchChange,
   onNewContact, onImportXLSX, onImportVcf, onSmartImport,
-  onDownloadTemplate, onExport, onOpenInsights, onOpenNormalizeNames
+  onDownloadTemplate, onExport, onOpenInsights, onOpenNormalizeNames, onOpenFixBase
 }) => {
   const [importOpen, setImportOpen] = React.useState(false);
   const importRef = React.useRef<HTMLDivElement>(null);
@@ -169,6 +170,13 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
             <Download className="w-4 h-4 text-sky-400" />
             <span className="hidden sm:inline">Exportar</span>
           </button>
+
+          {onOpenFixBase && (
+            <button type="button" onClick={onOpenFixBase} className="ch-btn" title="Corrigir telefones, nomes e endereços">
+              <Database className="w-4 h-4 text-amber-400" />
+              <span className="hidden lg:inline">Corrigir base</span>
+            </button>
+          )}
 
           {onOpenNormalizeNames && (
             <button type="button" onClick={onOpenNormalizeNames} className="ch-btn" title="Padronizar nomes">

@@ -8,7 +8,108 @@ import { fixBrazilCoord, isCoordPlausibleForCity } from './geoCoordValidate.js';
 import { ensureIbgeMunicipiosIndex } from './ibgeMunicipios.js';
 import { invalidateLeadsGeoSummaryCache } from './leadsGeoService.js';
 import { invalidateCrmContactIndexCache } from './crmContactIndexCache.js';
-import { bulkUpdateContacts, listContacts } from './repositories/contactsRepository.js';
+import { prepareContactForPersistence } from './repositories/contactMapper.js';
+import { bulkUpdateContacts, invalidateContactsCountCache, listContacts } from './repositories/contactsRepository.js';
+
+export type NormalizeContactsFullField = 'name' | 'phone' | 'city' | 'state' | 'neighborhood' | 'street' | 'zipCode' | 'number';
+
+export type NormalizeContactsFullResult = {
+  scanned: number;
+  changed: number;
+  fieldTotals: Partial<Record<NormalizeContactsFullField, number>>;
+  samples: Array<{ field: NormalizeContactsFullField; before: string; after: string }>;
+  hasMore: boolean;
+  nextOffset: number;
+  applied: boolean;
+};
+
+const FULL_PAGE_SIZE = 2000;
+const UPDATE_CHUNK = 200;
+const ADDRESS_FIELDS = ['city', 'state', 'neighborhood', 'street', 'zipCode', 'number'] as const;
+const ALL_TRACKED_FIELDS = ['name', 'phone', ...ADDRESS_FIELDS] as const;
+type TrackedField = (typeof ALL_TRACKED_FIELDS)[number];
+
+function clean(v: unknown): string {
+  return String(v ?? '').trim();
+}
+
+function diffContactForFullNormalize(existing: Contact): {
+  updates: Partial<Contact>;
+  changes: Array<{ field: TrackedField; before: string; after: string }>;
+} {
+  const prepared = prepareContactForPersistence(existing);
+  const updates: Partial<Contact> = {};
+  const changes: Array<{ field: TrackedField; before: string; after: string }> = [];
+
+  for (const field of ALL_TRACKED_FIELDS) {
+    const before = clean(existing[field]);
+    const after = clean(prepared[field]);
+    if (after && after !== before) {
+      (updates as Record<string, unknown>)[field] = prepared[field];
+      changes.push({ field, before, after });
+    }
+  }
+
+  const addressChanged = changes.some((c) => (ADDRESS_FIELDS as readonly string[]).includes(c.field));
+  if (addressChanged) {
+    updates.latitude = undefined;
+    updates.longitude = undefined;
+    updates.geocodedAt = undefined;
+    updates.geocodePrecision = undefined;
+  }
+
+  return { updates, changes };
+}
+
+/** Normaliza nome, telefone e endereço de todos os contatos do tenant (paginado). */
+export async function normalizeTenantContactsFull(
+  tenantId: string,
+  opts: { offset?: number; limit?: number; dryRun?: boolean } = {}
+): Promise<NormalizeContactsFullResult> {
+  await ensureIbgeMunicipiosIndex().catch(() => null);
+  const offset = Math.max(Number(opts.offset) || 0, 0);
+  const limit = Math.min(Math.max(Number(opts.limit) || FULL_PAGE_SIZE, 1), FULL_PAGE_SIZE);
+  const dryRun = opts.dryRun !== false;
+
+  const page = await listContacts(tenantId, { limit, offset });
+  const fieldTotals: Partial<Record<NormalizeContactsFullField, number>> = {};
+  const samples: NormalizeContactsFullResult['samples'] = [];
+  const items: Array<{ id: string; updates: Partial<Contact> }> = [];
+  let changed = 0;
+
+  for (const c of page) {
+    const { updates, changes } = diffContactForFullNormalize(c);
+    if (changes.length === 0) continue;
+    changed++;
+    for (const ch of changes) {
+      fieldTotals[ch.field] = (fieldTotals[ch.field] || 0) + 1;
+      if (samples.length < 16) {
+        samples.push({ field: ch.field, before: ch.before, after: ch.after });
+      }
+    }
+    if (!dryRun) items.push({ id: c.id, updates });
+  }
+
+  if (!dryRun && items.length > 0) {
+    for (let i = 0; i < items.length; i += UPDATE_CHUNK) {
+      await bulkUpdateContacts(tenantId, items.slice(i, i + UPDATE_CHUNK));
+    }
+    invalidateLeadsGeoSummaryCache(tenantId);
+    invalidateCrmContactIndexCache(tenantId);
+    invalidateContactsCountCache(tenantId);
+  }
+
+  const hasMore = page.length >= limit;
+  return {
+    scanned: page.length,
+    changed,
+    fieldTotals,
+    samples,
+    hasMore,
+    nextOffset: offset + page.length,
+    applied: !dryRun && items.length > 0,
+  };
+}
 
 export type NormalizeAddressesResult = {
   scanned: number;

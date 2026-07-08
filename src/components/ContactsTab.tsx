@@ -32,6 +32,7 @@ import { ContactsBulkBar } from './contacts/workspace/ContactsBulkBar';
 import { ContactsCommandHero } from './contacts/workspace/ContactsCommandHero';
 import { ContactDetailDrawer } from './contacts/workspace/ContactDetailDrawer';
 import { ContactsInsightsModal } from './contacts/workspace/ContactsInsightsModal';
+import { ContactBaseFixModal } from './contacts/ContactBaseFixModal';
 import { parseVcfText, type ParsedVcfEntry } from '../utils/parseVcf';
 import { contactsToVcfString } from '../utils/exportContactsVcf';
 import { extractZapMassFollowFromVcfNotes } from '../utils/vcfZapMassFollowUp';
@@ -1082,6 +1083,7 @@ export const ContactsTab: React.FC = () => {
   const [nameNormalizePreviewCount, setNameNormalizePreviewCount] = useState<number | null>(null);
   const [nameNormalizePreviewBusy, setNameNormalizePreviewBusy] = useState(false);
   const [nameNormalizeApplyBusy, setNameNormalizeApplyBusy] = useState(false);
+  const [baseFixModalOpen, setBaseFixModalOpen] = useState(false);
   const [smartImportRaw, setSmartImportRaw] = useState('');
   const [smartImportRows, setSmartImportRows] = useState<SmartRow[]>([]);
   const [smartImportPreviewFilter, setSmartImportPreviewFilter] = useState<FileImportPreviewFilter>('all');
@@ -4031,6 +4033,7 @@ export const ContactsTab: React.FC = () => {
         onExport={handleExport}
         onOpenInsights={openInsights}
         onOpenNormalizeNames={openNameNormalizeModal}
+        onOpenFixBase={() => setBaseFixModalOpen(true)}
       />
 
       {/* ── Novo Hub: layout fullwidth sem sidebar ── */}
@@ -4494,6 +4497,13 @@ export const ContactsTab: React.FC = () => {
           </select>
         </div>
       </Modal>
+
+      <ContactBaseFixModal
+        open={baseFixModalOpen}
+        onClose={() => setBaseFixModalOpen(false)}
+        totalContacts={contactsSavedTotal ?? contacts.length}
+        onApplied={() => void refreshContacts()}
+      />
 
       <Modal
         isOpen={nameNormalizeModalOpen}

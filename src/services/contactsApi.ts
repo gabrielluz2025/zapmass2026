@@ -94,6 +94,47 @@ export async function apiBulkUpdateContacts(
   });
 }
 
+export async function apiNormalizeContactsAll(opts?: {
+  offset?: number;
+  limit?: number;
+  dryRun?: boolean;
+}): Promise<{
+  scanned: number;
+  changed: number;
+  fieldTotals: Record<string, number>;
+  samples: Array<{ field: string; before: string; after: string }>;
+  hasMore: boolean;
+  nextOffset: number;
+  applied: boolean;
+}> {
+  const j = await apiFetchJson<{
+    scanned?: number;
+    changed?: number;
+    fieldTotals?: Record<string, number>;
+    samples?: Array<{ field: string; before: string; after: string }>;
+    hasMore?: boolean;
+    nextOffset?: number;
+    applied?: boolean;
+  }>('/api/contacts/normalize-all', {
+    method: 'POST',
+    body: JSON.stringify({
+      offset: opts?.offset ?? 0,
+      limit: opts?.limit ?? 2000,
+      dryRun: opts?.dryRun !== false,
+    }),
+    timeoutMs: CONTACTS_API_TIMEOUT_MS,
+  });
+  return {
+    scanned: Number(j.scanned) || 0,
+    changed: Number(j.changed) || 0,
+    fieldTotals: j.fieldTotals && typeof j.fieldTotals === 'object' ? j.fieldTotals : {},
+    samples: Array.isArray(j.samples) ? j.samples : [],
+    hasMore: !!j.hasMore,
+    nextOffset: Number(j.nextOffset) || 0,
+    applied: !!j.applied,
+  };
+}
+
 export async function apiNormalizeContactAddresses(opts?: {
   offset?: number;
   limit?: number;

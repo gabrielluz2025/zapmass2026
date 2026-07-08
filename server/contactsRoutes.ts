@@ -27,7 +27,7 @@ import {
   fetchAndPersistContactProfilePicturesBatch
 } from './contactProfilePicture.js';
 import * as evolutionService from './evolutionService.js';
-import { normalizeTenantContactAddresses } from './contactsNormalizeService.js';
+import { normalizeTenantContactAddresses, normalizeTenantContactsFull } from './contactsNormalizeService.js';
 import { geocodeSingleContactIfNeeded } from './leadsGeoService.js';
 import { normalizeContactAddressFields } from '../src/utils/contactAddressNormalize.js';
 import { ensureIbgeMunicipiosIndex, getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
@@ -329,6 +329,22 @@ export function registerContactsDataRoutes(app: Express): void {
     } catch (e) {
       console.error('[api/contacts/normalize-addresses]', e);
       return res.status(500).json({ ok: false, error: 'Falha ao padronizar endereços.' });
+    }
+  });
+
+  app.post('/api/contacts/normalize-all', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body || {}) as { offset?: number; limit?: number; dryRun?: boolean };
+    const offset = Math.max(Number(body.offset) || 0, 0);
+    const limit = Math.min(Math.max(Number(body.limit) || 2000, 1), 2000);
+    const dryRun = body.dryRun !== false;
+    try {
+      const result = await normalizeTenantContactsFull(ctx.tenantId, { offset, limit, dryRun });
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      console.error('[api/contacts/normalize-all]', e);
+      return res.status(500).json({ ok: false, error: 'Falha ao corrigir cadastro dos contatos.' });
     }
   });
 
