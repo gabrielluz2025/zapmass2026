@@ -6,6 +6,7 @@ import {
   View,
   StyleSheet,
 } from '@react-pdf/renderer';
+import { CampaignMock, ChatMock, ConnectionsMock, DashboardMock } from './ZapMassPDFMocks.js';
 
 /* ─── Paleta ─────────────────────────────────────────────────── */
 const C = {
@@ -36,7 +37,7 @@ const s = StyleSheet.create({
   page: {
     backgroundColor: C.white,
     paddingTop: 54,
-    paddingBottom: 54,
+    paddingBottom: 68,
     paddingHorizontal: 52,
     fontFamily: 'Helvetica',
   },
@@ -167,13 +168,13 @@ const s = StyleSheet.create({
   tocSubtitle: {
     fontSize: 13,
     color: C.bodyMuted,
-    marginBottom: 32,
+    marginBottom: 18,
   },
   tocItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 7,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
   },
@@ -539,6 +540,19 @@ const TOC_GLYPHS: Record<string, string> = {
 };
 
 /* ─── Helpers ─────────────────────────────────────────────────── */
+/** Evita cortar blocos entre páginas (react-pdf). */
+const NoBreak = ({
+  children,
+  minPresence = 80,
+}: {
+  children: React.ReactNode;
+  minPresence?: number;
+}) => (
+  <View wrap={false} minPresenceAhead={minPresence}>
+    {children}
+  </View>
+);
+
 const Header = ({ section }: { section: string }) => (
   <View style={s.header} fixed>
     <Text style={s.headerLogo}>ZapMass</Text>
@@ -546,10 +560,10 @@ const Header = ({ section }: { section: string }) => (
   </View>
 );
 
-const Footer = ({ pageNum }: { pageNum: string }) => (
+const Footer = () => (
   <View style={s.footer} fixed>
     <Text style={s.footerText}>ZapMass — Guia Completo do Usuário</Text>
-    <Text style={s.footerPage}>{pageNum}</Text>
+    <Text style={s.footerPage} render={({ pageNumber }) => String(pageNumber)} />
   </View>
 );
 
@@ -558,61 +572,71 @@ const Accent = ({ color }: { color: string }) => (
 );
 
 const Tip = ({ text }: { text: string }) => (
-  <View style={s.tip}>
-    <View style={pdfUi.tipMark}>
-      <Text style={pdfUi.markTiny}>i</Text>
+  <NoBreak minPresence={90}>
+    <View style={s.tip}>
+      <View style={pdfUi.tipMark}>
+        <Text style={pdfUi.markTiny}>i</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={s.tipLabel}>DICA</Text>
+        <Text style={s.tipText}>{text}</Text>
+      </View>
     </View>
-    <View style={{ flex: 1 }}>
-      <Text style={s.tipLabel}>DICA</Text>
-      <Text style={s.tipText}>{text}</Text>
-    </View>
-  </View>
+  </NoBreak>
 );
 
 const Warn = ({ text }: { text: string }) => (
-  <View style={s.warn}>
-    <Text style={s.warnText}>ATENÇÃO: {text}</Text>
-  </View>
+  <NoBreak minPresence={70}>
+    <View style={s.warn}>
+      <Text style={s.warnText}>ATENÇÃO: {text}</Text>
+    </View>
+  </NoBreak>
 );
 
 const Li = ({ icon, bold, text }: { icon?: string; bold?: string; text: string }) => {
   const negative = icon === '❌';
   const positive = icon === '✅';
   return (
-    <View style={s.listItem}>
-      {negative ? (
-        <View style={pdfUi.markNo}>
-          <Text style={pdfUi.markTiny}>X</Text>
-        </View>
-      ) : positive ? (
-        <View style={pdfUi.markOk}>
-          <Text style={pdfUi.markTiny}>✓</Text>
-        </View>
-      ) : (
-        <View style={pdfUi.bullet} />
-      )}
-      <Text style={s.listText}>
-        {bold ? <Text style={s.listBold}>{bold} </Text> : null}
-        {text}
-      </Text>
-    </View>
+    <NoBreak minPresence={36}>
+      <View style={s.listItem}>
+        {negative ? (
+          <View style={pdfUi.markNo}>
+            <Text style={pdfUi.markTiny}>X</Text>
+          </View>
+        ) : positive ? (
+          <View style={pdfUi.markOk}>
+            <Text style={pdfUi.markTiny}>✓</Text>
+          </View>
+        ) : (
+          <View style={pdfUi.bullet} />
+        )}
+        <Text style={s.listText}>
+          {bold ? <Text style={s.listBold}>{bold} </Text> : null}
+          {text}
+        </Text>
+      </View>
+    </NoBreak>
   );
 };
 
 const Step = ({ num, text, color }: { num: number; text: string; color: string }) => (
-  <View style={s.stepItem}>
-    <View style={[s.stepCircle, { backgroundColor: color }]}>
-      <Text style={s.stepNum}>{num}</Text>
+  <NoBreak minPresence={40}>
+    <View style={s.stepItem}>
+      <View style={[s.stepCircle, { backgroundColor: color }]}>
+        <Text style={s.stepNum}>{num}</Text>
+      </View>
+      <Text style={s.stepText}>{text}</Text>
     </View>
-    <Text style={s.stepText}>{text}</Text>
-  </View>
+  </NoBreak>
 );
 
 const Check = ({ text }: { text: string }) => (
-  <View style={s.checkItem}>
-    <View style={s.checkBox}><Text style={s.checkMark}>✓</Text></View>
-    <Text style={s.checkText}>{text}</Text>
-  </View>
+  <NoBreak minPresence={32}>
+    <View style={s.checkItem}>
+      <View style={s.checkBox}><Text style={s.checkMark}>✓</Text></View>
+      <Text style={s.checkText}>{text}</Text>
+    </View>
+  </NoBreak>
 );
 
 const SectionPill = ({
@@ -626,13 +650,15 @@ const SectionPill = ({
   num: string;
   color: string;
 }) => (
-  <View style={s.sectionPill}>
-    <View style={[s.pillBox, { backgroundColor: color }]}>
-      <Text style={s.pillIcon}>{glyph || sectionGlyph(label)}</Text>
-      <Text style={s.pillText}>{label.toUpperCase()}</Text>
+  <NoBreak minPresence={48}>
+    <View style={s.sectionPill}>
+      <View style={[s.pillBox, { backgroundColor: color }]}>
+        <Text style={s.pillIcon}>{glyph || sectionGlyph(label)}</Text>
+        <Text style={s.pillText}>{label.toUpperCase()}</Text>
+      </View>
+      <Text style={s.sectionNum}>SEÇÃO {num}</Text>
     </View>
-    <Text style={s.sectionNum}>SEÇÃO {num}</Text>
-  </View>
+  </NoBreak>
 );
 
 /* ─── CAPA ───────────────────────────────────────────────────── */
@@ -696,52 +722,59 @@ const CoverPage = () => (
 /* ─── SUMÁRIO ────────────────────────────────────────────────── */
 const TOCPage = () => {
   const items = [
-    { label: 'Painel (Dashboard)', page: '3', color: C.blue },
-    { label: 'Conexões (Chips)', page: '4', color: C.green },
-    { label: 'Pools de Chips', page: '5', color: C.blue },
-    { label: 'Bate-papo (Chat)', page: '6', color: C.purple },
-    { label: 'Campanhas', page: '7', color: C.amber },
-    { label: 'Fluxo por Resposta', page: '8', color: C.blue },
-    { label: 'Contatos', page: '9', color: C.green },
-    { label: 'Relatórios', page: '10', color: C.purple },
-    { label: 'Aquecimento (Warmup)', page: '11', color: C.amber },
-    { label: 'Configurações', page: '12', color: C.bodyMuted },
-    { label: 'Boas Práticas', page: '13', color: C.green },
+    { label: 'Painel (Dashboard)', page: '4', color: C.blue },
+    { label: 'Conexões (Chips)', page: '5', color: C.green },
+    { label: 'Pools de Chips', page: '6', color: C.blue },
+    { label: 'Bate-papo (Chat)', page: '7', color: C.purple },
+    { label: 'Campanhas', page: '8', color: C.amber },
+    { label: 'Fluxo por Resposta', page: '9', color: C.blue },
+    { label: 'Contatos', page: '10', color: C.green },
+    { label: 'Relatórios', page: '11', color: C.purple },
+    { label: 'Aquecimento (Warmup)', page: '12', color: C.amber },
+    { label: 'Configurações', page: '13', color: C.bodyMuted },
+    { label: 'Boas Práticas', page: '14', color: C.green },
   ];
+  const first = items.slice(0, 6);
+  const second = items.slice(6);
+
+  const renderItem = (item: (typeof items)[number]) => (
+    <NoBreak key={item.label} minPresence={34}>
+      <View style={s.tocItem}>
+        <View style={[s.tocIcon, { backgroundColor: `${item.color}20` }]}>
+          <Text style={[s.tocIconText, { fontFamily: 'Helvetica-Bold', color: item.color }]}>
+            {TOC_GLYPHS[item.label] || sectionGlyph(item.label)}
+          </Text>
+        </View>
+        <Text style={s.tocLabel}>{item.label}</Text>
+        <View style={s.tocDots} />
+        <Text style={s.tocPage}>{item.page}</Text>
+      </View>
+    </NoBreak>
+  );
 
   return (
-    <Page size="A4" style={s.page}>
-      <Header section="Sumário" />
-
-      <View style={{ marginBottom: 8 }}>
-        <Text style={s.tocTitle}>Sumário</Text>
-        <Text style={s.tocSubtitle}>Conteúdo deste guia</Text>
-      </View>
-
-      {items.map((item) => (
-        <View key={item.label} style={s.tocItem}>
-          <View style={[s.tocIcon, { backgroundColor: `${item.color}20` }]}>
-            <Text style={[s.tocIconText, { fontFamily: 'Helvetica-Bold', color: item.color }]}>
-              {TOC_GLYPHS[item.label] || sectionGlyph(item.label)}
-            </Text>
-          </View>
-          <Text style={s.tocLabel}>{item.label}</Text>
-          <View style={s.tocDots} />
-          <Text style={s.tocPage}>{item.page}</Text>
+    <>
+      <Page size="A4" style={s.page}>
+        <Header section="Sumário" />
+        <View style={{ marginBottom: 8 }}>
+          <Text style={s.tocTitle}>Sumário</Text>
+          <Text style={s.tocSubtitle}>Conteúdo deste guia (parte 1)</Text>
         </View>
-      ))}
+        {first.map(renderItem)}
+        <Footer />
+      </Page>
 
-      <View style={[s.tip, { marginTop: 28 }]}>
-        <View style={pdfUi.tipMark}>
-          <Text style={pdfUi.markTiny}>i</Text>
+      <Page size="A4" style={s.page}>
+        <Header section="Sumário" />
+        <View style={{ marginBottom: 8 }}>
+          <Text style={s.tocTitle}>Sumário</Text>
+          <Text style={s.tocSubtitle}>Conteúdo deste guia (parte 2)</Text>
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={s.tipText}>Este guia cobre todas as funcionalidades do ZapMass em detalhes. Recomendamos ler na sequência para iniciantes ou consultar seções específicas conforme a necessidade.</Text>
-        </View>
-      </View>
-
-      <Footer pageNum="2" />
-    </Page>
+        {second.map(renderItem)}
+        <Tip text="Este guia cobre todas as funcionalidades do ZapMass em detalhes. Recomendamos ler na sequência para iniciantes ou consultar seções específicas conforme a necessidade." />
+        <Footer />
+      </Page>
+    </>
   );
 };
 
@@ -756,9 +789,12 @@ const PainelPage = () => (
       O Painel é a primeira tela após o login. Ele mostra um resumo em tempo real de tudo que está acontecendo na sua conta — envios, chips ativos, taxa de sucesso e alertas importantes.
     </Text>
 
+    <DashboardMock />
+
     <Text style={s.h2}>O que você encontra no Painel</Text>
 
-    <View style={s.cardRow}>
+    <NoBreak minPresence={100}>
+      <View style={s.cardRow}>
       {[
         { icon: 'EV', t: 'Envios do dia', d: 'Total de mensagens enviadas hoje com destaque em relação ao dia anterior', c: C.blue },
         { icon: 'CH', t: 'Chips online', d: 'Quantidade de números WhatsApp conectados e disponíveis agora', c: C.green },
@@ -770,7 +806,8 @@ const PainelPage = () => (
           <Text style={s.cardDesc}>{card.d}</Text>
         </View>
       ))}
-    </View>
+      </View>
+    </NoBreak>
 
     <Li icon="📅" bold="Gráfico de envios:" text="Histórico dos últimos dias em barras — veja picos e quedas de atividade." />
     <Li icon="🎂" bold="Aniversariantes:" text="Contatos que fazem aniversário hoje ou em breve, com botão para enviar mensagem diretamente." />
@@ -779,7 +816,7 @@ const PainelPage = () => (
 
     <Tip text="Comece sempre pelo Painel para verificar se seus chips estão Online antes de disparar qualquer campanha. Um chip offline não entrega mensagens." />
 
-    <Footer pageNum="3" />
+    <Footer />
   </Page>
 );
 
@@ -794,6 +831,8 @@ const ConexoesPage = () => (
       Conexões são os números de WhatsApp vinculados ao ZapMass. Cada "chip" é um número que pode enviar mensagens. Gerenciar bem sua frota de chips é essencial para campanhas eficientes.
     </Text>
 
+    <ConnectionsMock />
+
     <Text style={s.h2}>Como adicionar um chip (passo a passo)</Text>
     <Step num={1} text='Clique em "Nova conexão" no canto superior direito da tela de Conexões.' color={C.green} />
     <Step num={2} text='Dê um nome descritivo ao chip (ex.: "Chip Marketing 1", "Suporte Principal").' color={C.green} />
@@ -802,6 +841,7 @@ const ConexoesPage = () => (
     <Step num={5} text='Aguarde o status ficar "Online" (indicador verde). O chip está pronto.' color={C.green} />
 
     <Text style={s.h2}>Status dos chips</Text>
+    <NoBreak minPresence={120}>
     <View style={s.table}>
       <View style={s.tableHead}>
         <Text style={[s.tableHeadCell, { flex: 0.5 }]}>Status</Text>
@@ -821,10 +861,11 @@ const ConexoesPage = () => (
         </View>
       ))}
     </View>
+    </NoBreak>
 
     <Warn text="Nunca use um chip novo para disparos em massa imediatamente. Realize o aquecimento por pelo menos 2 semanas antes. Veja a seção Aquecimento." />
 
-    <Footer pageNum="4" />
+    <Footer />
   </Page>
 );
 
@@ -883,7 +924,7 @@ const PoolsPage = () => (
 
     <Tip text='Use a estratégia "Prioridade" para preservar um chip principal: o sistema só ativa os secundários quando o principal cair, mantendo-o mais descansado e com menor risco de bloqueio.' />
 
-    <Footer pageNum="4b" />
+    <Footer />
   </Page>
 );
 
@@ -898,19 +939,7 @@ const BatePapoPage = () => (
       A aba de Bate-papo funciona como um WhatsApp Web integrado ao ZapMass. Todas as conversas de todos os seus chips aparecem em um único lugar, organizadas e fáceis de acessar.
     </Text>
 
-    <Text style={s.h2}>Layout da tela</Text>
-    <View style={s.heroBlock}>
-      <View style={{ flexDirection: 'row', gap: 14 }}>
-        <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#e2e8f0' }}>
-          <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.bodyHead, marginBottom: 6 }}>⬅ LISTA DE CONVERSAS</Text>
-          <Text style={{ fontSize: 9, color: C.bodyMuted, lineHeight: 1.6 }}>Busca{'\n'}Filtros (não lidas, canal){'\n'}Cada conversa exibe: nome, prévia da última mensagem, horário e badge de não lidas</Text>
-        </View>
-        <View style={{ flex: 2, backgroundColor: '#f8fafc', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#e2e8f0' }}>
-          <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.bodyHead, marginBottom: 6 }}>PAINEL DE MENSAGENS ➡</Text>
-          <Text style={{ fontSize: 9, color: C.bodyMuted, lineHeight: 1.6 }}>Histórico completo da conversa com scroll automático{'\n'}Campo de texto para responder{'\n'}Botões de anexo: imagem, áudio, documento{'\n'}Sugestões de IA, atribuição para a equipe</Text>
-        </View>
-      </View>
-    </View>
+    <ChatMock />
 
     <Text style={s.h2}>Recursos principais</Text>
     <Li icon="🔍" bold="Busca:" text="Encontre rapidamente qualquer conversa pelo nome do contato ou conteúdo." />
@@ -922,7 +951,7 @@ const BatePapoPage = () => (
 
     <Tip text="Use o Bate-papo para acompanhar respostas de campanhas e fazer atendimento manual quando o contato precisar de atenção humana." />
 
-    <Footer pageNum="5" />
+    <Footer />
   </Page>
 );
 
@@ -936,6 +965,8 @@ const CampanhasPage = () => (
     <Text style={s.lead}>
       Campanhas é o coração do ZapMass. Aqui você cria, gerencia e monitora todos os seus disparos em massa, programados ou por fluxo de respostas.
     </Text>
+
+    <CampaignMock />
 
     <Text style={s.h2}>As abas de Campanhas</Text>
     <Li icon="📊" bold="Dashboard:" text="Visão rápida das métricas de campanha antes de mergulhar na lista." />
@@ -966,7 +997,7 @@ const CampanhasPage = () => (
 
     <Tip text="Use o Spintax para variar o início das mensagens: {Olá|Oi|Bom dia} — isso reduz o risco de bloqueio porque cada mensagem fica levemente diferente." />
 
-    <Footer pageNum="6" />
+    <Footer />
   </Page>
 );
 
@@ -1000,7 +1031,7 @@ const FluxoPage = () => (
 
     <Tip text="Crie fluxos curtos (2-3 etapas) para melhor engajamento. Fluxos longos cansam o contato e aumentam o abandono." />
 
-    <Footer pageNum="7" />
+    <Footer />
   </Page>
 );
 
@@ -1045,7 +1076,7 @@ const ContatosPage = () => (
 
     <Tip text="Use a temperatura como filtro de campanha. Envie ofertas mais agressivas para contatos Quentes e abordagens mais suaves para contatos Frios." />
 
-    <Footer pageNum="8" />
+    <Footer />
   </Page>
 );
 
@@ -1092,7 +1123,7 @@ const RelatoriosPage = () => (
 
     <Tip text="Use o mapa de calor para descobrir os melhores horários de engajamento e agende suas próximas campanhas nesses momentos." />
 
-    <Footer pageNum="9" />
+    <Footer />
   </Page>
 );
 
@@ -1139,7 +1170,7 @@ const AquecimentoPage = () => (
 
     <Warn text="Chip banido não pode ser recuperado. Invista no aquecimento correto — leva 4 semanas mas protege seu número indefinidamente." />
 
-    <Footer pageNum="10" />
+    <Footer />
   </Page>
 );
 
@@ -1175,46 +1206,51 @@ const ConfiguracoesPage = () => (
 
     <Tip text="Configure o intervalo entre 8 e 15 segundos. Intervalos muito curtos aumentam o risco de bloqueio. Intervalos muito longos tornam grandes disparos muito lentos." />
 
-    <Footer pageNum="11" />
+    <Footer />
   </Page>
 );
 
 /* ─── PÁGINA 10: BOAS PRÁTICAS ───────────────────────────────── */
 const BoasPraticasPage = () => (
-  <Page size="A4" style={s.page}>
-    <Header section="Boas Práticas" />
-    <SectionPill glyph="OK" label="Boas Práticas" num="10" color={C.green} />
-    <Text style={s.h1}>Boas Práticas</Text>
-    <Accent color={C.green} />
-    <Text style={s.lead}>
-      Seguir estas práticas garante maior entregabilidade, protege seus chips e mantém a saúde da sua conta no longo prazo.
-    </Text>
+  <>
+    <Page size="A4" style={s.page}>
+      <Header section="Boas Práticas" />
+      <SectionPill glyph="OK" label="Boas Práticas" num="10" color={C.green} />
+      <Text style={s.h1}>Boas Práticas</Text>
+      <Accent color={C.green} />
+      <Text style={s.lead}>
+        Seguir estas práticas garante maior entregabilidade, protege seus chips e mantém a saúde da sua conta no longo prazo.
+      </Text>
 
-    <Text style={s.h2}>Antes de cada campanha</Text>
-    <Check text="Verificar se os chips estão Online na tela de Conexões" />
-    <Check text="Confirmar que a lista tem opt-in (contatos que autorizaram receber mensagens)" />
-    <Check text="Personalizar a mensagem com {nome} e spintax para evitar cópias idênticas" />
-    <Check text="Definir intervalo mínimo de 8s ou mais nas Configurações de Disparo" />
-    <Check text="Enviar uma mensagem de teste para 2–3 contatos antes do disparo em massa" />
-    <Check text="Revisar todas as informações na tela de Revisão antes de confirmar" />
+      <Text style={s.h2}>Antes de cada campanha</Text>
+      <Check text="Verificar se os chips estão Online na tela de Conexões" />
+      <Check text="Confirmar que a lista tem opt-in (contatos que autorizaram receber mensagens)" />
+      <Check text="Personalizar a mensagem com {nome} e spintax para evitar cópias idênticas" />
+      <Check text="Definir intervalo mínimo de 8s ou mais nas Configurações de Disparo" />
+      <Check text="Enviar uma mensagem de teste para 2–3 contatos antes do disparo em massa" />
+      <Check text="Revisar todas as informações na tela de Revisão antes de confirmar" />
 
-    <Text style={s.h2}>Para manter chips saudáveis</Text>
-    <Check text="Nunca ultrapassar 300 mensagens/dia por chip, mesmo aquecido" />
-    <Check text="Sempre aquecer chips novos por no mínimo 2 semanas" />
-    <Check text="Não enviar para listas desatualizadas, compradas ou sem opt-in" />
-    <Check text="Monitorar a saúde dos chips na aba Centro de Missões → Saúde dos chips" />
-    <Check text="Pausar imediatamente campanhas com alta taxa de erro e investigar o motivo" />
+      <Text style={s.h2}>Para manter chips saudáveis</Text>
+      <Check text="Nunca ultrapassar 300 mensagens/dia por chip, mesmo aquecido" />
+      <Check text="Sempre aquecer chips novos por no mínimo 2 semanas" />
+      <Check text="Não enviar para listas desatualizadas, compradas ou sem opt-in" />
+      <Check text="Monitorar a saúde dos chips na aba Centro de Missões → Saúde dos chips" />
+      <Check text="Pausar imediatamente campanhas com alta taxa de erro e investigar o motivo" />
+      <Footer />
+    </Page>
 
-    <Text style={s.h2}>Organização dos contatos</Text>
-    <Check text="Manter a base de contatos atualizada — remova números inválidos regularmente" />
-    <Check text="Usar listas segmentadas em vez de disparar para toda a base sempre" />
-    <Check text="Aproveitar filtros de temperatura para personalizar a abordagem" />
-    <Check text="Respeitar solicitações de opt-out — não reenviar para quem pediu para sair" />
+    <Page size="A4" style={s.page}>
+      <Header section="Boas Práticas" />
+      <Text style={s.h2}>Organização dos contatos</Text>
+      <Check text="Manter a base de contatos atualizada — remova números inválidos regularmente" />
+      <Check text="Usar listas segmentadas em vez de disparar para toda a base sempre" />
+      <Check text="Aproveitar filtros de temperatura para personalizar a abordagem" />
+      <Check text="Respeitar solicitações de opt-out — não reenviar para quem pediu para sair" />
 
-    <Tip text="A consistência é mais importante que o volume. Envios menores e bem segmentados convertem mais que grandes disparos para listas frias." />
-
-    <Footer pageNum="12" />
-  </Page>
+      <Tip text="A consistência é mais importante que o volume. Envios menores e bem segmentados convertem mais que grandes disparos para listas frias." />
+      <Footer />
+    </Page>
+  </>
 );
 
 /* ─── DOCUMENTO PRINCIPAL ────────────────────────────────────── */

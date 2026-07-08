@@ -689,7 +689,7 @@ export const TutorialPage: React.FC = () => {
             {downloading ? '⏳ Gerando PDF...' : '⬇️ Baixar como PDF'}
           </button>
           <p className="tu-no-print" style={{ color: '#8b949e', fontSize: 12, marginTop: 8 }}>
-            PDF profissional de 12 páginas — com capa, sumário e ilustrações
+            PDF profissional com capa, sumário, ilustrações das telas e numeração automática
           </p>
         </div>
 
