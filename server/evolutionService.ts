@@ -22,6 +22,14 @@ import {
 } from './redisBullmqResilience.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
 import {
+    buildOutboundPhoneVariants,
+    normalizeOutboundNumber,
+    parseWhatsAppNumberCheckRows,
+    pickWhatsAppCheckResult,
+    type WhatsAppNumberCheckRow,
+} from './evolutionOutboundPhone.js';
+import { LID_SEND_BLOCKED_MSG } from './evolutionLidResolve.js';
+import {
     ReplyFlowEngine,
     applyMessageVars,
     buildRecipientVarsMap,
@@ -271,38 +279,6 @@ async function enrichConnectionMeta(instanceName: string): Promise<void> {
     }
 }
 
-/**
- * Normaliza numero para envio via Evolution.
- * - Remove caracteres nao-digitos
- * - Se tem 10 ou 11 digitos (BR sem DDI), prefixa "55"
- * - Caso contrario mantem (assume DDI ja presente)
- *
- * Sem isso, Evolution recebe "48996460175" (sem DDI) e a entrega falha
- * silenciosamente — campanha "rodando" sem mensagem chegar.
- */
-function normalizeOutboundNumber(raw: string): string {
-    const digits = String(raw || '').replace(/[^0-9]/g, '');
-    if (!digits) return '';
-    if (digits.startsWith('55')) return digits;
-    if (digits.length === 10 || digits.length === 11) return `55${digits}`;
-    return digits;
-}
-
-/** Variantes BR com/sem 9º dígito (5511 9XXXX ↔ 5511 XXXX). */
-function buildBrE164Variants(formattedNum: string): string[] {
-    const variants: string[] = [formattedNum];
-    if (formattedNum.startsWith('55') && formattedNum.length === 13 && formattedNum[4] === '9') {
-        const ddd = formattedNum.substring(2, 4);
-        const rest = formattedNum.substring(5);
-        variants.push(`55${ddd}${rest}`);
-    } else if (formattedNum.startsWith('55') && formattedNum.length === 12) {
-        const ddd = formattedNum.substring(2, 4);
-        const rest = formattedNum.substring(4);
-        variants.push(`55${ddd}9${rest}`);
-    }
-    return [...new Set(variants)];
-}
-
 function isRetryableOutbound400(errorDetail?: string): boolean {
     return isUnrecoverableOutboundError(errorDetail);
 }
@@ -314,27 +290,28 @@ function isUnrecoverableOutboundError(errorDetail?: string): boolean {
     );
 }
 
-type WhatsAppNumberCheckRow = { exists?: boolean; jid?: string; number?: string };
-
-/** Consulta Evolution `/chat/whatsappNumbers` — evita HTTP 400 no sendText. */
+/**
+ * Consulta Evolution `/chat/whatsappNumbers` — corrige 9º dígito quando possível.
+ * Falso negativo não bloqueia o envio (tentativa real decide).
+ */
 async function checkWhatsAppNumberExists(
     connectionId: string,
     digits: string
-): Promise<{ exists: boolean; canonicalNumber?: string; checkFailed?: boolean }> {
+): Promise<{ exists: boolean; canonicalNumber?: string; checkFailed?: boolean; lidOnly?: boolean; emptyResponse?: boolean }> {
     try {
         const response = await api.post(`/chat/whatsappNumbers/${evoInst(connectionId)}`, {
             numbers: [digits],
         });
-        const rows = Array.isArray(response.data) ? (response.data as WhatsAppNumberCheckRow[]) : [];
-        const row =
-            rows.find((r) => String(r.number || '').replace(/\D/g, '') === digits) ||
-            rows.find((r) => r.exists) ||
-            rows[0];
-        if (row?.exists) {
-            const canonical = String(row.number || digits).replace(/\D/g, '') || digits;
-            return { exists: true, canonicalNumber: canonical };
+        const rows = parseWhatsAppNumberCheckRows(response.data);
+        const picked = pickWhatsAppCheckResult(rows as WhatsAppNumberCheckRow[], digits);
+        if (picked.exists && picked.canonicalNumber) {
+            return { exists: true, canonicalNumber: picked.canonicalNumber };
         }
-        return { exists: false };
+        return {
+            exists: false,
+            lidOnly: picked.lidOnly,
+            emptyResponse: picked.emptyResponse,
+        };
     } catch (error: unknown) {
         const ax = error as { message?: string };
         log('warn', 'whatsappNumbers indisponível — seguindo com envio direto', {
@@ -356,8 +333,10 @@ async function resolveOutboundNumberForSend(
         return { error: `Número inválido: ${to}` };
     }
 
-    const variants = buildBrE164Variants(normalized);
+    const variants = buildOutboundPhoneVariants(normalized);
     let sawDefiniteMissing = false;
+    let sawLidOnly = false;
+    let sawEmptyResponse = false;
 
     for (const variant of variants) {
         const check = await checkWhatsAppNumberExists(connectionId, variant);
@@ -375,13 +354,21 @@ async function resolveOutboundNumberForSend(
             }
             return { number: check.canonicalNumber };
         }
+        if (check.lidOnly) sawLidOnly = true;
+        if (check.emptyResponse) sawEmptyResponse = true;
         sawDefiniteMissing = true;
     }
 
+    if (sawLidOnly && !sawEmptyResponse) {
+        return { error: LID_SEND_BLOCKED_MSG };
+    }
+
     if (sawDefiniteMissing) {
-        return {
-            error: `Contato não encontrado no WhatsApp (${normalized}). Confira DDD, 9º dígito (celular BR) e se o número usa WhatsApp.`,
-        };
+        log('warn', 'whatsappNumbers não confirmou contato — tentando envio direto', {
+            connectionId,
+            normalized,
+            variantsTried: variants.slice(0, 6),
+        });
     }
 
     return { number: normalized };
@@ -3862,7 +3849,7 @@ async function sendMediaInternal(
     else if (mimeType.startsWith('audio/')) type = 'audio';
 
     const { url } = await saveMediaFromBase64(base64, mimeType, fileName);
-    const variants = buildBrE164Variants(number);
+    const variants = buildOutboundPhoneVariants(number);
     let lastResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
 
     for (let i = 0; i < variants.length; i++) {
@@ -4031,7 +4018,7 @@ async function sendMessageInternal(
         return { ok: false, errorDetail: `Número inválido: ${to}` };
     }
 
-    const variants = buildBrE164Variants(number);
+    const variants = buildOutboundPhoneVariants(number);
     let lastResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
 
     for (let i = 0; i < variants.length; i++) {
@@ -4632,7 +4619,7 @@ async function sendMediaByUrlInternal(
     else if (mimeType.startsWith('video/')) type = 'video';
     else if (mimeType.startsWith('audio/')) type = 'audio';
 
-    const variants = buildBrE164Variants(number);
+    const variants = buildOutboundPhoneVariants(number);
     let lastResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
 
     for (let i = 0; i < variants.length; i++) {
