@@ -91,7 +91,11 @@ export type ReplyFlowCallbacks = {
     onSessionDisposed?: (connectionId: string, phoneDigits: string) => void;
 };
 
-export const normalizePhoneKey = (phone: string): string => (phone || '').replace(/\D/g, '');
+import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
+
+/** Chave canônica BR (DDI 55 + 9º dígito) — alinhada ao relatório da UI. */
+export const normalizePhoneKey = (phone: string): string =>
+    normPhoneKey(phone) || (phone || '').replace(/\D/g, '');
 
 export const buildRecipientVarsMap = (
     recipients?: CampaignRecipient[]

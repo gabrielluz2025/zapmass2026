@@ -1,4 +1,5 @@
 import type { AxiosInstance } from 'axios';
+import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
 import {
   hasResolvablePhone,
   isLidJid,
@@ -8,6 +9,21 @@ import {
   pickSendableWaJidAlt,
   plausiblePhoneDigits
 } from './evolutionLidResolve.js';
+
+function formatPhoneForError(raw: string): string {
+  const key = normPhoneKey(raw) || raw.replace(/\D/g, '');
+  if (!key) return raw;
+  if (key.length >= 12 && key.startsWith('55')) {
+    const local = key.slice(2);
+    if (local.length === 11) {
+      return `+55 (${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
+    }
+    if (local.length === 10) {
+      return `+55 (${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`;
+    }
+  }
+  return key.startsWith('55') ? `+${key}` : key;
+}
 
 export { normalizeOutboundDigits, plausiblePhoneDigits };
 
@@ -138,7 +154,9 @@ export function formatEvolutionHttpError(err: unknown): string {
           if (row.exists === false) {
             const badJid = String(row.jid || '');
             if (badJid.endsWith('@lid')) return LID_SEND_BLOCKED_MSG;
-            return `Contato não encontrado no WhatsApp (${badJid || 'número inválido'})`;
+            const digits = badJid.split('@')[0] || badJid;
+            const display = formatPhoneForError(digits);
+            return `Contato não encontrado no WhatsApp (${display})`;
           }
         }
         try {

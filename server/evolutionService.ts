@@ -4157,6 +4157,10 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         await ensureCampaignRuntimeInMemory(item.campaignId, fallback);
     }
     const campaignState = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
+    if (item.to) {
+        const canonicalTo = normalizePhoneKey(item.to);
+        if (canonicalTo) item.to = canonicalTo;
+    }
     const dispatchSettings = getTenantDispatchSettings(campaignState?.ownerUid);
 
     if (dispatchSettings.sleepMode && isBrazilNightHour() && !hasSleepModeOverride(item.campaignId)) {
@@ -4801,13 +4805,30 @@ export async function redispatchCampaign(
     const campaign = await getCampaign(tenantId, campaignId);
     if (!campaign) return { ok: false, enqueued: 0, error: 'Campanha não encontrada.' };
 
-    const pendingJobs = campaignPendingJobs.get(campaignId) || 0;
+    let pendingJobs = campaignPendingJobs.get(campaignId) || 0;
     const memState = campaignsById.get(campaignId);
+    // Contador preso após conclusão impede reenvio — limpa quando a campanha não está mais ativa.
+    if (pendingJobs > 0 && !memState?.isRunning) {
+        campaignPendingJobs.delete(campaignId);
+        pendingJobs = 0;
+    }
     if (pendingJobs > 0 && memState?.isRunning) {
         return { ok: false, enqueued: 0, error: 'Campanha ainda em execução. Aguarde ou pause antes de reenviar.' };
     }
 
     pausedCampaigns.delete(campaignId);
+
+    const stepIdx = typeof options.stepIndex === 'number' ? options.stepIndex : 0;
+    if (mode === 'failed') {
+        try {
+            const { resetFailedContactsAtStep } = await import(
+                './repositories/campaignContactStateRepository.js'
+            );
+            await resetFailedContactsAtStep(campaignId, stepIdx);
+        } catch {
+            // best-effort: snapshot-only campaigns seguem sem PG
+        }
+    }
 
     const connectionIds =
         options.connectionIds?.length ? options.connectionIds : campaign.selectedConnectionIds || [];

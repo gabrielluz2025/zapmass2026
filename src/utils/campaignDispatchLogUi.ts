@@ -1,4 +1,5 @@
 import type { SystemLog } from '../types';
+import { normPhoneKey } from './brPhoneNormalize';
 import {
   CAMPAIGN_REPLY_LOG_MESSAGE,
   CAMPAIGN_SENT_LOG_MESSAGE,
@@ -48,7 +49,7 @@ export function formatDispatchPhone(raw?: string): string {
 export function parseDispatchLog(log: SystemLog): ParsedDispatchLog {
   const payload = (log.payload || {}) as DispatchLogPayload;
   const msg = String(payload.message || payload.error || '').trim();
-  const phone = String(payload.phoneDigits || payload.to || '').replace(/\D/g, '');
+  const phone = normPhoneKey(String(payload.phoneDigits || payload.to || ''));
   const event = String(log.event || '');
   const isErr = event.includes('error');
   const isWarn = event.includes('warn');

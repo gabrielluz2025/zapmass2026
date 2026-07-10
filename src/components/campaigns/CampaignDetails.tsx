@@ -75,6 +75,7 @@ import {
 } from '../../utils/campaignReportFromLogs';
 import { pickBetterCampaignReportRow } from '../../utils/campaignReportDedupe';
 import { dedupeCampaignReportRowsByRecipient, recipientKeyForCampaignReport } from '../../utils/campaignReportDedupe';
+import { normPhoneKey } from '../../utils/brPhoneNormalize';
 import { buildPrimaryReportRowsFromLogs } from '../../utils/campaignReportBuilder';
 import { enrichCampaignReportRow } from '../../utils/campaignReportRowEnrichment';
 import { firstReplyAfterCampaignSend, hasCampaignSendLogForPhone } from '../../utils/campaignReplyScope';
@@ -1160,7 +1161,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
   const executeRetry = useCallback(
     async (connectionId: string, phones: string[]) => {
-      const cleanPhones = phones.map((p) => String(p).replace(/\D/g, '')).filter((p) => p.length >= 10);
+      const cleanPhones = phones
+        .map((p) => normPhoneKey(String(p)))
+        .filter((p) => p.length >= 10);
       if (cleanPhones.length === 0) {
         toast.error('Nenhum número válido para reenvio.');
         return;
@@ -1177,6 +1180,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         );
         setShowRetryBanner(false);
         setRetryDialog(null);
+        setShowLogModal(false);
+        void refreshCampaignData();
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Erro ao iniciar reenvio.';
         toast.error(msg);
@@ -1184,7 +1189,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         setRetrying(false);
       }
     },
-    [campaign.id]
+    [campaign.id, refreshCampaignData]
   );
 
   const handleResumeRedispatch = useCallback(async () => {
@@ -2421,6 +2426,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           hasMore={logsHasMore}
           loadingMore={logsLoadingMore}
           onLoadMore={loadMoreLogs}
+          onRetryFailed={!isRunning && performance.counts.FAILED > 0 ? handleRetryFailed : undefined}
+          onRetryPhone={!isRunning ? handleRetryOne : undefined}
+          retrying={retrying}
         />
       </Modal>
 

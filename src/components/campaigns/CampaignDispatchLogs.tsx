@@ -6,6 +6,7 @@ import {
   Copy,
   MessageCircleReply,
   Radio,
+  RefreshCw,
   Search,
   Send,
   Terminal
@@ -32,6 +33,10 @@ type Props = {
   loadingMore?: boolean;
   onLoadMore?: () => void;
   maxItems?: number;
+  /** Reenvio de falhas (modal / painel expandido). */
+  onRetryFailed?: () => void;
+  onRetryPhone?: (phone: string) => void;
+  retrying?: boolean;
 };
 
 const KIND_ICON: Record<string, React.FC<{ className?: string; style?: React.CSSProperties }>> = {
@@ -69,11 +74,15 @@ function LogStatPill({
 function DispatchLogRow({
   log,
   showDate,
-  onCopyPhone
+  onCopyPhone,
+  onRetryPhone,
+  retrying
 }: {
   log: SystemLog;
   showDate?: boolean;
   onCopyPhone: (phone: string) => void;
+  onRetryPhone?: (phone: string) => void;
+  retrying?: boolean;
 }) {
   const p = parseDispatchLog(log);
   const style = DISPATCH_LOG_STYLES[p.kind];
@@ -131,6 +140,18 @@ function DispatchLogRow({
         <p className="text-[12px] mt-1.5 leading-relaxed" style={{ color: 'var(--text-3)' }}>
           {p.detail}
         </p>
+        {p.kind === 'error' && p.phone && onRetryPhone && (
+          <button
+            type="button"
+            disabled={retrying}
+            onClick={() => onRetryPhone(p.phone)}
+            className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+            style={{ background: 'rgba(6,182,212,0.12)', color: '#06b6d4', border: '1px solid rgba(6,182,212,0.3)' }}
+          >
+            <RefreshCw className={`w-3 h-3 ${retrying ? 'animate-spin' : ''}`} />
+            Tentar novamente
+          </button>
+        )}
       </div>
     </div>
   );
@@ -145,7 +166,10 @@ export const CampaignDispatchLogs: React.FC<Props> = ({
   hasMore = false,
   loadingMore = false,
   onLoadMore,
-  maxItems
+  maxItems,
+  onRetryFailed,
+  onRetryPhone,
+  retrying = false
 }) => {
   const [search, setSearch] = useState('');
   const counts = useMemo(() => countDispatchLogs(logs), [logs]);
@@ -238,6 +262,32 @@ export const CampaignDispatchLogs: React.FC<Props> = ({
         )}
       </div>
 
+      {variant === 'full' && failCount > 0 && onRetryFailed && !isRunning && (
+        <div
+          className="rounded-xl px-4 py-3 flex items-start gap-3"
+          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}
+        >
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#ef4444' }} />
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
+              {failCount} falha{failCount !== 1 ? 's' : ''} nesta campanha
+            </p>
+            <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+              Corrija chips ou números e reenvie na mesma campanha.
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={retrying}
+            leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${retrying ? 'animate-spin' : ''}`} />}
+            onClick={onRetryFailed}
+          >
+            {retrying ? 'Reenviando…' : `Reenviar ${failCount} falha${failCount !== 1 ? 's' : ''}`}
+          </Button>
+        </div>
+      )}
+
       <div
         className={`overflow-y-auto rounded-xl ${variant === 'compact' ? 'min-h-[200px] max-h-[300px]' : 'min-h-[280px] max-h-[min(58vh,520px)]'}`}
         style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
@@ -277,6 +327,8 @@ export const CampaignDispatchLogs: React.FC<Props> = ({
                 log={log}
                 showDate={variant === 'full'}
                 onCopyPhone={copyPhone}
+                onRetryPhone={!isRunning ? onRetryPhone : undefined}
+                retrying={retrying}
               />
             ))}
           </div>
