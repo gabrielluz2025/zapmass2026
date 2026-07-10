@@ -16,7 +16,6 @@ import {
 import {
   getContactStateSummary,
   listFailedContactsAtStep,
-  resetFailedContactsAtStep,
 } from './repositories/campaignContactStateRepository.js';
 import { buildCampaignInboundRepliesMap } from './campaignInboundReplies.js';
 import { buildCampaignReportConversationContext } from './campaignReportConversations.js';
@@ -290,7 +289,6 @@ export function registerCampaignsDataRoutes(app: Express): void {
     try {
       const owned = await evolutionService.ensureTenantOwnsCampaign(ctx.tenantId, campaignId);
       if (!owned) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
-      const reset = await resetFailedContactsAtStep(campaignId, stepIndex);
       const redispatch = await evolutionService.redispatchCampaign(ctx.tenantId, campaignId, {
         mode: 'failed',
         stepIndex,
@@ -299,7 +297,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
       });
       return res.json({
         ok: true,
-        reset,
+        reset: redispatch.enqueued,
         enqueued: redispatch.enqueued,
         error: redispatch.ok ? undefined : redispatch.error,
       });

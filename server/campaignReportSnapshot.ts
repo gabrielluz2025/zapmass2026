@@ -45,6 +45,7 @@ function logRowsToScoped(logRows: CampaignLogRow[], campaignId: string) {
     const p = (r.payload || {}) as Record<string, unknown>;
     return {
       timestamp: r.created_at.toISOString(),
+      event: `campaign:${String(r.level || 'info').toLowerCase()}`,
       payload: {
         ...p,
         campaignId: String(p.campaignId || campaignId),

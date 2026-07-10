@@ -153,7 +153,7 @@ export function buildPrimaryReportRowsFromLogs(
   };
 
   return Array.from(byPhone.values())
-    .filter((a) => scopeOk(a.phone))
+    .filter((a) => scopeOk(a.phone) || a.status === 'FAILED')
     .map((a) => {
       const firstSent =
         a.firstSentMs !== Number.MAX_SAFE_INTEGER ? a.firstSentMs : a.lastSentMs || 0;

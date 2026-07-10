@@ -4820,16 +4820,6 @@ export async function redispatchCampaign(
     pausedCampaigns.delete(campaignId);
 
     const stepIdx = typeof options.stepIndex === 'number' ? options.stepIndex : 0;
-    if (mode === 'failed') {
-        try {
-            const { resetFailedContactsAtStep } = await import(
-                './repositories/campaignContactStateRepository.js'
-            );
-            await resetFailedContactsAtStep(campaignId, stepIdx);
-        } catch {
-            // best-effort: snapshot-only campaigns seguem sem PG
-        }
-    }
 
     const connectionIds =
         options.connectionIds?.length ? options.connectionIds : campaign.selectedConnectionIds || [];
@@ -4877,6 +4867,19 @@ export async function redispatchCampaign(
         }));
     }
 
+    if (mode === 'failed') {
+        const { collectFailedRedispatchTargetsFromLogs } = await import('./campaignRedispatchTargets.js');
+        const fromLogs = await collectFailedRedispatchTargetsFromLogs(tenantId, campaignId, stepIdx);
+        if (fromLogs.length > 0) {
+            const byKey = new Map<string, Target>();
+            for (const t of [...targets, ...fromLogs]) {
+                const k = `${normalizePhoneKey(t.phone)}@${t.stepIndex}`;
+                if (normalizePhoneKey(t.phone).length >= 8) byKey.set(k, t);
+            }
+            targets = Array.from(byKey.values());
+        }
+    }
+
     targets = await refreshRedispatchTargetPhones(tenantId, targets);
 
     // Fluxo por resposta não grava campaign_contact_state — retomar via snapshot − enviados.
@@ -4890,6 +4893,16 @@ export async function redispatchCampaign(
             options.phones.map((p) => normalizePhoneKey(p)).filter((p) => p.length >= 8)
         );
         targets = targets.filter((t) => allow.has(normalizePhoneKey(t.phone)));
+    }
+
+    if (targets.length === 0 && mode === 'failed' && options.phones?.length) {
+        targets = options.phones
+            .map((p) => ({
+                phone: normalizePhoneKey(p),
+                stepIndex: stepIdx,
+            }))
+            .filter((t) => t.phone.length >= 10);
+        targets = await refreshRedispatchTargetPhones(tenantId, targets);
     }
 
     const seen = new Set<string>();
@@ -4909,6 +4922,17 @@ export async function redispatchCampaign(
                     ? 'Nenhum contato com falha para reenviar.'
                     : 'Nada pendente para retomar nesta campanha.',
         };
+    }
+
+    if (mode === 'failed') {
+        try {
+            const { resetFailedContactsAtStep } = await import(
+                './repositories/campaignContactStateRepository.js'
+            );
+            await resetFailedContactsAtStep(campaignId, stepIdx);
+        } catch {
+            // campanhas só com logs/snapshot seguem sem PG
+        }
     }
 
     const replyFlow = campaign.replyFlow;

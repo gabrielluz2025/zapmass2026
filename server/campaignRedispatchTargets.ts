@@ -8,6 +8,11 @@ import {
   collectPlannedRecipientPhones,
   collectSentPhonesFromCampaignLogs,
 } from '../src/utils/campaignReportScope.js';
+import {
+  campaignLogPayloadMatchesCampaign,
+  logPayloadPhoneKey,
+} from '../src/utils/campaignReportFromLogs.js';
+import { normalizePhoneKey } from './replyFlowEngine.js';
 import { getZapmassPool } from './db/postgres.js';
 import { listCampaignLogs, type CampaignLogRow } from './repositories/campaignsRepository.js';
 
@@ -16,6 +21,7 @@ function logsForSentDetection(logRows: CampaignLogRow[], campaignId: string) {
     const p = (r.payload || {}) as Record<string, unknown>;
     return {
       timestamp: r.created_at.toISOString(),
+      level: String(r.level || p.level || ''),
       payload: {
         ...p,
         campaignId: String(p.campaignId || campaignId),
@@ -82,4 +88,51 @@ export async function resolveUnsentStep0TargetsFromSnapshot(
     }
   }
   return targets;
+}
+
+/** Falhas reais nos logs (inclui contatos sem linha FAILED no snapshot). */
+export async function collectFailedRedispatchTargetsFromLogs(
+  tenantId: string,
+  campaignId: string,
+  stepIndex = 0
+): Promise<Array<{ phone: string; stepIndex: number }>> {
+  const logRows = await listCampaignLogs(tenantId, campaignId, { limit: 2000, offset: 0 });
+  const logs = logsForSentDetection(logRows, campaignId);
+  const sorted = [...logs].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+
+  const lastErrorMs = new Map<string, number>();
+  const lastSentMs = new Map<string, number>();
+
+  for (const log of sorted) {
+    if (!log.payload || typeof log.payload !== 'object') continue;
+    const p = log.payload as Record<string, unknown>;
+    if (!campaignLogPayloadMatchesCampaign(p as { campaignId?: string }, campaignId)) continue;
+    const phone = logPayloadPhoneKey(p as { to?: string; phoneDigits?: string });
+    if (!phone) continue;
+    const ts = new Date(log.timestamp).getTime();
+    const level = String(log.level || '').toLowerCase();
+    const msg = String(p.message || '');
+    const isErr =
+      level.includes('error') ||
+      Boolean(String(p.error || '').trim()) ||
+      /falha/i.test(msg);
+    const isSent = msg === 'Mensagem enviada' || /mensagem enviada/i.test(msg);
+
+    if (isSent) lastSentMs.set(phone, ts);
+    if (isErr) lastErrorMs.set(phone, ts);
+  }
+
+  const out: Array<{ phone: string; stepIndex: number }> = [];
+  const seen = new Set<string>();
+  for (const [phone, errTs] of lastErrorMs) {
+    const sentTs = lastSentMs.get(phone) ?? 0;
+    if (sentTs > errTs) continue;
+    const key = normalizePhoneKey(phone);
+    if (!key || key.length < 10 || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ phone: key, stepIndex });
+  }
+  return out;
 }
