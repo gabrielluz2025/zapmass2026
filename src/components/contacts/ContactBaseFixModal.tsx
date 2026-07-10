@@ -84,7 +84,10 @@ export const ContactBaseFixModal: React.FC<Props> = ({ open, onClose, totalConta
 
       if (dryRun) {
         if (totalChanged === 0) {
-          toast('Nenhum contato precisa de correção — a base já está padronizada.', { icon: '✅' });
+          toast(
+            'Formato da base já está padronizado. Falhas de campanha podem ser número sem WhatsApp ou disparo antes da correção — use Reenviar falhas na campanha.',
+            { icon: 'ℹ️', duration: 6000 }
+          );
         } else {
           toast.success(
             `${totalChanged.toLocaleString('pt-BR')} contato(s) seriam corrigidos em ${totalScanned.toLocaleString('pt-BR')} analisados.`
@@ -200,9 +203,16 @@ export const ContactBaseFixModal: React.FC<Props> = ({ open, onClose, totalConta
               {applied
                 ? `${progress.changed.toLocaleString('pt-BR')} contato(s) corrigidos`
                 : progress.changed === 0
-                  ? 'Nenhuma correção necessária'
+                  ? 'Nenhuma alteração de formato na base'
                   : `${progress.changed.toLocaleString('pt-BR')} contato(s) precisam de correção`}
             </div>
+            {done && !applied && progress.changed === 0 && (
+              <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                Os telefones já estão no padrão BR (DDI 55 e 9º dígito). Se ainda houver falhas no disparo,
+                o número pode não ter WhatsApp ou a campanha foi enviada antes da correção — abra a campanha
+                e use <strong>Reenviar falhas</strong> para tentar de novo com os dados atualizados.
+              </p>
+            )}
 
             {fieldLines.length > 0 && (
               <div className="flex flex-wrap gap-2">

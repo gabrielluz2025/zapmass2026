@@ -46,6 +46,7 @@ import {
   fetchCampaignLogs,
   fetchCampaignReport,
   redispatchCampaign,
+  retryFailedContacts,
   type CampaignInboundReplyDto,
   type CampaignLogDto,
   type CampaignReportSnapshotDto
@@ -1160,24 +1161,30 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   }, [isDone, performance.counts.FAILED]);
 
   const executeRetry = useCallback(
-    async (connectionId: string, phones: string[]) => {
+    async (connectionId: string, phones: string[], retryAllFailed = false) => {
       const cleanPhones = phones
         .map((p) => normPhoneKey(String(p)))
         .filter((p) => p.length >= 10);
-      if (cleanPhones.length === 0) {
+      if (!retryAllFailed && cleanPhones.length === 0) {
         toast.error('Nenhum número válido para reenvio.');
         return;
       }
       setRetrying(true);
       try {
-        await redispatchCampaign(campaign.id, {
-          mode: 'failed',
-          connectionIds: [connectionId],
-          phones: cleanPhones,
-        });
-        toast.success(
-          `Reenvio iniciado na mesma campanha para ${cleanPhones.length} contato(s).`
-        );
+        if (retryAllFailed || cleanPhones.length > 1) {
+          const n = await retryFailedContacts(campaign.id, 0, [connectionId]);
+          if (n <= 0) {
+            throw new Error('Nenhum contato com falha encontrado para reenvio.');
+          }
+          toast.success(`Reenvio em massa iniciado — ${n} contato(s) na fila.`);
+        } else {
+          await redispatchCampaign(campaign.id, {
+            mode: 'failed',
+            connectionIds: [connectionId],
+            phones: cleanPhones,
+          });
+          toast.success('Reenvio iniciado para 1 contato.');
+        }
         setShowRetryBanner(false);
         setRetryDialog(null);
         setShowLogModal(false);
@@ -1229,8 +1236,26 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     }
     const failedPhones = failedRows.map((r) => r.phone);
     const topFailedConn = failedRows.find((r) => r.connectionId)?.connectionId;
+    const onlineIds = (campaign.selectedConnectionIds || []).filter(
+      (id) => connections.find((c) => c.id === id)?.status === ConnectionStatus.CONNECTED
+    );
+    if (onlineIds.length === 0) {
+      toast.error('Nenhum chip online. Conecte um canal antes de reenviar.');
+      return;
+    }
+    if (onlineIds.length === 1) {
+      void executeRetry(onlineIds[0], failedPhones, true);
+      return;
+    }
     openRetryDialog(failedPhones, topFailedConn);
-  }, [detailedReport, replyPhonesFromLogs, openRetryDialog]);
+  }, [
+    detailedReport,
+    replyPhonesFromLogs,
+    openRetryDialog,
+    campaign.selectedConnectionIds,
+    connections,
+    executeRetry,
+  ]);
 
   const handleRetryOne = useCallback(
     (phone: string, failedConnectionId?: string) => {
@@ -1781,7 +1806,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               onClick={handleRetryFailed}
               disabled={retrying}
             >
-              {retrying ? 'Reenviando…' : 'Tentar novamente'}
+              {retrying ? 'Reenviando…' : `Reenviar todos (${performance.counts.FAILED})`}
             </Button>
             <button
               onClick={() => setShowRetryBanner(false)}
@@ -2651,7 +2676,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         connections={connections}
         campaignConnectionIds={campaign.selectedConnectionIds || []}
         loading={retrying}
-        onConfirm={(connectionId, phones) => void executeRetry(connectionId, phones)}
+        onConfirm={(connectionId, phones) =>
+          void executeRetry(connectionId, phones, phones.length > 1)
+        }
       />
     </div>
   );

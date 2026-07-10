@@ -86,12 +86,12 @@ export const CampaignRetryDialog: React.FC<Props> = ({
     candidates.find((c) => c.id === selectedId)?.status === ConnectionStatus.CONNECTED;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Reenviar mensagem" size="md">
+    <Modal isOpen={isOpen} onClose={onClose} title={phones.length === 1 ? 'Reenviar mensagem' : 'Reenviar todas as falhas'} size="md">
       <div className="space-y-4">
         <p className="text-[13px]" style={{ color: 'var(--text-2)' }}>
           {phones.length === 1
             ? 'Confirme o chip de origem para reenviar a mensagem a este contato.'
-            : `Reenviar para ${phones.length} contatos com falha.`}
+            : `Reenviar de uma vez para ${phones.length} contatos com falha (usa os telefones atualizados da sua base).`}
         </p>
 
         {failedOffline && (
@@ -155,7 +155,7 @@ export const CampaignRetryDialog: React.FC<Props> = ({
             disabled={!selectedId || !selectedOnline || loading || phones.length === 0}
             onClick={() => onConfirm(selectedId, phones)}
           >
-            {loading ? 'Reenviando…' : phones.length === 1 ? 'Reenviar agora' : `Reenviar ${phones.length} contatos`}
+            {loading ? 'Reenviando…' : phones.length === 1 ? 'Reenviar agora' : `Reenviar ${phones.length} de uma vez`}
           </Button>
         </div>
       </div>

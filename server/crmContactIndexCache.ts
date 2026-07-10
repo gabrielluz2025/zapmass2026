@@ -7,6 +7,7 @@ import {
   looksLikeLongLidDigits,
   normalizePhoneDigits
 } from '../src/utils/contactPhoneLookup.js';
+import { normalizeBRPhone } from '../src/utils/brPhoneNormalize.js';
 import {
   normalizeOutboundDigits,
   plausiblePhoneDigits
@@ -49,7 +50,7 @@ export async function getCrmContactIndexes(tenantUid: string): Promise<CrmContac
   for (const ct of contacts) {
     const digits = normalizePhoneDigits(String(ct.phone || ''));
     if (plausiblePhoneDigits(digits) && !looksLikeLongLidDigits(digits)) {
-      const e164 = normalizeOutboundDigits(digits);
+      const e164 = normalizeBRPhone(digits) || normalizeOutboundDigits(digits);
       if (e164) {
         for (const key of buildPhoneDigitLookupKeys(digits)) {
           if (!byDigits.has(key)) byDigits.set(key, e164);

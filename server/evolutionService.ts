@@ -44,6 +44,7 @@ import {
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
 import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
+import { refreshRedispatchTargetPhones } from './campaignRedispatchPhoneRefresh.js';
 import {
     registerCampaignJob,
     markJobSending,
@@ -4871,10 +4872,12 @@ export async function redispatchCampaign(
             return st === 'FAILED' || st === 'FAIL' || st === 'ERROR';
         });
         targets = failedRows.map((r) => ({
-            phone: String(r.phone || '').replace(/\D/g, ''),
+            phone: normalizePhoneKey(String(r.phone || '')),
             stepIndex: typeof options.stepIndex === 'number' ? options.stepIndex : 0,
         }));
     }
+
+    targets = await refreshRedispatchTargetPhones(tenantId, targets);
 
     // Fluxo por resposta não grava campaign_contact_state — retomar via snapshot − enviados.
     if (targets.length === 0 && mode === 'resume') {
