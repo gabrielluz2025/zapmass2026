@@ -18,6 +18,12 @@ describe('buildOutboundPhoneVariants', () => {
     expect(variants).toContain('5547991087007');
     expect(variants).toContain('554791087007');
   });
+
+  it('não gera variantes corrompidas (547…) para DDD 47', () => {
+    const variants = buildOutboundPhoneVariants('5547984556296');
+    expect(variants).toEqual(['5547984556296', '554784556296']);
+    expect(variants.some((v) => v.startsWith('547'))).toBe(false);
+  });
 });
 
 describe('parseWhatsAppNumberCheckRows', () => {

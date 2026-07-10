@@ -139,7 +139,7 @@ export function resolveOutboundSendTarget(
   throw new Error(LID_SEND_BLOCKED_MSG);
 }
 
-export function formatEvolutionHttpError(err: unknown): string {
+export function formatEvolutionHttpError(err: unknown, originalPhone?: string): string {
   const ax = err as { response?: { data?: unknown }; message?: string };
   const data = ax?.response?.data;
   if (data && typeof data === 'object') {
@@ -155,7 +155,9 @@ export function formatEvolutionHttpError(err: unknown): string {
             const badJid = String(row.jid || '');
             if (badJid.endsWith('@lid')) return LID_SEND_BLOCKED_MSG;
             const digits = badJid.split('@')[0] || badJid;
-            const display = formatPhoneForError(digits);
+            const display = originalPhone
+              ? formatPhoneForError(originalPhone)
+              : formatPhoneForError(digits);
             return `Contato não encontrado no WhatsApp (${display})`;
           }
         }

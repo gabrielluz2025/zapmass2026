@@ -33,9 +33,21 @@ export function stripBrazilNationalTrunkZero(digits: string): string {
   return m ? m[1] : digits;
 }
 
+/**
+ * Repara JIDs corrompidos retornados pela Evolution (ex.: slice(-12) vira 547… em vez de 5547…).
+ * 54784556296 → 47984556296 | 547933371589 → 5547933371589
+ */
+export function repairCorruptedBrJidDigits(digits: string): string {
+  const d = phoneDigitsOnly(digits);
+  if (!d) return d;
+  if (d.length === 12 && d.startsWith('547')) return `5547${d.slice(3)}`;
+  if (d.length === 11 && d.startsWith('547')) return `479${d.slice(3)}`;
+  return d;
+}
+
 /** Chave única por telefone (BR: 0 tronco + DDI 55 quando faltar). */
 export function normPhoneKey(p: string): string {
-  let d = stripBrazilNationalTrunkZero(phoneDigitsOnly(p));
+  let d = repairCorruptedBrJidDigits(stripBrazilNationalTrunkZero(phoneDigitsOnly(p)));
   if (!d) return '';
   if ((d.length === 10 || d.length === 11) && !d.startsWith('55')) d = `55${d}`;
   return canonicalBrazilMobileKey(d);

@@ -3908,7 +3908,7 @@ async function attemptEvolutionSendMedia(
         }
         return { ok: false, errorDetail: 'Evolution retornou resposta sem confirmação de mídia' };
     } catch (error: unknown) {
-        const detail = formatEvolutionHttpError(error);
+        const detail = formatEvolutionHttpError(error, toOriginal);
         const ax = error as { message?: string; response?: { status?: number; data?: unknown } };
         log('error', `Erro ao enviar media`, {
             connectionId,
@@ -3990,7 +3990,7 @@ async function attemptEvolutionSendText(
         });
         return { ok: false, errorDetail: errMsg2xx };
     } catch (error: unknown) {
-        const detail = formatEvolutionHttpError(error);
+        const detail = formatEvolutionHttpError(error, toOriginal);
         const ax = error as { response?: { status?: number; data?: unknown }; message?: string };
         log('error', `Erro HTTP ao enviar mensagem`, {
             connectionId,

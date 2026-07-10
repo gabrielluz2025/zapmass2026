@@ -1,4 +1,4 @@
-import { buildPhoneDigitLookupKeys } from '../src/utils/contactPhoneLookup.js';
+import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
 
 export type WhatsAppNumberCheckRow = { exists?: boolean; jid?: string; number?: string };
 
@@ -11,13 +11,42 @@ export function normalizeOutboundNumber(raw: string): string {
   return digits;
 }
 
-/** Variantes BR com/sem 9º dígito e sufixos comuns de importação. */
+function isValidBrOutboundE164(digits: string): boolean {
+  if (!digits.startsWith('55') || (digits.length !== 12 && digits.length !== 13)) return false;
+  const ddd = digits.slice(2, 4);
+  if (!/^[1-9]\d$/.test(ddd)) return false;
+  if (digits.length === 13) return digits[4] === '9';
+  return true;
+}
+
+/** Variantes BR válidas para envio (E.164 com/sem 9º dígito). Evita sufixos corrompidos tipo 547… */
 export function buildOutboundPhoneVariants(raw: string): string[] {
   const normalized = normalizeOutboundNumber(raw);
   if (!normalized) return [];
-  const keys = buildPhoneDigitLookupKeys(normalized);
-  const ordered = [normalized, ...keys.filter((k) => k !== normalized)];
-  return [...new Set(ordered)].filter((d) => d.length >= 10 && d.length <= 15);
+
+  const canonical = normPhoneKey(normalized) || normalized;
+  const variants = new Set<string>();
+
+  const pushPair = (digits: string) => {
+    if (!isValidBrOutboundE164(digits)) return;
+    variants.add(digits);
+    if (digits.length === 13) {
+      const alt = `55${digits.slice(2, 4)}${digits.slice(5)}`;
+      if (isValidBrOutboundE164(alt)) variants.add(alt);
+    } else if (digits.length === 12) {
+      const alt = `55${digits.slice(2, 4)}9${digits.slice(4)}`;
+      if (isValidBrOutboundE164(alt)) variants.add(alt);
+    }
+  };
+
+  pushPair(canonical);
+  if (canonical !== normalized) pushPair(normalized);
+
+  const ordered = [canonical];
+  for (const v of variants) {
+    if (!ordered.includes(v)) ordered.push(v);
+  }
+  return ordered.filter(isValidBrOutboundE164);
 }
 
 /** Extrai linhas do endpoint `/chat/whatsappNumbers` (Evolution v1/v2). */
