@@ -1655,10 +1655,25 @@ const registerSocketHandlers = () => {
         try {
           const subDoc = await readUserSubscriptionForLimits(uid);
           const limits = getPlanLimitsForSub(subDoc);
-          const activeCount = evolutionService.countActiveCampaignsForOwner(uid);
-          if (activeCount >= limits.maxConcurrentCampaigns) {
+          const blockingIds = evolutionService.listActiveBlockingCampaignIdsForOwner(uid);
+          if (blockingIds.length >= limits.maxConcurrentCampaigns) {
             const planLabel = limits.tierLabel;
-            const err = `Limite de ${limits.maxConcurrentCampaigns} campanha(s) simultânea(s) atingido para o plano ${planLabel}. Aguarde a campanha atual finalizar ou pause-a antes de iniciar uma nova.`;
+            let runningLabel = '';
+            if (blockingIds.length) {
+              try {
+                const { getCampaign } = await import('./repositories/campaignsRepository.js');
+                const names = await Promise.all(
+                  blockingIds.map(async (id) => {
+                    const camp = await getCampaign(uid, id);
+                    return camp?.name?.trim() || id;
+                  })
+                );
+                runningLabel = ` Em execução: ${names.join(', ')}.`;
+              } catch {
+                runningLabel = blockingIds.length ? ` Em execução: ${blockingIds.join(', ')}.` : '';
+              }
+            }
+            const err = `Limite de ${limits.maxConcurrentCampaigns} campanha(s) simultânea(s) atingido para o plano ${planLabel}. Aguarde a campanha atual finalizar ou pause-a antes de iniciar uma nova.${runningLabel}`;
             callback?.({ ok: false, error: err });
             socket.emit('campaign-error', { error: err, campaignId });
             void persistUserNotification(uid, {

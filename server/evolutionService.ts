@@ -2879,6 +2879,15 @@ function bumpCampaignProgress(campaignId: string | undefined, success: boolean) 
                     reason: 'high_failure_rate',
                     failRatePct: pct,
                 });
+                publishOwnerEvent(state.ownerUid, 'campaign-paused', { campaignId });
+                void persistCampaignProgressToFirestore(
+                    state.ownerUid,
+                    campaignId,
+                    state.successCount,
+                    state.failCount,
+                    state.processed,
+                    'PAUSED'
+                );
             }
         }
     }
@@ -5853,15 +5862,22 @@ export function isMassCampaignEngineIdle(): boolean {
 
 /**
  * Conta campanhas ativas (isRunning === true) do dono.
- * Usado para enforce do limite de campanhas simultâneas por plano.
+ * Campanhas pausadas não ocupam slot — permitem iniciar outra no plano Starter.
  */
 export function countActiveCampaignsForOwner(ownerUid: string): number {
-    if (!ownerUid) return 0;
-    let count = 0;
-    for (const state of campaignsById.values()) {
-        if (state.isRunning && state.ownerUid === ownerUid) count++;
+    return listActiveBlockingCampaignIdsForOwner(ownerUid).length;
+}
+
+/** IDs de campanhas que bloqueiam novo disparo (em execução, não pausadas). */
+export function listActiveBlockingCampaignIdsForOwner(ownerUid: string): string[] {
+    if (!ownerUid) return [];
+    const ids: string[] = [];
+    for (const [campaignId, state] of campaignsById.entries()) {
+        if (!state.isRunning || state.ownerUid !== ownerUid) continue;
+        if (pausedCampaigns.has(campaignId)) continue;
+        ids.push(campaignId);
     }
-    return count;
+    return ids;
 }
 
 export function getMetrics(): DashboardMetrics {
@@ -6174,7 +6190,18 @@ function resolveCampaignOwnerUid(campaignId: string, explicitOwnerUid?: string):
 export function pauseCampaign(campaignId: string, ownerUid?: string) {
     pausedCampaigns.add(campaignId);
     const ou = resolveCampaignOwnerUid(campaignId, ownerUid);
+    const state = campaignsById.get(campaignId);
     log('info', `⏸️ Campanha pausada: ${campaignId}`, { ownerUid: ou });
+    if (ou) {
+        void persistCampaignProgressToFirestore(
+            ou,
+            campaignId,
+            state?.successCount ?? 0,
+            state?.failCount ?? 0,
+            state?.processed ?? 0,
+            'PAUSED'
+        );
+    }
     publishOwnerEvent(ou, 'campaign-paused', { campaignId });
 }
 
