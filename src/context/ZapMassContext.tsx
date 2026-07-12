@@ -61,7 +61,8 @@ import {
   apiDeleteCampaign,
   apiUpdateCampaign,
   fetchCampaigns,
-  ensureDispatchReady
+  ensureDispatchReady,
+  formatDispatchUnavailableMessage
 } from '../services/campaignsApi';
 import { getSessionIdToken } from '../utils/sessionAuth';
 import { useWorkspace } from './WorkspaceContext';
@@ -3777,16 +3778,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
 
     // Garante motor de disparo antes de iniciar (retenta + reconecta automaticamente).
-    try {
-      const h = await ensureDispatchReady({ maxAttempts: 4, tryReconnect: true });
-      if (!h.ok) {
-        throw new Error(
-          'O motor de envio está temporariamente indisponível. Aguarde alguns segundos e tente novamente.'
-        );
-      }
-    } catch (e: unknown) {
-      if (e instanceof Error && e.message.includes('motor de envio')) throw e;
-      console.warn('[startMassCampaign] dispatch health-check falhou (continuando):', e);
+    const dispatchHealth = await ensureDispatchReady({ maxAttempts: 3, tryReconnect: true });
+    if (!dispatchHealth.ok) {
+      throw new Error(formatDispatchUnavailableMessage(dispatchHealth));
     }
 
     const cleanNumbers = Array.from(

@@ -132,8 +132,14 @@ jobs:
             ver=$(echo "${resp}" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
             echo "producao version=${ver:-?} esperado=${EXPECTED}"
             if [ -n "${ver}" ] && { [ "${ver}" = "${EXPECTED}" ] || [ "${ver}" = "${GITHUB_SHA}" ]; }; then
-              echo "already=true" >> "$GITHUB_OUTPUT"
-              echo "## Produção já está em \`${ver}\` — deploy SSH dispensado" >> "$GITHUB_STEP_SUMMARY"
+              disp=$(curl -sf --max-time 15 "https://zap-mass.com/api/health/dispatch" 2>/dev/null || echo "")
+              if echo "${disp}" | grep -q '"ok"[[:space:]]*:[[:space:]]*true'; then
+                echo "already=true" >> "$GITHUB_OUTPUT"
+                echo "## Produção já está em \`${ver}\` — deploy SSH dispensado" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "already=false" >> "$GITHUB_OUTPUT"
+                echo "## Versão \`${ver}\` OK mas Redis/fila fora — deploy SSH necessário" >> "$GITHUB_STEP_SUMMARY"
+              fi
             else
               echo "already=false" >> "$GITHUB_OUTPUT"
             fi

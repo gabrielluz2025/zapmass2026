@@ -65,6 +65,7 @@ import { CampaignAttachmentBlock, type CampaignAttachmentState } from './campaig
 import { SavedMediaLibraryPicker } from './campaigns/SavedMediaLibraryPicker';
 import { DEFAULT_BIRTHDAY_TEMPLATE } from '../constants/birthdayTemplates';
 import { prepareCampaignAttachmentPayload } from '../utils/campaignMediaLibrary';
+import { ensureDispatchReady, formatDispatchUnavailableMessage } from '../services/campaignsApi';
 import {
   excludeGreetedBirthdayContacts,
   getBirthdayGreetedIds,
@@ -739,6 +740,13 @@ export const DashboardTab: React.FC = () => {
     });
 
     const numbers = recipients.map((r) => r.phone);
+
+    const dispatchHealth = await ensureDispatchReady({ maxAttempts: 2, tryReconnect: true });
+    if (!dispatchHealth.ok) {
+      toast.error(formatDispatchUnavailableMessage(dispatchHealth), { duration: 9000 });
+      return;
+    }
+
     setBulkSubmitting(true);
     try {
       let mediaAttachment = bulkAttachment?.mediaPayload;

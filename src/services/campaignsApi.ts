@@ -229,6 +229,24 @@ export type DispatchHealth = {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Mensagem amigável quando o motor de disparo (Redis/fila) não está pronto. */
+export function formatDispatchUnavailableMessage(h: DispatchHealth): string {
+  if (h.kind === 'misconfig' || h.redis.misconfigHint) {
+    return (
+      h.redis.misconfigHint ||
+      'Redis mal configurado no servidor — o disparo não pode iniciar. Aguarde a correção automática do deploy ou contate o suporte.'
+    );
+  }
+  if (h.reachable === false) {
+    return 'Não foi possível contactar o servidor. Verifique sua internet e tente de novo.';
+  }
+  const detail = h.redis.error?.trim();
+  if (detail) {
+    return `Motor de envio indisponível (Redis): ${detail}`;
+  }
+  return 'O motor de envio está temporariamente indisponível. Aguarde alguns segundos e tente novamente.';
+}
+
 /** POST /api/health/dispatch/reconnect — recria conexão e re-testa (sem cache). */
 export async function reconnectDispatchHealth(): Promise<DispatchHealth> {
   try {
@@ -268,19 +286,25 @@ export async function reconnectDispatchHealth(): Promise<DispatchHealth> {
 export async function ensureDispatchReady(options?: {
   maxAttempts?: number;
   tryReconnect?: boolean;
+  /** Falha rápido em misconfig de REDIS_URL (sem várias tentativas). */
+  failFastOnMisconfig?: boolean;
 }): Promise<DispatchHealth> {
   const maxAttempts = Math.max(1, options?.maxAttempts ?? 4);
-  let last = await fetchDispatchHealth({ retries: 1 });
+  const failFastOnMisconfig = options?.failFastOnMisconfig !== false;
+  let last = await fetchDispatchHealth({ retries: 0 });
   if (last.ok) return last;
+  if (failFastOnMisconfig && last.kind === 'misconfig') return last;
 
   for (let attempt = 1; attempt < maxAttempts; attempt++) {
     await sleep(600 * attempt);
     if (options?.tryReconnect !== false && attempt >= 2) {
       last = await reconnectDispatchHealth();
       if (last.ok) return last;
+      if (failFastOnMisconfig && last.kind === 'misconfig') return last;
     }
-    last = await fetchDispatchHealth({ retries: 1 });
+    last = await fetchDispatchHealth({ retries: 0 });
     if (last.ok) return last;
+    if (failFastOnMisconfig && last.kind === 'misconfig') return last;
   }
   return last;
 }

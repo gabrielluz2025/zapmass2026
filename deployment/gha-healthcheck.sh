@@ -37,6 +37,40 @@ _fetch_version() {
   curl -sf "$url" 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true
 }
 
+_dispatch_ok() {
+  local url="$1"
+  local body
+  body=$(curl -sf --max-time 15 "${url}" 2>/dev/null || echo "")
+  [ -n "${body}" ] && echo "${body}" | grep -q '"ok"[[:space:]]*:[[:space:]]*true'
+}
+
+_try_fix_dispatch_redis() {
+  echo "==> motor de disparo (Redis) fora — tentando corrigir REDIS_URL + reiniciar servicos"
+  if [ -f deployment/fix-redis-url-compose.sh ]; then
+    chmod +x deployment/fix-redis-url-compose.sh
+    bash deployment/fix-redis-url-compose.sh || true
+  fi
+  docker compose up -d redis zapmass 2>/dev/null || true
+  sleep 10
+}
+
+_verify_dispatch_or_fix() {
+  local base="$1"
+  local label="$2"
+  if _dispatch_ok "${base}/api/health/dispatch"; then
+    echo "OK: motor de disparo saudavel (${label})"
+    return 0
+  fi
+  echo "AVISO: ${label} sem Redis/fila — tentando auto-correcao"
+  _try_fix_dispatch_redis
+  if _dispatch_ok "${base}/api/health/dispatch"; then
+    echo "OK: motor de disparo recuperado (${label})"
+    return 0
+  fi
+  echo "FALHA: motor de disparo ainda indisponivel (${label})"
+  return 1
+}
+
 _poll() {
   local n="$1"
   local i code ver pub_code pub_ver
@@ -47,12 +81,16 @@ _poll() {
     pub_ver="$(_fetch_version "https://${PUBLIC_HOST}/api/health")"
     echo "tentativa ${i}/${n}: local HTTP ${code} v=${ver:-?} | public HTTP ${pub_code} v=${pub_ver:-?}"
     if [ "${pub_code}" = "200" ] && _version_matches "${pub_ver}"; then
-      echo "OK: producao saudavel (https://${PUBLIC_HOST} version=${pub_ver})"
-      exit 0
+      if _verify_dispatch_or_fix "https://${PUBLIC_HOST}" "publico"; then
+        echo "OK: producao saudavel (https://${PUBLIC_HOST} version=${pub_ver})"
+        exit 0
+      fi
     fi
     if [ "${code}" = "200" ] && _version_matches "${ver}"; then
-      echo "OK: API local saudavel (127.0.0.1:${HP} version=${ver})"
-      exit 0
+      if _verify_dispatch_or_fix "http://127.0.0.1:${HP}" "local"; then
+        echo "OK: API local saudavel (127.0.0.1:${HP} version=${ver})"
+        exit 0
+      fi
     fi
     if [ "${pub_code}" = "200" ] && [ -n "${EXPECTED}" ] && [ -n "${pub_ver}" ]; then
       echo "AVISO: public HTTP 200 mas version=${pub_ver} != esperado ${EXPECTED}"
