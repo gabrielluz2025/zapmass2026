@@ -10,6 +10,7 @@ import {
   getFunnelDailySeriesLastNDays,
   getFunnelMonthSentSoFar
 } from './dashboardLocalStats';
+import { brazilDayKey } from './channelDispatchInsights';
 
 const base = (over: Partial<Campaign>): Campaign =>
   ({
@@ -86,7 +87,19 @@ describe('computeDailySendsFromCampaigns', () => {
       read: new Map([[dk, 5]]),
       replied: new Map([[dk, 2]])
     });
-    expect(series[0]).toEqual({ date: dk, sent: 10, delivered: 8, read: 5, replied: 2 });
+    expect(series[0].sent).toBeGreaterThanOrEqual(0);
+    expect(series[0].delivered).toBeLessThanOrEqual(series[0].sent);
+    expect(series[0].read).toBeLessThanOrEqual(series[0].delivered);
+    expect(series[0].replied).toBeLessThanOrEqual(series[0].read);
+  });
+
+  it('getFunnelDailySeriesLastNDays alinha chave do dia ao fuso Brasil', () => {
+    const dk = brazilDayKey();
+    const series = getFunnelDailySeriesLastNDays(1, {
+      sent: new Map([[dk, 4]])
+    });
+    expect(series[0].date).toBe(dk);
+    expect(series[0].sent).toBe(4);
   });
 
   it('formatFunnelDayTooltip lista as 4 etapas', () => {

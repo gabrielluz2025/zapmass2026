@@ -1,6 +1,8 @@
 /** Histórico local do painel — envios por dia (campanhas + incrementos ao vivo) e meta mensal. */
 
 import type { Campaign } from '../types';
+import { clampCampaignFunnelMetrics } from './campaignFunnelMetrics';
+import { brazilDayKey } from './channelDispatchInsights';
 
 const STORAGE_PREFIX = 'zapmass.dashboard.v2';
 
@@ -40,8 +42,7 @@ export function recordDashboardFunnelSentIncrement(uid: string | undefined, prev
   const delta = Math.max(0, Math.floor(nextSent) - Math.floor(prevSent));
   if (delta <= 0) return;
   const key = dailyKey(uid);
-  const now = new Date();
-  const dk = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const dk = brazilDayKey();
   const data = parseDaily(localStorage.getItem(key));
   data.totalsByDay[dk] = (data.totalsByDay[dk] || 0) + delta;
   const cutoff = Date.now() - 40 * 24 * 60 * 60 * 1000;
@@ -55,7 +56,12 @@ export function recordDashboardFunnelSentIncrement(uid: string | undefined, prev
 }
 
 function dayKeyFromDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return brazilDayKey(d.getTime());
+}
+
+function clampFunnelDayRow(row: FunnelDayRow): FunnelDayRow {
+  const c = clampCampaignFunnelMetrics(row.sent, row.delivered, row.read, row.replied);
+  return { date: row.date, ...c };
 }
 
 function dayKeyFromTimestamp(raw: unknown): string | null {
@@ -219,18 +225,18 @@ export function getFunnelDailySeriesLastNDays(
   }
 ): FunnelDayRow[] {
   const out: FunnelDayRow[] = [];
+  const nowMs = Date.now();
   for (let i = n - 1; i >= 0; i--) {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - i);
-    const dk = dayKeyFromDate(d);
-    out.push({
-      date: dk,
-      sent: buckets.sent?.get(dk) || 0,
-      delivered: buckets.delivered?.get(dk) || 0,
-      read: buckets.read?.get(dk) || 0,
-      replied: buckets.replied?.get(dk) || 0
-    });
+    const dk = brazilDayKey(nowMs - i * 24 * 60 * 60 * 1000);
+    out.push(
+      clampFunnelDayRow({
+        date: dk,
+        sent: buckets.sent?.get(dk) || 0,
+        delivered: buckets.delivered?.get(dk) || 0,
+        read: buckets.read?.get(dk) || 0,
+        replied: buckets.replied?.get(dk) || 0
+      })
+    );
   }
   return out;
 }

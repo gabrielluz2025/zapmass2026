@@ -33,6 +33,7 @@ import {
   formatCampaignWhen
 } from '../../utils/dashboardCampaignInsights';
 import { buildChannelDispatchInsights } from '../../utils/channelDispatchInsights';
+import { clampCampaignFunnelMetrics } from '../../utils/campaignFunnelMetrics';
 import {
   computeDailyBreakdownFromServer,
   dailySendMapFromRecord,
@@ -209,15 +210,15 @@ export const DashboardIntelPanel: React.FC<Props> = ({
       }),
     [funnelUpdatedAt, goalRevision, funnelDailyBuckets, deliveredBuckets, readBuckets, repliedBuckets]
   );
-  const weekTotals = useMemo(
-    () => ({
+  const weekTotals = useMemo(() => {
+    const raw = {
       sent: series7.reduce((n, s) => n + s.sent, 0),
       delivered: series7.reduce((n, s) => n + s.delivered, 0),
       read: series7.reduce((n, s) => n + s.read, 0),
       replied: series7.reduce((n, s) => n + s.replied, 0)
-    }),
-    [series7]
-  );
+    };
+    return clampCampaignFunnelMetrics(raw.sent, raw.delivered, raw.read, raw.replied);
+  }, [series7]);
   const weekHasData = useMemo(
     () => weekTotals.sent + weekTotals.delivered + weekTotals.read + weekTotals.replied > 0,
     [weekTotals]

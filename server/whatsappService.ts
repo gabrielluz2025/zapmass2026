@@ -1561,10 +1561,7 @@ const normalizeFunnelStats = (raw?: Partial<PersistedFunnelStats> | null): Persi
     sentByDayByCampaign: normalizeSentByDayByCampaign(raw?.sentByDayByCampaign)
 });
 
-const dayKeyFromTs = (ts: number): string => {
-    const d = new Date(ts);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+const dayKeyFromTs = (ts: number): string => todayKey(ts);
 
 const dailyMetricMap = (stats: PersistedFunnelStats, metric: FunnelDailyMetric): Record<string, number> => {
     if (metric === 'sent') {
@@ -7014,7 +7011,7 @@ export function getCampaignGeoOwner(campaignId: string): string | undefined {
 
 /** Rastreia envio de campanha via Evolution API no funil persistente. */
 export function evolutionTrackMessageSent(
-    messageId: string,
+    messageId: string | undefined,
     connectionId: string,
     phoneDigits: string,
     campaignId: string,
@@ -7023,7 +7020,10 @@ export function evolutionTrackMessageSent(
     evolutionRegisterCampaign(campaignId, ownerUid);
     const phoneNorm = toPhoneKey(phoneDigits);
     const convId = `${connectionId}:${phoneNorm}`;
-    trackCampaignSend(messageId, convId, Date.now(), phoneNorm, campaignId);
+    const trackId =
+        messageId?.trim() ||
+        `evo-${campaignId}-${phoneNorm}-${Date.now()}`;
+    trackCampaignSend(trackId, convId, Date.now(), phoneNorm, campaignId);
 }
 
 /**

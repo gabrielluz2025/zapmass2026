@@ -4473,13 +4473,18 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     const phoneDigits = normalizePhoneKey(item.to);
-    if (item.campaignId && sendResult.messageId) {
+    if (item.campaignId && sendResult.ok) {
+        const funnelOwner =
+            campaignState?.ownerUid ||
+            item.ownerUid ||
+            item.replyFlowOpen?.ownerUid ||
+            resolveOwnerUid(item.connectionId);
         evolutionTrackMessageSent(
             sendResult.messageId,
             item.connectionId,
             phoneDigits,
             item.campaignId,
-            campaignState?.ownerUid || item.replyFlowOpen?.ownerUid
+            funnelOwner
         );
         const campaignText =
             mediaToSend?.caption || item.message || '[mídia]';
