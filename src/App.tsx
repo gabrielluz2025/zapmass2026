@@ -494,56 +494,42 @@ const MainLayout: React.FC = () => {
 const GateOrApp: React.FC = () => {
   const { loading: workspaceLoading } = useWorkspace();
   const { loading: profileLoading, needsSegmentOnboarding } = useAppProfile();
-  const { loading, enforce, needsOnboardingGate } = useSubscription();
+  const { loading: subscriptionLoading, enforce, needsOnboardingGate } = useSubscription();
   const [slowGate, setSlowGate] = useState(false);
+  const [forceEnter, setForceEnter] = useState(false);
+
+  const gateLoading = workspaceLoading || profileLoading || subscriptionLoading;
 
   useEffect(() => {
-    if (!workspaceLoading && !profileLoading && !loading) {
+    if (!gateLoading) {
       setSlowGate(false);
+      setForceEnter(false);
       return;
     }
-    const t = window.setTimeout(() => setSlowGate(true), 40_000);
-    return () => window.clearTimeout(t);
-  }, [workspaceLoading, profileLoading, loading]);
+    const slowId = window.setTimeout(() => setSlowGate(true), 8_000);
+    const forceId = window.setTimeout(() => setForceEnter(true), 14_000);
+    return () => {
+      window.clearTimeout(slowId);
+      window.clearTimeout(forceId);
+    };
+  }, [gateLoading]);
 
-  if (workspaceLoading) {
-    return (
-      <>
-        <SessionSpinner label="Carregando workspace..." />
-        {slowGate && (
-          <p className="fixed bottom-6 left-0 right-0 text-center text-[12px] px-4" style={{ color: 'var(--text-3)' }}>
-            O servidor está demorando — aguarde ou recarregue com Ctrl+Shift+R.
-          </p>
-        )}
-      </>
-    );
-  }
-  if (profileLoading) {
-    return (
-      <>
-        <SessionSpinner label="Carregando perfil..." />
-        {slowGate && (
-          <p className="fixed bottom-6 left-0 right-0 text-center text-[12px] px-4" style={{ color: 'var(--text-3)' }}>
-            O servidor está demorando — aguarde ou recarregue com Ctrl+Shift+R.
-          </p>
-        )}
-      </>
-    );
+  const gateSpinner = (
+    <>
+      <SessionSpinner label="Entrando na sua conta..." />
+      {slowGate && (
+        <p className="fixed bottom-6 left-0 right-0 text-center text-[12px] px-4" style={{ color: 'var(--text-3)' }}>
+          O servidor está lento — aguarde ou recarregue com Ctrl+Shift+R.
+        </p>
+      )}
+    </>
+  );
+
+  if (!forceEnter && gateLoading) {
+    return gateSpinner;
   }
   if (needsSegmentOnboarding) {
     return <SegmentOnboardingScreen />;
-  }
-  if (loading) {
-    return (
-      <>
-        <SessionSpinner label="Carregando assinatura..." />
-        {slowGate && (
-          <p className="fixed bottom-6 left-0 right-0 text-center text-[12px] px-4" style={{ color: 'var(--text-3)' }}>
-            O servidor está demorando — aguarde ou recarregue com Ctrl+Shift+R.
-          </p>
-        )}
-      </>
-    );
   }
   if (enforce && needsOnboardingGate) {
     return <HardGateScreen />;

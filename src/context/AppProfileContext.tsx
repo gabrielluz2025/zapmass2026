@@ -16,6 +16,7 @@ import {
   isValidUseSegment,
   type UseSegmentId
 } from '../constants/useSegments';
+import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapSessionCache';
 
 type AppProfileContextValue = {
   loading: boolean;
@@ -49,18 +50,26 @@ export const AppProfileProvider: React.FC<{ children: ReactNode }> = ({ children
     }
 
     let cancelled = false;
+    const cached = readBootstrapCache(workspaceUid);
+    if (cached) {
+      setSavedSegment(cached.segment);
+      setLoading(false);
+    }
     const load = async () => {
       try {
         const seg = await fetchAppProfile();
-        if (!cancelled) setSavedSegment(seg);
+        if (!cancelled) {
+          setSavedSegment(seg);
+          writeBootstrapCache(workspaceUid, { segment: seg });
+        }
       } catch (e) {
         console.error('[AppProfileContext]', e);
-        if (!cancelled) setSavedSegment(null);
+        if (!cancelled && !cached) setSavedSegment(null);
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
-    setLoading(true);
+    if (!cached) setLoading(true);
     void load();
     return () => {
       cancelled = true;
@@ -84,6 +93,7 @@ export const AppProfileProvider: React.FC<{ children: ReactNode }> = ({ children
       }
       await saveAppProfileSegment(id);
       setSavedSegment(id);
+      if (workspaceUid) writeBootstrapCache(workspaceUid, { segment: id });
     },
     [user, workspaceUid]
   );

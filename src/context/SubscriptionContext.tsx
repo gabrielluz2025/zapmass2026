@@ -6,6 +6,7 @@ import { useWorkspace } from './WorkspaceContext';
 import { useAppConfig } from './AppConfigContext';
 import { formatTrialHoursLabel } from '../utils/trialCopy';
 import { isPlatformAdminUser } from '../utils/adminAccess';
+import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapSessionCache';
 import type { UserSubscription } from '../types';
 
 interface SubscriptionContextValue {
@@ -74,12 +75,19 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
       return;
     }
     let cancelled = false;
+    const tenantUid = effectiveWorkspaceUid || user.uid;
+    const cached = readBootstrapCache(tenantUid);
+    if (cached?.subscription !== undefined) {
+      setSubscription(cached.subscription);
+      setLoading(false);
+    }
     const load = async () => {
       try {
         const sub = await fetchSubscription();
         if (!cancelled) {
           setSubscription(sub);
           if (sub) setOptimisticTrialEndsAt(null);
+          writeBootstrapCache(tenantUid, { subscription: sub });
         }
       } catch (e) {
         console.error('[SubscriptionContext]', e);
@@ -87,7 +95,7 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
         if (!cancelled) setLoading(false);
       }
     };
-    setLoading(true);
+    if (!cached) setLoading(true);
     void load();
     const t = setInterval(() => void load(), 30_000);
     return () => {

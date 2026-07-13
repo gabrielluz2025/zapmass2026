@@ -14,6 +14,7 @@ import {
   vpsRefreshAccessToken
 } from '../services/vpsAuth';
 import { vpsUserToSessionUser } from '../utils/vpsSessionUser';
+import { clearBootstrapCache } from '../utils/bootstrapSessionCache';
 
 interface AuthContextValue {
   user: SessionUser | null;
@@ -58,11 +59,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     const boot = async () => {
       try {
-        let v = getVpsAuthUser();
-        if (!v) {
-          await vpsRefreshAccessToken();
-          v = getVpsAuthUser();
+        const cached = getVpsAuthUser();
+        if (cached) {
+          setUser(vpsUserToSessionUser(cached));
+          setLoading(false);
+          void vpsRefreshAccessToken()
+            .then((token) => {
+              if (!token) return;
+              const v = getVpsAuthUser();
+              if (v) setUser(vpsUserToSessionUser(v));
+            })
+            .catch(() => {});
+          return;
         }
+        await vpsRefreshAccessToken();
+        const v = getVpsAuthUser();
         setUser(v ? vpsUserToSessionUser(v) : null);
       } catch {
         setUser(null);
@@ -140,9 +151,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setUser(null);
     } catch (err: unknown) {
       clearVpsSession();
+      clearBootstrapCache();
       setUser(null);
       toast.error(err instanceof Error ? err.message : 'Falha ao sair.');
     } finally {
+      clearBootstrapCache();
       window.location.replace('/');
     }
   };

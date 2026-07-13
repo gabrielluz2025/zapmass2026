@@ -1,8 +1,11 @@
 import { apiFetchJson } from '../utils/apiFetchAuth';
+import { BOOTSTRAP_API_TIMEOUT_MS } from '../utils/bootstrapSessionCache';
 import type { UseSegmentId } from '../constants/useSegments';
 
 export async function fetchAppProfile(): Promise<UseSegmentId | null> {
-  const j = await apiFetchJson<{ useSegment?: string | null }>('/api/app-profile');
+  const j = await apiFetchJson<{ useSegment?: string | null }>('/api/app-profile', {
+    timeoutMs: BOOTSTRAP_API_TIMEOUT_MS
+  });
   const raw = j.useSegment;
   return typeof raw === 'string' && raw.length > 0 ? (raw as UseSegmentId) : null;
 }
