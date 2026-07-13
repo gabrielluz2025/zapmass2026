@@ -497,6 +497,7 @@ if [ -d /opt/zapmass/clientes ] && ls /opt/zapmass/clientes/*/docker-compose.yml
   echo "==> atualizar containers dos clientes"
   # shellcheck source=deployment/clientes/scripts/_comum.sh
   . "$(dirname "$0")/clientes/scripts/_comum.sh"
+  corrigir_redis_url_todos
   read -r _prod_slug _prod_port _prod_dom <<<"$(resolver_cliente_producao)"
   _client_fail=0
   for dir in /opt/zapmass/clientes/*/; do
@@ -537,6 +538,9 @@ if [ -d /opt/zapmass/clientes ] && ls /opt/zapmass/clientes/*/docker-compose.yml
     if ! aguardar_health_cliente_versao "$slug" "$_port" "${VITE_GIT_REF:-}" 240; then
       echo "ERRO: cliente ${slug} nao ficou saudavel na versao ${VITE_GIT_REF:-?}" >&2
       if [ "$slug" = "${_prod_slug}" ]; then _client_fail=1; fi
+    elif [ "$slug" = "${_prod_slug}" ] && ! cliente_dispatch_ok "$_port"; then
+      echo "ERRO: cliente ${slug} (site publico) sem Redis/fila — verifique REDIS_URL e rede partilhada" >&2
+      _client_fail=1
     fi
   done
   if [ "${_client_fail}" = "1" ]; then

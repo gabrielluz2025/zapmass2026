@@ -217,6 +217,67 @@ compose_shared_network() {
     printf '%s' "$net"
 }
 
+# Corrige REDIS_URL legado (host.docker.internal / localhost) preservando sufixo /DB.
+corrigir_redis_url_env() {
+    local env_file="$1"
+    local label="${2:-$env_file}"
+    [ -f "$env_file" ] || return 0
+    local current host db_suffix novo
+    if ! grep -qE '^REDIS_URL=' "$env_file" 2>/dev/null; then
+        echo 'REDIS_URL=redis://redis:6379' >> "$env_file"
+        log "REDIS_URL adicionada em ${label}"
+        return 0
+    fi
+    current="$(grep -E '^REDIS_URL=' "$env_file" 2>/dev/null | tail -1 | sed 's/^REDIS_URL=//' | tr -d $'\r"\'')"
+    host="$(printf '%s' "$current" | sed -E 's#^redis://([^:/]+).*#\1#')"
+    case "$host" in
+        host.docker.internal|localhost|127.0.0.1|::1)
+            db_suffix="$(printf '%s' "$current" | sed -n 's#^redis://[^/]+/\([0-9]\+\)$#/\1#p')"
+            novo="redis://redis:6379${db_suffix}"
+            sed -i "s|^REDIS_URL=.*|REDIS_URL=${novo}|" "$env_file"
+            log "REDIS_URL corrigida em ${label}: ${host} -> redis (${novo})"
+            return 0
+            ;;
+        redis)
+            return 0
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+corrigir_redis_url_principal() {
+    corrigir_redis_url_env "${ZAPMASS_ROOT}/.env" "principal"
+}
+
+corrigir_redis_url_clientes() {
+    local dir slug env_file
+    if [ ! -d "$CLIENTES_DIR" ]; then
+        return 0
+    fi
+    for dir in "${CLIENTES_DIR}"/*/; do
+        [ -d "$dir" ] || continue
+        slug="$(basename "$dir")"
+        [[ "$slug" == *removido* ]] && continue
+        env_file="${dir}/.env"
+        [ -f "$env_file" ] || continue
+        corrigir_redis_url_env "$env_file" "cliente:${slug}"
+    done
+}
+
+corrigir_redis_url_todos() {
+    corrigir_redis_url_principal
+    corrigir_redis_url_clientes
+}
+
+cliente_dispatch_ok() {
+    local port="$1"
+    local body
+    body="$(curl -sf --max-time 12 "http://127.0.0.1:${port}/api/health/dispatch" 2>/dev/null || echo "")"
+    [ -n "$body" ] && echo "$body" | grep -q '"ok"[[:space:]]*:[[:space:]]*true'
+}
+
 db_name_para_slug() {
     local slug="$1"
     local safe

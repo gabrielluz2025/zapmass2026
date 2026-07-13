@@ -37,6 +37,8 @@ jobs:
             git fetch --all --prune
             git checkout -f main || git checkout -f origin/main
             git pull --ff-only origin main || git checkout -f origin/main
-            chmod +x deployment/migrar-swarm-para-compose.sh deployment/SOS-API-FORA.sh
+            chmod +x deployment/migrar-swarm-para-compose.sh deployment/fix-redis-url-all.sh deployment/SOS-API-FORA.sh
             echo "==> migrar-swarm-para-compose (commit $(git rev-parse --short HEAD))"
             bash deployment/migrar-swarm-para-compose.sh
+            echo "==> fix-redis-url-all (clientes demo/acme)"
+            bash deployment/fix-redis-url-all.sh || true

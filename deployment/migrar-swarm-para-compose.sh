@@ -24,11 +24,9 @@ else
 fi
 
 log "3) REDIS_URL para Compose (bridge DNS: redis:6379)"
-if grep -qE '^REDIS_URL=' .env 2>/dev/null; then
-  sed -i 's|^REDIS_URL=.*|REDIS_URL=redis://redis:6379|' .env
-else
-  echo 'REDIS_URL=redis://redis:6379' >> .env
-fi
+# shellcheck source=deployment/clientes/scripts/_comum.sh
+. "$(dirname "$0")/clientes/scripts/_comum.sh"
+corrigir_redis_url_todos
 
 log "4) Parar e remover stack Swarm (volumes preservados)"
 if docker stack ls 2>/dev/null | grep -q '^zapmass '; then

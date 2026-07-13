@@ -46,7 +46,10 @@ _dispatch_ok() {
 
 _try_fix_dispatch_redis() {
   echo "==> motor de disparo (Redis) fora — tentando corrigir REDIS_URL + reiniciar servicos"
-  if [ -f deployment/fix-redis-url-compose.sh ]; then
+  if [ -f deployment/fix-redis-url-all.sh ]; then
+    chmod +x deployment/fix-redis-url-all.sh
+    bash deployment/fix-redis-url-all.sh || true
+  elif [ -f deployment/fix-redis-url-compose.sh ]; then
     chmod +x deployment/fix-redis-url-compose.sh
     bash deployment/fix-redis-url-compose.sh || true
   fi
