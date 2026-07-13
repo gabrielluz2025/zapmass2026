@@ -208,6 +208,11 @@ postgres_container_name() {
 
 compose_shared_network() {
     local net
+    net="$(redis_compose_network 2>/dev/null || true)"
+    if [ -n "$net" ]; then
+        printf '%s' "$net"
+        return 0
+    fi
     net="$(docker network ls --format '{{.Name}}' 2>/dev/null | grep -E '^zapmass_default$|^zapmass_zapmass_default$' | head -1 || true)"
     if [ -n "$net" ]; then
         printf '%s' "$net"
@@ -217,34 +222,36 @@ compose_shared_network() {
     printf '%s' "$net"
 }
 
+# Rede Docker onde o container Redis da stack principal está ligado.
+redis_compose_network() {
+    local c n
+    for c in $(docker ps --format '{{.Names}}' 2>/dev/null | grep -iE 'redis'); do
+        for n in $(docker inspect "$c" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null); do
+            n="${n// /}"
+            [ -n "$n" ] && printf '%s' "$n" && return 0
+        done
+    done
+    return 1
+}
+
 # Corrige REDIS_URL legado (host.docker.internal / localhost) preservando sufixo /DB.
 corrigir_redis_url_env() {
     local env_file="$1"
     local label="${2:-$env_file}"
     [ -f "$env_file" ] || return 0
-    local current host db_suffix novo
-    if ! grep -qE '^REDIS_URL=' "$env_file" 2>/dev/null; then
-        echo 'REDIS_URL=redis://redis:6379' >> "$env_file"
-        log "REDIS_URL adicionada em ${label}"
+    if grep -qE 'host\.docker\.internal|redis://localhost|redis://127\.0\.0\.1' "$env_file" 2>/dev/null; then
+        sed -i -E \
+            -e 's|redis://host\.docker\.internal(:6379)?|redis://redis:6379|g' \
+            -e 's|redis://localhost(:6379)?|redis://redis:6379|g' \
+            -e 's|redis://127\.0\.0\.1(:6379)?|redis://redis:6379|g' \
+            "$env_file"
+        log "REDIS_URL corrigida em ${label} (host legado → redis:6379)"
         return 0
     fi
-    current="$(grep -E '^REDIS_URL=' "$env_file" 2>/dev/null | tail -1 | sed 's/^REDIS_URL=//' | tr -d $'\r"\'')"
-    host="$(printf '%s' "$current" | sed -E 's#^redis://([^:/]+).*#\1#')"
-    case "$host" in
-        host.docker.internal|localhost|127.0.0.1|::1)
-            db_suffix="$(printf '%s' "$current" | sed -n 's#^redis://[^/]+/\([0-9]\+\)$#/\1#p')"
-            novo="redis://redis:6379${db_suffix}"
-            sed -i "s|^REDIS_URL=.*|REDIS_URL=${novo}|" "$env_file"
-            log "REDIS_URL corrigida em ${label}: ${host} -> redis (${novo})"
-            return 0
-            ;;
-        redis)
-            return 0
-            ;;
-        *)
-            return 0
-            ;;
-    esac
+    if ! grep -qE '^[[:space:]]*(export[[:space:]]+)?REDIS_URL=' "$env_file" 2>/dev/null; then
+        echo 'REDIS_URL=redis://redis:6379' >> "$env_file"
+        log "REDIS_URL adicionada em ${label}"
+    fi
 }
 
 corrigir_redis_url_principal() {
@@ -360,14 +367,17 @@ ler_wwebjs_bundle_url() {
 
 ligar_cliente_rede_compose() {
     local slug="$1"
-    local net
-    net="$(compose_shared_network)"
-    if [ -z "$net" ]; then
-        warn "Rede Compose partilhada não encontrada — cliente ${slug} sem Redis/Postgres internos."
-        return 0
-    fi
-    if docker network connect "$net" "zapmass-cli-${slug}" 2>/dev/null; then
-        log "Cliente ${slug} ligado à rede ${net}."
+    local container="zapmass-cli-${slug}"
+    local net connected=0
+    for net in "$(redis_compose_network 2>/dev/null || true)" "$(compose_shared_network 2>/dev/null || true)"; do
+        [ -z "$net" ] && continue
+        if docker network connect "$net" "$container" 2>/dev/null; then
+            log "Cliente ${slug} ligado à rede ${net}."
+            connected=1
+        fi
+    done
+    if [ "${connected}" = "0" ]; then
+        warn "Cliente ${slug} sem rede partilhada com Redis — verifique: docker network ls && docker inspect ${container}"
     fi
 }
 
