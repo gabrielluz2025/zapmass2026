@@ -27,8 +27,8 @@ echo "Load: $(uptime | sed 's/.*load average: //')"
 free -h 2>/dev/null | grep -E '^Mem:' || true
 echo
 
-printf '%-16s %-8s %-8s %-10s %-12s %-10s\n' "SLUG" "TIER" "PORT" "HEALTH" "RAM" "CPU%"
-printf '%-16s %-8s %-8s %-10s %-12s %-10s\n' "----" "----" "----" "------" "---" "----"
+printf '%-16s %-8s %-8s %-10s %-10s %-12s %-10s\n' "SLUG" "TIER" "PORT" "HEALTH" "DISPATCH" "RAM" "CPU%"
+printf '%-16s %-8s %-8s %-10s %-10s %-12s %-10s\n' "----" "----" "----" "------" "--------" "---" "----"
 
 for dir in "${CLIENTES_DIR}"/*/; do
     [ -d "$dir" ] || continue
@@ -43,7 +43,7 @@ for dir in "${CLIENTES_DIR}"/*/; do
     cname="zapmass-cli-${slug}"
 
     if ! docker ps --format '{{.Names}}' | grep -qx "$cname"; then
-        printf '%-16s %-8s %-8s %-10s %-12s %-10s\n' "$slug" "$tier" "${porta:-?}" "PARADO" "-" "-"
+        printf '%-16s %-8s %-8s %-10s %-10s %-12s %-10s\n' "$slug" "$tier" "${porta:-?}" "PARADO" "-" "-" "-"
         continue
     fi
 
@@ -60,11 +60,20 @@ for dir in "${CLIENTES_DIR}"/*/; do
     health="$code"
     [ "$code" = "200" ] && health="OK"
 
+    dispatch="OFF"
+    if cliente_dispatch_ok "${porta:-0}"; then
+        dispatch="OK"
+    elif [ "$code" = "200" ]; then
+        dispatch="OFF"
+    else
+        dispatch="-"
+    fi
+
     stats="$(docker stats --no-stream --format '{{.MemUsage}}\t{{.CPUPerc}}' "$cname" 2>/dev/null || echo '-\t-')"
     mem="$(printf '%s' "$stats" | cut -f1)"
     cpu="$(printf '%s' "$stats" | cut -f2)"
 
-    printf '%-16s %-8s %-8s %-10s %-12s %-10s\n' "$slug" "$tier" "${porta:-?}" "$health" "$mem" "$cpu"
+    printf '%-16s %-8s %-8s %-10s %-10s %-12s %-10s\n' "$slug" "$tier" "${porta:-?}" "$health" "$dispatch" "$mem" "$cpu"
 done
 
 echo

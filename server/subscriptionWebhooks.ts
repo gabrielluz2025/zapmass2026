@@ -14,6 +14,7 @@ import { parseExternalReference } from './mpExternalReference.js';
 import { mercadoWebhookLimiter } from './httpRateLimit.js';
 import { verifyMercadoPagoWebhookSignature } from './mercadoPagoWebhookSignature.js';
 import { structuredLog } from './structuredLog.js';
+import { enqueueProvisionAfterPaidIfNeeded } from './provisionQueue.js';
 
 const MP_API = 'https://api.mercadopago.com';
 
@@ -232,7 +233,8 @@ async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
   const includedChannels = parsed.kind === 'tier_plan' ? Math.max(1, Math.min(5, parsed.channels)) : null;
   if (status === 'approved') {
     const billingPlan: 'monthly' | 'annual' = plan === 'annual' ? 'annual' : 'monthly';
-    await extendPaidSubscription(uid, billingPlan, {
+    const channels = includedChannels ?? 1;
+    const extended = await extendPaidSubscription(uid, billingPlan, {
       provider: 'mercadopago',
       plan: billingPlan,
       mercadoPagoLastPaymentId: paymentId,
@@ -244,6 +246,19 @@ async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
         : {})
     });
     console.log('[MP Webhook] Assinatura ativa para', uid, paymentId);
+    if (extended.ok && !extended.wasRenewal) {
+      const enqueued = enqueueProvisionAfterPaidIfNeeded({
+        uid,
+        email: extractPayerEmail(data) || '',
+        displayName: extractPayerName(data),
+        plan: billingPlan,
+        channels,
+        wasRenewal: extended.wasRenewal
+      });
+      if (enqueued) {
+        structuredLog('info', 'provision.queue.mp_payment_enqueued', { uid, channels });
+      }
+    }
     const method = mpPaymentMethodToOurMethod(
       typeof data.payment_method_id === 'string' ? data.payment_method_id : undefined
     );
@@ -309,7 +324,8 @@ async function handleMercadoPagoPreapproval(preapprovalId: string): Promise<void
     parsed.kind === 'tier_plan' ? Math.max(1, Math.min(5, parsed.channels)) : null;
   if (status === 'authorized') {
     const billingPlan: 'monthly' | 'annual' = plan === 'annual' ? 'annual' : 'monthly';
-    await extendPaidSubscription(uid, billingPlan, {
+    const channels = includedChannels ?? 1;
+    const extended = await extendPaidSubscription(uid, billingPlan, {
       provider: 'mercadopago',
       plan: billingPlan,
       mercadoPagoPreapprovalId: preapprovalId,
@@ -321,6 +337,20 @@ async function handleMercadoPagoPreapproval(preapprovalId: string): Promise<void
         : {})
     });
     console.log('[MP Webhook] Preapproval autorizado - ativo', uid);
+    if (extended.ok && !extended.wasRenewal) {
+      const payerEmail = typeof data.payer_email === 'string' ? data.payer_email : '';
+      const enqueued = enqueueProvisionAfterPaidIfNeeded({
+        uid,
+        email: payerEmail,
+        displayName: payerEmail ? payerEmail.split('@')[0] : '',
+        plan: billingPlan,
+        channels,
+        wasRenewal: extended.wasRenewal
+      });
+      if (enqueued) {
+        structuredLog('info', 'provision.queue.mp_preapproval_enqueued', { uid, channels });
+      }
+    }
     // Email avulso "debito auto ativado". NFS-e nao e emitida aqui - espera o payment event.
     const email = typeof data.payer_email === 'string' ? data.payer_email : null;
     const amount =

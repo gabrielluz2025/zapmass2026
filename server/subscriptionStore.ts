@@ -135,12 +135,14 @@ export async function mergeUserSubscription(
   return true;
 }
 
+export type ExtendPaidSubscriptionResult = { ok: boolean; wasRenewal: boolean };
+
 export async function extendPaidSubscription(
   uid: string,
   plan: 'monthly' | 'annual',
   extra: Partial<UserSubscriptionDoc> = {}
-): Promise<boolean> {
-  if (!uid) return false;
+): Promise<ExtendPaidSubscriptionResult> {
+  if (!uid) return { ok: false, wasRenewal: false };
 
   if (usePostgresSubscriptions()) {
     const tid = subscriptionTenantId(uid);
@@ -169,13 +171,13 @@ export async function extendPaidSubscription(
         console.error('[extendPaidSubscription] notify admins novo cliente', e);
       });
     }
-    return ok;
+    return { ok, wasRenewal };
   }
 
   const app = getFirebaseAdmin();
   if (!app) {
     console.warn('[Subscription] extendPaidSubscription: sem Firebase Admin.');
-    return false;
+    return { ok: false, wasRenewal: false };
   }
   const db = getFirestore(app);
   const ref = db.collection(COLLECTION).doc(uid);
@@ -209,7 +211,7 @@ export async function extendPaidSubscription(
   void notifyAdminsNewSignupAfterPaidIfNeeded(uid, { wasRenewal }).catch((e) => {
     console.error('[extendPaidSubscription] notify admins novo cliente', e);
   });
-  return true;
+  return { ok: true, wasRenewal };
 }
 
 export async function tryClaimAdminNewClientNotify(uid: string): Promise<boolean> {

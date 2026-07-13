@@ -159,6 +159,10 @@ if [ "$OK" -ne 1 ]; then
 fi
 ok "Container saudável."
 
+if ! aguardar_dispatch_cliente "$SLUG" "$PORTA" 90; then
+    exit 1
+fi
+
 log "Nginx → ${DOMINIO}..."
 NGINX_FILE="${NGINX_AVAILABLE}/zapmass-${SLUG}"
 render_template \

@@ -19,6 +19,7 @@ services:
     volumes:
       - {{DATA_DIR}}:/app/data
       - /opt/zapmass/secrets:/run/secrets:ro
+      - /opt/zapmass/provision-queue:/run/provision-queue
     restart: unless-stopped
     shm_size: "1536m"
     stop_grace_period: 45s

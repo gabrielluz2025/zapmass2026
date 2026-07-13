@@ -285,6 +285,40 @@ cliente_dispatch_ok() {
     [ -n "$body" ] && echo "$body" | grep -q '"ok"[[:space:]]*:[[:space:]]*true'
 }
 
+# Aguarda motor de disparo (Redis/BullMQ) e tenta auto-corrigir rede/REDIS_URL.
+aguardar_dispatch_cliente() {
+    local slug="$1"
+    local port="$2"
+    local max_sec="${3:-60}"
+    local waited=0
+    local env_file
+
+    log "Aguardando /api/health/dispatch em :${port} (${slug}, até ${max_sec}s)..."
+    while [ "$waited" -lt "$max_sec" ]; do
+        if cliente_dispatch_ok "$port"; then
+            ok "Motor de disparo OK (:${port})"
+            return 0
+        fi
+        sleep 5
+        waited=$((waited + 5))
+    done
+
+    warn "Dispatch OFF em ${slug} — corrigindo REDIS_URL e rede..."
+    env_file="$(cliente_env "$slug")"
+    corrigir_redis_url_env "$env_file" "cliente:${slug}" || true
+    ligar_cliente_rede_compose "$slug" || true
+    if [ -f "$(cliente_compose "$slug")" ]; then
+        recriar_cliente_compose "$(cliente_dir "$slug")" "$slug" || true
+    fi
+    sleep 10
+    if cliente_dispatch_ok "$port"; then
+        ok "Motor de disparo recuperado (:${port})"
+        return 0
+    fi
+    err "Motor de disparo indisponível em ${slug} (:${port}). Rode: bash deployment/fix-redis-url-all.sh"
+    return 1
+}
+
 db_name_para_slug() {
     local slug="$1"
     local safe
