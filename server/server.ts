@@ -108,7 +108,7 @@ import { redisPing, redisPingWithFallback } from './redisPing.js';
 import { redisMemoryInfo } from './redisMemory.js';
 import { isRedisStressError } from './redisBullmqResilience.js';
 import { getPlatformLegalInfo } from './platformLegal.js';
-import { getRedisUrlCandidates, getRedisUrlMisconfigHint, parseRedisHost } from './redisConfig.js';
+import { getRedisUrlCandidates, getRedisUrlMisconfigHint, getEffectiveRedisUrl, isMisconfiguredRedisHost, parseRedisHost } from './redisConfig.js';
 import { configureTrustProxy } from './trustProxySetup.js';
 import { evolutionWebhookLimiter } from './httpRateLimit.js';
 import { securityHeadersMiddleware } from './securityHeaders.js';
@@ -504,7 +504,8 @@ const DISPATCH_HEALTH_CACHE_MS = 8_000;
 let dispatchHealthCache: { at: number; status: number; body: Record<string, unknown> } | null = null;
 
 async function buildDispatchHealthBody(): Promise<{ status: number; body: Record<string, unknown> }> {
-  const redisUrl = process.env.REDIS_URL?.trim();
+  const envRedisUrl = process.env.REDIS_URL?.trim();
+  const redisUrl = getEffectiveRedisUrl() || envRedisUrl;
   if (!redisUrl && getRedisUrlCandidates().length === 0) {
     return {
       status: 503,
@@ -524,7 +525,12 @@ async function buildDispatchHealthBody(): Promise<{ status: number; body: Record
     ping = await redisPingWithFallback(redisUrl, pingOpts);
   }
   const effectiveUrl = ping.usedUrl || redisUrl || '';
-  const misconfigHint = effectiveUrl ? getRedisUrlMisconfigHint(effectiveUrl) : null;
+  const envMisconfigured = Boolean(envRedisUrl && isMisconfiguredRedisHost(envRedisUrl));
+  const misconfigHint = envMisconfigured
+    ? getRedisUrlMisconfigHint(envRedisUrl!)
+    : effectiveUrl
+      ? getRedisUrlMisconfigHint(effectiveUrl)
+      : null;
   const ok = ping.ok;
   const fixEnvCommand =
     misconfigHint != null
@@ -539,9 +545,10 @@ async function buildDispatchHealthBody(): Promise<{ status: number; body: Record
         ok: ping.ok,
         configured: true,
         pingMs: ping.pingMs,
-        error: ping.error ?? misconfigHint ?? null,
+        error: ping.ok ? null : ping.error ?? misconfigHint ?? null,
         host: effectiveUrl ? parseRedisHost(effectiveUrl) : null,
-        misconfigHint,
+        misconfigHint: ping.ok ? (envMisconfigured ? misconfigHint : null) : misconfigHint,
+        runtimeRemapped: envMisconfigured && ping.ok,
       },
       fixCommand: fixEnvCommand,
       checkedAt: new Date().toISOString(),
@@ -2370,7 +2377,13 @@ const startServer = async (port: number): Promise<boolean> => {
     console.log(`📦 Versão ativa: ${getAppVersion()}`);
     console.log(`[Socket.IO] buffer máximo: ${socketMaxHttpBufferMb}MB | keepAliveTimeout: ${httpServer.keepAliveTimeout}ms`);
     void (async () => {
-      const ping = await redisPingWithFallback(process.env.REDIS_URL, {
+      const envRedis = process.env.REDIS_URL?.trim();
+      if (envRedis && isMisconfiguredRedisHost(envRedis)) {
+        console.warn(
+          `[Redis] REDIS_URL legado (${parseRedisHost(envRedis)}) — runtime usa ${parseRedisHost(getEffectiveRedisUrl() || 'redis')}`
+        );
+      }
+      const ping = await redisPingWithFallback(getEffectiveRedisUrl() || envRedis, {
         connectTimeout: 5000,
         commandTimeout: 5000,
         maxRetriesPerRequest: 1,

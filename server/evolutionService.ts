@@ -1987,9 +1987,8 @@ function getRedisConnection(): IORedis | null {
             enableOfflineQueue: false,
             connectTimeout: 8_000,
             commandTimeout: 12_000,
-            // Sem limite de retries: reconecta indefinidamente com backoff até 10s.
-            // Isso evita que a conexão morra permanentemente quando o Redis reinicia na VPS.
-            retryStrategy: (times) => Math.min(times * 500, 10_000),
+            // Limita retries para não consumir 100% CPU quando Redis está inacessível.
+            retryStrategy: (times) => (times > 24 ? null : Math.min(times * 500, 10_000)),
             reconnectOnError: () => true,
         });
         redisConnection.on('error', (err) => {

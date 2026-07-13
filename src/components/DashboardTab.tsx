@@ -743,7 +743,10 @@ export const DashboardTab: React.FC = () => {
 
     const dispatchHealth = await ensureDispatchReady({ maxAttempts: 2, tryReconnect: true });
     if (!dispatchHealth.ok) {
-      toast.error(formatDispatchUnavailableMessage(dispatchHealth), { duration: 9000 });
+      toast.error(formatDispatchUnavailableMessage(dispatchHealth), {
+        id: 'birthday-dispatch-blocked',
+        duration: 12_000
+      });
       return;
     }
 
@@ -776,7 +779,12 @@ export const DashboardTab: React.FC = () => {
       pickCampaignAttachment(null, setBulkAttachment);
       leaveBirthdayContext('campaigns');
     } catch (err: any) {
-      toast.error(err?.message || 'Falha ao iniciar disparo de aniversariantes.');
+      const raw = err?.message || 'Falha ao iniciar disparo de aniversariantes.';
+      const msg =
+        /conectar ao servidor|conexão com o servidor|contactar o servidor/i.test(raw)
+          ? 'O servidor não respondeu a tempo. Atualize a página (F5) e tente de novo — se persistir, a fila Redis na VPS precisa ser corrigida.'
+          : raw;
+      toast.error(msg, { id: 'birthday-dispatch-error', duration: 12_000 });
     } finally {
       setBulkSubmitting(false);
     }

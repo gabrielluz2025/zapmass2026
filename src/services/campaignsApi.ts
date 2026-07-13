@@ -231,18 +231,15 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Mensagem amigável quando o motor de disparo (Redis/fila) não está pronto. */
 export function formatDispatchUnavailableMessage(h: DispatchHealth): string {
-  if (h.kind === 'misconfig' || h.redis.misconfigHint) {
-    return (
-      h.redis.misconfigHint ||
-      'Redis mal configurado no servidor — o disparo não pode iniciar. Aguarde a correção automática do deploy ou contate o suporte.'
-    );
-  }
   if (h.reachable === false) {
-    return 'Não foi possível contactar o servidor. Verifique sua internet e tente de novo.';
+    return 'Não conseguimos contactar o servidor agora. Aguarde 1 minuto, atualize a página (F5) e tente de novo.';
+  }
+  if (h.kind === 'misconfig' || h.redis.misconfigHint) {
+    return 'A fila de envio (Redis) na VPS está com configuração antiga — o disparo fica bloqueado até o deploy corrigir. Aguarde alguns minutos ou avise o suporte técnico.';
   }
   const detail = h.redis.error?.trim();
   if (detail) {
-    return `Motor de envio indisponível (Redis): ${detail}`;
+    return `Fila de envio indisponível (${detail}). O servidor pode estar sobrecarregado — tente de novo em 1–2 minutos.`;
   }
   return 'O motor de envio está temporariamente indisponível. Aguarde alguns segundos e tente novamente.';
 }

@@ -17,9 +17,30 @@ const COMPOSE_MISCONFIGURED_HOSTS = new Set([
 
 let __resolvedRedisUrl: string | null = null;
 
-/** URL efetiva para BullMQ — usa fallback descoberto em runtime se o .env estiver errado. */
+/** Host legado (Swarm) → DNS interno do Compose, preservando /DB. */
+export function remapMisconfiguredRedisUrl(url: string): string {
+  const u = url?.trim();
+  if (!u) return u;
+  const host = parseRedisHost(u);
+  if (!COMPOSE_MISCONFIGURED_HOSTS.has(host)) return u;
+  try {
+    const parsed = new URL(u);
+    const path = parsed.pathname && parsed.pathname !== '/' ? parsed.pathname : '';
+    return `redis://redis:6379${path}`;
+  } catch {
+    return 'redis://redis:6379';
+  }
+}
+
+export function isMisconfiguredRedisHost(url: string): boolean {
+  return COMPOSE_MISCONFIGURED_HOSTS.has(parseRedisHost(url));
+}
+
+/** URL efetiva para BullMQ — corrige host legado e usa fallback descoberto em runtime. */
 export function getEffectiveRedisUrl(): string | null {
-  return __resolvedRedisUrl || process.env.REDIS_URL?.trim() || null;
+  const raw = __resolvedRedisUrl || process.env.REDIS_URL?.trim() || null;
+  if (!raw) return null;
+  return remapMisconfiguredRedisUrl(raw);
 }
 
 export function setResolvedRedisUrl(url: string): void {
@@ -37,11 +58,19 @@ export function getRedisUrlCandidates(primary?: string | null): string[] {
     seen.add(u);
     out.push(u);
   };
-  add(primary);
-  add(process.env.REDIS_URL);
+  const envUrl = (primary || process.env.REDIS_URL || '').trim();
+  if (envUrl && isMisconfiguredRedisHost(envUrl)) {
+    add(remapMisconfiguredRedisUrl(envUrl));
+  } else {
+    add(envUrl);
+  }
   add('redis://redis:6379');
   add('redis://127.0.0.1:6379');
-  add('redis://host.docker.internal:6379');
+  if (envUrl && isMisconfiguredRedisHost(envUrl)) {
+    add(envUrl);
+  } else {
+    add('redis://host.docker.internal:6379');
+  }
   return out;
 }
 
