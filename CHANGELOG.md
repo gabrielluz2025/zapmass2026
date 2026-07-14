@@ -11,6 +11,17 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.14] — 2026-07-14
+
+### Adicionado — Evolution sharding (Fase A)
+- **2ª instância Evolution** (`evolution-2`) no `docker-compose.yml` (profile `evolution-shard`)
+- **Roteamento automático** no `novo-cliente.sh`: novos clientes vão para o shard com menos carga
+- **Defaults conservadores** no template Plano B: `CAMPAIGN_WORKER_CONCURRENCY=4`, `EVOLUTION_WEBHOOK_WORKER_CONCURRENCY=4`
+- Scripts ops: `deployment/setup-evolution-shard.sh`, `deployment/evolution-shard-status.sh`
+- Coluna **EVOLUTION** no `monitor-clientes.sh`
+
+---
+
 ## [2.3.13] — 2026-07-13
 
 ### Corrigido — Redis OOM e loop do worker BullMQ

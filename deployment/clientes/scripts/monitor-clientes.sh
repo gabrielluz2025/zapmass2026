@@ -27,8 +27,8 @@ echo "Load: $(uptime | sed 's/.*load average: //')"
 free -h 2>/dev/null | grep -E '^Mem:' || true
 echo
 
-printf '%-16s %-8s %-8s %-10s %-10s %-12s %-10s\n' "SLUG" "TIER" "PORT" "HEALTH" "DISPATCH" "RAM" "CPU%"
-printf '%-16s %-8s %-8s %-10s %-10s %-12s %-10s\n' "----" "----" "----" "------" "--------" "---" "----"
+printf '%-16s %-8s %-8s %-12s %-10s %-10s %-12s %-10s\n' "SLUG" "TIER" "PORT" "EVOLUTION" "HEALTH" "DISPATCH" "RAM" "CPU%"
+printf '%-16s %-8s %-8s %-12s %-10s %-10s %-12s %-10s\n' "----" "----" "----" "---------" "------" "--------" "---" "----"
 
 for dir in "${CLIENTES_DIR}"/*/; do
     [ -d "$dir" ] || continue
@@ -41,9 +41,10 @@ for dir in "${CLIENTES_DIR}"/*/; do
     tier="$(grep -E '^TIER=' "$env_file" | sed 's/^TIER=//' | head -n1)"
     tier="${tier:-starter}"
     cname="zapmass-cli-${slug}"
+    evol="$(ler_evolution_shard_cliente "$slug")"
 
     if ! docker ps --format '{{.Names}}' | grep -qx "$cname"; then
-        printf '%-16s %-8s %-8s %-10s %-10s %-12s %-10s\n' "$slug" "$tier" "${porta:-?}" "PARADO" "-" "-" "-"
+        printf '%-16s %-8s %-8s %-12s %-10s %-10s %-12s %-10s\n' "$slug" "$tier" "${porta:-?}" "$evol" "PARADO" "-" "-" "-"
         continue
     fi
 
@@ -73,7 +74,7 @@ for dir in "${CLIENTES_DIR}"/*/; do
     mem="$(printf '%s' "$stats" | cut -f1)"
     cpu="$(printf '%s' "$stats" | cut -f2)"
 
-    printf '%-16s %-8s %-8s %-10s %-10s %-12s %-10s\n' "$slug" "$tier" "${porta:-?}" "$health" "$dispatch" "$mem" "$cpu"
+    printf '%-16s %-8s %-8s %-12s %-10s %-10s %-12s %-10s\n' "$slug" "$tier" "${porta:-?}" "$evol" "$health" "$dispatch" "$mem" "$cpu"
 done
 
 echo

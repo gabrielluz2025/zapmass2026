@@ -58,8 +58,18 @@ log "Migrando ${SLUG} → Plano B (tier ${TIER})..."
 PREV_DB_URL="$(grep -E '^ZAPMASS_DATABASE_URL=' "$ENV_FILE" 2>/dev/null | sed 's/^ZAPMASS_DATABASE_URL=//' | head -n1 || true)"
 PREV_MP_TOKEN="$(grep -E '^MERCADOPAGO_ACCESS_TOKEN=' "$ENV_FILE" 2>/dev/null | sed 's/^MERCADOPAGO_ACCESS_TOKEN=//' | head -n1 || true)"
 PREV_MP_BACK="$(grep -E '^MERCADOPAGO_BACK_URL=' "$ENV_FILE" 2>/dev/null | sed 's/^MERCADOPAGO_BACK_URL=//' | head -n1 || true)"
+PREV_EVOLUTION_URL="$(grep -E '^EVOLUTION_API_URL=' "$ENV_FILE" 2>/dev/null | sed 's/^EVOLUTION_API_URL=//' | head -n1 || true)"
 
 cp "${ENV_FILE}" "${ENV_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+
+if [ -z "$PREV_EVOLUTION_URL" ]; then
+    escolher_evolution_shard "$EVOLUTION_API_KEY"
+else
+    EVOLUTION_URL="$PREV_EVOLUTION_URL"
+    EVOLUTION_SHARD="${EVOLUTION_URL#http://}"
+    EVOLUTION_SHARD="${EVOLUTION_SHARD%%:*}"
+    export EVOLUTION_URL EVOLUTION_SHARD
+fi
 
 render_template \
     "${TEMPLATES_DIR}/cliente.env.template" \
@@ -68,6 +78,7 @@ render_template \
     "DOMAIN=${DOMINIO}" \
     "BACKUP_KEY=${BACKUP_KEY}" \
     "EVOLUTION_API_KEY=${EVOLUTION_API_KEY}" \
+    "EVOLUTION_API_URL=${EVOLUTION_URL}" \
     "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \
     "DB_NAME=${DB_NAME}" \
     "REDIS_DB=${REDIS_DB}" \
@@ -85,6 +96,9 @@ fi
 if [ -n "$PREV_DB_URL" ] && [[ "$PREV_DB_URL" != *"/${DB_NAME}"* ]] && [[ "$PREV_DB_URL" == *"@postgres:"* ]]; then
     warn "Mantendo ZAPMASS_DATABASE_URL legado (${PREV_DB_URL##*/}) — dados não migrados para ${DB_NAME}."
     sed -i "s|^ZAPMASS_DATABASE_URL=.*|ZAPMASS_DATABASE_URL=${PREV_DB_URL}|" "${ENV_FILE}"
+fi
+if [ -n "$PREV_EVOLUTION_URL" ]; then
+    sed -i "s|^EVOLUTION_API_URL=.*|EVOLUTION_API_URL=${PREV_EVOLUTION_URL}|" "${ENV_FILE}"
 fi
 if [ -n "$PREV_MP_TOKEN" ]; then
     if grep -qE '^MERCADOPAGO_ACCESS_TOKEN=' "${ENV_FILE}"; then

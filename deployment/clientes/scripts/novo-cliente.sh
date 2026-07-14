@@ -63,6 +63,7 @@ SHARED_NET="$(compose_shared_network)"
 if [ -z "$SHARED_NET" ]; then
     warn "Stack principal ausente — a subir redis/postgres/evolution..."
     (cd "$ZAPMASS_ROOT" && docker compose up -d redis postgres evolution zapmass 2>/dev/null || docker compose up -d)
+    subir_evolution_shard_se_habilitado
     sleep 5
     SHARED_NET="$(compose_shared_network)"
 fi
@@ -85,6 +86,8 @@ DB_NAME="$(db_name_para_slug "$SLUG")"
 POSTGRES_PASSWORD="$(ler_postgres_password)"
 EVOLUTION_API_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' "${ZAPMASS_ROOT}/.env" 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"' || true)"
 EVOLUTION_API_KEY="${EVOLUTION_API_KEY:-zapmass-secure-key-2026}"
+subir_evolution_shard_se_habilitado
+escolher_evolution_shard "$EVOLUTION_API_KEY"
 WWEBJS_URL="$(ler_wwebjs_bundle_url)"
 JWT_SECRET="$(ler_jwt_secret)"
 tier_recursos "$TIER"
@@ -92,7 +95,7 @@ tier_recursos "$TIER"
 DIR="$(cliente_dir "$SLUG")"
 DATA_DIR="$(cliente_data "$SLUG")"
 
-log "Porta ${PORTA} · Redis DB ${REDIS_DB} · Postgres ${DB_NAME} · RAM ${MEM_LIMIT}"
+log "Porta ${PORTA} · Redis DB ${REDIS_DB} · Postgres ${DB_NAME} · Evolution ${EVOLUTION_SHARD} · RAM ${MEM_LIMIT}"
 
 mkdir -p "$DIR" "$DATA_DIR" "${ZAPMASS_ROOT}/backups"
 chown -R root:root "$DIR"
@@ -107,6 +110,7 @@ render_template \
     "DOMAIN=${DOMINIO}" \
     "BACKUP_KEY=${BACKUP_KEY}" \
     "EVOLUTION_API_KEY=${EVOLUTION_API_KEY}" \
+    "EVOLUTION_API_URL=${EVOLUTION_URL}" \
     "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \
     "DB_NAME=${DB_NAME}" \
     "REDIS_DB=${REDIS_DB}" \
@@ -136,6 +140,8 @@ cat > "$(cliente_meta "$SLUG")" <<EOF
   "tier": "${TIER}",
   "postgres_db": "${DB_NAME}",
   "redis_db": ${REDIS_DB},
+  "evolution_shard": "${EVOLUTION_SHARD}",
+  "evolution_api_url": "${EVOLUTION_URL}",
   "criado_em": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "plano_b": true,
   "ssl": $( [ "$USAR_SSL" -eq 1 ] && echo true || echo false )
@@ -200,6 +206,7 @@ echo "  Porta local:  ${PORTA}"
 echo "  Tier:         ${TIER} (${MEM_LIMIT} RAM, ${CPU_LIMIT} CPU)"
 echo "  Postgres:     ${DB_NAME}"
 echo "  Redis DB:     ${REDIS_DB}"
+echo "  Evolution:    ${EVOLUTION_SHARD} (${EVOLUTION_URL})"
 echo "  Backup key:   ${BACKUP_KEY}"
 echo
 echo "Próximos passos:"

@@ -333,7 +333,7 @@ db_name_para_slug() {
     printf 'zapmass_cli_%s' "$safe"
 }
 
-# Redis DB 2–15 para clientes (0 stack, 1 Evolution).
+# Redis DB 2–15 para clientes (0=stack, 1=Evolution shard1, 4=Evolution shard2).
 proximo_redis_db() {
     local usadas_file db
     usadas_file="$(mktemp)"
@@ -609,4 +609,181 @@ aguardar_health_cliente_versao() {
     err "Cliente ${slug} nao ficou na versao ${expected} em ${max_sec}s."
     docker logs "zapmass-cli-${slug}" --tail 60 2>&1 | tail -60 || true
     return 1
+}
+
+# --- Evolution sharding (Fase A: 2ª instância + roteamento no provisionamento) ---
+
+ler_env_principal() {
+    local key="$1"
+    local f="${ZAPMASS_ROOT}/.env"
+    [ -f "$f" ] || return 0
+    grep -E "^[[:space:]]*(export[[:space:]]+)?${key}=" "$f" 2>/dev/null | tail -1 \
+        | sed -E "s/^[[:space:]]*(export[[:space:]]+)?${key}=//" | tr -d $'\r"\''
+}
+
+evolution_shard_habilitado() {
+    local raw
+    raw="$(ler_env_principal EVOLUTION_SHARD_ENABLED | tr '[:upper:]' '[:lower:]')"
+    [ "$raw" = "1" ] || [ "$raw" = "true" ] || [ "$raw" = "yes" ]
+}
+
+evolution_container_por_servico() {
+    local svc="$1"
+    local name
+    if [ "$svc" = "evolution-2" ]; then
+        docker ps --format '{{.Names}}' 2>/dev/null | grep -E '^zapmass-evolution-2$' | head -1 && return 0
+    fi
+    name="$(docker ps --filter "label=com.docker.compose.service=${svc}" --format '{{.Names}}' 2>/dev/null | head -1 || true)"
+    if [ -n "$name" ]; then
+        printf '%s' "$name"
+        return 0
+    fi
+    docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'evolution' | grep -v 'evolution-2' | head -1 || true
+}
+
+_contar_instancias_evolution_api() {
+    local url="$1"
+    local key="$2"
+    local svc="$3"
+    local json count=999
+    local container
+
+    container="$(evolution_container_por_servico "$svc")"
+    if [ -n "$container" ]; then
+        json="$(docker exec "$container" wget -qO- --header="apikey: ${key}" \
+            "http://127.0.0.1:8080/instance/fetchInstances" 2>/dev/null \
+            || docker exec "$container" curl -sf -H "apikey: ${key}" \
+            "http://127.0.0.1:8080/instance/fetchInstances" 2>/dev/null \
+            || true)"
+    elif [[ "$url" == *":8080"* ]] && curl -sf -o /dev/null "http://127.0.0.1:8080/" 2>/dev/null; then
+        json="$(curl -sf -H "apikey: ${key}" "http://127.0.0.1:8080/instance/fetchInstances" 2>/dev/null || true)"
+    fi
+
+    if [ -n "$json" ]; then
+        count="$(printf '%s' "$json" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(len(d) if isinstance(d, list) else 0)
+except Exception:
+    print(999)
+" 2>/dev/null || echo 999)"
+    fi
+    printf '%s' "$count"
+}
+
+_contar_clientes_por_shard() {
+    local url="$1"
+    local n=0 dir env_file shard_url
+
+    if [ ! -d "$CLIENTES_DIR" ]; then
+        printf '0'
+        return 0
+    fi
+    for dir in "${CLIENTES_DIR}"/*/; do
+        [ -d "$dir" ] || continue
+        env_file="${dir}/.env"
+        [ -f "$env_file" ] || continue
+        shard_url="$(grep -E '^EVOLUTION_API_URL=' "$env_file" 2>/dev/null | sed 's/^EVOLUTION_API_URL=//' | head -n1 | tr -d $'\r"\'')"
+        if [ -z "$shard_url" ]; then
+            shard_url="http://evolution:8080"
+        fi
+        if [ "$shard_url" = "$url" ]; then
+            n=$((n + 1))
+        fi
+    done
+    printf '%s' "$n"
+}
+
+# Define EVOLUTION_URL e EVOLUTION_SHARD (export) com base na carga dos shards.
+escolher_evolution_shard() {
+    local key="${1:-}"
+    local url="http://evolution:8080"
+    local shard="evolution"
+    local url2 count1 count2 clients1 clients2 c2
+
+    [ -n "$key" ] || key="$(ler_env_principal EVOLUTION_API_KEY)"
+    key="${key:-zapmass-secure-key-2026}"
+
+    if ! evolution_shard_habilitado; then
+        EVOLUTION_URL="$url"
+        EVOLUTION_SHARD="$shard"
+        export EVOLUTION_URL EVOLUTION_SHARD
+        return 0
+    fi
+
+    c2="$(evolution_container_por_servico evolution-2)"
+    if [ -z "$c2" ]; then
+        warn "EVOLUTION_SHARD_ENABLED=1 mas evolution-2 não está rodando — usando evolution:8080"
+        EVOLUTION_URL="$url"
+        EVOLUTION_SHARD="$shard"
+        export EVOLUTION_URL EVOLUTION_SHARD
+        return 0
+    fi
+
+    url2="http://evolution-2:8080"
+    count1="$(_contar_instancias_evolution_api "$url" "$key" "evolution")"
+    count2="$(_contar_instancias_evolution_api "$url2" "$key" "evolution-2")"
+    clients1="$(_contar_clientes_por_shard "$url")"
+    clients2="$(_contar_clientes_por_shard "$url2")"
+
+    if [ "$count2" -lt "$count1" ] \
+        || { [ "$count2" -eq "$count1" ] && [ "$clients2" -lt "$clients1" ]; }; then
+        url="$url2"
+        shard="evolution-2"
+    fi
+
+    log "Evolution shard escolhido: ${shard} (instâncias ~${count1}/${count2}, clientes ${clients1}/${clients2})"
+    EVOLUTION_URL="$url"
+    EVOLUTION_SHARD="$shard"
+    export EVOLUTION_URL EVOLUTION_SHARD
+}
+
+ensure_evolution_db_shard() {
+    local pg
+    pg="$(postgres_container_name)"
+    [ -n "$pg" ] || return 0
+    local exists
+    exists="$(docker exec "$pg" psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='evolution_db_2'" 2>/dev/null || true)"
+    if [ "$exists" = "1" ]; then
+        return 0
+    fi
+    log "A criar base Postgres evolution_db_2..."
+    docker exec "$pg" psql -U postgres -c "CREATE DATABASE evolution_db_2;" >/dev/null 2>&1 \
+        && ok "Base evolution_db_2 criada." \
+        || warn "Não foi possível criar evolution_db_2 — verifique Postgres."
+}
+
+subir_evolution_shard_se_habilitado() {
+    evolution_shard_habilitado || return 0
+    ensure_evolution_db_shard
+    log "A subir evolution-2 (profile evolution-shard)..."
+    if (cd "$ZAPMASS_ROOT" && docker compose --profile evolution-shard up -d evolution-2); then
+        ok "evolution-2 ativo."
+    else
+        warn "evolution-2 não subiu — novos clientes usarão evolution:8080."
+    fi
+}
+
+ler_evolution_shard_cliente() {
+    local slug="$1"
+    local env_file meta_file shard url
+
+    env_file="$(cliente_env "$slug")"
+    if [ -f "$env_file" ]; then
+        url="$(grep -E '^EVOLUTION_API_URL=' "$env_file" 2>/dev/null | sed 's/^EVOLUTION_API_URL=//' | head -n1 | tr -d $'\r"\'')"
+        if [ -n "$url" ]; then
+            shard="${url#http://}"
+            shard="${shard%%:*}"
+            printf '%s' "$shard"
+            return 0
+        fi
+    fi
+    meta_file="$(cliente_meta "$slug")"
+    if [ -f "$meta_file" ]; then
+        shard="$(python3 -c "import json; print(json.load(open('${meta_file}')).get('evolution_shard','evolution'))" 2>/dev/null || echo evolution)"
+        printf '%s' "$shard"
+        return 0
+    fi
+    printf 'evolution'
 }
