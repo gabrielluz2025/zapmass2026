@@ -18,6 +18,7 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **Roteamento automático** no `novo-cliente.sh`: novos clientes vão para o shard com menos carga
 - **Defaults conservadores** no template Plano B: `CAMPAIGN_WORKER_CONCURRENCY=4`, `EVOLUTION_WEBHOOK_WORKER_CONCURRENCY=4`
 - Scripts ops: `deployment/setup-evolution-shard.sh`, `deployment/evolution-shard-status.sh`
+- Teste staging: `deployment/test-evolution-shard-staging.sh` (+ `rodar-staging-shard-vps.ps1` no PC)
 - Coluna **EVOLUTION** no `monitor-clientes.sh`
 
 ---
