@@ -251,7 +251,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000", "--bind", "0.0.0.0", "--maxmemory", "1gb", "--maxmemory-policy", "noeviction"]
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000", "--bind", "0.0.0.0", "--maxmemory", "${REDIS_MAXMEMORY:-2gb}", "--maxmemory-policy", "noeviction"]
     ports:
       - target: 6379
         published: 6379

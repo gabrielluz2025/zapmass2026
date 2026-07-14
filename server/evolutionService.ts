@@ -18,8 +18,10 @@ import { getEffectiveRedisUrl } from './redisConfig.js';
 import {
     attachRedisStressGuard,
     attachWorkerStressGuard,
+    isBullmqRecoveryPending,
     type BullmqRecoveryHandler,
 } from './redisBullmqResilience.js';
+import { bullmqRemoveOnComplete, bullmqRemoveOnFail, trimBullmqQueue } from './bullmqRetention.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
 import {
     buildOutboundPhoneVariants,
@@ -1995,11 +1997,6 @@ function getRedisConnection(): IORedis | null {
             console.warn('[campaign-queue] redis error:', err?.message || err);
         });
         attachRedisStressGuard(redisConnection, getCampaignBullmqRecovery());
-        // Quando a conexão se recupera, garantir que o worker está ativo.
-        redisConnection.on('connect', () => {
-            console.info('[campaign-queue] Redis reconectado — verificando worker…');
-            ensureCampaignWorker();
-        });
     }
     return redisConnection;
 }
@@ -2039,11 +2036,49 @@ async function pingRedisHealthy(): Promise<boolean> {
     return result.ok;
 }
 
+/** Expõe fila para trim periódico (redisMaintenance) — não usar fora do servidor. */
+export function getCampaignBullmqQueue(): Queue<MessageQueueItem> | null {
+    return getCampaignQueue();
+}
+
+export type CampaignBullmqQueueMetrics = {
+    enabled: boolean;
+    waiting: number;
+    active: number;
+    delayed: number;
+    failed: number;
+};
+
+export async function getCampaignBullmqQueueMetrics(): Promise<CampaignBullmqQueueMetrics> {
+    const empty = { enabled: false, waiting: 0, active: 0, delayed: 0, failed: 0 };
+    const queue = getCampaignQueue();
+    if (!queue) return empty;
+    try {
+        const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed');
+        return {
+            enabled: true,
+            waiting: counts.waiting ?? 0,
+            active: counts.active ?? 0,
+            delayed: counts.delayed ?? 0,
+            failed: counts.failed ?? 0,
+        };
+    } catch {
+        return empty;
+    }
+}
+
 function getCampaignQueue(): Queue<MessageQueueItem> | null {
     const conn = getRedisConnection();
     if (!conn) return null;
     if (!campaignQueue) {
-        campaignQueue = new Queue<MessageQueueItem>('campaign-messages', { connection: conn });
+        campaignQueue = new Queue<MessageQueueItem>('campaign-messages', {
+            connection: conn,
+            defaultJobOptions: {
+                removeOnComplete: bullmqRemoveOnComplete(),
+                removeOnFail: bullmqRemoveOnFail(),
+            },
+        });
+        void trimBullmqQueue(campaignQueue, 'campaign-messages');
     }
     return campaignQueue;
 }
@@ -4077,6 +4112,10 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
         throw new Error('Fila Redis indisponível. Verifique REDIS_URL/serviço Redis na VPS.');
     }
 
+    if (isBullmqRecoveryPending('campaign-queue')) {
+        throw new Error('Redis sob stress (memória cheia). Aguarde alguns segundos e tente novamente.');
+    }
+
     // Backpressure: bloqueia enfileiramento se PG tiver > 50k jobs pending
     const backpressure = await isBackpressureActive().catch(() => false);
     if (backpressure) {
@@ -4100,8 +4139,8 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
         delay: Math.max(0, delayMs),
-        removeOnComplete: 1000,
-        removeOnFail: 5000,
+        removeOnComplete: bullmqRemoveOnComplete(),
+        removeOnFail: bullmqRemoveOnFail(),
     });
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -4711,6 +4750,9 @@ function ensureCampaignWorker() {
     });
 
     attachWorkerStressGuard(campaignWorker, getCampaignBullmqRecovery());
+
+    const q = getCampaignQueue();
+    if (q) void trimBullmqQueue(q, 'campaign-messages');
 
     campaignWorker.on('failed', (job, err) => {
         const item = job?.data;

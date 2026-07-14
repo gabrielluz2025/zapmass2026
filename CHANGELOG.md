@@ -9,6 +9,19 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+---
+
+## [2.3.13] — 2026-07-13
+
+### Corrigido — Redis OOM e loop do worker BullMQ
+- **Retenção agressiva** de jobs BullMQ (`removeOnComplete`/`removeOnFail` + trim periódico a cada 30 min)
+- **Resiliência** quando Redis atinge `maxmemory`: backoff exponencial, debounce na reconexão, sem crash em `unhandledRejection`
+- **Redis** padrão `2gb` via `REDIS_MAXMEMORY` (mantém `noeviction` — seguro para filas)
+- **`/api/health/deep`** expõe métricas da fila `campaign-messages`
+- Script ops `deployment/trim-redis-bullmq.sh` para diagnóstico na VPS
+
+---
+
 ## [2.3.7] — 2026-05-29
 
 ### Corrigido — Teste grátis de 1 hora

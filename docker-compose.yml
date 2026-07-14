@@ -191,7 +191,8 @@ services:
       "--auto-aof-rewrite-percentage", "100",
       "--auto-aof-rewrite-min-size", "64mb",
       "--save", "60", "1000",
-      "--maxmemory", "1gb",
+      # noeviction: BullMQ não pode perder chaves por LRU. Aumente REDIS_MAXMEMORY se OOM persistir.
+      "--maxmemory", "${REDIS_MAXMEMORY:-2gb}",
       "--maxmemory-policy", "noeviction"
     ]
     restart: unless-stopped

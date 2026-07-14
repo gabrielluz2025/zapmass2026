@@ -73,7 +73,12 @@ import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscription
 import { getPlanLimitsForSub } from './planLimits.js';
 import { getSystemMetrics } from './systemMetricsShared.js';
 import { getChatOpsMetricsSnapshot, recordInboxSyncDuration } from './chatOpsMetrics.js';
-import { getEvolutionWebhookQueueMetrics, resetEvolutionWebhookRedisConnection } from './evolutionWebhookQueue.js';
+import {
+  getEvolutionWebhookBullmqQueue,
+  getEvolutionWebhookQueueMetrics,
+  resetEvolutionWebhookRedisConnection,
+} from './evolutionWebhookQueue.js';
+import { startBullmqMaintenance } from './redisMaintenance.js';
 import { startScheduledCampaignRunner } from './scheduledCampaignRunner.js';
 import { startOwnerEmitRedisSubscriber } from './redisOwnerEmitBridge.js';
 import { startCampaignJobsReaper, stopCampaignJobsReaper, getQueueHealthMetrics } from './campaignJobsResilience.js';
@@ -105,8 +110,8 @@ import { registerAssistantRoutes } from './assistantRoutes.js';
 import { structuredLog } from './structuredLog.js';
 import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
 import { redisPing, redisPingWithFallback } from './redisPing.js';
-import { redisMemoryInfo } from './redisMemory.js';
 import { isRedisStressError } from './redisBullmqResilience.js';
+import { redisMemoryInfo } from './redisMemory.js';
 import { getPlatformLegalInfo } from './platformLegal.js';
 import { getRedisUrlCandidates, getRedisUrlMisconfigHint, getEffectiveRedisUrl, isMisconfiguredRedisHost, parseRedisHost } from './redisConfig.js';
 import { configureTrustProxy } from './trustProxySetup.js';
@@ -147,6 +152,10 @@ process.on('uncaughtException', (err) => {
 });
 process.on('unhandledRejection', (reason) => {
   const msg = reason instanceof Error ? reason.message : String(reason);
+  if (isRedisStressError(reason)) {
+    console.warn('[redis-stress] unhandledRejection (degradado, sem crash):', msg);
+    return;
+  }
   console.error('[CRASH] unhandledRejection:', msg);
 });
 
@@ -622,6 +631,7 @@ app.get('/api/health/deep', metricsAccessMiddleware, async (_req, res) => {
   const sessionRouter = getSessionRouterMetrics();
   const whatsappWorkers = getWhatsappProcessWorkerCount();
   const evolutionWebhookQueue = await getEvolutionWebhookQueueMetrics();
+  const campaignBullmqQueue = await evolutionService.getCampaignBullmqQueueMetrics();
   res.json({
     status: 'ok',
     version: getAppVersion(),
@@ -629,6 +639,7 @@ app.get('/api/health/deep', metricsAccessMiddleware, async (_req, res) => {
     sessionBusRemote: isSessionBusRemote(),
     redis,
     evolutionWebhookQueue,
+    campaignBullmqQueue,
     chatOps: getChatOpsMetricsSnapshot(),
     evolutionImage: process.env.EVOLUTION_IMAGE || null,
     wppLidMode: process.env.WPP_LID_MODE ?? null,
@@ -2458,6 +2469,12 @@ const bootstrap = async () => {
   registerSocketHandlers();
   startScheduledCampaignRunner();
   startCampaignJobsReaper();
+
+  // Trim periódico BullMQ — Redis 1–2 GB com noeviction não é storage infinito.
+  startBullmqMaintenance([
+    { name: 'evolution-webhook', getQueue: () => getEvolutionWebhookBullmqQueue() },
+    { name: 'campaign-messages', getQueue: () => evolutionService.getCampaignBullmqQueue() },
+  ]);
 
   // Registra a função de envio do auto-warmup do servidor via Evolution API
   waService.registerWarmupSendFn(async (connectionId, toPhone, message) => {

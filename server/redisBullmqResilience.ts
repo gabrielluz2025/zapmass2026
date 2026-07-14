@@ -27,6 +27,7 @@ export type BullmqRecoveryHandler = {
 
 const recoveryAttempts = new Map<string, number>();
 const pendingRecovery = new Map<string, NodeJS.Timeout>();
+const ensureDebounce = new Map<string, NodeJS.Timeout>();
 
 const BASE_BACKOFF_MS = Math.max(
   1000,
@@ -37,26 +38,36 @@ const MAX_BACKOFF_MS = Math.max(
   parseInt(process.env.BULLMQ_REDIS_STRESS_MAX_BACKOFF_MS || '60000', 10)
 );
 
+const ENSURE_DEBOUNCE_MS = Math.max(
+  2000,
+  parseInt(process.env.BULLMQ_ENSURE_DEBOUNCE_MS || '8000', 10)
+);
+
 function nextBackoffMs(name: string): number {
   const attempt = (recoveryAttempts.get(name) ?? 0) + 1;
   recoveryAttempts.set(name, attempt);
   return Math.min(BASE_BACKOFF_MS * 2 ** (attempt - 1), MAX_BACKOFF_MS);
 }
 
-/** Zera contador de backoff após reconexão estável. */
+export function isBullmqRecoveryPending(name: string): boolean {
+  return pendingRecovery.has(name);
+}
+
+/** Zera contador de backoff após worker estável (não cancelar recovery em andamento). */
 export function clearBullmqRecoveryAttempts(name: string): void {
   recoveryAttempts.delete(name);
-  const timer = pendingRecovery.get(name);
-  if (timer) {
-    clearTimeout(timer);
-    pendingRecovery.delete(name);
-  }
 }
 
 /** Agenda reset + recriação do worker com backoff (debounced por fila). */
 export function scheduleBullmqRecovery(handler: BullmqRecoveryHandler, err?: unknown): void {
   if (err != null && !isRedisStressError(err)) return;
   if (pendingRecovery.has(handler.name)) return;
+
+  const pendingEnsure = ensureDebounce.get(handler.name);
+  if (pendingEnsure) {
+    clearTimeout(pendingEnsure);
+    ensureDebounce.delete(handler.name);
+  }
 
   const backoffMs = nextBackoffMs(handler.name);
   console.warn(
@@ -72,6 +83,7 @@ export function scheduleBullmqRecovery(handler: BullmqRecoveryHandler, err?: unk
 
   const timer = setTimeout(() => {
     pendingRecovery.delete(handler.name);
+    recoveryAttempts.delete(handler.name);
     try {
       handler.ensureWorker();
     } catch (ensureErr) {
@@ -82,14 +94,36 @@ export function scheduleBullmqRecovery(handler: BullmqRecoveryHandler, err?: unk
   pendingRecovery.set(handler.name, timer);
 }
 
+/** Recria worker após reconexão normal (debounced; não compete com recovery). */
+export function scheduleDebouncedBullmqEnsure(
+  handler: BullmqRecoveryHandler,
+  delayMs = ENSURE_DEBOUNCE_MS
+): void {
+  if (pendingRecovery.has(handler.name)) return;
+  if (ensureDebounce.has(handler.name)) return;
+
+  const timer = setTimeout(() => {
+    ensureDebounce.delete(handler.name);
+    if (pendingRecovery.has(handler.name)) return;
+    try {
+      handler.ensureWorker();
+    } catch (ensureErr) {
+      console.warn(`[${handler.name}] falha ao garantir worker (debounce):`, ensureErr);
+    }
+  }, delayMs);
+
+  ensureDebounce.set(handler.name, timer);
+}
+
 export function attachRedisStressGuard(redis: IORedis, handler: BullmqRecoveryHandler): void {
   redis.on('error', (err) => {
     if (isRedisStressError(err)) {
       scheduleBullmqRecovery(handler, err);
     }
   });
-  redis.on('connect', () => {
-    clearBullmqRecoveryAttempts(handler.name);
+  // Não chamar ensureWorker no `connect` — ioredis reconecta antes do backoff e causa loop CPU.
+  redis.on('ready', () => {
+    scheduleDebouncedBullmqEnsure(handler);
   });
 }
 

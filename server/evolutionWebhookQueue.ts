@@ -14,8 +14,10 @@ import {
 import {
   attachRedisStressGuard,
   attachWorkerStressGuard,
+  isBullmqRecoveryPending,
   type BullmqRecoveryHandler,
 } from './redisBullmqResilience.js';
+import { bullmqRemoveOnComplete, bullmqRemoveOnFail, trimBullmqQueue } from './bullmqRetention.js';
 
 export type EvolutionWebhookJobPayload = {
   event: unknown;
@@ -61,10 +63,6 @@ function getRedisConnection(): IORedis | null {
       console.warn('[evolution-webhook-queue] redis error:', err?.message || err);
     });
     attachRedisStressGuard(redisConnection, getWebhookBullmqRecovery());
-    redisConnection.on('connect', () => {
-      console.info('[evolution-webhook-queue] Redis reconectado — verificando worker…');
-      ensureEvolutionWebhookWorker();
-    });
   }
   return redisConnection;
 }
@@ -94,11 +92,23 @@ function getWebhookBullmqRecovery(): BullmqRecoveryHandler {
   };
 }
 
+/** Expõe fila para trim periódico (redisMaintenance) — não usar fora do servidor. */
+export function getEvolutionWebhookBullmqQueue(): Queue<EvolutionWebhookJobPayload> | null {
+  return getWebhookQueue();
+}
+
 function getWebhookQueue(): Queue<EvolutionWebhookJobPayload> | null {
   const conn = getRedisConnection();
   if (!conn) return null;
   if (!webhookQueue) {
-    webhookQueue = new Queue<EvolutionWebhookJobPayload>('evolution-webhook', { connection: conn });
+    webhookQueue = new Queue<EvolutionWebhookJobPayload>('evolution-webhook', {
+      connection: conn,
+      defaultJobOptions: {
+        removeOnComplete: bullmqRemoveOnComplete(),
+        removeOnFail: bullmqRemoveOnFail(),
+      },
+    });
+    void trimBullmqQueue(webhookQueue, 'evolution-webhook');
   }
   return webhookQueue;
 }
@@ -212,6 +222,8 @@ export function ensureEvolutionWebhookWorker(): void {
 
   attachWorkerStressGuard(webhookWorker, getWebhookBullmqRecovery());
 
+  void trimBullmqQueue(getWebhookQueue()!, 'evolution-webhook');
+
   webhookWorker.on('failed', (job, err) => {
     console.error('[evolution-webhook-queue] job falhou', {
       event: String((job?.data?.event as Record<string, unknown>)?.event || ''),
@@ -236,6 +248,9 @@ export async function enqueueEvolutionWebhook(
   if (!isEvolutionWebhookQueueEnabled()) {
     return { queued: false, reason: 'disabled' };
   }
+  if (isBullmqRecoveryPending('evolution-webhook-queue')) {
+    return { queued: false, reason: 'redis_stress' };
+  }
   ensureEvolutionWebhookWorker();
   const queue = getWebhookQueue();
   if (!queue) return { queued: false, reason: 'no_redis' };
@@ -248,8 +263,8 @@ export async function enqueueEvolutionWebhook(
       jobId,
       attempts: Math.max(1, parseInt(process.env.EVOLUTION_WEBHOOK_JOB_ATTEMPTS || '3', 10)),
       backoff: { type: 'exponential', delay: 2000 },
-      removeOnComplete: 5000,
-      removeOnFail: 2000,
+      removeOnComplete: bullmqRemoveOnComplete(),
+      removeOnFail: bullmqRemoveOnFail(),
     }
   );
 
