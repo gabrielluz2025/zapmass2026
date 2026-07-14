@@ -5,6 +5,7 @@ import {
   extendPaidSubscription,
   mergeUserSubscription,
   readAccessEndsAtDate,
+  usePostgresSubscriptions,
   type SubscriptionPlan
 } from './subscriptionStore.js';
 import { sendPaymentConfirmationEmail } from './emailService.js';
@@ -424,7 +425,7 @@ export function registerSubscriptionWebhooks(app: Express): void {
     process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim() ||
     process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim()
   );
-  if (!hasAdmin) {
+  if (!hasAdmin && !usePostgresSubscriptions()) {
     console.warn(
       '[Assinaturas] Firebase Admin nao configurado - webhooks nao persistem no Firestore. Defina FIREBASE_SERVICE_ACCOUNT_PATH ou FIREBASE_SERVICE_ACCOUNT_JSON.'
     );

@@ -155,7 +155,11 @@ else
 fi
 
 log "6) Segredos e billing"
-if [ -f /opt/zapmass/secrets/firebase-admin.json ]; then
+_vps_auth="$(grep -E '^ZAPMASS_AUTH_PROVIDER=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r"'"'"' ' | tr '[:upper:]' '[:lower:]' || echo vps)"
+_vps_data="$(grep -E '^ZAPMASS_DATA_PROVIDER=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r"'"'"' ' | tr '[:upper:]' '[:lower:]' || echo vps)"
+if [ "$_vps_auth" = "vps" ] && [ "$_vps_data" = "vps" ]; then
+    ok "Modo VPS puro — Firebase não necessário (auth/dados Postgres)"
+elif [ -f /opt/zapmass/secrets/firebase-admin.json ]; then
     ok "firebase-admin.json presente"
 else
     warn "firebase-admin.json ausente — trial/webhooks Firestore retornam 503"
