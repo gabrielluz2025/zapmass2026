@@ -7,6 +7,7 @@ import { apiUrl } from '../utils/apiBase';
 type AdminOpsSnapshot = {
   ok: boolean;
   at: string;
+  authMode?: 'vps' | 'firebase' | 'dual';
   scopeNote?: string;
   system: {
     cpu: number;
@@ -35,6 +36,12 @@ type AdminOpsSnapshot = {
     latencyMs?: number;
     projectId?: string;
     error?: string;
+  };
+  mercadopago?: {
+    configured: boolean;
+    checkoutAvailable: boolean;
+    mode: string | null;
+    error?: string | null;
   };
   alerts: { level: 'warn' | 'critical'; code: string; message: string }[];
   history: { t: number; ramPct: number; load1: number; cpu: number; heapMb: number }[];
@@ -89,11 +96,26 @@ function formatLoadDisplay(load1: number, cpus: number): { main: string; sub: st
   return { main, sub };
 }
 
-function formatFirebaseLatency(ms: number | undefined): string {
+function formatAuthLatency(ms: number | undefined): string {
   if (ms == null) return '';
   if (ms >= 10_000) return `${(ms / 1000).toFixed(1)} s`;
   if (ms >= 1000) return `${(ms / 1000).toFixed(1)} s`;
   return `${ms} ms`;
+}
+
+const ALERT_HINTS: Record<string, string> = {
+  firebase: 'Verifique FIREBASE_SERVICE_ACCOUNT no servidor (modo dual/legado).',
+  ram: 'Reduza canais ativos ou reinicie o container após pico de campanhas.',
+  load: 'Aguarde filas BullMQ ou reduza concorrência de workers.',
+  heap: 'Reinicie a API se o valor subir continuamente (possível leak).',
+  sessions: 'Desligue chips offline ou distribua clientes em mais shards Evolution.'
+};
+
+function authModeLabel(mode?: string): string {
+  if (mode === 'vps') return 'VPS (Postgres)';
+  if (mode === 'dual') return 'VPS + legado';
+  if (mode === 'firebase') return 'Firebase (legado)';
+  return '—';
 }
 
 export const AdminOpsMonitor: React.FC<{ user: SessionUser | null }> = ({ user }) => {
@@ -150,7 +172,7 @@ export const AdminOpsMonitor: React.FC<{ user: SessionUser | null }> = ({ user }
 
   return (
     <CollapsibleSection
-      title="Integrações & host"
+      title="Alertas & integrações"
       summary={health?.title ?? 'Métricas do processo Node'}
       defaultOpen
       actions={
@@ -214,17 +236,32 @@ export const AdminOpsMonitor: React.FC<{ user: SessionUser | null }> = ({ user }
             {data.alerts.map((a, idx) => (
               <li
                 key={`${a.code}-${idx}`}
-                className="zm-panel ui-body flex gap-3 py-3"
+                className="zm-panel ui-body flex flex-col gap-2 py-3"
                 style={{
                   background: a.level === 'critical' ? 'var(--semantic-danger-bg)' : 'var(--semantic-warning-bg)'
                 }}
               >
-                <AlertTriangle
-                  className="w-4 h-4 shrink-0 mt-0.5"
-                  style={{ color: a.level === 'critical' ? 'var(--semantic-danger-fg)' : 'var(--warning)' }}
-                  aria-hidden
-                />
-                <span>{a.message}</span>
+                <div className="flex gap-3">
+                  <AlertTriangle
+                    className="w-4 h-4 shrink-0 mt-0.5"
+                    style={{ color: a.level === 'critical' ? 'var(--semantic-danger-fg)' : 'var(--warning)' }}
+                    aria-hidden
+                  />
+                  <span>{a.message}</span>
+                </div>
+                {ALERT_HINTS[a.code] && (
+                  <p className="ui-caption pl-7" style={{ color: 'var(--text-3)' }}>
+                    {ALERT_HINTS[a.code]}
+                    {a.code === 'sessions' && (
+                      <>
+                        {' '}
+                        <a href="#admin-isolation-panel" className="underline">
+                          Ver isolamento
+                        </a>
+                      </>
+                    )}
+                  </p>
+                )}
               </li>
             ))}
           </ul>
@@ -297,24 +334,45 @@ export const AdminOpsMonitor: React.FC<{ user: SessionUser | null }> = ({ user }
               <div className="space-y-2.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <Wifi className="w-3.5 h-3.5 shrink-0" aria-hidden />
-                  <span className="ui-overline">Firebase</span>
-                  {data.firebase.pingOk ? (
-                    <Badge variant={data.firebase.latencyMs != null && data.firebase.latencyMs > 15_000 ? 'warning' : 'success'}>
-                      {data.firebase.latencyMs != null
-                        ? `OK · ${formatFirebaseLatency(data.firebase.latencyMs)}`
-                        : 'OK'}
-                    </Badge>
-                  ) : (
-                    <Badge variant="danger">Falha</Badge>
-                  )}
+                  <span className="ui-overline">Autenticação</span>
+                  <Badge variant="info">{authModeLabel(data.authMode)}</Badge>
                 </div>
-                {data.firebase.projectId && (
-                  <span className="ui-caption block truncate">{data.firebase.projectId}</span>
+                {data.authMode !== 'vps' && data.firebase.configured && (
+                  <div className="flex flex-wrap items-center gap-2 pl-5">
+                    <span className="ui-caption">Firebase Admin (legado)</span>
+                    {data.firebase.pingOk ? (
+                      <Badge variant={data.firebase.latencyMs != null && data.firebase.latencyMs > 15_000 ? 'warning' : 'success'}>
+                        {data.firebase.latencyMs != null
+                          ? `OK · ${formatAuthLatency(data.firebase.latencyMs)}`
+                          : 'OK'}
+                      </Badge>
+                    ) : (
+                      <Badge variant="danger">Falha</Badge>
+                    )}
+                    {data.firebase.projectId && (
+                      <span className="ui-caption truncate">{data.firebase.projectId}</span>
+                    )}
+                    {data.firebase.error && (
+                      <p className="ui-caption w-full" style={{ color: 'var(--semantic-danger-fg)' }}>
+                        {data.firebase.error}
+                      </p>
+                    )}
+                  </div>
                 )}
-                {data.firebase.error && (
-                  <p className="ui-caption" style={{ color: 'var(--semantic-danger-fg)' }}>
-                    {data.firebase.error}
-                  </p>
+                {data.mercadopago && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="ui-caption">Mercado Pago</span>
+                    <Badge variant={data.mercadopago.checkoutAvailable ? 'success' : 'warning'}>
+                      {data.mercadopago.checkoutAvailable
+                        ? `Checkout ${data.mercadopago.mode ?? 'ok'}`
+                        : 'Indisponível'}
+                    </Badge>
+                    {data.mercadopago.error && (
+                      <span className="ui-caption" style={{ color: 'var(--semantic-danger-fg)' }}>
+                        {data.mercadopago.error}
+                      </span>
+                    )}
+                  </div>
                 )}
                 <Metric
                   label="Sessões WA (API)"

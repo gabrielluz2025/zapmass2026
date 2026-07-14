@@ -8,6 +8,7 @@ type CollapsibleSectionProps = {
   defaultOpen?: boolean;
   children: React.ReactNode;
   className?: string;
+  id?: string;
 };
 
 export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
@@ -16,13 +17,14 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   actions,
   defaultOpen = true,
   children,
-  className = ''
+  className = '',
+  id
 }) => {
   const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();
 
   return (
-    <section className={`zm-section ${className}`.trim()}>
+    <section id={id} className={`zm-section ${className}`.trim()}>
       <div className="zm-section__head">
         <button
           type="button"

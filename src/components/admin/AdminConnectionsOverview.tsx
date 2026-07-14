@@ -14,8 +14,11 @@ type Row = {
   lastActivity: string;
   phoneNumber: string | null;
   ownerUid: string | null;
-  /** Email (Firebase) quando a Admin API resolve o UID */
+  /** E-mail do utilizador (Postgres / legado Firebase) */
   ownerEmail: string | null;
+  ownerDisplayName?: string | null;
+  legacyConnId?: boolean;
+  orphan?: boolean;
   canRevoke: boolean;
   canRevokeReason: string | null;
 };
@@ -112,6 +115,9 @@ export const AdminConnectionsOverview: React.FC<{ user: SessionUser | null }> = 
         list.map((x) => ({
           ...x,
           ownerEmail: x.ownerEmail ?? null,
+          ownerDisplayName: x.ownerDisplayName ?? null,
+          legacyConnId: x.legacyConnId,
+          orphan: x.orphan,
           canRevokeReason: x.canRevokeReason ?? null
         }))
       );
@@ -251,7 +257,7 @@ export const AdminConnectionsOverview: React.FC<{ user: SessionUser | null }> = 
             </div>
           }
           title="Conexões — visão global"
-          subtitle="Estado das sessões WhatsApp no servidor, por conta. Use “Interromper” só para canais ainda a aguardar QR ou a ligar."
+          subtitle="Estado das sessões WhatsApp no servidor, por utilizador Postgres. Use “Interromper” só para canais ainda a aguardar QR ou a ligar."
           actions={
             <div className="flex flex-wrap items-center justify-end gap-1.5">
               <Button
@@ -310,8 +316,8 @@ export const AdminConnectionsOverview: React.FC<{ user: SessionUser | null }> = 
           className="mx-4 mb-2 rounded-lg border px-3 py-2 text-[11px] leading-relaxed"
           style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-3)' }}
         >
-          Cada <strong className="text-[var(--text-2)]">utilizador</strong> é a conta Firebase (e-mail
-          resolvido quando a API Admin tiver acesso). “Interromper” só aplica a canais ainda a aguardar QR ou
+          Cada <strong className="text-[var(--text-2)]">utilizador</strong> é a conta Postgres (e-mail
+          resolvido pela API). “Interromper” só aplica a canais ainda a aguardar QR ou
           sem nº vinculado. Se o WhatsApp <strong>já chegou a ligar</strong> (nº guardado) ou a sessão caiu /
           suspensa / está a <strong>reconectar</strong>, o botão fica bloqueado — o utilizador deve gerir
           a partir da app. “Interromper todos” só afecta as linhas que ainda puderem ser forçadas.
@@ -326,7 +332,7 @@ export const AdminConnectionsOverview: React.FC<{ user: SessionUser | null }> = 
             checked={onlyPending}
             onChange={(e) => setOnlyPending(e.target.checked)}
           />
-          Esconder contas já ligadas ao WhatsApp
+          Esconder chips já ligados ao WhatsApp
         </label>
         <Badge variant="info" className="text-[10px]">
           <Shield className="w-3 h-3 mr-1 inline" aria-hidden />
@@ -366,8 +372,13 @@ export const AdminConnectionsOverview: React.FC<{ user: SessionUser | null }> = 
                   style={{ background: 'var(--surface-1)', color: 'var(--text-2)' }}
                 >
                   <span className="font-medium" style={{ color: 'var(--text-1)' }}>
-                    {isLegacy ? 'Conta antiga' : gRows[0]?.ownerEmail ? 'Conta' : 'Conta (Firebase)'}
+                    {isLegacy ? 'Sem dono definido' : gRows[0]?.ownerEmail ? 'Utilizador' : 'Utilizador (sem e-mail)'}
                   </span>
+                  {gRows[0]?.ownerDisplayName && !isLegacy ? (
+                    <span className="text-[12px] font-medium" style={{ color: 'var(--text-1)' }}>
+                      {gRows[0].ownerDisplayName}
+                    </span>
+                  ) : null}
                   {gRows[0]?.ownerEmail ? (
                     <span
                       className="inline-flex items-center gap-1 text-[12px] font-medium max-w-[min(100%,20rem)] truncate"
@@ -417,10 +428,18 @@ export const AdminConnectionsOverview: React.FC<{ user: SessionUser | null }> = 
                         return (
                           <tr key={r.id} className="border-t" style={{ borderColor: 'var(--border-subtle)' }}>
                             <td className="py-2.5 px-3 align-top max-w-[11rem]">
-                              {r.ownerEmail ? (
+                              {r.ownerDisplayName ? (
                                 <div
                                   className="text-[12px] font-medium leading-snug break-words"
                                   style={{ color: 'var(--text-1)' }}
+                                >
+                                  {r.ownerDisplayName}
+                                </div>
+                              ) : null}
+                              {r.ownerEmail ? (
+                                <div
+                                  className="text-[12px] font-medium leading-snug break-words"
+                                  style={{ color: r.ownerDisplayName ? 'var(--text-2)' : 'var(--text-1)' }}
                                   title={r.ownerEmail}
                                 >
                                   {r.ownerEmail}
@@ -438,6 +457,11 @@ export const AdminConnectionsOverview: React.FC<{ user: SessionUser | null }> = 
                               <div className="font-medium leading-snug" style={{ color: 'var(--text-1)' }}>
                                 {channelPrimary}
                               </div>
+                              {r.orphan ? (
+                                <Badge variant="danger" className="mt-1 text-[9px]">
+                                  Órfão — sem dono
+                                </Badge>
+                              ) : null}
                               <div
                                 className="mt-1 text-[10px] font-mono"
                                 style={{ color: 'var(--text-3)' }}

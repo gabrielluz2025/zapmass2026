@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import os from 'os';
-import { vpsDataRequired } from './auth/dataMode.js';
+import { vpsDataRequired, zapmassDataProvider } from './auth/dataMode.js';
 import { assertAdminFromBearer } from './adminAuth.js';
 import { isFirebaseAdminConfigured } from './firebaseAdmin.js';
 import { getSystemMetrics } from './systemMetricsShared.js';
@@ -80,6 +80,7 @@ export function registerAdminOpsRoutes(app: Express): void {
     res.json({
       ok: true,
       at: new Date().toISOString(),
+      authMode: zapmassDataProvider(),
       scopeNote:
         'Memoria/CPU vistos pelo processo Node (contentor). Em Docker reflete limites do contentor, nao necessariamente a VPS inteira.',
       system: {

@@ -49,7 +49,7 @@ export function buildAlerts(input: {
     alerts.push({
       level: 'critical',
       code: 'firebase',
-      message: `Firebase (Admin API): ${firebaseError || 'falha no ping'}. Risco a login, assinaturas e dados.`
+      message: `Autenticação legado (Firebase Admin): ${firebaseError || 'falha no ping'}. Verifique login, assinaturas e staff.`
     });
   }
 

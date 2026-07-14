@@ -3,6 +3,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { assertAdminFromBearer } from './adminAuth.js';
 import { explainAdminForceRemoveBlock, isAdminForceRemoveAllowed } from './adminConnectionsPolicy.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
+import { getZapmassPool } from './db/postgres.js';
 import * as evolutionService from './evolutionService.js';
 import * as waService from './whatsappService.js';
 import { submitDeleteConnection } from './sessionControlPlane.js';
@@ -29,24 +30,53 @@ function ownerFromConnectionId(id: string): { ownerUid: string | null; localId: 
   return { ownerUid: id.slice(0, idx), localId: id.slice(idx + 2) };
 }
 
-async function resolveOwnerEmails(
-  uids: string[]
-): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  const app = getFirebaseAdmin();
-  if (!app || uids.length === 0) {
-    return map;
-  }
-  const auth = getAuth();
-  for (let i = 0; i < uids.length; i += 100) {
-    const batch = uids.slice(i, i + 100);
+type OwnerProfile = { email: string; displayName: string | null };
+
+async function resolveOwnerProfiles(uids: string[]): Promise<Map<string, OwnerProfile>> {
+  const map = new Map<string, OwnerProfile>();
+  if (uids.length === 0) return map;
+
+  const pool = getZapmassPool();
+  if (pool) {
     try {
-      const res = await auth.getUsers(batch.map((uid) => ({ uid })));
-      for (const u of res.users) {
-        if (u.email) map.set(u.uid, u.email);
+      const r = await pool.query<{
+        id: string;
+        email: string;
+        display_name: string | null;
+        firebase_uid: string | null;
+      }>(
+        `SELECT id::text AS id, email, display_name, firebase_uid
+         FROM zapmass.users
+         WHERE disabled_at IS NULL
+           AND (id::text = ANY($1::text[]) OR firebase_uid = ANY($1::text[]))`,
+        [uids]
+      );
+      for (const row of r.rows) {
+        const profile = { email: row.email, displayName: row.display_name };
+        map.set(row.id, profile);
+        if (row.firebase_uid) map.set(row.firebase_uid, profile);
       }
     } catch (e) {
-      console.warn('[admin connections] getUsers parcial:', e instanceof Error ? e.message : e);
+      console.warn('[admin connections] Postgres lookup:', e instanceof Error ? e.message : e);
+    }
+  }
+
+  const missing = uids.filter((u) => !map.has(u));
+  const app = getFirebaseAdmin();
+  if (app && missing.length > 0) {
+    const auth = getAuth();
+    for (let i = 0; i < missing.length; i += 100) {
+      const batch = missing.slice(i, i + 100);
+      try {
+        const res = await auth.getUsers(batch.map((uid) => ({ uid })));
+        for (const u of res.users) {
+          if (u.email) {
+            map.set(u.uid, { email: u.email, displayName: u.displayName ?? null });
+          }
+        }
+      } catch (e) {
+        console.warn('[admin connections] Firebase getUsers parcial:', e instanceof Error ? e.message : e);
+      }
     }
   }
   return map;
@@ -77,12 +107,13 @@ export function registerAdminConnectionsRoutes(app: Express): void {
       )
     ];
 
-    const emailByUid = await resolveOwnerEmails(uids);
+    const profileByUid = await resolveOwnerProfiles(uids);
 
     const connections = raw.map((c) => {
       const { ownerUid: ownerFromId, localId } = ownerFromConnectionId(c.id);
       const metadataOwnerUid = resolveMetadataOwnerUid(c.id);
       const ownerUid = metadataOwnerUid ?? ownerFromId ?? c.ownerUid ?? null;
+      const profile = ownerUid ? profileByUid.get(ownerUid) : undefined;
       const canRevoke = isAdminForceRemoveAllowed(c);
       return {
         id: c.id,
@@ -92,7 +123,8 @@ export function registerAdminConnectionsRoutes(app: Express): void {
         lastActivity: c.lastActivity,
         phoneNumber: c.phoneNumber,
         ownerUid,
-        ownerEmail: ownerUid ? emailByUid.get(ownerUid) ?? null : null,
+        ownerEmail: profile?.email ?? null,
+        ownerDisplayName: profile?.displayName ?? null,
         legacyConnId: isLegacyConnectionId(c.id),
         orphan: isLegacyConnectionId(c.id) && !ownerUid,
         canRevoke,
@@ -122,7 +154,7 @@ export function registerAdminConnectionsRoutes(app: Express): void {
           .filter((x): x is string => Boolean(x))
       )
     ];
-    const emailByUid = await resolveOwnerEmails(uids);
+    const profileByUid = await resolveOwnerProfiles(uids);
 
     const byOwner = new Map<string, string[]>();
     const rows = raw.map((c) => {
@@ -132,30 +164,76 @@ export function registerAdminConnectionsRoutes(app: Express): void {
         list.push(c.id);
         byOwner.set(ownerUid, list);
       }
+      const profile = ownerUid ? profileByUid.get(ownerUid) : undefined;
       return {
         id: c.id,
         name: c.name,
         phoneNumber: c.phoneNumber,
         status: c.status,
         ownerUid,
-        ownerEmail: ownerUid ? emailByUid.get(ownerUid) ?? null : null,
+        ownerEmail: profile?.email ?? null,
+        ownerDisplayName: profile?.displayName ?? null,
         legacyConnId: isLegacyConnectionId(c.id),
         orphan: isLegacyConnectionId(c.id) && !ownerUid
       };
     });
 
     const orphans = rows.filter((r) => r.orphan).map((r) => r.id);
+
+    const convs = evolutionService.getConversations();
+    const convByOwner: Record<string, number> = {};
+    let orphanConversations = 0;
+    for (const c of convs) {
+      const cid = String(c.connectionId || '').trim();
+      const ou = evolutionService.resolveConnectionOwnerUid(cid);
+      if (!ou) {
+        orphanConversations += 1;
+        continue;
+      }
+      convByOwner[ou] = (convByOwner[ou] ?? 0) + 1;
+    }
+
+    const { planConnectionOwnerReconciliation, fetchEvolutionConnectionLabels, refreshTenantUsersCache } =
+      await import('./reconcileConnectionOwners.js');
+    await refreshTenantUsersCache();
+    const evolutionLabels = await fetchEvolutionConnectionLabels();
+    const settingsSnapshot = evolutionService.getConnectionsSettingsSnapshot();
+    const pendingReconcile = await planConnectionOwnerReconciliation(settingsSnapshot, { evolutionLabels });
+
     res.json({
       ok: true,
       at: new Date().toISOString(),
       total: rows.length,
       orphanCount: orphans.length,
       orphanIds: orphans,
-      owners: [...byOwner.entries()].map(([uid, ids]) => ({
-        ownerUid: uid,
-        ownerEmail: emailByUid.get(uid) ?? null,
-        connectionIds: ids
-      })),
+      conversations: {
+        total: convs.length,
+        orphanCount: orphanConversations,
+        byOwnerUid: convByOwner
+      },
+      pendingReconcile: pendingReconcile.map((a) =>
+        a.kind === 'assign'
+          ? {
+              kind: 'assign' as const,
+              connId: a.connId,
+              label: a.label,
+              fromOwnerUid: a.fromOwnerUid,
+              toOwnerUid: a.toOwnerUid,
+              toEmail: a.toEmail,
+              reason: a.reason
+            }
+          : { kind: 'remove' as const, connId: a.connId, label: a.label, reason: a.reason }
+      ),
+      owners: [...byOwner.entries()].map(([uid, ids]) => {
+        const profile = profileByUid.get(uid);
+        return {
+          ownerUid: uid,
+          ownerEmail: profile?.email ?? null,
+          ownerDisplayName: profile?.displayName ?? null,
+          connectionIds: ids,
+          conversationCount: convByOwner[uid] ?? 0
+        };
+      }),
       connections: rows
     });
   });

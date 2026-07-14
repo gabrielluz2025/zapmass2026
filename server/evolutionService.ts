@@ -2308,6 +2308,11 @@ export function saveConnectionsSettings() {
     }
 }
 
+/** Cópia superficial para diagnóstico admin (reconciliação de donos). */
+export function getConnectionsSettingsSnapshot(): Record<string, ConnectionSettingsPayload> {
+    return { ...connectionsSettingsCache };
+}
+
 /** Converte ownerUid legado (Firebase) para users.id Postgres — evita vazamento entre tenants. */
 export async function normalizeConnectionOwnersInSettings(): Promise<{ changed: number }> {
     let changed = 0;

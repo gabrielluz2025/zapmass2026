@@ -21,6 +21,7 @@ import { AdminOpsMonitor } from './AdminOpsMonitor';
 import { AdminVpsMaintenancePanel } from './AdminVpsMaintenancePanel';
 import { AdminSendOpsToAssistantButton } from './admin/AdminSendOpsToAssistantButton';
 import { AdminConnectionsOverview } from './admin/AdminConnectionsOverview';
+import { AdminIsolationPanel } from './admin/AdminIsolationPanel';
 
 export const AdminServerTab: React.FC = () => {
   const { connections, isBackendConnected } = useZapMassCore();
@@ -113,7 +114,7 @@ export const AdminServerTab: React.FC = () => {
 
           <div className="zm-panel-grid zm-panel-grid--2">
             <div className="zm-panel space-y-3">
-              <span className="ui-overline">Canais nesta conta</span>
+              <span className="ui-overline">Canais do plano (este utilizador)</span>
               <StatTile
                 label="Em uso"
                 value={planScopedCount}
@@ -217,6 +218,7 @@ export const AdminServerTab: React.FC = () => {
         )}
       </CollapsibleSection>
 
+      <AdminIsolationPanel user={user} />
       <AdminVpsMaintenancePanel user={user} />
       <AdminOpsMonitor user={user} />
       <AdminConnectionsOverview user={user} />
