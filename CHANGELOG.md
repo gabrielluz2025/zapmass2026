@@ -11,6 +11,20 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.16] — 2026-07-14
+
+### Corrigido — Segurança: conversas misturadas entre usuários
+- **Cliente:** removido fallback que aceitava inbox inteira sem filtro de tenant (`conversationInboxTrim`)
+- **Redis bridge:** não emite mais `conversations-update` sem re-filtro por socket
+- **Webhook:** descarta `MESSAGES_UPSERT` de canais sem `ownerUid` ou instância estranha ao container
+- **claim-connection:** só vincula canais órfãos (`tryClaimUnownedLegacyConnection`), bloqueia roubo de chip
+- **Evolution hydrate:** ignora instâncias de outros clientes no shard compartilhado (sem settings local)
+- **Boot:** remove conversas em cache sem `ownerUid` resolvível
+- **Relatório campanha:** filtra conversas por tenant/canal permitido
+- Script ops: `deployment/audit-conversation-isolation.sh`
+
+---
+
 ## [2.3.15] — 2026-07-14
 
 ### Corrigido — CI/CD GitHub Actions (deploy vermelho)

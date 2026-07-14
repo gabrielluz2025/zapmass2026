@@ -25,6 +25,7 @@ import { registerAdminConnectionsRoutes } from './adminConnectionsRoutes.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getAuth } from 'firebase-admin/auth';
 import { filterByConnectionScope, ownsConnectionForTenant as ownsConnectionForUid } from './connectionScopeServer.js';
+import { tenantScopeUidsMatch } from './auth/tenantUidScopeServer.js';
 import { conversationsPayloadForViewer, socketConversationsPayload } from './conversationsEmit.js';
 import { resolveConnectionOwnerUid } from './evolutionService.js';
 import { ensureAssignmentsLoaded, getWorkspaceMemberUidSet } from './inboxAssignments.js';
@@ -1339,7 +1340,18 @@ const registerSocketHandlers = () => {
           socket.emit('socket-operation-error', { op: 'claim-connection', error: 'Faça login para vincular o canal.' });
           return;
         }
-        const ok = evolutionService.assignConnectionOwner(connId, uid);
+        const priorOwner = evolutionService.resolveConnectionOwnerUid(connId);
+        if (priorOwner && !tenantScopeUidsMatch(priorOwner, uid)) {
+          socket.emit('socket-operation-error', {
+            op: 'claim-connection',
+            error: 'Este canal já pertence a outra conta.'
+          });
+          return;
+        }
+        const ok =
+          priorOwner && tenantScopeUidsMatch(priorOwner, uid)
+            ? true
+            : evolutionService.tryClaimUnownedLegacyConnection(connId, uid);
         if (!ok) {
           socket.emit('socket-operation-error', {
             op: 'claim-connection',

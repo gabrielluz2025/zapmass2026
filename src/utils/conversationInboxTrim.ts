@@ -71,13 +71,13 @@ export function mergeConversationsFromSocketUpdate(
   const filtered = incoming.filter((c) =>
     ownsConnectionId(c.connectionId, c.connectionOwnerUid)
   );
-  /**
-   * Servidor já aplicou escopo por tenant. Se o filtro local descartar tudo (corrida:
-   * connections-update ainda não chegou ao cliente), confia no payload do servidor
-   * para não deixar o bate-papo vazio.
-   */
-  const scopedIncoming =
-    filtered.length === 0 && incoming.length > 0 ? incoming : filtered;
+  // Nunca confiar em payload não filtrado — evita vazamento cross-tenant se o servidor
+  // enviar conversas de outro usuário (ownerUid errado ou corrida de socket).
+  const scopedIncoming = filtered;
+  if (scopedIncoming.length === 0 && incoming.length > 0) {
+    // Payload rejeitado pelo escopo local — manter inbox anterior (sem vazar nem apagar).
+    return prev;
+  }
   const trimmedIncoming = scopedIncoming.map((c) => trimConversationMessagesTail(c, maxTail));
   const dedupedIncoming = dedupeConversationsById(trimmedIncoming);
   const prevById = new Map(prev.map((c) => [c.id, c]));
@@ -262,10 +262,7 @@ export function mergeConversationDelta(
   maxTail: number = SYNC_MSG_TAIL
 ): Conversation[] {
   const trimmed = trimConversationMessagesTail(delta, maxTail);
-  const scoped =
-    ownsConnectionId(trimmed.connectionId, trimmed.connectionOwnerUid) ||
-    (prev.length === 0 && trimmed.id);
-  if (!scoped) return prev;
+  if (!ownsConnectionId(trimmed.connectionId, trimmed.connectionOwnerUid)) return prev;
 
   const prevById = new Map(prev.map((c) => [c.id, c]));
   const merged = mergeOneConversation(prevById.get(trimmed.id), trimmed, maxTail);

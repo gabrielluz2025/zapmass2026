@@ -88,7 +88,12 @@ export async function buildCampaignReportConversationContext(
   for (const c of live) byId.set(c.id, c);
 
   if (!isWaChatArchiveEnabled() || !tenantId) {
-    return live;
+    const { filterByConnectionScope } = await import('./connectionScopeServer.js');
+    let scoped = filterByConnectionScope(tenantId, live);
+    if (allowed.size > 0) {
+      scoped = scoped.filter((c) => allowed.has(c.connectionId));
+    }
+    return scoped;
   }
 
   const sentContacts = sentContactsFromLogs(scopedLogs, campaignId);

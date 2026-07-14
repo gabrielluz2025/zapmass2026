@@ -27,11 +27,7 @@ async function emitConversationsFilteredPerSocket(io: Server, tenantUid: string,
     }
   } catch (e) {
     console.warn('[owner-emit-redis] conversations-update por socket falhou:', (e as Error)?.message);
-    try {
-      io.to(`user:${tenantUid}`).emit('conversations-update', payload);
-    } catch {
-      /* ignore */
-    }
+    // Não emitir payload bruto — risco de vazamento cross-tenant.
   }
 }
 

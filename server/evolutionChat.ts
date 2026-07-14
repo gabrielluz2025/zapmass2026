@@ -1900,9 +1900,26 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         return deleteLocalConversations(ids);
     }
 
+    function pruneConversationsWithoutResolvableOwner(
+        resolveOwner: (connectionId: string) => string | undefined
+    ): number {
+        const before = conversations.length;
+        if (before === 0) return 0;
+        const kept = conversations.filter((c) => {
+            const ou = resolveOwner(c.connectionId);
+            return Boolean(ou && ou !== 'anonymous');
+        });
+        if (kept.length === before) return 0;
+        conversations.length = 0;
+        conversations.push(...kept);
+        saveConversationsToCacheDebounced();
+        return before - kept.length;
+    }
+
     return {
         init,
         getConversations: () => [...conversations],
+        pruneConversationsWithoutResolvableOwner,
         emitConversationsUpdate,
         emitConversationDelta,
         syncChatsForConnection,

@@ -27,22 +27,20 @@ describe('mergeConversationsFromSocketUpdate (escopo conn_*)', () => {
     expect(out).toHaveLength(1);
   });
 
-  it('confia no payload do servidor quando filtro local descarta legado (corrida antes de connections-update)', () => {
+  it('rejeita conversa legada sem connectionOwnerUid no payload (escopo estrito)', () => {
     const incoming = [conv(legacyChip)];
     const owns = (cid: string, ou?: string) => ownsConnectionForUid(tenantUid, cid, ou);
     const out = mergeConversationsFromSocketUpdate([], incoming, owns);
-    expect(out).toHaveLength(1);
-    expect(out[0].connectionId).toBe(legacyChip);
+    expect(out).toHaveLength(0);
   });
 
-  it('substitui estado anterior pelo payload do servidor quando filtro local falha (corrida socket)', () => {
+  it('mantém estado anterior se payload legado sem owner chegar em corrida de socket', () => {
     const prev = [conv(`${tenantUid}__chip1`)];
-    const incoming = [conv(legacyChip, tenantUid)];
+    const incoming = [conv(legacyChip)];
     const owns = (cid: string, ou?: string) => ownsConnectionForUid(tenantUid, cid, ou);
     const out = mergeConversationsFromSocketUpdate(prev, incoming, owns);
-    expect(out).not.toBe(prev);
     expect(out).toHaveLength(1);
-    expect(out[0].connectionId).toBe(legacyChip);
+    expect(out[0].connectionId).toBe(`${tenantUid}__chip1`);
   });
 
   it('preserva historico local quando payload socket vem enxuto (sem messages) mas atualiza preview', () => {

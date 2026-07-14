@@ -555,6 +555,11 @@ export function ensureTenantOwnsConnection(
         return true;
     }
 
+    if (!meta && isLegacyConnectionId(id)) {
+        tryClaimUnownedLegacyConnection(id, uid);
+        meta = resolveOwnerUid(id);
+    }
+
     return ownsConnectionForUid(uid || 'anonymous', id, meta);
 }
 
@@ -1798,6 +1803,12 @@ async function hydrateInstancesFromEvolution() {
             if (!instanceName) continue;
 
             const existing = connections.get(instanceName);
+            // Shard Evolution compartilhado: não hidratar instâncias de outros clientes
+            // que não constam no settings local deste container.
+            if (!connectionsSettingsCache[instanceName] && !existing) {
+                continue;
+            }
+
             const prevStatus = existing?.status;
             let mappedState = mapEvolutionState(row.connectionStatus ?? row.state ?? row.status);
             if (existing?.status === 'open' && mappedState !== 'open') {
@@ -5530,6 +5541,10 @@ export function init(socketIO: SocketIOServer) {
 
     void normalizeConnectionOwnersInSettings().then(async () => {
         healAllOrphanConnectionOwners();
+        const pruned = chatStore.pruneConversationsWithoutResolvableOwner(resolveOwnerUid);
+        if (pruned > 0) {
+            log('warn', 'Conversas sem ownerUid removidas do cache local', { pruned });
+        }
         const { refreshTenantUsersCache } = await import('./reconcileConnectionOwners.js');
         await refreshTenantUsersCache();
         await hydrateInstancesFromEvolution();
@@ -5667,6 +5682,17 @@ export async function handleWebhook(event: any) {
             }
 
             case 'MESSAGES_UPSERT': {
+                const messageOwnerUid = resolveOwnerUid(instance);
+                if (!messageOwnerUid) {
+                    log('warn', 'MESSAGES_UPSERT descartado — canal sem ownerUid', { instance });
+                    break;
+                }
+                if (!connections.has(instance) && !connectionsSettingsCache[instance]) {
+                    log('warn', 'MESSAGES_UPSERT descartado — instancia ausente neste container', {
+                        instance,
+                    });
+                    break;
+                }
                 chatStore.handleWebhookMessage(instance, data);
 
                 const items = normalizeEvolutionWebhookMessages(data);
@@ -5676,7 +5702,6 @@ export async function handleWebhook(event: any) {
                     const remoteJid = String(msg.key.remoteJid || '');
                     const messageId = msg.key.id;
 
-                    const messageOwnerUid = resolveOwnerUid(instance);
                     if (messageOwnerUid) {
                         publishOwnerEvent(messageOwnerUid, 'message-received', {
                         connectionId: instance,
