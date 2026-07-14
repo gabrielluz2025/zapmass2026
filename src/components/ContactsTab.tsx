@@ -76,7 +76,17 @@ import { consumeAtlasContactsHint } from '../utils/atlasRegionLaunch';
 import { getModalPortalContainer } from '../utils/domPortal';
 import { validateImportRow } from '../utils/contactImportSchema';
 import { apiFetchJson } from '../utils/apiFetchAuth';
-import { apiSaveContactToChip, apiSaveContactsToChipBatch } from '../services/contactsApi';
+import {
+  apiSaveContactToChip,
+  apiSaveContactsToChipBatch,
+  apiStartSaveToChipBase,
+  apiGetSaveToChipBaseJob,
+  apiListActiveSaveToChipBase,
+  apiPauseSaveToChipBase,
+  apiResumeSaveToChipBase,
+  apiCancelSaveToChipBase,
+  type ChipBaseSyncJob
+} from '../services/contactsApi';
 import { AiSparkButton } from './ai/AiSparkButton';
 import { useAiStatus } from '../hooks/useAiStatus';
 import { aiEnrichContact, aiOrganizeImportRows, aiParseContactsText } from '../services/aiApi';
@@ -1174,6 +1184,11 @@ export const ContactsTab: React.FC = () => {
   } | null>(null);
   const [saveChipConnectionId, setSaveChipConnectionId] = useState('');
   const [saveChipBusy, setSaveChipBusy] = useState(false);
+  const [baseChipModalOpen, setBaseChipModalOpen] = useState(false);
+  const [baseChipConnectionId, setBaseChipConnectionId] = useState('');
+  const [baseChipDelayMs, setBaseChipDelayMs] = useState(450);
+  const [baseChipJob, setBaseChipJob] = useState<ChipBaseSyncJob | null>(null);
+  const [baseChipStarting, setBaseChipStarting] = useState(false);
 
   const connectedChannels = useMemo(
     () => connections.filter((c) => c.status === ConnectionStatus.CONNECTED),
@@ -1269,6 +1284,64 @@ export const ContactsTab: React.FC = () => {
     );
     setSaveChipPicker({ mode: 'bulk', ids: [...selectedIds] });
   }, [connectedChannels, runSaveContactsToChip, saveChipConnectionId, selectedIds]);
+
+  const openBaseChipSyncModal = useCallback(async () => {
+    if (connectedChannels.length === 0) {
+      toast.error('Nenhum chip WhatsApp conectado. Abra a aba Conexões.');
+      return;
+    }
+    setBaseChipConnectionId(
+      connectedChannels.find((c) => c.id === baseChipConnectionId)?.id || connectedChannels[0].id
+    );
+    setBaseChipModalOpen(true);
+    try {
+      const { jobs } = await apiListActiveSaveToChipBase();
+      if (jobs[0]) setBaseChipJob(jobs[0]);
+    } catch {
+      /* ignore */
+    }
+  }, [baseChipConnectionId, connectedChannels]);
+
+  useEffect(() => {
+    if (!baseChipJob || (baseChipJob.status !== 'running' && baseChipJob.status !== 'paused')) return;
+    const id = window.setInterval(() => {
+      void apiGetSaveToChipBaseJob(baseChipJob.id)
+        .then((r) => setBaseChipJob(r.job))
+        .catch(() => undefined);
+    }, 2_500);
+    return () => window.clearInterval(id);
+  }, [baseChipJob?.id, baseChipJob?.status]);
+
+  const startBaseChipSync = useCallback(async () => {
+    if (!baseChipConnectionId) {
+      toast.error('Escolha o canal.');
+      return;
+    }
+    const totalHint = Math.max(contactsSavedTotal ?? 0, contacts.length, 0);
+    const etaMin = Math.max(1, Math.round((totalHint * (baseChipDelayMs + 50)) / 60_000));
+    if (
+      !window.confirm(
+        `Gravar a base inteira (~${totalHint.toLocaleString('pt-BR')} contatos) na agenda do celular do canal escolhido?\n\n` +
+          `Intervalo: ${baseChipDelayMs} ms entre cada um (estimativa ~${etaMin} min).\n` +
+          'Pode pausar/cancelar depois. Números novos são adicionados; existentes atualizam o nome.'
+      )
+    ) {
+      return;
+    }
+    setBaseChipStarting(true);
+    try {
+      const { job } = await apiStartSaveToChipBase({
+        connectionId: baseChipConnectionId,
+        delayMs: baseChipDelayMs
+      });
+      setBaseChipJob(job);
+      toast.success('Sincronização da base iniciada.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao iniciar sincronização.');
+    } finally {
+      setBaseChipStarting(false);
+    }
+  }, [baseChipConnectionId, baseChipDelayMs, contacts.length, contactsSavedTotal]);
 
   const navigateOpenChat = useCallback(
     (contact: Contact, connectionId: string) => {
@@ -4138,6 +4211,7 @@ export const ContactsTab: React.FC = () => {
         onOpenInsights={openInsights}
         onOpenNormalizeNames={openNameNormalizeModal}
         onOpenFixBase={() => setBaseFixModalOpen(true)}
+        onSaveBaseToChip={() => void openBaseChipSyncModal()}
       />
 
       {/* ── Novo Hub: layout fullwidth sem sidebar ── */}
@@ -4902,6 +4976,180 @@ export const ContactsTab: React.FC = () => {
             ) : null}
           </div>
         )}
+      </Modal>
+
+      <Modal
+        isOpen={baseChipModalOpen}
+        onClose={() => {
+          if (baseChipStarting) return;
+          setBaseChipModalOpen(false);
+        }}
+        title="Agenda no chip — base toda"
+        subtitle="Grava a base com intervalo entre cada contato para não travar o aparelho. Escolha o canal (celular) de destino."
+        icon={<Smartphone className="w-4 h-4" />}
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" disabled={baseChipStarting} onClick={() => setBaseChipModalOpen(false)}>
+              Fechar
+            </Button>
+            {baseChipJob?.status === 'running' ? (
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  void apiPauseSaveToChipBase(baseChipJob.id).then((r) => setBaseChipJob(r.job))
+                }
+              >
+                Pausar
+              </Button>
+            ) : null}
+            {baseChipJob?.status === 'paused' ? (
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  void apiResumeSaveToChipBase(baseChipJob.id).then((r) => setBaseChipJob(r.job))
+                }
+              >
+                Continuar
+              </Button>
+            ) : null}
+            {baseChipJob && (baseChipJob.status === 'running' || baseChipJob.status === 'paused') ? (
+              <Button
+                variant="danger"
+                onClick={() =>
+                  void apiCancelSaveToChipBase(baseChipJob.id).then((r) => setBaseChipJob(r.job))
+                }
+              >
+                Cancelar job
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                leftIcon={<Smartphone className="w-4 h-4" />}
+                loading={baseChipStarting}
+                disabled={!baseChipConnectionId || baseChipStarting}
+                onClick={() => void startBaseChipSync()}
+              >
+                Iniciar base toda
+              </Button>
+            )}
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {connectedChannels.map((conn) => {
+              const selected = baseChipConnectionId === conn.id;
+              return (
+                <button
+                  key={conn.id}
+                  type="button"
+                  disabled={!!baseChipJob && (baseChipJob.status === 'running' || baseChipJob.status === 'paused')}
+                  onClick={() => setBaseChipConnectionId(conn.id)}
+                  className="w-full flex items-center justify-between gap-3 p-3 rounded-xl text-left transition-colors"
+                  style={{
+                    background: selected
+                      ? 'color-mix(in srgb, var(--brand-600) 10%, var(--surface-1))'
+                      : 'var(--surface-1)',
+                    border: `1px solid ${
+                      selected
+                        ? 'color-mix(in srgb, var(--brand-600) 35%, var(--border-subtle))'
+                        : 'var(--border-subtle)'
+                    }`
+                  }}
+                >
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                      {conn.name}
+                    </p>
+                    <p className="text-[11px] font-mono truncate" style={{ color: 'var(--text-3)' }}>
+                      {conn.phoneNumber || conn.id}
+                    </p>
+                  </div>
+                  <Badge variant="success">Online</Badge>
+                </button>
+              );
+            })}
+          </div>
+
+          <label className="block space-y-1">
+            <span className="text-[12px] font-medium" style={{ color: 'var(--text-2)' }}>
+              Intervalo entre contatos
+            </span>
+            <select
+              className="w-full rounded-lg border px-3 py-2 text-[13px]"
+              style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)', color: 'var(--text-1)' }}
+              value={baseChipDelayMs}
+              disabled={!!baseChipJob && (baseChipJob.status === 'running' || baseChipJob.status === 'paused')}
+              onChange={(e) => setBaseChipDelayMs(Number(e.target.value) || 450)}
+            >
+              <option value={250}>Rápido — 250 ms (mais risco)</option>
+              <option value={450}>Recomendado — 450 ms</option>
+              <option value={700}>Seguro — 700 ms</option>
+              <option value={1000}>Máximo cuidado — 1 s</option>
+            </select>
+          </label>
+
+          {baseChipJob ? (
+            <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'var(--border-subtle)' }}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant={
+                    baseChipJob.status === 'done'
+                      ? 'success'
+                      : baseChipJob.status === 'error' || baseChipJob.status === 'cancelled'
+                        ? 'danger'
+                        : baseChipJob.status === 'paused'
+                          ? 'warning'
+                          : 'info'
+                  }
+                >
+                  {baseChipJob.status === 'running'
+                    ? 'A sincronizar'
+                    : baseChipJob.status === 'paused'
+                      ? 'Pausado'
+                      : baseChipJob.status === 'done'
+                        ? 'Concluído'
+                        : baseChipJob.status === 'cancelled'
+                          ? 'Cancelado'
+                          : 'Erro'}
+                </Badge>
+                <span className="text-[12px] tabular-nums" style={{ color: 'var(--text-2)' }}>
+                  {baseChipJob.processed.toLocaleString('pt-BR')} /{' '}
+                  {baseChipJob.totalEstimated.toLocaleString('pt-BR')}
+                </span>
+              </div>
+              <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.round(
+                        (baseChipJob.processed / Math.max(1, baseChipJob.totalEstimated)) * 100
+                      )
+                    )}%`,
+                    background: 'var(--brand-500)'
+                  }}
+                />
+              </div>
+              <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                +{baseChipJob.added} novos · {baseChipJob.updated} atualizados · {baseChipJob.skipped}{' '}
+                ignorados · {baseChipJob.failed} falhas · intervalo {baseChipJob.delayMs} ms
+              </p>
+              {baseChipJob.lastError ? (
+                <p className="text-[12px]" style={{ color: 'var(--semantic-danger-fg)' }} role="alert">
+                  {baseChipJob.lastError}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+              Com ~42 mil contatos e 450 ms, a sincronização pode levar várias horas. Deixe o chip
+              online e o navegador pode ser fechado — o job continua no servidor.
+            </p>
+          )}
+        </div>
       </Modal>
 
       <ContactsInsightsModal

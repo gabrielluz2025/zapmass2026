@@ -6187,25 +6187,84 @@ export async function saveContactOnChipPhonebook(
     if (!fullName) throw new Error('Nome vazio.');
 
     const existed = await chipPhonebookHasNumber(connectionId, number);
+    await postEvolutionSaveContact(connectionId, number, fullName);
+    return {
+        saved: true,
+        action: existed ? 'updated' : 'added',
+        number,
+        name: fullName
+    };
+}
+
+/** Verifica se a Evolution desta VPS expõe rota de gravar contato na agenda. */
+export async function probeSaveContactSupport(
+    connectionId: string
+): Promise<{ ok: boolean; error?: string; path?: string }> {
+    const id = String(connectionId || '').trim();
+    if (!id) return { ok: false, error: 'Canal inválido.' };
+    const inst = evoInst(id);
+    // Probe leve: número fictício só para ver se a rota existe (404 vs 4xx validação / 5xx baileys).
+    const probeBody = { number: '5500000000000', name: 'ZapMassProbe', saveOnDevice: true };
+    const paths = evolutionSaveContactPaths(inst);
+    let sawNotFound = 0;
+    for (const path of paths) {
+        try {
+            await api.post(path, probeBody, { timeout: 12_000 });
+            return { ok: true, path };
+        } catch (err: unknown) {
+            const ax = err as { response?: { status?: number; data?: unknown }; message?: string };
+            const status = Number(ax.response?.status) || 0;
+            if (status === 404 || status === 405 || status === 501) {
+                sawNotFound += 1;
+                continue;
+            }
+            // Rota existe, mas falhou validação/WhatsApp — ainda assim suporte API está presente.
+            if (status >= 400 && status < 600) {
+                return { ok: true, path };
+            }
+            // Rede / timeout: assume tentativa possível
+            if (!status) {
+                return { ok: true, path };
+            }
+        }
+    }
+    if (sawNotFound === paths.length) {
+        return {
+            ok: false,
+            error:
+                'Esta Evolution API ainda não permite gravar na agenda do celular. Atualize a imagem Evolution ou contacte o suporte.'
+        };
+    }
+    return {
+        ok: false,
+        error: 'Não foi possível verificar o suporte a agenda no chip.'
+    };
+}
+
+function evolutionSaveContactPaths(inst: string): string[] {
+    return [
+        `/contact/save/${inst}`,
+        `/chat/saveContact/${inst}`,
+        `/chat/save-contact/${inst}`,
+        `/contact/saveContact/${inst}`
+    ];
+}
+
+async function postEvolutionSaveContact(connectionId: string, number: string, fullName: string): Promise<void> {
     const inst = evoInst(connectionId);
     const body = {
         number,
         name: fullName,
         saveOnDevice: true
     };
-    const paths = [`/contact/save/${inst}`, `/chat/saveContact/${inst}`];
+    const paths = evolutionSaveContactPaths(inst);
     let lastStatus = 0;
     let lastMsg = '';
 
     for (const path of paths) {
         try {
             await api.post(path, body, { timeout: 25_000 });
-            return {
-                saved: true,
-                action: existed ? 'updated' : 'added',
-                number,
-                name: fullName
-            };
+            return;
         } catch (err: unknown) {
             const ax = err as { response?: { status?: number; data?: unknown }; message?: string };
             lastStatus = Number(ax.response?.status) || 0;

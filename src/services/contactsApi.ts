@@ -120,6 +120,63 @@ export async function apiSaveContactsToChipBatch(
   });
 }
 
+export type ChipBaseSyncJob = {
+  id: string;
+  connectionId: string;
+  status: 'running' | 'paused' | 'done' | 'cancelled' | 'error';
+  totalEstimated: number;
+  processed: number;
+  added: number;
+  updated: number;
+  failed: number;
+  skipped: number;
+  delayMs: number;
+  lastError?: string;
+  recentErrors?: Array<{ id: string; error: string }>;
+  startedAt: number;
+  updatedAt: number;
+  finishedAt?: number;
+};
+
+export async function apiStartSaveToChipBase(opts: {
+  connectionId: string;
+  delayMs?: number;
+}): Promise<{ job: ChipBaseSyncJob }> {
+  return apiFetchJson('/api/contacts/save-to-chip-base', {
+    method: 'POST',
+    body: JSON.stringify(opts),
+    timeoutMs: 30_000
+  });
+}
+
+export async function apiGetSaveToChipBaseJob(jobId: string): Promise<{ job: ChipBaseSyncJob }> {
+  return apiFetchJson(`/api/contacts/save-to-chip-base/${encodeURIComponent(jobId)}`, {
+    timeoutMs: 15_000
+  });
+}
+
+export async function apiListActiveSaveToChipBase(): Promise<{ jobs: ChipBaseSyncJob[] }> {
+  return apiFetchJson('/api/contacts/save-to-chip-base/active', { timeoutMs: 15_000 });
+}
+
+export async function apiPauseSaveToChipBase(jobId: string): Promise<{ job: ChipBaseSyncJob }> {
+  return apiFetchJson(`/api/contacts/save-to-chip-base/${encodeURIComponent(jobId)}/pause`, {
+    method: 'POST'
+  });
+}
+
+export async function apiResumeSaveToChipBase(jobId: string): Promise<{ job: ChipBaseSyncJob }> {
+  return apiFetchJson(`/api/contacts/save-to-chip-base/${encodeURIComponent(jobId)}/resume`, {
+    method: 'POST'
+  });
+}
+
+export async function apiCancelSaveToChipBase(jobId: string): Promise<{ job: ChipBaseSyncJob }> {
+  return apiFetchJson(`/api/contacts/save-to-chip-base/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST'
+  });
+}
+
 export async function apiUpdateContact(id: string, updates: Partial<Contact>): Promise<void> {
   await apiFetchJson(`/api/contacts/${encodeURIComponent(id)}`, {
     method: 'PATCH',

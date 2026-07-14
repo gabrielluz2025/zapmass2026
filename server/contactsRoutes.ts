@@ -31,6 +31,14 @@ import {
   saveContactToChip,
   saveContactsToChipBatch
 } from './contactSaveToChip.js';
+import {
+  cancelChipBaseSyncJob,
+  getChipBaseSyncJob,
+  listActiveChipBaseSyncJobs,
+  pauseChipBaseSyncJob,
+  resumeChipBaseSyncJob,
+  startChipBaseSyncJob
+} from './contactSaveToChipJob.js';
 import * as evolutionService from './evolutionService.js';
 import { normalizeTenantContactAddresses, normalizeTenantContactsFull } from './contactsNormalizeService.js';
 import { geocodeSingleContactIfNeeded } from './leadsGeoService.js';
@@ -364,6 +372,76 @@ export function registerContactsDataRoutes(app: Express): void {
       console.error('[api/contacts save-to-chip-batch]', e);
       return res.status(500).json({ ok: false, error: 'Falha ao gravar lote no chip.' });
     }
+  });
+
+  app.post('/api/contacts/save-to-chip-base', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body || {}) as { connectionId?: string; delayMs?: number };
+    const preferred = String(body.connectionId || '').trim();
+    if (!preferred) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Escolha o canal (connectionId) onde gravar a base na agenda do celular.'
+      });
+    }
+    if (!evolutionService.ensureTenantOwnsConnection(ctx.tenantId, preferred)) {
+      return res.status(403).json({ ok: false, error: 'Canal não pertence a esta conta.' });
+    }
+    const connId = evolutionService.pickOpenConnectionForTenant(ctx.tenantId, preferred);
+    if (!connId || connId !== preferred) {
+      return res.status(409).json({ ok: false, error: 'O canal escolhido não está online.' });
+    }
+    try {
+      const job = await startChipBaseSyncJob({
+        tenantId: ctx.tenantId,
+        connectionId: connId,
+        delayMs: body.delayMs
+      });
+      return res.json({ ok: true, job });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Falha ao iniciar sincronização.';
+      const status = message.includes('ainda não permite') || message.includes('Já existe') ? 409 : 500;
+      return res.status(status).json({ ok: false, error: message });
+    }
+  });
+
+  app.get('/api/contacts/save-to-chip-base/active', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    return res.json({ ok: true, jobs: listActiveChipBaseSyncJobs(ctx.tenantId) });
+  });
+
+  app.get('/api/contacts/save-to-chip-base/:jobId', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = getChipBaseSyncJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/save-to-chip-base/:jobId/pause', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = pauseChipBaseSyncJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/save-to-chip-base/:jobId/resume', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = resumeChipBaseSyncJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/save-to-chip-base/:jobId/cancel', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = cancelChipBaseSyncJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
+    return res.json({ ok: true, job });
   });
 
   app.patch('/api/contacts/:id', async (req: Request, res: Response) => {

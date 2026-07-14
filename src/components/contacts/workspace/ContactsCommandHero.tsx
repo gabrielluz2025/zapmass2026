@@ -32,6 +32,7 @@ interface Props {
   onOpenInsights: () => void;
   onOpenNormalizeNames?: () => void;
   onOpenFixBase?: () => void;
+  onSaveBaseToChip?: () => void;
 }
 
 const KpiChip: React.FC<{
@@ -59,7 +60,7 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
   stats, contactTempsReady, savedTotal,
   searchTerm, onSearchChange,
   onNewContact, onImportXLSX, onImportVcf, onSmartImport,
-  onDownloadTemplate, onExport, onOpenInsights, onOpenNormalizeNames, onOpenFixBase
+  onDownloadTemplate, onExport, onOpenInsights, onOpenNormalizeNames, onOpenFixBase, onSaveBaseToChip
 }) => {
   const [importOpen, setImportOpen] = React.useState(false);
   const importRef = React.useRef<HTMLDivElement>(null);
@@ -175,6 +176,18 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
             <button type="button" onClick={onOpenFixBase} className="ch-btn" title="Corrigir telefones, nomes e endereços">
               <Database className="w-4 h-4 text-amber-400" />
               <span className="hidden lg:inline">Corrigir base</span>
+            </button>
+          )}
+
+          {onSaveBaseToChip && (
+            <button
+              type="button"
+              onClick={onSaveBaseToChip}
+              className="ch-btn"
+              title="Gravar toda a base na agenda do celular do canal (com pausas)"
+            >
+              <Smartphone className="w-4 h-4 text-violet-400" />
+              <span className="hidden lg:inline">Agenda no chip</span>
             </button>
           )}
 
