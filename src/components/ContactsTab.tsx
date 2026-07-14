@@ -76,6 +76,7 @@ import { consumeAtlasContactsHint } from '../utils/atlasRegionLaunch';
 import { getModalPortalContainer } from '../utils/domPortal';
 import { validateImportRow } from '../utils/contactImportSchema';
 import { apiFetchJson } from '../utils/apiFetchAuth';
+import { apiSaveContactToChip, apiSaveContactsToChipBatch } from '../services/contactsApi';
 import { AiSparkButton } from './ai/AiSparkButton';
 import { useAiStatus } from '../hooks/useAiStatus';
 import { aiEnrichContact, aiOrganizeImportRows, aiParseContactsText } from '../services/aiApi';
@@ -1165,6 +1166,109 @@ export const ContactsTab: React.FC = () => {
     digits: string;
   } | null>(null);
   const [chatPickerConnectionId, setChatPickerConnectionId] = useState('');
+
+  const [saveChipPicker, setSaveChipPicker] = useState<{
+    mode: 'one' | 'bulk';
+    contact?: Contact;
+    ids: string[];
+  } | null>(null);
+  const [saveChipConnectionId, setSaveChipConnectionId] = useState('');
+  const [saveChipBusy, setSaveChipBusy] = useState(false);
+
+  const connectedChannels = useMemo(
+    () => connections.filter((c) => c.status === ConnectionStatus.CONNECTED),
+    [connections]
+  );
+
+  const runSaveContactsToChip = useCallback(
+    async (connectionId: string, ids: string[], mode: 'one' | 'bulk') => {
+      if (!connectionId || ids.length === 0) return;
+      setSaveChipBusy(true);
+      const toastId = 'save-to-chip';
+      try {
+        if (mode === 'one' && ids.length === 1) {
+          toast.loading('A gravar na agenda do chip…', { id: toastId });
+          const r = await apiSaveContactToChip(ids[0], connectionId);
+          toast.success(
+            r.action === 'updated'
+              ? `Nome atualizado na agenda do chip (${r.name || 'contato'}).`
+              : `Contato adicionado à agenda do chip (${r.name || 'contato'}).`,
+            { id: toastId }
+          );
+          return;
+        }
+        toast.loading(`A gravar ${ids.length} contato(s) no chip…`, { id: toastId });
+        const r = await apiSaveContactsToChipBatch(ids, connectionId);
+        const s = r.summary;
+        if (!s) {
+          toast.success('Sincronização concluída.', { id: toastId });
+          return;
+        }
+        toast.success(
+          `${s.ok} ok (${s.added} novos · ${s.updated} atualizados)${s.failed ? ` · ${s.failed} falha(s)` : ''}`,
+          { id: toastId, duration: 6000 }
+        );
+        if (mode === 'bulk' && s.ok > 0) setSelectedIds([]);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Falha de rede ao salvar no chip.', { id: toastId });
+      } finally {
+        setSaveChipBusy(false);
+        setSaveChipPicker(null);
+      }
+    },
+    []
+  );
+
+  const openSaveToChipForContact = useCallback(
+    (contact: Contact) => {
+      if (connectedChannels.length === 0) {
+        toast.error('Nenhum chip WhatsApp conectado. Abra a aba Conexões.');
+        return;
+      }
+      if (!(contact.name || '').trim()) {
+        toast.error('Contato sem nome — edite antes de gravar no chip.');
+        return;
+      }
+      if (connectedChannels.length === 1) {
+        void runSaveContactsToChip(connectedChannels[0].id, [contact.id], 'one');
+        return;
+      }
+      setSaveChipConnectionId(
+        connectedChannels.find((c) => c.id === saveChipConnectionId)?.id || connectedChannels[0].id
+      );
+      setSaveChipPicker({ mode: 'one', contact, ids: [contact.id] });
+    },
+    [connectedChannels, runSaveContactsToChip, saveChipConnectionId]
+  );
+
+  const openSaveToChipForSelection = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    if (connectedChannels.length === 0) {
+      toast.error('Nenhum chip WhatsApp conectado. Abra a aba Conexões.');
+      return;
+    }
+    const maxBatch = 40;
+    if (selectedIds.length > maxBatch) {
+      toast.error(`Selecione no máximo ${maxBatch} contatos por lote (etapa 1).`);
+      return;
+    }
+    if (connectedChannels.length === 1) {
+      if (
+        !window.confirm(
+          `Gravar ${selectedIds.length} contato(s) na agenda do celular do canal "${connectedChannels[0].name}"?\n` +
+            'Números novos são adicionados; existentes têm o nome atualizado.'
+        )
+      ) {
+        return;
+      }
+      void runSaveContactsToChip(connectedChannels[0].id, selectedIds, 'bulk');
+      return;
+    }
+    setSaveChipConnectionId(
+      connectedChannels.find((c) => c.id === saveChipConnectionId)?.id || connectedChannels[0].id
+    );
+    setSaveChipPicker({ mode: 'bulk', ids: [...selectedIds] });
+  }, [connectedChannels, runSaveContactsToChip, saveChipConnectionId, selectedIds]);
 
   const navigateOpenChat = useCallback(
     (contact: Contact, connectionId: string) => {
@@ -4348,6 +4452,7 @@ export const ContactsTab: React.FC = () => {
           onDelete={() => void handleBulkDelete()}
           onAddToBlacklist={() => void handleBulkAddToBlacklist()}
           onRemoveFromBlacklist={() => void handleBulkRemoveFromBlacklist()}
+          onSaveToChip={openSaveToChipForSelection}
           activeFilter={activeFilter}
         />
       )}
@@ -4365,6 +4470,7 @@ export const ContactsTab: React.FC = () => {
         onCreateCampaign={(c) => { setSelectedContact(null); handleCreateCampaignForContact(c); }}
         onCopyPhone={handleCopyPhone}
         onAddToList={handleAddSingleToList}
+        onSaveToChip={(c) => { setSelectedContact(null); openSaveToChipForContact(c); }}
       />
 
       {/* Modal de Insights (lazy — só carrega ao abrir) */}
@@ -4714,6 +4820,86 @@ export const ContactsTab: React.FC = () => {
                 </button>
               );
             })}
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={!!saveChipPicker}
+        onClose={() => {
+          if (saveChipBusy) return;
+          setSaveChipPicker(null);
+        }}
+        title="Salvar na agenda do chip"
+        subtitle={
+          saveChipPicker?.mode === 'one' && saveChipPicker.contact
+            ? `Escolha em qual celular (canal) gravar “${saveChipPicker.contact.name}”. Se o número já existir, o nome é atualizado.`
+            : saveChipPicker
+              ? `Gravar ${saveChipPicker.ids.length} contato(s) na agenda do celular do canal escolhido. Novos são adicionados; existentes atualizam o nome.`
+              : undefined
+        }
+        icon={<Smartphone className="w-4 h-4" />}
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" disabled={saveChipBusy} onClick={() => setSaveChipPicker(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              leftIcon={<Smartphone className="w-4 h-4" />}
+              loading={saveChipBusy}
+              disabled={!saveChipConnectionId || saveChipBusy}
+              onClick={() => {
+                if (!saveChipPicker || !saveChipConnectionId) return;
+                void runSaveContactsToChip(saveChipConnectionId, saveChipPicker.ids, saveChipPicker.mode);
+              }}
+            >
+              {saveChipPicker?.mode === 'bulk'
+                ? `Gravar ${saveChipPicker.ids.length} no chip`
+                : 'Gravar no chip'}
+            </Button>
+          </>
+        }
+      >
+        {saveChipPicker && (
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {connectedChannels.map((conn) => {
+              const selected = saveChipConnectionId === conn.id;
+              return (
+                <button
+                  key={conn.id}
+                  type="button"
+                  onClick={() => setSaveChipConnectionId(conn.id)}
+                  className="w-full flex items-center justify-between gap-3 p-3 rounded-xl text-left transition-colors"
+                  style={{
+                    background: selected
+                      ? 'color-mix(in srgb, var(--brand-600) 10%, var(--surface-1))'
+                      : 'var(--surface-1)',
+                    border: `1px solid ${
+                      selected
+                        ? 'color-mix(in srgb, var(--brand-600) 35%, var(--border-subtle))'
+                        : 'var(--border-subtle)'
+                    }`
+                  }}
+                >
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                      {conn.name}
+                    </p>
+                    <p className="text-[11px] font-mono truncate" style={{ color: 'var(--text-3)' }}>
+                      {conn.phoneNumber || conn.id}
+                    </p>
+                  </div>
+                  <Badge variant="success">Online</Badge>
+                </button>
+              );
+            })}
+            {connectedChannels.length === 0 ? (
+              <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
+                Nenhum canal online.
+              </p>
+            ) : null}
           </div>
         )}
       </Modal>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Rocket, ListPlus, Trash2, Tag, Download, ShieldOff, ShieldCheck } from 'lucide-react';
+import { X, Rocket, ListPlus, Trash2, Tag, Download, ShieldOff, ShieldCheck, Smartphone } from 'lucide-react';
 
 interface Props {
   count: number;
@@ -11,6 +11,7 @@ interface Props {
   onDelete: () => void;
   onAddToBlacklist?: () => void;
   onRemoveFromBlacklist?: () => void;
+  onSaveToChip?: () => void;
   activeFilter?: string;
 }
 
@@ -20,7 +21,7 @@ interface Props {
  */
 export const ContactsBulkBar: React.FC<Props> = React.memo(({
   count, onClear, onCreateCampaign, onAddToList, onAddTag, onExport, onDelete,
-  onAddToBlacklist, onRemoveFromBlacklist, activeFilter
+  onAddToBlacklist, onRemoveFromBlacklist, onSaveToChip, activeFilter
 }) => {
   if (count === 0) return null;
 
@@ -48,6 +49,9 @@ export const ContactsBulkBar: React.FC<Props> = React.memo(({
         )}
         <BulkBtn icon={<ListPlus className="w-3.5 h-3.5" />} label="Lista" onClick={onAddToList} />
         <BulkBtn icon={<Tag className="w-3.5 h-3.5" />} label="Tag" onClick={onAddTag} />
+        {onSaveToChip && (
+          <BulkBtn icon={<Smartphone className="w-3.5 h-3.5" />} label="Salvar no chip" onClick={onSaveToChip} />
+        )}
         <BulkBtn icon={<Download className="w-3.5 h-3.5" />} label="Exportar" onClick={onExport} />
         <BulkBtn icon={<Trash2 className="w-3.5 h-3.5" />} label="Remover" onClick={onDelete} danger />
 

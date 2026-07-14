@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   X, Phone, Mail, MapPin, Church, Briefcase, Cake, Tag, Edit3, Trash2,
   MessageCircle, Rocket, Copy, Flame, Snowflake, Clock, User as UserIcon,
-  Sparkles, ListPlus, CalendarClock, Printer, ScrollText, Ban, ShieldCheck
+  Sparkles, ListPlus, CalendarClock, Printer, ScrollText, Ban, ShieldCheck, Smartphone
 } from 'lucide-react';
 import { formatFollowUpLabel, parseFollowUpMs, localStartOfTodayMs } from '../../../utils/followUp';
 import type { Contact, ContactCampaignDelivery, ReligiousMemberProfile } from '../../../types';
@@ -35,6 +35,7 @@ interface Props {
   onCreateCampaign: (contact: Contact) => void;
   onCopyPhone: (contact: Contact) => void;
   onAddToList: (contact: Contact) => void;
+  onSaveToChip?: (contact: Contact) => void;
 }
 
 const tempLabel: Record<Temperature, { label: string; icon: React.ReactNode; color: string }> = {
@@ -144,7 +145,8 @@ export const ContactDetailDrawer: React.FC<Props> = ({
   onOpenChat,
   onCreateCampaign,
   onCopyPhone,
-  onAddToList
+  onAddToList,
+  onSaveToChip
 }) => {
   const { segment } = useAppProfile();
   const { updateContact } = useZapMassCore();
@@ -335,11 +337,19 @@ export const ContactDetailDrawer: React.FC<Props> = ({
           </div>
 
           {/* ações rápidas */}
-          <div className="grid grid-cols-4 gap-2 mt-4">
+          <div className={`grid gap-2 mt-4 ${onSaveToChip ? 'grid-cols-5' : 'grid-cols-4'}`}>
             <QuickActionBtn icon={<MessageCircle className="w-4 h-4" />} label="Chat" onClick={() => onOpenChat(contact)} accent="emerald" />
             <QuickActionBtn icon={<Rocket className="w-4 h-4" />} label="Campanha" onClick={() => onCreateCampaign(contact)} accent="brand" />
             <QuickActionBtn icon={<Edit3 className="w-4 h-4" />} label="Editar" onClick={() => onEdit(contact)} accent="sky" />
             <QuickActionBtn icon={<ListPlus className="w-4 h-4" />} label="Lista" onClick={() => onAddToList(contact)} accent="violet" />
+            {onSaveToChip ? (
+              <QuickActionBtn
+                icon={<Smartphone className="w-4 h-4" />}
+                label="No chip"
+                onClick={() => onSaveToChip(contact)}
+                accent="sky"
+              />
+            ) : null}
           </div>
         </div>
 

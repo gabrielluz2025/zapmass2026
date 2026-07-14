@@ -78,6 +78,48 @@ export async function apiFetchContactProfilePicturesBatch(
   return Array.isArray(j.results) ? j.results : [];
 }
 
+export type SaveToChipAction = 'added' | 'updated';
+
+export async function apiSaveContactToChip(
+  id: string,
+  connectionId: string
+): Promise<{
+  ok: boolean;
+  action?: SaveToChipAction;
+  number?: string;
+  name?: string;
+  error?: string;
+  connectionId?: string;
+}> {
+  return apiFetchJson(`/api/contacts/${encodeURIComponent(id)}/save-to-chip`, {
+    method: 'POST',
+    body: JSON.stringify({ connectionId }),
+    timeoutMs: 45_000
+  });
+}
+
+export async function apiSaveContactsToChipBatch(
+  ids: string[],
+  connectionId: string
+): Promise<{
+  ok: boolean;
+  connectionId?: string;
+  results?: Array<{
+    id: string;
+    ok: boolean;
+    action?: SaveToChipAction;
+    error?: string;
+  }>;
+  summary?: { ok: number; failed: number; added: number; updated: number };
+  error?: string;
+}> {
+  return apiFetchJson('/api/contacts/save-to-chip-batch', {
+    method: 'POST',
+    body: JSON.stringify({ ids, connectionId }),
+    timeoutMs: 180_000
+  });
+}
+
 export async function apiUpdateContact(id: string, updates: Partial<Contact>): Promise<void> {
   await apiFetchJson(`/api/contacts/${encodeURIComponent(id)}`, {
     method: 'PATCH',

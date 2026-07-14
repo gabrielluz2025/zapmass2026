@@ -26,6 +26,11 @@ import {
   fetchAndPersistContactProfilePicture,
   fetchAndPersistContactProfilePicturesBatch
 } from './contactProfilePicture.js';
+import {
+  SAVE_TO_CHIP_MAX_BATCH,
+  saveContactToChip,
+  saveContactsToChipBatch
+} from './contactSaveToChip.js';
 import * as evolutionService from './evolutionService.js';
 import { normalizeTenantContactAddresses, normalizeTenantContactsFull } from './contactsNormalizeService.js';
 import { geocodeSingleContactIfNeeded } from './leadsGeoService.js';
@@ -283,6 +288,81 @@ export function registerContactsDataRoutes(app: Express): void {
     } catch (e) {
       console.error('[api/contacts profile-pictures-batch]', e);
       return res.status(500).json({ ok: false, error: 'Falha ao buscar fotos em lote.' });
+    }
+  });
+
+  app.post('/api/contacts/:id/save-to-chip', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const id = String(req.params.id || '').trim();
+    const body = (req.body || {}) as { connectionId?: string };
+    const preferred = String(body.connectionId || '').trim();
+    if (preferred && !evolutionService.ensureTenantOwnsConnection(ctx.tenantId, preferred)) {
+      return res.status(403).json({ ok: false, error: 'Canal não pertence a esta conta.' });
+    }
+    const connId = evolutionService.pickOpenConnectionForTenant(ctx.tenantId, preferred || undefined);
+    if (!connId) {
+      return res.status(409).json({
+        ok: false,
+        error: 'Nenhum chip WhatsApp conectado. Conecte um canal em Conexões.'
+      });
+    }
+    if (preferred && preferred !== connId) {
+      return res.status(409).json({
+        ok: false,
+        error: 'O canal escolhido não está online. Selecione outro chip conectado.'
+      });
+    }
+    try {
+      const result = await saveContactToChip(ctx.tenantId, id, connId);
+      if (!result.ok) {
+        const status = result.error?.includes('não encontrado') ? 404 : 400;
+        return res.status(status).json({ ok: false, error: result.error, connectionId: connId });
+      }
+      return res.json({ ok: true, ...result, connectionId: connId });
+    } catch (e) {
+      console.error('[api/contacts save-to-chip]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível salvar no chip.' });
+    }
+  });
+
+  app.post('/api/contacts/save-to-chip-batch', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body || {}) as { ids?: string[]; connectionId?: string };
+    const ids = Array.isArray(body.ids) ? body.ids : [];
+    if (ids.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Envie { ids: [...], connectionId }.' });
+    }
+    if (ids.length > SAVE_TO_CHIP_MAX_BATCH) {
+      return res.status(400).json({
+        ok: false,
+        error: `No máximo ${SAVE_TO_CHIP_MAX_BATCH} contatos por lote. Selecione menos ou faça vários lotes.`
+      });
+    }
+    const preferred = String(body.connectionId || '').trim();
+    if (!preferred) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Escolha o canal (connectionId) onde gravar na agenda do celular.'
+      });
+    }
+    if (!evolutionService.ensureTenantOwnsConnection(ctx.tenantId, preferred)) {
+      return res.status(403).json({ ok: false, error: 'Canal não pertence a esta conta.' });
+    }
+    const connId = evolutionService.pickOpenConnectionForTenant(ctx.tenantId, preferred);
+    if (!connId || connId !== preferred) {
+      return res.status(409).json({
+        ok: false,
+        error: 'O canal escolhido não está online.'
+      });
+    }
+    try {
+      const { results, summary } = await saveContactsToChipBatch(ctx.tenantId, ids, connId);
+      return res.json({ ok: true, connectionId: connId, results, summary });
+    } catch (e) {
+      console.error('[api/contacts save-to-chip-batch]', e);
+      return res.status(500).json({ ok: false, error: 'Falha ao gravar lote no chip.' });
     }
   });
 

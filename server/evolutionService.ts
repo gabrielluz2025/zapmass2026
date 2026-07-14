@@ -6118,6 +6118,116 @@ export async function fetchProfilePictureForPhone(
     return fetchConversationPicture(conversationId);
 }
 
+/** Indica se o número já parece existir na agenda Evolution do chip. */
+async function chipPhonebookHasNumber(connectionId: string, numberDigits: string): Promise<boolean> {
+    const digits = String(numberDigits || '').replace(/\D/g, '');
+    if (digits.length < 10) return false;
+    const inst = evoInst(connectionId);
+    const jid = `${digits}@s.whatsapp.net`;
+    try {
+        const response = await api.post(`/chat/findContacts/${inst}`, {
+            where: { id: jid },
+            page: 1,
+            limit: 5
+        });
+        const list = Array.isArray(response.data)
+            ? response.data
+            : Array.isArray(response.data?.contacts)
+              ? response.data.contacts
+              : Array.isArray(response.data?.data)
+                ? response.data.data
+                : [];
+        if (list.length > 0) return true;
+    } catch {
+        /* fallback abaixo */
+    }
+    try {
+        const response = await api.post(`/chat/findContacts/${inst}`, {
+            where: {},
+            page: 1,
+            limit: 2000
+        });
+        const list = Array.isArray(response.data)
+            ? response.data
+            : Array.isArray(response.data?.contacts)
+              ? response.data.contacts
+              : Array.isArray(response.data?.data)
+                ? response.data.data
+                : [];
+        const keys = new Set(buildOutboundPhoneVariants(digits));
+        keys.add(digits);
+        for (const row of list) {
+            if (!row || typeof row !== 'object') continue;
+            const r = row as Record<string, unknown>;
+            const candidates = [r.id, r.remoteJid, r.jid, r.number, r.phoneNumber]
+                .map((x) => String(x || '').split('@')[0].replace(/\D/g, ''))
+                .filter((d) => d.length >= 10);
+            if (candidates.some((d) => keys.has(d) || d === digits || digits.endsWith(d) || d.endsWith(digits))) {
+                return true;
+            }
+        }
+    } catch {
+        return false;
+    }
+    return false;
+}
+
+/**
+ * Grava nome+número na agenda do celular do chip (Baileys chatModify via Evolution).
+ * Se o número já existir, atualiza o nome (não duplica).
+ */
+export async function saveContactOnChipPhonebook(
+    connectionId: string,
+    numberDigits: string,
+    name: string
+): Promise<{ saved: true; action: 'added' | 'updated'; number: string; name: string }> {
+    const number = normalizeOutboundNumber(numberDigits);
+    const fullName = String(name || '').trim().slice(0, 80);
+    if (number.length < 12) throw new Error('Telefone inválido.');
+    if (!fullName) throw new Error('Nome vazio.');
+
+    const existed = await chipPhonebookHasNumber(connectionId, number);
+    const inst = evoInst(connectionId);
+    const body = {
+        number,
+        name: fullName,
+        saveOnDevice: true
+    };
+    const paths = [`/contact/save/${inst}`, `/chat/saveContact/${inst}`];
+    let lastStatus = 0;
+    let lastMsg = '';
+
+    for (const path of paths) {
+        try {
+            await api.post(path, body, { timeout: 25_000 });
+            return {
+                saved: true,
+                action: existed ? 'updated' : 'added',
+                number,
+                name: fullName
+            };
+        } catch (err: unknown) {
+            const ax = err as { response?: { status?: number; data?: unknown }; message?: string };
+            lastStatus = Number(ax.response?.status) || 0;
+            const data = ax.response?.data;
+            lastMsg =
+                typeof data === 'string'
+                    ? data
+                    : data && typeof data === 'object'
+                      ? JSON.stringify(data).slice(0, 200)
+                      : ax.message || '';
+            if (lastStatus === 404 || lastStatus === 405 || lastStatus === 501) continue;
+            const detail = lastMsg || `HTTP ${lastStatus || '?'}`;
+            throw new Error(`Falha ao gravar na agenda: ${detail}`.slice(0, 280));
+        }
+    }
+
+    if (lastStatus === 404 || lastStatus === 405 || lastStatus === 501 || !lastStatus) {
+        throw new Error('SAVE_CONTACT_UNSUPPORTED');
+    }
+    throw new Error(`Falha ao gravar na agenda: ${lastMsg || `HTTP ${lastStatus}`}`.slice(0, 280));
+}
+
 export function deleteLocalConversations(conversationIds: string[]): number {
     return chatStore.deleteLocalConversations(conversationIds);
 }
