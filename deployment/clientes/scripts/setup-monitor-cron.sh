@@ -7,10 +7,10 @@ exigir_root
 
 garantir_scripts_executaveis_clientes
 
-CRON_LINE="*/15 * * * * root ${SELF_DIR}/monitor-clientes.sh >> /var/log/zapmass-monitor.log 2>&1"
+CRON_LINE="*/15 * * * * root bash ${SELF_DIR}/monitor-clientes.sh >> /var/log/zapmass-monitor.log 2>&1"
 CRON_FILE="/etc/cron.d/zapmass-monitor"
 
-if [ -f "$CRON_FILE" ] && grep -qF "monitor-clientes.sh" "$CRON_FILE" 2>/dev/null; then
+if [ -f "$CRON_FILE" ] && grep -qF "bash ${SELF_DIR}/monitor-clientes.sh" "$CRON_FILE" 2>/dev/null; then
     garantir_scripts_executaveis_clientes
     ok "Cron de monitoramento já instalado."
     exit 0
