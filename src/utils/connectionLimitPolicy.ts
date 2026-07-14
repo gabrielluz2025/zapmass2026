@@ -4,8 +4,6 @@ import { filterByConnectionScope } from './connectionScope';
 export const BASE_CHANNEL_SLOTS = 2;
 export const MAX_EXTRA_CHANNEL_SLOTS = 3;
 export const MAX_CHANNELS_TOTAL = 5;
-/** Teto lógico no app para o criador (o servidor aplica 999; aqui basta &gt; 5). */
-const ADMIN_PRACTICAL_MAX = 99;
 
 function nonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v.trim().length > 0;
@@ -81,14 +79,14 @@ function paidIncludedChannels(sub: UserSubscription | null): number {
 
 /**
  * Teto de canais para o app (2 base + `extraChannelSlots` pagos, máx. 5).
- * Contas de administrador (lista ADMIN no servidor) vêem teto alto na UI.
+ * Contas de administrador (lista ADMIN) usam o teto máximo do produto (5), igual ao servidor.
  * Extras exigem prova de add-on (igual ao servidor) — nunca só o numero no Firestore.
  */
 export function getMaxConnectionSlotsForUser(
   subscription: UserSubscription | null,
   isAdminUser: boolean
 ): number {
-  if (isAdminUser) return ADMIN_PRACTICAL_MAX;
+  if (isAdminUser) return MAX_CHANNELS_TOTAL;
   const included = paidIncludedChannels(subscription);
   if (included > 0 && statusAllowsPaidExtras(subscription)) {
     return Math.min(MAX_CHANNELS_TOTAL, included + manualGrantedExtraSlots(subscription));

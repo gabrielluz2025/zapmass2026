@@ -20,6 +20,7 @@ export type AdminUserAccessRow = {
   trialEndsAt: string | null;
   accessEndsAt: string | null;
   manualAccessEndsAt: string | null;
+  includedChannels: number;
   manualExtraChannelSlots: number;
   manualExtraChannelSlotsEndsAt: string | null;
   adminNote: string;
@@ -48,6 +49,8 @@ export type AdminAccessUserPutBody = {
   channelGrantDays?: number | null;
   channelGrantMonths?: number | null;
   channelGrantMode?: 'set' | 'extend';
+  /** Canais do plano (1–5). Usado em Gestão manual / ajuste administrativo. */
+  includedChannels?: number | null;
   adminNote?: string;
 };
 
@@ -80,6 +83,10 @@ export function docToAdminAccessRow(
     trialEndsAt: tsToIso(data?.trialEndsAt),
     accessEndsAt: tsToIso(data?.accessEndsAt),
     manualAccessEndsAt: tsToIso(data?.manualAccessEndsAt),
+    includedChannels: Math.max(
+      0,
+      Math.min(5, Math.floor(Number(data?.includedChannels) || 0))
+    ),
     manualExtraChannelSlots: Math.max(
       0,
       Math.min(3, Math.floor(Number(data?.manualExtraChannelSlots) || 0))
@@ -224,6 +231,7 @@ export async function listAdminAccessUsers(
           trialEndsAt: null,
           accessEndsAt: null,
           manualAccessEndsAt: null,
+          includedChannels: 0,
           manualExtraChannelSlots: 0,
           manualExtraChannelSlotsEndsAt: null,
           adminNote: '',
@@ -346,6 +354,13 @@ function buildAdminAccessUpdates(
     }
   }
 
+  if (body.includedChannels != null) {
+    const n = Math.floor(Number(body.includedChannels) || 0);
+    if (n > 0) {
+      updates.includedChannels = Math.max(1, Math.min(5, n));
+    }
+  }
+
   return updates;
 }
 
@@ -355,6 +370,9 @@ function inferAdminAccessAction(body: AdminAccessUserPutBody): string {
   }
   if (body.manualExtraChannelSlots != null) {
     return Number(body.manualExtraChannelSlots) > 0 ? 'grant-extra-channels' : 'revoke-extra-channels';
+  }
+  if (body.includedChannels != null) {
+    return 'set-included-channels';
   }
   if (typeof body.manualGrant === 'boolean') {
     return body.manualGrant

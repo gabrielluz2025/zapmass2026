@@ -103,14 +103,17 @@ function paidIncludedChannels(sub: UserSubscriptionDoc | null | undefined): numb
  *
  * Nunca confia so em `extraChannelSlots`: sem prova (preapproval, pagamento one-time do add-on ou
  * `manualGrant`) o teto fica em 2, mesmo com `active` e numero errado no documento.
+ *
+ * Contas de administrador da plataforma (ADMIN_EMAILS / ADMIN_UIDS) usam o teto máximo
+ * do produto (5), alinhado à UI — a liberação manual de extras continua a valer para clientes.
  */
 export function getMaxConnectionSlots(
   sub: UserSubscriptionDoc | null | undefined,
   options: { serverAdmin: boolean }
 ): number {
-  // Para canais WhatsApp, admin também respeita 2 + extras comprados.
-  // (ADMIN_EMAILS segue válido para rotas/painéis administrativos.)
-  void options.serverAdmin;
+  if (options.serverAdmin) {
+    return MAX_CONNECTIONS_TOTAL;
+  }
   const included = paidIncludedChannels(sub);
   if (included > 0 && statusAllowsPaidExtras(sub, Date.now())) {
     const manualExtras = manualGrantedExtraSlots(sub);

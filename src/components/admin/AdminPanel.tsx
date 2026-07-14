@@ -61,6 +61,7 @@ type AccessUser = {
   trialEndsAt: string | null;
   accessEndsAt: string | null;
   manualAccessEndsAt: string | null;
+  includedChannels: number;
   manualExtraChannelSlots: number;
   manualExtraChannelSlotsEndsAt: string | null;
   adminNote: string;
@@ -245,6 +246,7 @@ export const AdminPanel: React.FC = () => {
   const [channelGrantSlots, setChannelGrantSlots] = useState('1');
   const [channelGrantDays, setChannelGrantDays] = useState('30');
   const [channelGrantMonths, setChannelGrantMonths] = useState('0');
+  const [includedChannelsGrant, setIncludedChannelsGrant] = useState('5');
   const [filter, setFilter] = useState<AccessFilter>('all');
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditRows, setAuditRows] = useState<AccessAudit[]>([]);
@@ -568,6 +570,7 @@ export const AdminPanel: React.FC = () => {
       channelGrantDays?: number | null;
       channelGrantMonths?: number | null;
       channelGrantMode?: 'set' | 'extend';
+      includedChannels?: number | null;
     }
   ) => {
     const res = await fetch(apiUrl('/api/admin/access-user'), {
@@ -649,6 +652,25 @@ export const AdminPanel: React.FC = () => {
       toast.success('Canais extras liberados.');
     } catch (e: any) {
       toast.error(e?.message || 'Não foi possível liberar canais extras.');
+    }
+  };
+
+  const handleSetIncludedChannelsByEmail = async () => {
+    if (!grantEmail.trim()) {
+      toast.error('Informe o e-mail do usuário.');
+      return;
+    }
+    const n = Math.max(1, Math.min(5, Math.floor(Number(includedChannelsGrant) || 0)));
+    try {
+      const updated = await updateAccessUser({
+        email: grantEmail.trim(),
+        includedChannels: n,
+        adminNote: grantNote.trim() || `Canais do plano definidos para ${n}`
+      });
+      setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
+      toast.success(`Plano atualizado para ${n} canal(is).`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível definir os canais do plano.');
     }
   };
 
@@ -1337,6 +1359,34 @@ export const AdminPanel: React.FC = () => {
                   Liberar canais extras para este usuario
                 </Button>
               </div>
+              <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                <p className="text-[12px] font-bold mb-2" style={{ color: 'var(--text-1)' }}>
+                  Definir canais do plano (1–5)
+                </p>
+                <p className="text-[11px] mb-2" style={{ color: 'var(--text-3)' }}>
+                  Ajusta o que aparece em Minha assinatura (Gestão manual). Ex.: 5 = teto máximo do produto.
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className="ui-eyebrow text-[10px]">Canais do plano</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={5}
+                      className="ui-input mt-1 w-28"
+                      value={includedChannelsGrant}
+                      onChange={(e) => setIncludedChannelsGrant(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => void handleSetIncludedChannelsByEmail()}
+                  >
+                    Aplicar no e-mail acima
+                  </Button>
+                </div>
+              </div>
             </div>
           </Card>
 
@@ -1500,6 +1550,11 @@ export const AdminPanel: React.FC = () => {
                                 <span>Pago: <strong style={{ color: 'var(--text-2)' }}>{toPtDateTime(u.accessEndsAt)}</strong></span>
                                 <span className="sm:col-span-2">Manual: <strong style={{ color: 'var(--text-2)' }}>{toPtDateTime(u.manualAccessEndsAt)}</strong></span>
                                 <span className="sm:col-span-2">
+                                  Canais do plano:{' '}
+                                  <strong style={{ color: 'var(--text-2)' }}>
+                                    {Math.max(0, Math.min(5, Math.floor(Number(u.includedChannels) || 0))) || '—'}
+                                  </strong>
+                                  {' · '}
                                   Canais extra (manual):{' '}
                                   <strong style={{ color: 'var(--text-2)' }}>
                                     +{Math.max(0, Math.min(3, Math.floor(Number(u.manualExtraChannelSlots) || 0)))} até {toPtDateTime(u.manualExtraChannelSlotsEndsAt)}
