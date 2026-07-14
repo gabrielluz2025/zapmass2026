@@ -32,6 +32,8 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+garantir_scripts_executaveis_clientes
+
 _check() {
     local ok_msg="$1"
     shift

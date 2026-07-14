@@ -35,6 +35,13 @@ exigir_root() {
     fi
 }
 
+# Garante +x nos scripts de clientes (git pull no Windows pode gravar 644).
+garantir_scripts_executaveis_clientes() {
+    local d="${ZAPMASS_ROOT:-/opt/zapmass}/deployment/clientes/scripts"
+    [ -d "$d" ] || return 0
+    chmod +x "$d"/*.sh 2>/dev/null || true
+}
+
 # Normaliza o nome do cliente: minusculas, so letras/digitos/-.
 # Rejeita nomes vazios ou com caracteres estranhos.
 normalizar_slug() {

@@ -5,10 +5,13 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/_comum.sh"
 exigir_root
 
+garantir_scripts_executaveis_clientes
+
 CRON_LINE="*/5 * * * * root ${SELF_DIR}/processar-fila-provision.sh >> /var/log/zapmass-provision.log 2>&1"
 CRON_FILE="/etc/cron.d/zapmass-provision"
 
 if [ -f "$CRON_FILE" ] && grep -qF "processar-fila-provision.sh" "$CRON_FILE" 2>/dev/null; then
+    garantir_scripts_executaveis_clientes
     ok "Cron de provisionamento já instalado."
     exit 0
 fi

@@ -497,6 +497,7 @@ if [ -d /opt/zapmass/clientes ] && ls /opt/zapmass/clientes/*/docker-compose.yml
   echo "==> atualizar containers dos clientes"
   # shellcheck source=deployment/clientes/scripts/_comum.sh
   . "$(dirname "$0")/clientes/scripts/_comum.sh"
+  garantir_scripts_executaveis_clientes
   corrigir_redis_url_todos
   read -r _prod_slug _prod_port _prod_dom <<<"$(resolver_cliente_producao)"
   _client_fail=0

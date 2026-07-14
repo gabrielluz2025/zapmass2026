@@ -5,10 +5,13 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/_comum.sh"
 exigir_root
 
+garantir_scripts_executaveis_clientes
+
 CRON_LINE="15 3 * * * root ${SELF_DIR}/backup-todos-clientes.sh >> /var/log/zapmass-backup.log 2>&1"
 CRON_FILE="/etc/cron.d/zapmass-clientes-backup"
 
 if [ -f "$CRON_FILE" ] && grep -qF "backup-todos-clientes.sh" "$CRON_FILE" 2>/dev/null; then
+    garantir_scripts_executaveis_clientes
     ok "Cron de backup já instalado."
     exit 0
 fi
