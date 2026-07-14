@@ -3,6 +3,7 @@ import { ConnectionStatus } from '../types';
 import type { WhatsAppConnection } from '../types';
 import {
   buildChannelDispatchInsights,
+  brazilDayKey,
   computeChannelDispatchTemp,
   getChannelLastNSentDays
 } from './channelDispatchInsights';
@@ -22,8 +23,7 @@ const conn = (over: Partial<WhatsAppConnection> = {}): WhatsAppConnection =>
 
 describe('channelDispatchInsights', () => {
   it('getChannelLastNSentDays usa contagem ao vivo de hoje', () => {
-    const today = new Date();
-    const dk = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const dk = brazilDayKey();
     const days = getChannelLastNSentDays(
       {
         connectionId: 'c1',
@@ -49,8 +49,7 @@ describe('channelDispatchInsights', () => {
   });
 
   it('buildChannelDispatchInsights agrega semana', () => {
-    const today = new Date();
-    const dk = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const dk = brazilDayKey();
     const row = buildChannelDispatchInsights(
       conn({ messagesSentToday: 12 }),
       {

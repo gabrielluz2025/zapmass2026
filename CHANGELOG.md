@@ -11,6 +11,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.15] — 2026-07-14
+
+### Corrigido — CI/CD GitHub Actions (deploy vermelho)
+- Testes `dashboardLocalStats` e `channelDispatchInsights` usavam data local (UTC) em vez de `brazilDayKey()` — falhavam entre 21h–23h59 UTC
+- Workflow: `TZ=America/Sao_Paulo` no job de build; removido `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`
+
+---
+
 ## [2.3.14] — 2026-07-14
 
 ### Adicionado — Evolution sharding (Fase A)

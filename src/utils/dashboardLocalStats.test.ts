@@ -61,10 +61,10 @@ describe('computeDailySendsFromCampaigns', () => {
   });
 
   it('getDailySendSeriesLastNDays ignora estimativas de campanha', () => {
-    const today = new Date();
-    const dk = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const dk = brazilDayKey();
     const funnel = new Map([[dk, 7]]);
     const series = getDailySendSeriesLastNDays(1, funnel);
+    expect(series[0].date).toBe(dk);
     expect(series[0].count).toBe(7);
   });
 
@@ -79,18 +79,18 @@ describe('computeDailySendsFromCampaigns', () => {
   });
 
   it('getFunnelDailySeriesLastNDays retorna as 4 etapas do funil', () => {
-    const today = new Date();
-    const dk = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const dk = brazilDayKey();
     const series = getFunnelDailySeriesLastNDays(1, {
       sent: new Map([[dk, 10]]),
       delivered: new Map([[dk, 8]]),
       read: new Map([[dk, 5]]),
       replied: new Map([[dk, 2]])
     });
-    expect(series[0].sent).toBeGreaterThanOrEqual(0);
-    expect(series[0].delivered).toBeLessThanOrEqual(series[0].sent);
-    expect(series[0].read).toBeLessThanOrEqual(series[0].delivered);
-    expect(series[0].replied).toBeLessThanOrEqual(series[0].read);
+    expect(series[0].date).toBe(dk);
+    expect(series[0].sent).toBe(10);
+    expect(series[0].delivered).toBe(8);
+    expect(series[0].read).toBe(5);
+    expect(series[0].replied).toBe(2);
   });
 
   it('getFunnelDailySeriesLastNDays alinha chave do dia ao fuso Brasil', () => {
