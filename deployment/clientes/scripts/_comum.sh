@@ -399,12 +399,24 @@ ler_wwebjs_bundle_url() {
     printf '%s' "$url"
 }
 
+cliente_ja_na_rede() {
+    local container="$1"
+    local net="$2"
+    docker inspect "$container" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null \
+        | grep -qw "$net"
+}
+
 ligar_cliente_rede_compose() {
     local slug="$1"
     local container="zapmass-cli-${slug}"
     local net connected=0
     for net in "$(redis_compose_network 2>/dev/null || true)" "$(compose_shared_network 2>/dev/null || true)"; do
         [ -z "$net" ] && continue
+        if cliente_ja_na_rede "$container" "$net"; then
+            log "Cliente ${slug} já está na rede ${net}."
+            connected=1
+            continue
+        fi
         if docker network connect "$net" "$container" 2>/dev/null; then
             log "Cliente ${slug} ligado à rede ${net}."
             connected=1

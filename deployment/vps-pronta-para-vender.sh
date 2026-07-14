@@ -107,9 +107,16 @@ if cliente_dispatch_ok "$prod_port"; then
     ok "Dispatch local :${prod_port} → ok:true"
 else
     err "FALHOU: /api/health/dispatch em :${prod_port}"
-    FALHAS=$((FALHAS + 1))
     if [ "$APLICAR" -eq 1 ] && [ "$SOMENTE_CHECK" -eq 0 ]; then
         bash deployment/fix-redis-url-all.sh || true
+        sleep 5
+        if cliente_dispatch_ok "$prod_port"; then
+            ok "Dispatch recuperado após auto-fix (:${prod_port})"
+        else
+            FALHAS=$((FALHAS + 1))
+        fi
+    else
+        FALHAS=$((FALHAS + 1))
     fi
 fi
 
