@@ -1,23 +1,31 @@
 #!/usr/bin/env bash
 # Estabilização completa da VPS ZapMass (idempotente).
-# Auditoria + arquitetura + demo parado + Postgres + índice Evolution + .env + prune + health.
+# Auditoria + arquitetura + staging parado + Postgres + índice Evolution + .env + prune + health.
+# NÃO para o cliente que serve zap-mass.com (hoje: demo :3100).
 #
 # Uso (um comando):
 #   cd /opt/zapmass && sudo bash deployment/vps-stabilize-producao.sh
 #
 # Variáveis opcionais:
 #   ZAPMASS_ROOT=/opt/zapmass
-#   DEPLOY_SKIP_CLIENTS=demo,staging   (default: demo)
+#   DEPLOY_SKIP_CLIENTS=staging   (default: só staging — NÃO inclua demo se for produção)
 #   SKIP_BUILDER_PRUNE=1               (não limpar cache de build)
 #   SKIP_RECREATE_ZAPMASS=1            (não recriar container principal após .env)
 
 set -euo pipefail
 
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ZAPMASS_ROOT="${ZAPMASS_ROOT:-/opt/zapmass}"
 ENV_FILE="${ZAPMASS_ROOT}/.env"
 CLIENTES_DIR="${ZAPMASS_ROOT}/clientes"
-DEPLOY_SKIP_CLIENTS="${DEPLOY_SKIP_CLIENTS:-demo,staging}"
+# staging pode pular deploy; NÃO incluir "demo" por default — demo = zap-mass.com
+DEPLOY_SKIP_CLIENTS="${DEPLOY_SKIP_CLIENTS:-staging}"
 HOST_PORT="${HOST_PORT:-3001}"
+
+# shellcheck source=/dev/null
+. "${SELF_DIR}/clientes/scripts/_comum.sh"
+read -r _PROD_SLUG _PROD_PORT _PROD_DOM <<<"$(resolver_cliente_producao)"
+PROD_SLUG_STAB="${_PROD_SLUG:-demo}"
 
 RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; CYN=$'\033[36m'; BLD=$'\033[1m'; END=$'\033[0m'
 
@@ -118,12 +126,17 @@ echo ""
 docker stats --no-stream 2>/dev/null | head -10 || true
 echo ""
 
-# ─── 2. Isolar demo/staging do deploy automático ────────────────────────────
+# ─── 2. Isolar staging (NUNCA o cliente que serve o domínio público) ─────────
 log "2/9 Clientes não-produção (skip deploy + parar containers)"
+log "  produção pública = ${PROD_SLUG_STAB} (não será parado nem skip)"
 IFS=',' read -r -a _skip_arr <<< "$DEPLOY_SKIP_CLIENTS"
 for raw in "${_skip_arr[@]}"; do
   slug="$(echo "$raw" | tr -d '[:space:]')"
   [ -z "$slug" ] && continue
+  if [ "$slug" = "$PROD_SLUG_STAB" ]; then
+    warn "  slug '${slug}' é produção (${_PROD_DOM:-zap-mass.com}) — IGNORADO (não parar)"
+    continue
+  fi
   dir="${CLIENTES_DIR}/${slug}"
   if [ ! -d "$dir" ]; then
     log "  slug '${slug}': pasta não existe — ignorado"
@@ -138,7 +151,21 @@ for raw in "${_skip_arr[@]}"; do
     ok "  ${slug}: container parado, restart=no"
   fi
 done
-unset _skip_arr raw slug dir cname
+# Garantir que produção NÃO tenha .deploy-skip e tenha restart policy
+_prod_dir="${CLIENTES_DIR}/${PROD_SLUG_STAB}"
+if [ -d "$_prod_dir" ]; then
+  rm -f "${_prod_dir}/.deploy-skip"
+  _pc="zapmass-cli-${PROD_SLUG_STAB}"
+  if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$_pc"; then
+    docker update --restart=unless-stopped "$_pc" >/dev/null 2>&1 || true
+    if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$_pc"; then
+      warn "  produção ${_pc} parado — subindo..."
+      (cd "$_prod_dir" && docker compose up -d) 2>/dev/null || docker start "$_pc" 2>/dev/null || true
+    fi
+  fi
+  ok "  ${PROD_SLUG_STAB}: ativo para deploy (sem .deploy-skip)"
+fi
+unset _skip_arr raw slug dir cname _prod_dir _pc
 
 # Clientes pagos: manter; só garantir .deploy-skip ausente nos que devem subir no deploy
 if [ -d "$CLIENTES_DIR" ]; then

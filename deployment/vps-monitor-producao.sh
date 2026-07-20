@@ -11,7 +11,8 @@
 #   PG_CPU_ALERT_PCT=80          (Postgres CPU com Evolution Up)
 #   DISK_ALERT_PCT=70
 #   AUTO_FIX_EVOLUTION=1         (sobe evolution se parado)
-#   AUTO_FIX_DEMO_STOP=1         (para demo se estiver Up 24/7 por engano)
+#   AUTO_FIX_DEMO_STOP=0         (só para demo se NÃO for o site público; default OFF)
+#   AUTO_FIX_PRODUCAO=1          (sobe cliente público se health falhar)
 
 set -euo pipefail
 
@@ -23,16 +24,28 @@ LOG_FILE="${ZAPMASS_MONITOR_LOG:-/var/log/zapmass-monitor.log}"
 ALERT_FILE="${ZAPMASS_MONITOR_ALERTS:-/var/log/zapmass-monitor-alerts.log}"
 HEALTH_JSON_HOST="${ZAPMASS_HEALTH_JSON:-${ZAPMASS_ROOT}/data/vps-health.json}"
 AUTO_FIX_EVOLUTION="${AUTO_FIX_EVOLUTION:-1}"
-AUTO_FIX_DEMO_STOP="${AUTO_FIX_DEMO_STOP:-1}"
+# Default 0: zap-mass.com é o cliente "demo" — parar demo derruba o site (502).
+AUTO_FIX_DEMO_STOP="${AUTO_FIX_DEMO_STOP:-0}"
+AUTO_FIX_PRODUCAO="${AUTO_FIX_PRODUCAO:-1}"
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "${SELF_DIR}/clientes/scripts/_comum.sh"
 
 evolution_up=0
 pg_cpu_pct=""
 index_ok=0
 health_http=0
+prod_health_http=0
 load15="0"
 alert_messages=()
 
 REQUIRED=(zapmass-zapmass-1 zapmass-evolution-1 zapmass-postgres-1 zapmass-redis-1)
+
+PROD_SLUG="demo"
+PROD_PORT="3100"
+PROD_DOM="zap-mass.com"
+PROD_CNAME="zapmass-cli-demo"
 
 RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; CYN=$'\033[36m'; BLD=$'\033[1m'; END=$'\033[0m'
 
@@ -84,6 +97,12 @@ if [ ! -d "$ZAPMASS_ROOT" ]; then
 fi
 
 cd "$ZAPMASS_ROOT"
+
+read -r PROD_SLUG PROD_PORT PROD_DOM <<<"$(resolver_cliente_producao)"
+PROD_SLUG="${PROD_SLUG:-demo}"
+PROD_PORT="${PROD_PORT:-3100}"
+PROD_DOM="${PROD_DOM:-zap-mass.com}"
+PROD_CNAME="zapmass-cli-${PROD_SLUG}"
 
 # ─── Load ─────────────────────────────────────────────────────────────────────
 cpus="$(nproc 2>/dev/null || echo 4)"
@@ -161,27 +180,76 @@ if [ "${AUTO_FIX_EVOLUTION}" = "1" ] && ! container_running "zapmass-evolution-1
   fi
 fi
 
-# ─── Demo acidental 24/7 ──────────────────────────────────────────────────────
-if [ "${AUTO_FIX_DEMO_STOP}" = "1" ] && container_running "zapmass-cli-demo"; then
-  warn_msg "Demo está Up (não deveria 24/7) — parando..."
-  if [ -f "${ZAPMASS_ROOT}/deployment/clientes/scripts/parar-cliente.sh" ]; then
-    bash "${ZAPMASS_ROOT}/deployment/clientes/scripts/parar-cliente.sh" demo 2>/dev/null || docker stop zapmass-cli-demo 2>/dev/null || true
-  else
-    docker stop zapmass-cli-demo 2>/dev/null || true
-  fi
-  ok_msg "Demo parado automaticamente"
+# ─── Cliente público (zap-mass.com) — NUNCA parar se for produção ─────────────
+echo ""
+echo "${CYN}Produção pública:${END} ${PROD_SLUG} :${PROD_PORT} (${PROD_DOM})"
+# Remove .deploy-skip residual que impede o deploy de recriar o site
+if [ -f "$(cliente_dir "$PROD_SLUG")/.deploy-skip" ]; then
+  rm -f "$(cliente_dir "$PROD_SLUG")/.deploy-skip"
+  warn_msg "Removido .deploy-skip de ${PROD_SLUG} (é o site público)"
   fixes=$((fixes + 1))
 fi
 
-# ─── Health API ───────────────────────────────────────────────────────────────
+if container_running "$PROD_CNAME"; then
+  ok_msg "  ${PROD_CNAME} — Up"
+  docker update --restart=unless-stopped "$PROD_CNAME" >/dev/null 2>&1 || true
+else
+  alert "  ${PROD_CNAME} — NÃO está Up (site público fora)"
+  if [ "${AUTO_FIX_PRODUCAO}" = "1" ]; then
+    warn_msg "Tentando recuperar produção (${PROD_SLUG})..."
+    if [ -f "${ZAPMASS_ROOT}/deployment/vps-watchdog-producao.sh" ]; then
+      bash "${ZAPMASS_ROOT}/deployment/vps-watchdog-producao.sh" 2>&1 || true
+    elif [ -f "${ZAPMASS_ROOT}/deployment/clientes/scripts/corrigir-502.sh" ]; then
+      ZAPMASS_SKIP_DOCKER_BUILD=1 bash "${ZAPMASS_ROOT}/deployment/clientes/scripts/corrigir-502.sh" "$PROD_SLUG" --skip-build 2>&1 || true
+    fi
+    if container_running "$PROD_CNAME"; then
+      ok_msg "Produção recuperada automaticamente"
+      fixes=$((fixes + 1))
+    else
+      alert "Produção não subiu — rode: sudo bash deployment/clientes/scripts/corrigir-502.sh ${PROD_SLUG}"
+    fi
+  fi
+fi
+
+# Só para "demo" se explicitamente pedido E se demo NÃO for o site público
+if [ "${AUTO_FIX_DEMO_STOP}" = "1" ] && [ "$PROD_SLUG" != "demo" ] && container_running "zapmass-cli-demo"; then
+  warn_msg "Demo (não-produção) está Up — parando (AUTO_FIX_DEMO_STOP=1)..."
+  docker stop zapmass-cli-demo 2>/dev/null || true
+  ok_msg "Demo parado automaticamente"
+  fixes=$((fixes + 1))
+elif [ "${AUTO_FIX_DEMO_STOP}" = "1" ] && [ "$PROD_SLUG" = "demo" ]; then
+  warn_msg "AUTO_FIX_DEMO_STOP=1 ignorado: demo É a produção (${PROD_DOM})"
+fi
+
+# ─── Health API (stack main :3001 + site público :PROD_PORT) ──────────────────
 echo ""
 hc="$(health_code 3001)"
 health_http="$hc"
-echo "${CYN}Health :3001:${END} HTTP ${hc}"
+echo "${CYN}Health stack :3001:${END} HTTP ${hc}"
 if [ "$hc" != "200" ]; then
-  alert "API /api/health não retornou 200 (HTTP ${hc})"
+  alert "API stack /api/health :3001 não retornou 200 (HTTP ${hc})"
 else
-  ok_msg "API saudável"
+  ok_msg "API stack :3001 saudável"
+fi
+
+phc="$(health_code "$PROD_PORT")"
+prod_health_http="$phc"
+echo "${CYN}Health público :${PROD_PORT}:${END} HTTP ${phc}"
+if [ "$phc" != "200" ]; then
+  alert "Site público /api/health :${PROD_PORT} não retornou 200 (HTTP ${phc})"
+  if [ "${AUTO_FIX_PRODUCAO}" = "1" ] && [ -f "${ZAPMASS_ROOT}/deployment/vps-watchdog-producao.sh" ]; then
+    warn_msg "Watchdog recuperando health público..."
+    bash "${ZAPMASS_ROOT}/deployment/vps-watchdog-producao.sh" 2>&1 || true
+    phc="$(health_code "$PROD_PORT")"
+    prod_health_http="$phc"
+    if [ "$phc" = "200" ]; then
+      ok_msg "Health público recuperado"
+      fixes=$((fixes + 1))
+      # desconta o alerta se recuperou — mantém issues mas registra fix
+    fi
+  fi
+else
+  ok_msg "Site público :${PROD_PORT} saudável"
 fi
 
 # ─── Resumo docker stats ──────────────────────────────────────────────────────
@@ -237,10 +305,14 @@ write_health_json() {
   "evolutionUp": $([ "$evolution_up" = "1" ] && echo true || echo false),
   "indexOk": $([ "$index_ok" = "1" ] && echo true || echo false),
   "healthHttp": ${health_http:-0},
+  "prodSlug": "${PROD_SLUG}",
+  "prodPort": ${PROD_PORT},
+  "prodHealthHttp": ${prod_health_http:-0},
   "postgresCpuPct": ${pg_field},
   "containers": [${containers_arr}],
   "alerts": [${alerts_arr}],
   "cronSchedule": "0 9 * * 1",
+  "watchdogCron": "*/5 * * * *",
   "cronMarker": "/etc/cron.d/zapmass-monitor-producao"
 }
 EOF
