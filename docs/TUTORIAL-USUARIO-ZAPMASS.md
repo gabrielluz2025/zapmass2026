@@ -55,7 +55,9 @@ Os nomes podem variar levemente, mas a ideia é esta:
 |               | Contatos           | Base de contatos, **listas**, importação, filtros e temperatura (quente/morno/frio). |
 |               | Relatórios         | Números consolidados, gráficos e **exportar CSV**. |
 | **Operações** | Aquecimento       | “Educar” chips novos com envios graduais para reduzir risco de bloqueio. |
-| **Sistema**   | Minha assinatura  | Plano, datas, pagamento, upgrade de canais (quando existir). |
+|               | Atendimento       | Bot automático e handoff para humano no Bate-papo. |
+| **Sistema**   | Como usar         | Tutorial interativo com demos animadas das telas e PDF para baixar. |
+|               | Minha assinatura  | Plano, datas, pagamento, upgrade de canais (quando existir). |
 |               | Configurações     | Intervalos de envio, tema, notificações, conta e termos legais. |
 
 Itens **Painel do criador**, **Servidor & alertas** e **Estúdio** só aparecem para **equipe administradora** — utilizadores normais ignoram.
@@ -214,7 +216,21 @@ Na barra de abas de Campanhas, o botão **Atalhos** (ícone ⌘) abre a lista. R
 
 ---
 
-# Parte 2 — Roteiro sugerido para vídeo (YouTube, treinamento interno ou onboarding)
+# Parte 2 — Vídeos e demos na aba Como usar
+
+No app (**Sistema → Como usar**) já existem **demos animadas** (play/pause) que imitam as telas reais: Painel, Conexões, Campanhas, Contatos e Bate-papo.
+
+Para **vídeos gravados** (YouTube ou MP4):
+
+1. Grave a tela (roteiro abaixo) e publique no YouTube **ou** salve o arquivo em `public/tutorial/` (ex.: `conexoes.mp4`).
+2. Registre em `src/components/help/tutorialMedia.ts`, por exemplo:
+   - `conexoes: { title: 'Conectar chip', youtubeId: 'xxxxxxxxxxx' }`
+   - ou `src: '/tutorial/conexoes.mp4'`
+3. A seção correspondente na aba Como usar passa a mostrar o player automaticamente.
+
+---
+
+# Parte 3 — Roteiro sugerido para vídeo (YouTube, treinamento interno ou onboarding)
 
 O vídeo não substitui este documento, mas **reforça** com imagem. Sugestão: **8 a 15 minutos** no total, ou **série curta** de 2–3 min por módulo.
 

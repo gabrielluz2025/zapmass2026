@@ -1,600 +1,13 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { pdf } from '@react-pdf/renderer';
 import { ZapMassPDF } from './ZapMassPDF';
+import { TUTORIAL_SECTIONS, type ContentBlock, type TutorialSection } from './tutorialSections';
+import { ILLUSTRATIONS } from './tutorialIllustrations';
+import { TutorialDemoPlayer } from './TutorialDemoPlayer';
+import { TutorialVideoSlot } from './TutorialVideoSlot';
+import { useAppView } from '../../context/AppViewContext';
 
-/* ─────────────────────────────────────────────────────────────
-   ILUSTRAÇÕES SVG — uma por seção
-   ───────────────────────────────────────────────────────────── */
-const IlluDashboard = () => (
-  <svg viewBox="0 0 320 180" fill="none" xmlns="http://www.w3.org/2000/svg" className="tu-illu">
-    <rect width="320" height="180" rx="14" fill="#0d1117"/>
-    <rect x="12" y="12" width="88" height="56" rx="8" fill="#161b22" stroke="#10b981" strokeWidth="1.2"/>
-    <text x="56" y="38" textAnchor="middle" fill="#10b981" fontSize="18" fontWeight="800">847</text>
-    <text x="56" y="54" textAnchor="middle" fill="#8b949e" fontSize="9">Envios hoje</text>
-    <rect x="116" y="12" width="88" height="56" rx="8" fill="#161b22" stroke="#3b82f6" strokeWidth="1.2"/>
-    <text x="160" y="38" textAnchor="middle" fill="#3b82f6" fontSize="18" fontWeight="800">5</text>
-    <text x="160" y="54" textAnchor="middle" fill="#8b949e" fontSize="9">Chips online</text>
-    <rect x="220" y="12" width="88" height="56" rx="8" fill="#161b22" stroke="#f59e0b" strokeWidth="1.2"/>
-    <text x="264" y="38" textAnchor="middle" fill="#f59e0b" fontSize="18" fontWeight="800">98%</text>
-    <text x="264" y="54" textAnchor="middle" fill="#8b949e" fontSize="9">Taxa de sucesso</text>
-    <rect x="12" y="82" width="296" height="84" rx="8" fill="#161b22"/>
-    <text x="24" y="100" fill="#8b949e" fontSize="9" fontWeight="600">ENVIOS POR DIA</text>
-    {[40,65,50,80,60,90,75,95,70,85,100,88].map((h,i)=>(
-      <rect key={i} x={24+i*22} y={158-h*0.5} width="14" height={h*0.5} rx="3"
-        fill={i===11?"#10b981":"#1f6feb"} opacity={i===11?1:0.6}/>
-    ))}
-  </svg>
-);
-
-const IlluConexoes = () => (
-  <svg viewBox="0 0 320 180" fill="none" xmlns="http://www.w3.org/2000/svg" className="tu-illu">
-    <rect width="320" height="180" rx="14" fill="#0d1117"/>
-    {[0,1,2].map(i=>(
-      <g key={i} transform={`translate(12,${12+i*56})`}>
-        <rect width="296" height="48" rx="8" fill="#161b22"/>
-        <circle cx="28" cy="24" r="14" fill={i===0?"#0a3d1f":i===1?"#0a3d1f":"#3d1f0a"}/>
-        <text x="28" y="29" textAnchor="middle" fill={i===2?"#f59e0b":"#10b981"} fontSize="16">
-          {i===2?"📵":"📱"}
-        </text>
-        <rect x="56" y="10" width="120" height="8" rx="4" fill="#21262d"/>
-        <rect x="56" y="24" width="80" height="6" rx="3" fill="#21262d"/>
-        <circle cx="260" cy="24" r="8" fill={i<2?"#10b981":"#f59e0b"}/>
-        <text x="260" y="28" textAnchor="middle" fill="#fff" fontSize="8" fontWeight="700">
-          {i<2?"ON":"OFF"}
-        </text>
-      </g>
-    ))}
-    <rect x="12" y="168" width="80" height="0" rx="4" fill="#10b981"/>
-  </svg>
-);
-
-const IlluChat = () => (
-  <svg viewBox="0 0 320 180" fill="none" xmlns="http://www.w3.org/2000/svg" className="tu-illu">
-    <rect width="320" height="180" rx="14" fill="#0d1117"/>
-    <rect x="0" y="0" width="100" height="180" rx="14" fill="#161b22"/>
-    {[0,1,2,3].map(i=>(
-      <g key={i} transform={`translate(8,${12+i*40})`}>
-        <circle cx="14" cy="14" r="12" fill={["#10b981","#3b82f6","#f59e0b","#a855f7"][i]} opacity="0.3"/>
-        <rect x="32" y="6" width="50" height="7" rx="3" fill="#21262d"/>
-        <rect x="32" y="18" width="38" height="5" rx="2" fill="#21262d" opacity="0.6"/>
-        {i===0 && <circle cx="80" cy="7" r="7" fill="#10b981"/>}
-        {i===0 && <text x="80" y="11" textAnchor="middle" fill="#fff" fontSize="8" fontWeight="800">3</text>}
-      </g>
-    ))}
-    <rect x="104" y="0" width="216" height="180" rx="14" fill="#090e13"/>
-    <rect x="112" y="140" width="200" height="32" rx="8" fill="#161b22"/>
-    <rect x="120" y="148" width="140" height="16" rx="6" fill="#21262d"/>
-    <rect x="280" y="148" width="24" height="16" rx="6" fill="#10b981"/>
-    {[{x:130,y:80,w:120,out:false},{x:168,y:110,w:80,out:true}].map((b,i)=>(
-      <rect key={i} x={b.x} y={b.y} width={b.w} height="24" rx="8"
-        fill={b.out?"#0a3d1f":"#161b22"}/>
-    ))}
-  </svg>
-);
-
-const IlluCampanhas = () => (
-  <svg viewBox="0 0 320 180" fill="none" xmlns="http://www.w3.org/2000/svg" className="tu-illu">
-    <rect width="320" height="180" rx="14" fill="#0d1117"/>
-    <rect x="12" y="12" width="296" height="40" rx="8" fill="#161b22"/>
-    <text x="28" y="36" fill="#e6edf3" fontSize="13" fontWeight="700">Nova campanha — Broadcast Studio</text>
-    <rect x="220" y="20" width="80" height="24" rx="6" fill="#10b981"/>
-    <text x="260" y="36" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="700">▶ Disparar</text>
-    {[{l:"1. Público",c:"#3b82f6"},{l:"2. Mensagem",c:"#10b981"},{l:"3. Canais",c:"#8b949e"},{l:"4. Revisão",c:"#8b949e"}].map((s,i)=>(
-      <g key={i} transform={`translate(${12+i*76},64)`}>
-        <rect width="68" height="40" rx="8" fill={i<2?"#161b22":"#0d1117"} stroke={s.c} strokeWidth={i===1?2:1} strokeOpacity={i<2?1:0.3}/>
-        <circle cx="34" cy="14" r="8" fill={s.c} opacity={i<2?1:0.3}/>
-        <text x="34" y="18" textAnchor="middle" fill="#fff" fontSize="9" fontWeight="800">{i+1}</text>
-        <text x="34" y="34" textAnchor="middle" fill={s.c} fontSize="8" opacity={i<2?1:0.4}>{s.l.slice(3)}</text>
-      </g>
-    ))}
-    <rect x="12" y="116" width="192" height="52" rx="8" fill="#161b22"/>
-    <text x="24" y="135" fill="#8b949e" fontSize="9">Mensagem</text>
-    <rect x="24" y="142" width="168" height="18" rx="4" fill="#21262d"/>
-    <text x="32" y="155" fill="#e6edf3" fontSize="9">Olá {'{nome}'}, tudo bem? 👋</text>
-    <rect x="216" y="116" width="92" height="52" rx="8" fill="#161b22"/>
-    <text x="228" y="135" fill="#8b949e" fontSize="9">Prévia ao vivo</text>
-    <rect x="240" y="142" width="60" height="18" rx="8" fill="#0a3d1f"/>
-    <text x="270" y="155" textAnchor="middle" fill="#10b981" fontSize="8">Olá João 👋</text>
-  </svg>
-);
-
-const IlluContatos = () => (
-  <svg viewBox="0 0 320 180" fill="none" xmlns="http://www.w3.org/2000/svg" className="tu-illu">
-    <rect width="320" height="180" rx="14" fill="#0d1117"/>
-    <rect x="0" y="0" width="80" height="180" rx="14" fill="#161b22"/>
-    {["Todos","Quentes","Mornos","Frios","Aniversário"].map((t,i)=>(
-      <g key={i} transform={`translate(8,${16+i*32})`}>
-        <rect width="64" height="24" rx="6" fill={i===0?"#10b981":"transparent"} fillOpacity="0.15"
-          stroke={i===0?"#10b981":"transparent"}/>
-        <text x="32" y="16" textAnchor="middle" fill={i===0?"#10b981":"#8b949e"} fontSize="10">{t}</text>
-      </g>
-    ))}
-    <rect x="84" y="0" width="236" height="36" rx="0" fill="#161b22"/>
-    <rect x="92" y="10" width="140" height="16" rx="6" fill="#21262d"/>
-    <text x="104" y="22" fill="#8b949e" fontSize="9">🔍 Buscar contatos...</text>
-    <rect x="248" y="10" width="64" height="16" rx="6" fill="#10b981"/>
-    <text x="280" y="22" textAnchor="middle" fill="#fff" fontSize="9" fontWeight="700">+ Importar</text>
-    {[{n:"Ana Silva",p:"47 9912-7001",t:"🔥"},{n:"Carlos Melo",p:"48 9876-5432",t:"🌡️"},{n:"Maria Oliveira",p:"11 91234-5678",t:"❄️"}].map((c,i)=>(
-      <g key={i} transform={`translate(84,${44+i*44})`}>
-        <rect width="236" height="36" fill={i%2===0?"#0d1117":"#0a0d12"}/>
-        <circle cx="20" cy="18" r="12" fill={["#10b981","#f59e0b","#3b82f6"][i]} opacity="0.3"/>
-        <text x="20" y="23" textAnchor="middle" fill={["#10b981","#f59e0b","#3b82f6"][i]} fontSize="13">{["A","C","M"][i]}</text>
-        <text x="42" y="13" fill="#e6edf3" fontSize="10" fontWeight="600">{c.n}</text>
-        <text x="42" y="26" fill="#8b949e" fontSize="9">{c.p}</text>
-        <text x="198" y="22" fill="#e6edf3" fontSize="14">{c.t}</text>
-      </g>
-    ))}
-  </svg>
-);
-
-const IlluRelatorios = () => (
-  <svg viewBox="0 0 320 180" fill="none" xmlns="http://www.w3.org/2000/svg" className="tu-illu">
-    <rect width="320" height="180" rx="14" fill="#0d1117"/>
-    <rect x="12" y="12" width="296" height="24" rx="6" fill="#161b22"/>
-    {["7 dias","30 dias","3 meses"].map((t,i)=>(
-      <g key={i}>
-        <rect x={20+i*72} y="16" width="64" height="16" rx="4" fill={i===1?"#10b981":"transparent"}/>
-        <text x={52+i*72} y="28" textAnchor="middle" fill={i===1?"#fff":"#8b949e"} fontSize="10">{t}</text>
-      </g>
-    ))}
-    <rect x="224" y="16" width="76" height="16" rx="4" fill="#21262d"/>
-    <text x="262" y="28" textAnchor="middle" fill="#8b949e" fontSize="9">⬇ Exportar CSV</text>
-    {[{v:"12.847",l:"Mensagens",c:"#10b981"},{v:"98.4%",l:"Sucesso",c:"#3b82f6"},{v:"4.2%",l:"Respostas",c:"#a855f7"}].map((m,i)=>(
-      <g key={i} transform={`translate(${12+i*102},48)`}>
-        <rect width="94" height="42" rx="6" fill="#161b22"/>
-        <text x="47" y="18" textAnchor="middle" fill={m.c} fontSize="15" fontWeight="800">{m.v}</text>
-        <text x="47" y="34" textAnchor="middle" fill="#8b949e" fontSize="9">{m.l}</text>
-      </g>
-    ))}
-    <rect x="12" y="102" width="296" height="66" rx="8" fill="#161b22"/>
-    <text x="24" y="118" fill="#8b949e" fontSize="9" fontWeight="600">MAPA DE CALOR — HORÁRIOS DE ENVIO</text>
-    {Array.from({length:24},(_,h)=>Array.from({length:7},(_,d)=>{
-      const v=Math.random();
-      return <rect key={`${h}-${d}`} x={24+d*38} y={124+h*2} width="34" height="2" rx="1"
-        fill="#10b981" opacity={v*0.8}/>;
-    }))}
-  </svg>
-);
-
-const IlluAquecimento = () => (
-  <svg viewBox="0 0 320 180" fill="none" xmlns="http://www.w3.org/2000/svg" className="tu-illu">
-    <rect width="320" height="180" rx="14" fill="#0d1117"/>
-    <text x="160" y="30" textAnchor="middle" fill="#f59e0b" fontSize="13" fontWeight="700">Plano de Aquecimento</text>
-    {[{d:"Dia 1-3",v:20,c:"#10b981"},{d:"Dia 4-7",v:50,c:"#3b82f6"},{d:"Sem. 2",v:100,c:"#a855f7"},{d:"Sem. 3",v:180,c:"#f59e0b"},{d:"Sem. 4+",v:300,c:"#ef4444"}].map((s,i)=>(
-      <g key={i} transform={`translate(${20+i*58},40)`}>
-        <rect x="4" y={110-s.v*0.36} width="48" height={s.v*0.36} rx="4" fill={s.c} opacity="0.8"/>
-        <text x="28" y={104-s.v*0.36} textAnchor="middle" fill={s.c} fontSize="10" fontWeight="700">{s.v}</text>
-        <text x="28" y="128" textAnchor="middle" fill="#8b949e" fontSize="8">{s.d}</text>
-      </g>
-    ))}
-    <text x="160" y="158" textAnchor="middle" fill="#8b949e" fontSize="9">msgs/dia — aumento gradual reduz risco de bloqueio</text>
-  </svg>
-);
-
-const IlluPools = () => (
-  <svg viewBox="0 0 320 180" fill="none" xmlns="http://www.w3.org/2000/svg" className="tu-illu">
-    <rect width="320" height="180" rx="14" fill="#0d1117"/>
-    {/* Pool central */}
-    <rect x="110" y="12" width="100" height="36" rx="10" fill="#161b22" stroke="#10b981" strokeWidth="1.5"/>
-    <text x="160" y="28" textAnchor="middle" fill="#10b981" fontSize="10" fontWeight="800">⚡ Pool Principal</text>
-    <text x="160" y="42" textAnchor="middle" fill="#8b949e" fontSize="8">Rodízio igual</text>
-    {/* Chips filhos */}
-    {[{x:20,y:78,n:"Chip 1",ok:true},{x:120,y:78,n:"Chip 2",ok:true},{x:220,y:78,n:"Chip 3",ok:false}].map((c,i)=>(
-      <g key={i}>
-        <line x1={160} y1={48} x2={c.x+40} y2={c.y} stroke="#8b949e" strokeWidth="1" strokeDasharray="3 2"/>
-        <rect x={c.x} y={c.y} width="80" height="36" rx="8" fill="#161b22" stroke={c.ok?"#10b981":"#ef4444"} strokeWidth="1.2"/>
-        <circle cx={c.x+12} cy={c.y+18} r="5" fill={c.ok?"#10b981":"#ef4444"}/>
-        <text x={c.x+40} y={c.y+14} textAnchor="middle" fill="#e6edf3" fontSize="9" fontWeight="700">{c.n}</text>
-        <text x={c.x+40} y={c.y+27} textAnchor="middle" fill={c.ok?"#10b981":"#ef4444"} fontSize="8">{c.ok?"Online":"Offline"}</text>
-      </g>
-    ))}
-    {/* Failover seta */}
-    <rect x="64" y="130" width="192" height="28" rx="8" fill="#1a2030" stroke="#3b82f6" strokeWidth="1"/>
-    <text x="160" y="143" textAnchor="middle" fill="#3b82f6" fontSize="9" fontWeight="700">🔀 Chip 3 offline → Failover automático</text>
-    <text x="160" y="154" textAnchor="middle" fill="#8b949e" fontSize="8">Chip 1 e Chip 2 assumem os envios</text>
-  </svg>
-);
-
-const IlluConfiguracoes = () => (
-  <svg viewBox="0 0 320 180" fill="none" xmlns="http://www.w3.org/2000/svg" className="tu-illu">
-    <rect width="320" height="180" rx="14" fill="#0d1117"/>
-    {["Disparo","Aparência","Notificações","Minha conta","Termos"].map((t,i)=>(
-      <rect key={i} x={12+i*58} y="12" width="50" height="24" rx="6"
-        fill={i===0?"#10b981":"#161b22"} fillOpacity={i===0?0.2:1}
-        stroke={i===0?"#10b981":"transparent"}/>
-    ))}
-    {["Disparo","Aparência","Notificações","Conta","Termos"].map((t,i)=>(
-      <text key={i} x={37+i*58} y="28" textAnchor="middle" fill={i===0?"#10b981":"#8b949e"} fontSize="8">{t}</text>
-    ))}
-    <rect x="12" y="48" width="296" height="120" rx="8" fill="#161b22"/>
-    {[{l:"Intervalo mínimo entre envios",v:"8s"},{l:"Intervalo máximo",v:"20s"},{l:"Limite diário por chip",v:"400"},{l:"Silêncio noturno",v:"22h–7h"}].map((r,i)=>(
-      <g key={i} transform={`translate(12,${56+i*28})`}>
-        <text x="12" y="18" fill="#e6edf3" fontSize="10">{r.l}</text>
-        <rect x="220" y="6" width="60" height="18" rx="5" fill="#21262d"/>
-        <text x="250" y="19" textAnchor="middle" fill="#10b981" fontSize="10" fontWeight="700">{r.v}</text>
-      </g>
-    ))}
-    <rect x="224" y="152" width="76" height="10" rx="5" fill="#10b981"/>
-    <text x="262" y="161" textAnchor="middle" fill="#fff" fontSize="9" fontWeight="700">Salvar</text>
-  </svg>
-);
-
-const IlluFluxo = () => (
-  <svg viewBox="0 0 320 180" fill="none" xmlns="http://www.w3.org/2000/svg" className="tu-illu">
-    <rect width="320" height="180" rx="14" fill="#0d1117"/>
-    <rect x="100" y="12" width="120" height="32" rx="8" fill="#0a3d1f" stroke="#10b981" strokeWidth="1.5"/>
-    <text x="160" y="32" textAnchor="middle" fill="#10b981" fontSize="10" fontWeight="700">📤 Etapa 1: "Olá!"</text>
-    <line x1="160" y1="44" x2="160" y2="68" stroke="#8b949e" strokeWidth="1.5" strokeDasharray="4 2"/>
-    <rect x="100" y="68" width="120" height="32" rx="8" fill="#1e2d3f" stroke="#3b82f6" strokeWidth="1.5"/>
-    <text x="160" y="88" textAnchor="middle" fill="#3b82f6" fontSize="10" fontWeight="700">💬 Aguarda resposta</text>
-    <line x1="100" y1="84" x2="48" y2="84" stroke="#8b949e" strokeWidth="1.5"/>
-    <line x1="48" y1="84" x2="48" y2="130" stroke="#8b949e" strokeWidth="1.5"/>
-    <line x1="48" y1="130" x2="80" y2="130" stroke="#8b949e" strokeWidth="1.5"/>
-    <rect x="80" y="114" width="80" height="32" rx="8" fill="#1f1a0a" stroke="#f59e0b" strokeWidth="1.5"/>
-    <text x="120" y="134" textAnchor="middle" fill="#f59e0b" fontSize="9" fontWeight="700">Opção "SIM"</text>
-    <line x1="220" y1="84" x2="272" y2="84" stroke="#8b949e" strokeWidth="1.5"/>
-    <line x1="272" y1="84" x2="272" y2="130" stroke="#8b949e" strokeWidth="1.5"/>
-    <line x1="272" y1="130" x2="240" y2="130" stroke="#8b949e" strokeWidth="1.5"/>
-    <rect x="160" y="114" width="80" height="32" rx="8" fill="#1f100a" stroke="#ef4444" strokeWidth="1.5"/>
-    <text x="200" y="134" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="700">Opção "NÃO"</text>
-    <text x="160" y="170" textAnchor="middle" fill="#8b949e" fontSize="9">Fluxo por resposta — automatiza o diálogo</text>
-  </svg>
-);
-
-/* ─────────────────────────────────────────────────────────────
-   SEÇÕES DO TUTORIAL
-   ───────────────────────────────────────────────────────────── */
-const sections = [
-  {
-    id: 'visao-geral',
-    icon: '🚀',
-    title: 'O que é o ZapMass',
-    color: '#10b981',
-    illu: null,
-    content: [
-      {
-        type: 'intro',
-        text: 'O ZapMass é uma plataforma web completa para gestão de mensagens no WhatsApp. Com ele você organiza contatos, conecta chips (números), dispara mensagens em massa com segurança e acompanha os resultados — tudo em um só lugar.',
-      },
-      {
-        type: 'grid',
-        items: [
-          { icon: '📱', title: 'Múltiplos chips', desc: 'Conecte vários números WhatsApp e distribua envios entre eles' },
-          { icon: '👥', title: 'Gestão de contatos', desc: 'Base organizada com filtros, listas, importação e temperatura' },
-          { icon: '📣', title: 'Campanhas', desc: 'Disparos em massa, agendamento e fluxo por respostas' },
-          { icon: '📊', title: 'Relatórios', desc: 'Métricas detalhadas, mapa de calor e exportação CSV' },
-          { icon: '🛡️', title: 'Anti-bloqueio', desc: 'Intervalos automáticos, aquecimento de chips e limites diários' },
-          { icon: '👨‍💼', title: 'Equipe', desc: 'Adicione funcionários com acesso controlado' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'painel',
-    icon: '📊',
-    title: 'Painel (Dashboard)',
-    color: '#3b82f6',
-    illu: <IlluDashboard />,
-    content: [
-      { type: 'text', text: 'O Painel é a primeira tela após o login. Ele mostra um resumo rápido de tudo que está acontecendo na sua conta em tempo real.' },
-      {
-        type: 'list',
-        title: 'O que você encontra no Painel:',
-        items: [
-          { icon: '📈', text: 'Envios do dia, chips online e taxa de sucesso em cartões de destaque' },
-          { icon: '📅', text: 'Gráfico de envios por dia dos últimos dias' },
-          { icon: '🎂', text: 'Lista de contatos aniversariantes — com opção de mandar mensagem direto' },
-          { icon: '⚡', text: 'Atalhos rápidos para Conexões, Campanhas e Contatos' },
-          { icon: '🔔', text: 'Alertas importantes do sistema (chips offline, campanhas concluídas)' },
-        ],
-      },
-      { type: 'tip', text: 'Dica: comece sempre pelo Painel para ver se seus chips estão online antes de disparar uma campanha.' },
-    ],
-  },
-  {
-    id: 'conexoes',
-    icon: '📱',
-    title: 'Conexões (Chips WhatsApp)',
-    color: '#10b981',
-    illu: <IlluConexoes />,
-    content: [
-      { type: 'text', text: 'Conexões são os números de WhatsApp conectados ao ZapMass. Cada "chip" é um número que pode enviar mensagens. Quanto mais chips, maior a capacidade de envio.' },
-      {
-        type: 'steps',
-        title: 'Como adicionar um chip:',
-        items: [
-          'Clique em "Nova conexão" no canto superior direito',
-          'Dê um nome ao chip (ex.: "Chip Marketing 1")',
-          'Abra o WhatsApp no celular → Configurações → Aparelhos conectados',
-          'Escaneie o QR Code que aparecer na tela',
-          'Aguarde o status ficar "Online" (ponto verde)',
-        ],
-      },
-      {
-        type: 'list',
-        title: 'Status dos chips:',
-        items: [
-          { icon: '🟢', text: 'Online — chip conectado e pronto para enviar' },
-          { icon: '🟡', text: 'Conectando — aguardando sincronização com o WhatsApp' },
-          { icon: '🔴', text: 'Offline — chip desconectado, precisa reconectar com QR Code' },
-          { icon: '⚠️', text: 'Banido — número bloqueado pelo WhatsApp (veja Aquecimento)' },
-        ],
-      },
-      { type: 'tip', text: 'Boas práticas: nunca use chip novo para disparos em massa imediatamente. Faça o aquecimento por pelo menos 2 semanas.' },
-    ],
-  },
-  {
-    id: 'pools',
-    icon: '⚡',
-    title: 'Pools de Chips',
-    color: '#3b82f6',
-    illu: <IlluPools />,
-    content: [
-      { type: 'text', text: 'Pool de Chips é um grupo de números WhatsApp que trabalham juntos como uma equipe. Em vez de escolher um chip específico para cada campanha, você seleciona o pool e o sistema divide o trabalho automaticamente — com failover automático se algum chip cair.' },
-      {
-        type: 'list',
-        title: 'Onde fica:',
-        items: [
-          { icon: '📍', text: 'Aba Conexões → role até o final da página → seção "Pools de Chips"' },
-        ],
-      },
-      {
-        type: 'list',
-        title: 'Por que usar Pools?',
-        items: [
-          { icon: '⚡', text: 'Failover automático — se um chip ficar offline, os outros assumem os envios sem interromper a campanha' },
-          { icon: '📊', text: 'Distribuição inteligente — escolha como os envios são divididos entre os chips do grupo' },
-          { icon: '⏱️', text: 'Menos configuração — crie a campanha uma vez usando o pool; não precisa escolher chip toda vez' },
-          { icon: '🛡️', text: 'Mais resiliência — campanhas longas não param por causa de um único chip offline' },
-        ],
-      },
-      {
-        type: 'list',
-        title: '3 estratégias de distribuição:',
-        items: [
-          { icon: '🔄', text: 'Rodízio igual — divide os envios em partes iguais entre todos os chips do pool (recomendado para a maioria dos casos)' },
-          { icon: '⚖️', text: 'Pesos personalizados — você define quanto cada chip envia (ex.: Chip A = 70%, Chip B = 30%). Útil quando os chips têm capacidades diferentes' },
-          { icon: '🥇', text: 'Prioridade (fallback em ordem) — usa o 1º chip da lista; se ele cair, passa para o 2º, depois o 3º. Ideal quando quer preservar um chip principal' },
-        ],
-      },
-      {
-        type: 'steps',
-        title: 'Como criar um Pool:',
-        items: [
-          'Vá em Conexões → role até a seção "Pools de Chips" no final',
-          'Clique em "Novo Pool" (botão verde no canto direito)',
-          'Digite um nome (ex.: "Pool Marketing", "Disparos Comerciais")',
-          'Escolha a estratégia de distribuição',
-          'Marque os chips que farão parte do pool',
-          'Clique em "Salvar pool"',
-          'Na próxima campanha, selecione o pool em vez de chips individuais',
-        ],
-      },
-      { type: 'tip', text: 'Use o pool "Prioridade" para chips que você quer preservar: o sistema só usa o secundário quando o principal cair, mantendo o principal mais descansado.' },
-    ],
-  },
-  {
-    id: 'bate-papo',
-    icon: '💬',
-    title: 'Bate-papo (Chat)',
-    color: '#a855f7',
-    illu: <IlluChat />,
-    content: [
-      { type: 'text', text: 'A aba de Bate-papo funciona como um WhatsApp Web dentro do ZapMass. Você vê todas as conversas dos seus chips organizadas em uma só interface.' },
-      {
-        type: 'list',
-        title: 'Recursos do Bate-papo:',
-        items: [
-          { icon: '📋', text: 'Lista de conversas à esquerda com busca e filtros (não lidas, por canal)' },
-          { icon: '💬', text: 'Painel de mensagens com histórico completo da conversa' },
-          { icon: '🤖', text: 'Atendimento automático — robô responde enquanto você não está' },
-          { icon: '📎', text: 'Envio de imagens, áudios, documentos e vídeos' },
-          { icon: '✨', text: 'Sugestões de resposta com Inteligência Artificial' },
-          { icon: '👥', text: 'Atribuição de atendimento para membros da equipe' },
-        ],
-      },
-      { type: 'tip', text: 'Use o Bate-papo para acompanhar respostas de campanhas e fazer atendimento manual quando necessário.' },
-    ],
-  },
-  {
-    id: 'campanhas',
-    icon: '📣',
-    title: 'Campanhas',
-    color: '#f59e0b',
-    illu: <IlluCampanhas />,
-    content: [
-      { type: 'text', text: 'Campanhas é o coração do ZapMass. Aqui você cria e gerencia disparos em massa, programados ou por fluxo de respostas.' },
-      {
-        type: 'steps',
-        title: 'Criando uma campanha em 4 passos:',
-        items: [
-          '1️⃣ Público — Escolha quem vai receber (lista, filtro por cidade/tag, números manuais)',
-          '2️⃣ Mensagem — Escreva o texto, adicione variáveis {nome} {horario} e anexos',
-          '3️⃣ Canais — Selecione os chips e configure o intervalo anti-ban',
-          '4️⃣ Revisão — Confira tudo e clique em "Disparar agora" ou agende',
-        ],
-      },
-      {
-        type: 'grid',
-        items: [
-          { icon: '📢', title: 'Disparo único', desc: 'Uma mensagem para cada contato — ideal para avisos e promoções' },
-          { icon: '🔀', title: 'Fluxo por resposta', desc: 'Sistema aguarda a resposta do contato para enviar a próxima mensagem' },
-          { icon: '📅', title: 'Agendamento', desc: 'Programe o disparo para qualquer data e hora futura' },
-          { icon: '🎲', title: 'Variáveis', desc: 'Personalize com {nome}, {cidade}, {horario} e spintax {Olá|Oi|Ei}' },
-        ],
-      },
-      { type: 'tip', text: 'Use o Spintax para variar o início das mensagens: {Olá|Oi|Bom dia} — isso reduz o risco de bloqueio.' },
-    ],
-  },
-  {
-    id: 'fluxo-resposta',
-    icon: '🔀',
-    title: 'Fluxo por Resposta',
-    color: '#3b82f6',
-    illu: <IlluFluxo />,
-    content: [
-      { type: 'text', text: 'O Fluxo por Resposta é um recurso avançado que cria um diálogo automatizado. O sistema aguarda o contato responder antes de enviar a próxima mensagem.' },
-      {
-        type: 'list',
-        title: 'Como funciona:',
-        items: [
-          { icon: '1️⃣', text: 'Você envia a mensagem inicial da campanha para todos os contatos' },
-          { icon: '💬', text: 'O contato responde (qualquer texto, ou uma palavra-chave específica)' },
-          { icon: '🤖', text: 'O sistema reconhece a resposta e envia automaticamente a próxima mensagem' },
-          { icon: '🔀', text: 'Com múltiplas opções, cada resposta pode levar a um caminho diferente' },
-          { icon: '🛑', text: 'Palavras como "sair" ou "parar" encerram o fluxo automaticamente' },
-        ],
-      },
-      { type: 'tip', text: 'O sistema reconhece palavras mesmo com erros de acentuação, maiúsculas/minúsculas e variações — "SAIR", "Sair", "saír" são todos reconhecidos.' },
-    ],
-  },
-  {
-    id: 'contatos',
-    icon: '👥',
-    title: 'Contatos',
-    color: '#10b981',
-    illu: <IlluContatos />,
-    content: [
-      { type: 'text', text: 'A aba Contatos é sua base de dados de clientes. Importe, organize, filtre e gerencie todos os seus contatos em um só lugar.' },
-      {
-        type: 'list',
-        title: 'Funcionalidades principais:',
-        items: [
-          { icon: '📥', text: 'Importar via CSV/Excel, vCard ou colar texto diretamente' },
-          { icon: '🔥', text: 'Temperatura: Quente (engajado), Morno (moderado), Frio (inativo)' },
-          { icon: '📋', text: 'Listas: organize contatos em grupos para disparos segmentados' },
-          { icon: '🏷️', text: 'Tags: marque contatos com categorias personalizadas' },
-          { icon: '🗺️', text: 'Mapa: visualize contatos geograficamente por DDD/cidade' },
-          { icon: '🔍', text: 'Filtros avançados: aniversário, cidade, tag, temperatura, opt-out' },
-        ],
-      },
-      {
-        type: 'steps',
-        title: 'Como importar contatos:',
-        items: [
-          'Clique em "Importar" no canto superior',
-          'Escolha o formato: CSV, Excel ou colar texto',
-          'Baixe o modelo para ver o formato correto das colunas',
-          'Preencha com nome, telefone e dados opcionais',
-          'Faça o upload e confirme a importação',
-        ],
-      },
-    ],
-  },
-  {
-    id: 'relatorios',
-    icon: '📈',
-    title: 'Relatórios',
-    color: '#a855f7',
-    illu: <IlluRelatorios />,
-    content: [
-      { type: 'text', text: 'A aba Relatórios mostra o desempenho das suas campanhas com gráficos, métricas e exportação de dados.' },
-      {
-        type: 'list',
-        title: 'O que você encontra nos Relatórios:',
-        items: [
-          { icon: '📊', text: 'Total de mensagens enviadas, sucessos e falhas no período' },
-          { icon: '📈', text: 'Taxa de entrega, abertura e resposta quando disponível' },
-          { icon: '🗓️', text: 'Filtros por período: 7 dias, 30 dias ou 3 meses' },
-          { icon: '🌡️', text: 'Mapa de calor: veja em quais horários e dias você mais envia' },
-          { icon: '⬇️', text: 'Exportar CSV: baixe planilha completa para Excel ou Google Sheets' },
-          { icon: '📋', text: 'Log detalhado por campanha com status de cada envio' },
-        ],
-      },
-      { type: 'tip', text: 'Use o mapa de calor para descobrir os melhores horários de engajamento do seu público e agendar campanhas nesse intervalo.' },
-    ],
-  },
-  {
-    id: 'aquecimento',
-    icon: '🔥',
-    title: 'Aquecimento (Warmup)',
-    color: '#f59e0b',
-    illu: <IlluAquecimento />,
-    content: [
-      { type: 'text', text: 'O Aquecimento é essencial para chips novos. Ele "educa" o número enviando mensagens gradualmente, reduzindo o risco de bloqueio pelo WhatsApp.' },
-      {
-        type: 'steps',
-        title: 'Plano de aquecimento recomendado:',
-        items: [
-          'Dias 1-3: até 20 mensagens por dia (conversas normais)',
-          'Dias 4-7: até 50 mensagens por dia',
-          'Semana 2: até 100 mensagens por dia',
-          'Semana 3: até 200 mensagens por dia',
-          'Semana 4+: até 300 mensagens por dia (máximo seguro)',
-        ],
-      },
-      {
-        type: 'list',
-        title: 'Regras de ouro:',
-        items: [
-          { icon: '✅', text: 'Sempre aqueça chips novos por pelo menos 2 semanas antes de disparos em massa' },
-          { icon: '✅', text: 'Use intervalos de no mínimo 8-15 segundos entre mensagens' },
-          { icon: '❌', text: 'Nunca dispare para listas frias (sem opt-in) com chip novo' },
-          { icon: '❌', text: 'Nunca ultrapassar 300 mensagens/dia por chip, mesmo aquecido' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'configuracoes',
-    icon: '⚙️',
-    title: 'Configurações',
-    color: '#8b949e',
-    illu: <IlluConfiguracoes />,
-    content: [
-      { type: 'text', text: 'As Configurações permitem personalizar o comportamento do sistema, definir limites de envio, notificações e aparência.' },
-      {
-        type: 'grid',
-        items: [
-          { icon: '⏱️', title: 'Disparo', desc: 'Intervalo mínimo/máximo entre mensagens, limite diário e modo silêncio noturno' },
-          { icon: '🎨', title: 'Aparência', desc: 'Escolha entre tema claro ou escuro e cor de destaque' },
-          { icon: '🔔', title: 'Notificações', desc: 'E-mail de alertas e URL de webhook para integrações' },
-          { icon: '👤', title: 'Minha conta', desc: 'Dados do perfil, senha e informações do plano' },
-          { icon: '📄', title: 'Termos', desc: 'LGPD, política do WhatsApp e aceite de responsabilidade' },
-        ],
-      },
-      { type: 'tip', text: 'Configure o intervalo mínimo entre 8-15 segundos para reduzir riscos. Intervalos muito curtos aumentam a chance de bloqueio.' },
-    ],
-  },
-  {
-    id: 'boas-praticas',
-    icon: '✅',
-    title: 'Boas Práticas',
-    color: '#10b981',
-    illu: null,
-    content: [
-      { type: 'text', text: 'Seguir estas práticas garante maior entregabilidade e protege seus chips de bloqueio pelo WhatsApp.' },
-      {
-        type: 'checklist',
-        title: 'Antes de cada campanha:',
-        items: [
-          'Verificar se os chips estão Online no painel Conexões',
-          'Confirmar que a lista de contatos tem opt-in (autorização para receber)',
-          'Personalizar a mensagem com {nome} e spintax para evitar cópias idênticas',
-          'Definir intervalo mínimo de 8s entre mensagens nas Configurações',
-          'Fazer um disparo de teste para 2-3 contatos antes do envio em massa',
-          'Revisar todas as informações na tela de Revisão antes de confirmar',
-        ],
-      },
-      {
-        type: 'checklist',
-        title: 'Para manter chips saudáveis:',
-        items: [
-          'Nunca ultrapassar 300 mensagens/dia por chip',
-          'Sempre aquecer chips novos por 2+ semanas',
-          'Não enviar para listas desatualizadas ou compradas',
-          'Monitorar taxa de bloqueio nas métricas de saúde dos chips',
-          'Pausar imediatamente campanhas com alta taxa de erro',
-        ],
-      },
-    ],
-  },
-];
-
-/* ─────────────────────────────────────────────────────────────
-   CSS PARA IMPRESSÃO (PDF)
-   ───────────────────────────────────────────────────────────── */
-const PrintStyles = () => (
+const PrintAndDemoStyles = () => (
   <style>{`
     @media print {
       .tu-no-print { display: none !important; }
@@ -631,17 +44,276 @@ const PrintStyles = () => (
     .tu-step { display: flex; gap: 12px; align-items: flex-start; margin: 8px 0; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; }
     .tu-step-num { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; color: #fff; }
     .tu-tip { border-left: 3px solid #10b981; background: rgba(16,185,129,0.08); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0; }
-    @media (min-width: 640px) { .tu-inner-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; } }
+    .tu-warning { border-left: 3px solid #f59e0b; background: rgba(245,158,11,0.1); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0; color: #c9d1d9; font-size: 14px; line-height: 1.6; }
+    .tu-path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 14px; font-size: 12px; color: #8b949e; }
+    .tu-path-crumb { background: rgba(255,255,255,0.06); padding: 3px 10px; border-radius: 6px; color: #c9d1d9; font-weight: 600; }
+    .tu-path-sep { opacity: 0.5; }
+    .tu-goto {
+      margin: 0 0 16px;
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(16,185,129,0.4);
+      background: rgba(16,185,129,0.12);
+      color: #10b981;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .tu-goto:hover { background: rgba(16,185,129,0.22); }
+    .tu-toc-btn.is-active { outline: 2px solid currentColor; outline-offset: 1px; }
+    @media (min-width: 768px) {
+      .tu-section-layout { display: grid; grid-template-columns: 1fr minmax(280px, 340px); gap: 20px; align-items: start; }
+      .tu-section-layout.no-demo { grid-template-columns: 1fr; }
+    }
+
+    /* Demo player */
+    .tu-demo-player {
+      background: #0d1117;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      overflow: hidden;
+      margin: 8px 0 4px;
+    }
+    .tu-demo-player-head {
+      display: flex; flex-direction: column; gap: 2px;
+      padding: 10px 12px;
+      background: #161b22;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .tu-demo-player-label { font-size: 10px; font-weight: 700; color: #10b981; text-transform: uppercase; letter-spacing: 0.04em; }
+    .tu-demo-player-title { font-size: 13px; font-weight: 700; color: #e6edf3; }
+    .tu-demo-stage { min-height: 168px; background: #090e13; }
+    .tu-demo-caption { margin: 0; padding: 10px 12px; font-size: 12px; line-height: 1.45; color: #c9d1d9; background: #0d1117; }
+    .tu-demo-progress { height: 3px; background: #21262d; }
+    .tu-demo-progress-bar { height: 100%; transition: width 0.35s ease; }
+    .tu-demo-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; background: #161b22; }
+    .tu-demo-ctrl {
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.05);
+      color: #e6edf3;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .tu-demo-ctrl:hover { background: rgba(255,255,255,0.1); }
+    .tu-demo-frame-num { margin-left: auto; font-size: 11px; color: #8b949e; }
+
+    .tu-demo-shell { display: flex; min-height: 168px; font-size: 11px; color: #e6edf3; }
+    .tu-demo-side {
+      width: 88px; flex-shrink: 0; background: #111827; padding: 8px 6px;
+      border-right: 1px solid #1f2937; display: flex; flex-direction: column; gap: 4px;
+    }
+    .tu-demo-brand { display: flex; align-items: center; gap: 5px; font-weight: 800; font-size: 10px; color: #10b981; margin-bottom: 6px; }
+    .tu-demo-dot { width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 6px #10b981; }
+    .tu-demo-nav { padding: 4px 6px; border-radius: 5px; color: #8b949e; font-size: 9px; }
+    .tu-demo-nav.is-active { background: rgba(16,185,129,0.15); color: #10b981; font-weight: 700; }
+    .tu-demo-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .tu-demo-top { padding: 6px 10px; background: #161b22; border-bottom: 1px solid #1f2937; font-weight: 700; font-size: 11px; }
+    .tu-demo-body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+    .tu-demo-kpis { display: flex; gap: 6px; }
+    .tu-demo-kpi {
+      flex: 1; background: #161b22; border-radius: 8px; padding: 8px; border-left: 2px solid #10b981;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .tu-demo-kpi strong { font-size: 14px; }
+    .tu-demo-kpi span { font-size: 8px; color: #8b949e; }
+    .tu-demo-card { background: #161b22; border-radius: 8px; padding: 8px 10px; border: 1px solid #21262d; }
+    .tu-demo-card.muted { color: #8b949e; font-size: 10px; }
+    .tu-demo-shortcuts { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tu-demo-btn {
+      border: none; border-radius: 6px; padding: 6px 10px; font-size: 10px; font-weight: 700;
+      background: #21262d; color: #e6edf3; cursor: default;
+    }
+    .tu-demo-btn.accent { background: #10b981; color: #fff; }
+    .tu-demo-btn.pulse { animation: tu-pulse 1.4s ease-in-out infinite; }
+    @keyframes tu-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.5); }
+      50% { box-shadow: 0 0 0 6px rgba(16,185,129,0); }
+    }
+    .tu-demo-row-between { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .tu-demo-h { font-weight: 700; font-size: 12px; }
+    .tu-demo-chip-row { display: flex; flex-direction: column; gap: 6px; }
+    .tu-demo-chip {
+      background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 8px 10px;
+      display: flex; align-items: center; gap: 8px; font-size: 11px;
+    }
+    .tu-demo-chip.highlight { border-color: #10b981; background: rgba(16,185,129,0.1); }
+    .tu-demo-chip.off { opacity: 0.7; }
+    .tu-demo-chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .tu-demo-chip .dot.on { background: #10b981; }
+    .tu-demo-chip .dot.off { background: #f59e0b; }
+    .tu-demo-qr-wrap { display: flex; gap: 12px; align-items: center; }
+    .tu-demo-qr {
+      width: 72px; height: 72px; background: #fff; border-radius: 8px; padding: 6px; flex-shrink: 0;
+    }
+    .tu-demo-qr-inner {
+      width: 100%; height: 100%;
+      background:
+        linear-gradient(#111 0 0) 0 0 / 30% 30%,
+        linear-gradient(#111 0 0) 100% 0 / 30% 30%,
+        linear-gradient(#111 0 0) 0 100% / 30% 30%,
+        repeating-linear-gradient(90deg,#111 0 2px,transparent 2px 5px),
+        repeating-linear-gradient(#111 0 2px,transparent 2px 5px);
+      background-repeat: no-repeat;
+      opacity: 0.85;
+    }
+    .tu-demo-field {
+      background: #21262d; border-radius: 6px; padding: 6px 8px; font-size: 10px; color: #c9d1d9;
+    }
+    .tu-demo-hint { margin: 0; font-size: 10px; color: #8b949e; line-height: 1.4; }
+    .tu-demo-alert {
+      border-radius: 8px; padding: 8px 10px; font-size: 11px; font-weight: 600;
+      background: rgba(245,158,11,0.12); color: #f59e0b;
+    }
+    .tu-demo-alert.ok { background: rgba(16,185,129,0.12); color: #10b981; }
+    .tu-demo-steps { display: flex; gap: 4px; flex-wrap: wrap; }
+    .tu-demo-step {
+      flex: 1; min-width: 56px; text-align: center; padding: 5px 4px; border-radius: 6px;
+      background: #161b22; border: 1px solid #21262d; font-size: 8px; color: #8b949e;
+    }
+    .tu-demo-step.on { border-color: #10b981; color: #10b981; background: rgba(16,185,129,0.12); font-weight: 700; }
+    .tu-demo-step.done { border-color: #3b82f6; color: #93c5fd; }
+    .tu-demo-msg {
+      background: #161b22; border-radius: 8px; padding: 10px; font-size: 11px;
+      border: 1px solid #21262d; font-family: ui-monospace, monospace;
+    }
+    .tu-demo-preview {
+      background: #0a3d1f; color: #10b981; border-radius: 12px; padding: 6px 10px;
+      font-size: 10px; align-self: flex-end; max-width: 85%;
+    }
+    .tu-demo-filters { display: flex; flex-wrap: wrap; gap: 4px; }
+    .tu-demo-filters span {
+      padding: 3px 8px; border-radius: 12px; font-size: 9px; background: #161b22; color: #8b949e;
+    }
+    .tu-demo-filters span.on { background: rgba(16,185,129,0.2); color: #10b981; font-weight: 700; }
+    .tu-demo-chat { display: flex; gap: 0; min-height: 110px; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+    .tu-demo-chat-list { width: 38%; background: #111827; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+    .tu-demo-chat-item { padding: 6px; border-radius: 5px; font-size: 9px; color: #8b949e; background: transparent; }
+    .tu-demo-chat-item.on { background: rgba(16,185,129,0.15); color: #10b981; font-weight: 700; }
+    .tu-demo-chat-pane { flex: 1; padding: 8px; display: flex; flex-direction: column; gap: 6px; justify-content: flex-end; background: #0d1117; }
+    .tu-demo-chat-pane.muted { color: #8b949e; font-size: 10px; justify-content: center; align-items: center; }
+    .bubble { max-width: 88%; padding: 5px 8px; border-radius: 8px; font-size: 9px; line-height: 1.35; }
+    .bubble.in { align-self: flex-start; background: #161b22; color: #e6edf3; }
+    .bubble.out { align-self: flex-end; background: #065f46; color: #ecfdf5; }
+
+    .tu-video-slot {
+      margin: 12px 0 4px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.1);
+      overflow: hidden;
+      background: #0d1117;
+    }
+    .tu-video-slot-head {
+      display: flex; flex-direction: column; gap: 2px;
+      padding: 10px 12px; background: #161b22; font-size: 10px; color: #a855f7; font-weight: 700;
+    }
+    .tu-video-slot-head strong { color: #e6edf3; font-size: 13px; }
+    .tu-video-frame { position: relative; padding-bottom: 56.25%; height: 0; background: #000; }
+    .tu-video-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+    .tu-video-native { width: 100%; display: block; max-height: 360px; background: #000; }
   `}</style>
 );
 
-/* ─────────────────────────────────────────────────────────────
-   COMPONENTE PRINCIPAL
-   ───────────────────────────────────────────────────────────── */
+function renderBlock(block: ContentBlock, bi: number, sec: TutorialSection) {
+  if (block.type === 'intro' || block.type === 'text') {
+    return (
+      <p key={bi} className="tu-section-text" style={{ color: '#c9d1d9', fontSize: 15, lineHeight: 1.7, margin: '0 0 16px' }}>
+        {block.text}
+      </p>
+    );
+  }
+  if (block.type === 'path') {
+    return (
+      <div key={bi} className="tu-path tu-no-print">
+        {block.crumbs.map((c, i) => (
+          <React.Fragment key={`${c}-${i}`}>
+            {i > 0 && <span className="tu-path-sep">→</span>}
+            <span className="tu-path-crumb">{c}</span>
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  }
+  if (block.type === 'tip') {
+    return (
+      <div key={bi} className="tu-tip">
+        <span style={{ fontWeight: 700, color: '#10b981' }}>💡 Dica: </span>
+        <span style={{ color: '#c9d1d9', fontSize: 14 }}>{block.text}</span>
+      </div>
+    );
+  }
+  if (block.type === 'warning') {
+    return (
+      <div key={bi} className="tu-warning">
+        <span style={{ fontWeight: 700, color: '#f59e0b' }}>⚠️ Atenção: </span>
+        {block.text}
+      </div>
+    );
+  }
+  if (block.type === 'list' && block.items) {
+    return (
+      <div key={bi} style={{ margin: '16px 0' }}>
+        {block.title && <p style={{ margin: '0 0 10px', fontWeight: 700, color: '#e6edf3', fontSize: 14 }}>{block.title}</p>}
+        {block.items.map((item, ii) => (
+          <div key={ii} className="tu-list-item">
+            <span style={{ fontSize: 18, flexShrink: 0, lineHeight: 1.2 }}>{item.icon}</span>
+            <span className="tu-list-text" style={{ color: '#c9d1d9', fontSize: 14, lineHeight: 1.6 }}>{item.text}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (block.type === 'steps' && block.items) {
+    return (
+      <div key={bi} style={{ margin: '16px 0' }}>
+        {block.title && <p style={{ margin: '0 0 10px', fontWeight: 700, color: '#e6edf3', fontSize: 14 }}>{block.title}</p>}
+        {block.items.map((item, ii) => (
+          <div key={ii} className="tu-step">
+            <div className="tu-step-num" style={{ background: sec.color }}>{ii + 1}</div>
+            <span className="tu-step-text" style={{ color: '#c9d1d9', fontSize: 14, lineHeight: 1.6, paddingTop: 4 }}>
+              {item.replace(/^\d️⃣\s*/, '')}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (block.type === 'grid' && block.items) {
+    return (
+      <div key={bi} className="tu-grid">
+        {block.items.map((item, ii) => (
+          <div key={ii} className="tu-grid-item">
+            <div style={{ fontSize: 24, marginBottom: 8 }}>{item.icon}</div>
+            <div style={{ fontWeight: 700, color: '#e6edf3', fontSize: 13, marginBottom: 4 }}>{item.title}</div>
+            <div style={{ color: '#8b949e', fontSize: 12, lineHeight: 1.5 }}>{item.desc}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (block.type === 'checklist' && block.items) {
+    return (
+      <div key={bi} style={{ margin: '16px 0' }}>
+        {block.title && <p style={{ margin: '0 0 10px', fontWeight: 700, color: '#e6edf3', fontSize: 14 }}>{block.title}</p>}
+        {block.items.map((item, ii) => (
+          <div key={ii} className="tu-checklist-item">
+            <span style={{ color: '#10b981', fontSize: 16, flexShrink: 0 }}>☑</span>
+            <span style={{ color: '#c9d1d9', fontSize: 14 }}>{item}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return null;
+}
+
 export const TutorialPage: React.FC = () => {
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const topRef = useRef<HTMLDivElement>(null);
+  const { setCurrentView } = useAppView();
 
   const handleDownload = useCallback(async () => {
     if (downloading) return;
@@ -669,41 +341,88 @@ export const TutorialPage: React.FC = () => {
 
   return (
     <>
-      <PrintStyles />
-      <div className="tu-root" style={{ minHeight: '100vh', background: 'var(--bg, #09090b)', color: 'var(--text, #f0f2f8)', fontFamily: 'system-ui, sans-serif' }} ref={topRef}>
-
-        {/* Header */}
-        <div className="tu-header" style={{ background: 'linear-gradient(135deg, #0a3d1f 0%, #0d1117 50%, #1a1033 100%)', padding: '40px 24px 32px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+      <PrintAndDemoStyles />
+      <div
+        className="tu-root"
+        style={{ minHeight: '100vh', background: 'var(--bg, #09090b)', color: 'var(--text, #f0f2f8)', fontFamily: 'system-ui, sans-serif' }}
+        ref={topRef}
+      >
+        <div
+          className="tu-header"
+          style={{
+            background: 'linear-gradient(135deg, #0a3d1f 0%, #0d1117 50%, #1a1033 100%)',
+            padding: '40px 24px 32px',
+            textAlign: 'center',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
+          }}
+        >
           <div style={{ fontSize: 48, marginBottom: 12 }}>📱</div>
           <h1 style={{ fontSize: 32, fontWeight: 900, margin: 0, letterSpacing: '-0.03em', color: '#fff' }}>
             ZapMass — Guia Completo
           </h1>
-          <p style={{ color: '#8b949e', marginTop: 10, fontSize: 16, maxWidth: 500, margin: '10px auto 0' }}>
-            Aprenda a usar cada área da plataforma, passo a passo
+          <p style={{ color: '#8b949e', marginTop: 10, fontSize: 16, maxWidth: 560, margin: '10px auto 0' }}>
+            Explicações detalhadas, caminho no menu e demos animadas das telas do sistema
           </p>
           <button
             onClick={handleDownload}
             className="tu-download-btn tu-no-print"
-            style={{ marginTop: 24, padding: '12px 28px', background: downloading ? '#059669' : '#10b981', color: '#fff', border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: downloading ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 20px rgba(16,185,129,0.4)', transition: 'all 0.2s', opacity: downloading ? 0.8 : 1 }}
+            style={{
+              marginTop: 24,
+              padding: '12px 28px',
+              background: downloading ? '#059669' : '#10b981',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 10,
+              fontSize: 15,
+              fontWeight: 700,
+              cursor: downloading ? 'wait' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              boxShadow: '0 4px 20px rgba(16,185,129,0.4)',
+              opacity: downloading ? 0.8 : 1,
+            }}
           >
             {downloading ? '⏳ Gerando PDF...' : '⬇️ Baixar como PDF'}
           </button>
           <p className="tu-no-print" style={{ color: '#8b949e', fontSize: 12, marginTop: 8 }}>
-            PDF profissional com capa, sumário, ilustrações das telas e numeração automática
+            Nas seções abaixo: demos com play/pause. Quando houver vídeo gravado, ele aparece automaticamente.
           </p>
         </div>
 
-        <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 16px 60px' }}>
-
-          {/* Índice */}
-          <div className="tu-toc tu-no-print" style={{ background: 'var(--card, #161b22)', borderRadius: 12, padding: '20px 24px', margin: '24px 0', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ maxWidth: 980, margin: '0 auto', padding: '0 16px 60px' }}>
+          <div
+            className="tu-toc tu-no-print"
+            style={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 20,
+              background: 'var(--card, #161b22)',
+              borderRadius: 12,
+              padding: '16px 20px',
+              margin: '24px 0',
+              border: '1px solid rgba(255,255,255,0.08)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+            }}
+          >
             <p style={{ margin: '0 0 12px', fontWeight: 700, color: '#e6edf3', fontSize: 14 }}>📑 Índice rápido</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {sections.map(s => (
+              {TUTORIAL_SECTIONS.map((s) => (
                 <button
                   key={s.id}
+                  type="button"
+                  className={`tu-toc-btn${activeSection === s.id ? ' is-active' : ''}`}
                   onClick={() => scrollTo(s.id)}
-                  style={{ padding: '6px 14px', borderRadius: 20, border: `1px solid ${s.color}40`, background: `${s.color}10`, color: s.color, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 20,
+                    border: `1px solid ${s.color}40`,
+                    background: `${s.color}10`,
+                    color: s.color,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
                 >
                   {s.icon} {s.title}
                 </button>
@@ -711,116 +430,87 @@ export const TutorialPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Seções */}
-          {sections.map((sec) => (
-            <div key={sec.id} id={`section-${sec.id}`} className="tu-section" style={{ marginBottom: 40 }}>
-              {/* Header da seção */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: `${sec.color}20`, border: `2px solid ${sec.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>
-                  {sec.icon}
-                </div>
-                <div>
-                  <h2 className="tu-section-title" style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#e6edf3', letterSpacing: '-0.02em' }}>
-                    {sec.title}
-                  </h2>
-                  <div style={{ width: 40, height: 3, borderRadius: 2, background: sec.color, marginTop: 4 }} />
-                </div>
-              </div>
+          {TUTORIAL_SECTIONS.map((sec) => {
+            const Illu = sec.illuKey ? ILLUSTRATIONS[sec.illuKey] : null;
+            const hasDemo = Boolean(sec.demoId);
 
-              <div className="tu-section-card">
-                {sec.illu && (
-                  <div style={{ marginBottom: 20 }}>
-                    {sec.illu}
+            return (
+              <div key={sec.id} id={`section-${sec.id}`} className="tu-section" style={{ marginBottom: 40 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                  <div
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 12,
+                      background: `${sec.color}20`,
+                      border: `2px solid ${sec.color}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 22,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {sec.icon}
                   </div>
-                )}
+                  <div>
+                    <h2 className="tu-section-title" style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#e6edf3', letterSpacing: '-0.02em' }}>
+                      {sec.title}
+                    </h2>
+                    <div style={{ width: 40, height: 3, borderRadius: 2, background: sec.color, marginTop: 4 }} />
+                  </div>
+                </div>
 
-                {sec.content.map((block, bi) => {
-                  if (block.type === 'intro' || block.type === 'text') {
-                    return (
-                      <p key={bi} className="tu-section-text" style={{ color: '#c9d1d9', fontSize: 15, lineHeight: 1.7, margin: '0 0 16px' }}>
-                        {block.text}
-                      </p>
-                    );
-                  }
-                  if (block.type === 'tip') {
-                    return (
-                      <div key={bi} className="tu-tip">
-                        <span style={{ fontWeight: 700, color: '#10b981' }}>💡 Dica: </span>
-                        <span style={{ color: '#c9d1d9', fontSize: 14 }}>{block.text}</span>
+                <div className="tu-section-card">
+                  {sec.viewId && (
+                    <button type="button" className="tu-goto tu-no-print" onClick={() => setCurrentView(sec.viewId!)}>
+                      Ir para esta área no sistema →
+                    </button>
+                  )}
+
+                  <div className={`tu-section-layout${hasDemo ? '' : ' no-demo'}`}>
+                    <div>
+                      {Illu && (
+                        <div style={{ marginBottom: 16 }}>
+                          <Illu />
+                        </div>
+                      )}
+                      {sec.content.map((block, bi) => renderBlock(block, bi, sec))}
+                    </div>
+                    {hasDemo && sec.demoId && (
+                      <div>
+                        <TutorialDemoPlayer demoId={sec.demoId} accent={sec.color} />
+                        <TutorialVideoSlot sectionId={sec.id} />
                       </div>
-                    );
-                  }
-                  if (block.type === 'list' && block.items) {
-                    return (
-                      <div key={bi} style={{ margin: '16px 0' }}>
-                        {block.title && <p style={{ margin: '0 0 10px', fontWeight: 700, color: '#e6edf3', fontSize: 14 }}>{block.title}</p>}
-                        {(block.items as {icon: string; text: string}[]).map((item, ii) => (
-                          <div key={ii} className="tu-list-item">
-                            <span style={{ fontSize: 18, flexShrink: 0, lineHeight: 1.2 }}>{item.icon}</span>
-                            <span className="tu-list-text" style={{ color: '#c9d1d9', fontSize: 14, lineHeight: 1.6 }}>{item.text}</span>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  }
-                  if (block.type === 'steps' && block.items) {
-                    return (
-                      <div key={bi} style={{ margin: '16px 0' }}>
-                        {block.title && <p style={{ margin: '0 0 10px', fontWeight: 700, color: '#e6edf3', fontSize: 14 }}>{block.title}</p>}
-                        {(block.items as string[]).map((item, ii) => (
-                          <div key={ii} className="tu-step">
-                            <div className="tu-step-num" style={{ background: sec.color }}>{ii + 1}</div>
-                            <span className="tu-step-text" style={{ color: '#c9d1d9', fontSize: 14, lineHeight: 1.6, paddingTop: 4 }}>{item.replace(/^\d️⃣\s*/, '')}</span>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  }
-                  if (block.type === 'grid' && block.items) {
-                    return (
-                      <div key={bi} className="tu-grid">
-                        {(block.items as {icon: string; title: string; desc: string}[]).map((item, ii) => (
-                          <div key={ii} className="tu-grid-item">
-                            <div style={{ fontSize: 24, marginBottom: 8 }}>{item.icon}</div>
-                            <div style={{ fontWeight: 700, color: '#e6edf3', fontSize: 13, marginBottom: 4 }}>{item.title}</div>
-                            <div style={{ color: '#8b949e', fontSize: 12, lineHeight: 1.5 }}>{item.desc}</div>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  }
-                  if (block.type === 'checklist' && block.items) {
-                    return (
-                      <div key={bi} style={{ margin: '16px 0' }}>
-                        {block.title && <p style={{ margin: '0 0 10px', fontWeight: 700, color: '#e6edf3', fontSize: 14 }}>{block.title}</p>}
-                        {(block.items as string[]).map((item, ii) => (
-                          <div key={ii} className="tu-checklist-item">
-                            <span style={{ color: '#10b981', fontSize: 16, flexShrink: 0 }}>☑</span>
-                            <span style={{ color: '#c9d1d9', fontSize: 14 }}>{item}</span>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  }
-                  return null;
-                })}
+                    )}
+                  </div>
+                  {!hasDemo && <TutorialVideoSlot sectionId={sec.id} />}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
-          {/* Rodapé */}
           <div style={{ textAlign: 'center', padding: '32px 0', borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 20 }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>🚀</div>
-            <p style={{ color: '#8b949e', fontSize: 14, margin: 0 }}>
-              ZapMass — Plataforma de Gestão de WhatsApp
-            </p>
+            <p style={{ color: '#8b949e', fontSize: 14, margin: 0 }}>ZapMass — Plataforma de Gestão de WhatsApp</p>
             <p style={{ color: '#6e7681', fontSize: 12, marginTop: 6 }}>
-              Para dúvidas, use o suporte dentro da plataforma
+              Dúvidas? Use o Assistente IA ou o suporte dentro da plataforma.
             </p>
             <button
               onClick={handleDownload}
               className="tu-download-btn tu-no-print"
-              style={{ marginTop: 20, padding: '10px 24px', background: downloading ? '#059669' : '#10b981', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: downloading ? 'wait' : 'pointer', opacity: downloading ? 0.8 : 1 }}
+              style={{
+                marginTop: 20,
+                padding: '10px 24px',
+                background: downloading ? '#059669' : '#10b981',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: downloading ? 'wait' : 'pointer',
+                opacity: downloading ? 0.8 : 1,
+              }}
             >
               {downloading ? '⏳ Gerando...' : '⬇️ Baixar este guia em PDF'}
             </button>
