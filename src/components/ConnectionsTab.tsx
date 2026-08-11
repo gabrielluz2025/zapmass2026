@@ -126,6 +126,12 @@ export const ConnectionsTab: React.FC = () => {
     () => countAccountScopedConnections(connections, user?.uid ?? null),
     [connections, user?.uid]
   );
+  const slotsInUse = scopedCount;
+  const slotsFree = Math.max(0, maxConnectionSlots - slotsInUse);
+  const slotsFillPct =
+    maxConnectionSlots > 0
+      ? Math.min(100, Math.round((slotsInUse / maxConnectionSlots) * 100))
+      : 0;
   const atSlotLimit = !isAdmin && scopedCount >= maxConnectionSlots;
   /** Apos trial / sem plano: nao criar novos canais ate contratar. */
   const blockNewBySubscription = subEnforce && readOnlyMode && !isAdmin;
@@ -525,11 +531,9 @@ export const ConnectionsTab: React.FC = () => {
             {heroStats.sentToday.toLocaleString('pt-BR')} envios hoje
           </span>
           <span className="ui-caption tabular-nums">Saúde {heroStats.healthPct}%</span>
-          {!isAdmin && (
-            <span className="ui-caption tabular-nums">
-              Plano {Math.min(scopedCount, maxConnectionSlots)}/{maxConnectionSlots}
-            </span>
-          )}
+          <span className="ui-caption tabular-nums">
+            {slotsInUse} em uso · {slotsFree} {slotsFree === 1 ? 'disponível' : 'disponíveis'} · posso ter {maxConnectionSlots}
+          </span>
         </>
       }
       actions={
@@ -593,23 +597,49 @@ export const ConnectionsTab: React.FC = () => {
         </div>
       )}
 
-      {!isAdmin && !blockNewBySubscription && (
-        <details className="zm-panel">
-          <summary className="ui-body font-semibold cursor-pointer">Plano e canais WhatsApp</summary>
-          <p className="ui-caption mt-2">
-            Limite de {maxConnectionSlots} canal(is) no plano (até {MAX_CHANNELS_TOTAL} com extras).{' '}
-            {needChannelExtraPurchase && (
-              <>
-                Você atingiu o limite —{' '}
-                <button type="button" className="underline font-semibold" onClick={handlePrimaryConnectClick}>
-                  adquira slots extra
-                </button>
-                .
-              </>
-            )}
-          </p>
-        </details>
-      )}
+      <div className="zm-panel">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <p className="ui-overline flex items-center gap-1.5 mb-1">
+              <Radio className="w-3.5 h-3.5" />
+              Canais WhatsApp
+            </p>
+            <p className="ui-caption">
+              {isAdmin
+                ? `Conta admin: teto de ${MAX_CHANNELS_TOTAL} canais.`
+                : `Seu plano libera até ${maxConnectionSlots} (máximo do produto: ${MAX_CHANNELS_TOTAL}).`}
+            </p>
+          </div>
+          {needChannelExtraPurchase && (
+            <Button variant="secondary" size="sm" onClick={handlePrimaryConnectClick}>
+              Liberar mais
+            </Button>
+          )}
+        </div>
+        <div className="grid grid-cols-3 gap-3 mb-3">
+          <StatTile label="Posso ter" value={maxConnectionSlots} hint="limite do plano" />
+          <StatTile
+            label="Em uso"
+            value={slotsInUse}
+            hint={slotsInUse === 1 ? 'conexão criada' : 'conexões criadas'}
+          />
+          <StatTile
+            label="Disponíveis"
+            value={slotsFree}
+            hint={slotsFree === 0 ? 'sem vagas agora' : 'vagas para conectar'}
+            warn={slotsFree === 0}
+          />
+        </div>
+        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+          <div
+            className="h-full rounded-full transition-all duration-700"
+            style={{
+              width: `${slotsFillPct}%`,
+              background: slotsFree === 0 ? 'var(--warning)' : 'var(--success)'
+            }}
+          />
+        </div>
+      </div>
 
       <div className="zm-stat-grid">
         <StatTile
