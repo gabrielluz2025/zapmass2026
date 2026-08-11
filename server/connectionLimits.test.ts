@@ -23,6 +23,20 @@ describe('getMaxConnectionSlots', () => {
     ).toBe(2);
   });
 
+  it('liberação manual sem includedChannels usa o teto de 5 canais', () => {
+    expect(
+      getMaxConnectionSlots(
+        {
+          status: 'active',
+          provider: 'none',
+          plan: null,
+          manualGrant: true
+        },
+        { serverAdmin: false }
+      )
+    ).toBe(MAX_CONNECTIONS_TOTAL);
+  });
+
   it('includedChannels=2 + 3 extras manuais = 5', () => {
     expect(
       getMaxConnectionSlots(

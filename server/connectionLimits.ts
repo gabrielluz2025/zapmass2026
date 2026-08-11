@@ -115,9 +115,15 @@ export function getMaxConnectionSlots(
     return MAX_CONNECTIONS_TOTAL;
   }
   const included = paidIncludedChannels(sub);
-  if (included > 0 && statusAllowsPaidExtras(sub, Date.now())) {
+  const includedEffective =
+    included > 0
+      ? included
+      : sub?.manualGrant === true && statusAllowsPaidExtras(sub, Date.now())
+        ? MAX_CONNECTIONS_TOTAL
+        : 0;
+  if (includedEffective > 0 && statusAllowsPaidExtras(sub, Date.now())) {
     const manualExtras = manualGrantedExtraSlots(sub);
-    return Math.min(MAX_CONNECTIONS_TOTAL, included + manualExtras);
+    return Math.min(MAX_CONNECTIONS_TOTAL, includedEffective + manualExtras);
   }
   const raw = Math.max(
     0,

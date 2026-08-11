@@ -88,8 +88,14 @@ export function getMaxConnectionSlotsForUser(
 ): number {
   if (isAdminUser) return MAX_CHANNELS_TOTAL;
   const included = paidIncludedChannels(subscription);
-  if (included > 0 && statusAllowsPaidExtras(subscription)) {
-    return Math.min(MAX_CHANNELS_TOTAL, included + manualGrantedExtraSlots(subscription));
+  const includedEffective =
+    included > 0
+      ? included
+      : subscription?.manualGrant === true && statusAllowsPaidExtras(subscription)
+        ? MAX_CHANNELS_TOTAL
+        : 0;
+  if (includedEffective > 0 && statusAllowsPaidExtras(subscription)) {
+    return Math.min(MAX_CHANNELS_TOTAL, includedEffective + manualGrantedExtraSlots(subscription));
   }
   const raw = Math.max(
     0,

@@ -247,6 +247,7 @@ export const AdminPanel: React.FC = () => {
   const [channelGrantDays, setChannelGrantDays] = useState('30');
   const [channelGrantMonths, setChannelGrantMonths] = useState('0');
   const [includedChannelsGrant, setIncludedChannelsGrant] = useState('5');
+  const [accessActionBusy, setAccessActionBusy] = useState(false);
   const [filter, setFilter] = useState<AccessFilter>('all');
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditRows, setAuditRows] = useState<AccessAudit[]>([]);
@@ -611,19 +612,26 @@ export const AdminPanel: React.FC = () => {
       return;
     }
     const days = Math.max(0, Math.round(Number(grantDays) || 0));
+    const channels = Math.max(1, Math.min(5, Math.floor(Number(includedChannelsGrant) || 5)));
+    setAccessActionBusy(true);
     try {
       const updated = await updateAccessUser({
         email: grantEmail.trim(),
         manualGrant: true,
         grantDays: days > 0 ? days : null,
+        includedChannels: channels,
         adminNote: grantNote.trim()
       });
       setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
-      toast.success('Acesso liberado com sucesso.');
+      toast.success(
+        `Acesso liberado com ${channels} canal(is). Peça ao cliente para atualizar a página (Ctrl+F5).`
+      );
       setGrantEmail('');
       setGrantNote('');
     } catch (e: any) {
       toast.error(e?.message || 'Não foi possível liberar acesso.');
+    } finally {
+      setAccessActionBusy(false);
     }
   };
 
@@ -639,6 +647,7 @@ export const AdminPanel: React.FC = () => {
       toast.error('Escolha de 1 a 3 canais extras.');
       return;
     }
+    setAccessActionBusy(true);
     try {
       const updated = await updateAccessUser({
         email: grantEmail.trim(),
@@ -649,9 +658,11 @@ export const AdminPanel: React.FC = () => {
         adminNote: grantNote.trim()
       });
       setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
-      toast.success('Canais extras liberados.');
+      toast.success('Canais extras liberados. Peça ao cliente para atualizar a página (Ctrl+F5).');
     } catch (e: any) {
       toast.error(e?.message || 'Não foi possível liberar canais extras.');
+    } finally {
+      setAccessActionBusy(false);
     }
   };
 
@@ -661,6 +672,7 @@ export const AdminPanel: React.FC = () => {
       return;
     }
     const n = Math.max(1, Math.min(5, Math.floor(Number(includedChannelsGrant) || 0)));
+    setAccessActionBusy(true);
     try {
       const updated = await updateAccessUser({
         email: grantEmail.trim(),
@@ -668,9 +680,11 @@ export const AdminPanel: React.FC = () => {
         adminNote: grantNote.trim() || `Canais do plano definidos para ${n}`
       });
       setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
-      toast.success(`Plano atualizado para ${n} canal(is).`);
+      toast.success(`Plano atualizado para ${n} canal(is). Peça ao cliente para atualizar a página (Ctrl+F5).`);
     } catch (e: any) {
       toast.error(e?.message || 'Não foi possível definir os canais do plano.');
+    } finally {
+      setAccessActionBusy(false);
     }
   };
 
@@ -1274,7 +1288,7 @@ export const AdminPanel: React.FC = () => {
           <Card>
             <CardHeader
               title="Liberar acesso sem contratação"
-              subtitle="Concede acesso pago (manualGrant) por e-mail, com prazo ou sem prazo (0 = indefinido, conforme regras do servidor)."
+              subtitle="Um clique libera o app e os canais do plano (padrão 5). Não depende do Mercado Pago. Dias 0 = sem prazo."
               icon={<KeyRound className="w-4 h-4 text-emerald-600" />}
             />
             <div className="mt-4 grid sm:grid-cols-2 gap-3">
@@ -1310,8 +1324,15 @@ export const AdminPanel: React.FC = () => {
               />
             </div>
             <div className="mt-4">
-              <Button variant="primary" size="sm" leftIcon={<Clock3 className="w-4 h-4" />} onClick={() => void handleGrantByEmail()}>
-                Conceder liberação
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Clock3 className="w-4 h-4" />}
+                disabled={accessActionBusy}
+                loading={accessActionBusy}
+                onClick={() => void handleGrantByEmail()}
+              >
+                Conceder acesso e canais
               </Button>
             </div>
             <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
@@ -1355,7 +1376,13 @@ export const AdminPanel: React.FC = () => {
                 O prazo final pode combinar meses + dias (ex.: 1 mes e 15 dias). Se ambos forem 0, fica sem prazo.
               </p>
               <div className="mt-3">
-                <Button variant="secondary" size="sm" leftIcon={<Users className="w-4 h-4" />} onClick={() => void handleGrantChannelsByEmail()}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  leftIcon={<Users className="w-4 h-4" />}
+                  disabled={accessActionBusy}
+                  onClick={() => void handleGrantChannelsByEmail()}
+                >
                   Liberar canais extras para este usuario
                 </Button>
               </div>
@@ -1381,6 +1408,7 @@ export const AdminPanel: React.FC = () => {
                   <Button
                     variant="primary"
                     size="sm"
+                    disabled={accessActionBusy}
                     onClick={() => void handleSetIncludedChannelsByEmail()}
                   >
                     Aplicar no e-mail acima

@@ -276,7 +276,7 @@ async function resolveTenantUid(
   return { uid, email };
 }
 
-function buildAdminAccessUpdates(
+export function buildAdminAccessUpdates(
   body: AdminAccessUserPutBody,
   cur: Record<string, unknown>,
   adminEmail: string,
@@ -293,9 +293,22 @@ function buildAdminAccessUpdates(
     updates.adminNote = body.adminNote.trim();
   }
 
-  if (typeof body.manualGrant === 'boolean') {
-    updates.manualGrant = body.manualGrant;
-    if (body.manualGrant) {
+  const wantsChannelPlan =
+    body.includedChannels != null && Math.floor(Number(body.includedChannels) || 0) > 0;
+  const wantsExtraSlots =
+    body.manualExtraChannelSlots != null &&
+    Math.floor(Number(body.manualExtraChannelSlots) || 0) > 0;
+  /** Canais extras / plano sem MP só funcionam com acesso; libera junto se ainda não houver. */
+  const enableManualGrant =
+    body.manualGrant === true ||
+    (body.manualGrant !== false &&
+      (wantsChannelPlan || wantsExtraSlots) &&
+      cur.manualGrant !== true);
+
+  if (typeof body.manualGrant === 'boolean' || enableManualGrant) {
+    const granting = body.manualGrant === false ? false : enableManualGrant || body.manualGrant === true;
+    updates.manualGrant = granting;
+    if (granting) {
       const days = Number(body.grantDays || 0);
       if (Number.isFinite(days) && days > 0) {
         const mode = body.grantMode === 'extend' ? 'extend' : 'set';
@@ -359,6 +372,12 @@ function buildAdminAccessUpdates(
     if (n > 0) {
       updates.includedChannels = Math.max(1, Math.min(5, n));
     }
+  } else if (
+    (enableManualGrant || body.manualGrant === true) &&
+    !(Math.floor(Number(cur.includedChannels) || 0) > 0)
+  ) {
+    /** Sem contratação: acesso manual inclui o teto do produto (5), não só os 2 do starter. */
+    updates.includedChannels = 5;
   }
 
   return updates;
@@ -413,9 +432,17 @@ export async function putAdminAccessUser(
   body: AdminAccessUserPutBody,
   admin: { uid: string; email: string }
 ): Promise<AdminUserAccessRow | { error: string; status: number }> {
+  const hasTarget = Boolean(String(body.uid || '').trim() || String(body.email || '').trim());
+  if (!hasTarget) {
+    return { error: 'Informe uid ou email válido.', status: 400 };
+  }
   const resolved = await resolveTenantUid(body);
   if (!resolved) {
-    return { error: 'Informe uid ou email válido.', status: 400 };
+    return {
+      error:
+        'Usuário não encontrado. O cliente precisa ter criado conta neste ZapMass (mesmo e-mail).',
+      status: 404
+    };
   }
   const { uid, email } = resolved;
   const forPg = usePostgresSubscriptions();
@@ -439,17 +466,27 @@ export async function putAdminAccessUser(
     for (const [k, v] of Object.entries(updates)) {
       if (v === null) delete merged[k];
     }
-    await mergeSubscriptionDocPg(uid, merged);
+    const saved = await mergeSubscriptionDocPg(uid, merged);
+    if (!saved) {
+      return {
+        error: 'Não foi possível gravar a assinatura (ID do usuário inválido no Postgres).',
+        status: 500
+      };
+    }
     const next = (await getSubscriptionDocPg(uid)) || merged;
     const row = docToAdminAccessRow(uid, next, email || (await findUserById(uid))?.email || '');
-    await appendAdminAccessAuditPg(
-      uid,
-      row.email || email,
-      admin.uid,
-      admin.email,
-      inferAdminAccessAction(body),
-      typeof body.adminNote === 'string' ? body.adminNote.trim() : ''
-    );
+    try {
+      await appendAdminAccessAuditPg(
+        uid,
+        row.email || email,
+        admin.uid,
+        admin.email,
+        inferAdminAccessAction(body),
+        typeof body.adminNote === 'string' ? body.adminNote.trim() : ''
+      );
+    } catch (e) {
+      console.error('[admin/access-user] auditoria falhou (acesso já gravado)', e);
+    }
     return row;
   }
 
