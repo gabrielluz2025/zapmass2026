@@ -2052,9 +2052,22 @@ export const ContactsTab: React.FC = () => {
    * Temperatura por contato — índice de conversas (1×) + mapeamento incremental em lotes.
    * Não espera hidratar os 42k: mostra contagens parciais enquanto a base carrega.
    */
+  const conversationsTempKey = useMemo(() => {
+    const list = deferredConversations;
+    if (!list.length) return '0';
+    let maxTs = 0;
+    let msgN = 0;
+    for (const conv of list) {
+      msgN += conv.messages?.length || 0;
+      const t = Number(conv.lastMessageTimestamp) || 0;
+      if (t > maxTs) maxTs = t;
+    }
+    return `${list.length}:${msgN}:${maxTs}`;
+  }, [deferredConversations]);
+
   const phoneMessageIndex = useMemo(
     () => buildPhoneMessageStatsIndex(deferredConversations),
-    [deferredConversations]
+    [conversationsTempKey, deferredConversations]
   );
 
   const [contactTemps, setContactTemps] = useState<Record<string, TempStats>>({});
@@ -2063,13 +2076,11 @@ export const ContactsTab: React.FC = () => {
   const tempsProcessedCountRef = useRef(0);
   const tempsIndexRef = useRef(phoneMessageIndex);
   const contactTempsAccRef = useRef<Record<string, TempStats>>({});
+  const contactTempsReadyRef = useRef(false);
 
   useEffect(() => {
     if (contacts.length === 0) {
       tempsProcessedCountRef.current = 0;
-      contactTempsAccRef.current = {};
-      setContactTemps({});
-      setContactTempsReady(false);
       return;
     }
 
@@ -2078,21 +2089,22 @@ export const ContactsTab: React.FC = () => {
       tempsIndexRef.current = phoneMessageIndex;
       tempsProcessedCountRef.current = 0;
       contactTempsAccRef.current = {};
-      // Recalcula em background sem limpar os chips (evita pisca dos KPIs).
     }
 
     const startFrom = tempsProcessedCountRef.current;
     if (startFrom >= contacts.length) {
-      setContactTempsReady(true);
+      if (!contactTempsReadyRef.current) {
+        contactTempsReadyRef.current = true;
+        setContactTempsReady(true);
+      }
       return;
     }
 
     const gen = ++computeTempsGenRef.current;
     const c = contacts;
     const index = phoneMessageIndex;
-    // Chunk maior = menos re-renders; pausa entre chunks deixa o main thread respirar
     const CHUNK = c.length > 25_000 ? 8000 : c.length > 10_000 ? 5000 : 3000;
-    const DELAY = c.length > 25_000 ? 40 : 20; // ms entre chunks (evita travar UI)
+    const DELAY = c.length > 25_000 ? 40 : 20;
     let cursor = startFrom;
     let timerId: ReturnType<typeof setTimeout>;
 
@@ -2105,15 +2117,16 @@ export const ContactsTab: React.FC = () => {
       const done = cursor >= c.length;
 
       if (done) {
-        // Flush final — único setState ao terminar
         tempsProcessedCountRef.current = c.length;
         setContactTemps({ ...contactTempsAccRef.current });
+        contactTempsReadyRef.current = true;
         setContactTempsReady(true);
       } else {
-        // Atualiza estado apenas a cada 2 chunks para reduzir re-renders
-        if (cursor % (CHUNK * 2) < CHUNK) {
+        // Só pinta a UI no meio do cálculo na 1ª vez. Recálculo fica invisível até o fim.
+        if (!contactTempsReadyRef.current && cursor % (CHUNK * 2) < CHUNK) {
           setContactTemps({ ...contactTempsAccRef.current });
-          if (!contactTempsReady) setContactTempsReady(true);
+          contactTempsReadyRef.current = true;
+          setContactTempsReady(true);
         }
         timerId = setTimeout(processChunk, DELAY);
       }

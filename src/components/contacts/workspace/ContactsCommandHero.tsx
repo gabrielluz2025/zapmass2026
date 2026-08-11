@@ -208,9 +208,9 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
       {/* ── Linha 2: KPI chips ───────────────────── */}
       <div className="ch-hero__kpis">
         <KpiChip icon={<Users className="w-3.5 h-3.5" />}     label="total"       value={displayTotal}  color="#10b981" bg="rgba(16,185,129,0.1)" />
-        <KpiChip icon={<Flame className="w-3.5 h-3.5" />}     label="quentes"     value={stats.hot}     color="#f87171" bg="rgba(239,68,68,0.1)"   show={contactTempsReady} />
-        <KpiChip icon={<Thermometer className="w-3.5 h-3.5" />} label="mornos"    value={stats.warm}    color="#fbbf24" bg="rgba(245,158,11,0.1)"  show={contactTempsReady} />
-        <KpiChip icon={<Snowflake className="w-3.5 h-3.5" />} label="frios"       value={stats.cold}    color="#22d3ee" bg="rgba(6,182,212,0.1)"   show={contactTempsReady} />
+        <KpiChip icon={<Flame className="w-3.5 h-3.5" />}     label="quentes"     value={stats.hot}     color="#f87171" bg="rgba(239,68,68,0.1)" />
+        <KpiChip icon={<Thermometer className="w-3.5 h-3.5" />} label="mornos"    value={stats.warm}    color="#fbbf24" bg="rgba(245,158,11,0.1)" />
+        <KpiChip icon={<Snowflake className="w-3.5 h-3.5" />} label="frios"       value={stats.cold}    color="#22d3ee" bg="rgba(6,182,212,0.1)" />
         <KpiChip icon={<Sparkles className="w-3.5 h-3.5" />}  label="novos 7d"    value={stats.last7}   color="#a78bfa" bg="rgba(139,92,246,0.1)" />
         <KpiChip icon={<Calendar className="w-3.5 h-3.5" />}  label="aniv. hoje"  value={stats.bdayToday} color="#fb923c" bg="rgba(249,115,22,0.1)" show={stats.bdayToday > 0} />
 
