@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Timer } from 'lucide-react';
 import { useSubscription } from '../../context/SubscriptionContext';
 import { firestoreTimeToMs } from '../../utils/firestoreTime';
+import { isManualGrantAccessActive } from '../../utils/manualGrantAccess';
 
 function formatCountdown(totalSeconds: number): string {
   const s = Math.max(0, totalSeconds);
@@ -20,6 +21,7 @@ export const TrialHeaderCountdown: React.FC = () => {
   const [, setTick] = useState(0);
 
   const trialEndMs = useMemo(() => {
+    if (isManualGrantAccessActive(subscription)) return null;
     if (subscription?.status !== 'trialing') return null;
     return firestoreTimeToMs(subscription.trialEndsAt);
   }, [subscription]);

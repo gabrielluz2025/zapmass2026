@@ -334,7 +334,11 @@ export const SettingsTab: React.FC = () => {
   const currentSection = SECTIONS.find(s => s.id === section)!;
   const planLabel = subscription?.plan
     ? (subscription.plan === 'annual' ? 'Anual' : subscription.plan === 'monthly' ? 'Mensal' : subscription.plan)
-    : (subscription?.status === 'trialing' ? 'Teste grátis' : '—');
+    : (subscription?.manualGrant === true
+        ? 'Liberação manual'
+        : subscription?.status === 'trialing'
+          ? 'Teste grátis'
+          : '—');
 
   return (
     <PageShell

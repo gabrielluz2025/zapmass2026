@@ -323,6 +323,7 @@ export function buildAdminAccessUpdates(
       updates.status = 'active';
       updates.provider = typeof cur.provider === 'string' ? cur.provider : 'none';
       updates.plan = typeof cur.plan === 'string' ? cur.plan : null;
+      updates.trialEndsAt = forPg ? null : FieldValue.delete();
       updates.manualGrantedAt = forPg ? new Date().toISOString() : FieldValue.serverTimestamp();
       updates.manualGrantedBy = adminEmail;
     } else {
@@ -372,12 +373,10 @@ export function buildAdminAccessUpdates(
     if (n > 0) {
       updates.includedChannels = Math.max(1, Math.min(5, n));
     }
-  } else if (
-    (enableManualGrant || body.manualGrant === true) &&
-    !(Math.floor(Number(cur.includedChannels) || 0) > 0)
-  ) {
-    /** Sem contratação: acesso manual inclui o teto do produto (5), não só os 2 do starter. */
-    updates.includedChannels = 5;
+  } else if (enableManualGrant || body.manualGrant === true) {
+    const curN = Math.floor(Number(cur.includedChannels) || 0);
+    /** Trial costuma gravar 1 canal; liberação manual sobe para o teto do produto. */
+    if (curN <= 1) updates.includedChannels = 5;
   }
 
   return updates;

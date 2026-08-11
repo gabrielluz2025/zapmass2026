@@ -63,24 +63,24 @@ function daysUntil(ms: number | null): number | null {
 function computeEffectiveSubscriptionStatus(sub: UserSubscription | null | undefined): string {
   if (!sub) return 'none';
   if (sub.blocked === true) return 'blocked';
+  const manualEnd = firestoreTimeToMs(sub.manualAccessEndsAt);
+  if (sub.manualGrant === true && (manualEnd == null || manualEnd > Date.now())) return 'active';
   const s = sub.status;
   if (s === 'active' || s === 'trialing' || s === 'past_due' || s === 'canceled') return s;
   const trialEnd = firestoreTimeToMs(sub.trialEndsAt);
   if (trialEnd != null && trialEnd > Date.now()) return 'trialing';
-  const manualEnd = firestoreTimeToMs(sub.manualAccessEndsAt);
-  if (sub.manualGrant === true && (manualEnd == null || manualEnd > Date.now())) return 'active';
   if (s && s !== 'none') return s;
   return 'none';
 }
 
 function resolveProviderLabel(sub: UserSubscription | null | undefined): string {
   if (!sub) return '—';
+  if (sub.manualGrant === true) return 'Liberação manual';
   if (sub.mercadoPagoPreapprovalId || sub.mercadoPagoLastPaymentId) return 'Mercado Pago';
   if (sub.mercadoPagoChannelAddonPreapprovalId || sub.mercadoPagoChannelAddonOneTimePaymentId) return 'Mercado Pago';
   if (sub.infinitePayReference || sub.provider === 'infinitepay')
     return 'Pagamento legado (gateway descontinuado)';
   if (sub.provider === 'mercadopago') return 'Mercado Pago';
-  if (sub.manualGrant === true) return 'Liberação manual';
   if (sub.status === 'trialing' || sub.provider === 'none') return '— (teste / sem gateway)';
   return '—';
 }
@@ -93,8 +93,8 @@ function resolvePlanCycleLabel(sub: UserSubscription | null | undefined): string
       : null;
   if (sub.plan === 'annual') return tier ? `Anual · ${tier}` : 'Anual';
   if (sub.plan === 'monthly') return tier ? `Mensal · ${tier}` : 'Mensal';
-  if (sub.status === 'trialing') return tier ? `Pro — teste gratuito · ${tier}` : 'Pro — período de teste';
   if (sub.manualGrant === true && !sub.plan) return 'Gestão manual';
+  if (sub.status === 'trialing') return tier ? `Pro — teste gratuito · ${tier}` : 'Pro — período de teste';
   if (sub.status === 'active' || sub.status === 'past_due') {
     const n = typeof sub.includedChannels === 'number' ? sub.includedChannels : null;
     if (n != null && n > 0) return `${n} canal(is) ZapMass Pro`;
@@ -358,6 +358,9 @@ export const MySubscriptionTab: React.FC = () => {
 
   const planSnapshotLine = useMemo(() => {
     if (!subscription) return '—';
+    if (subscription.manualGrant === true) {
+      return `Liberação manual · ${contractedChannels} canal(is)`;
+    }
     if (subscription.status === 'trialing') {
       return `Pro em teste · ${contractedChannels} canal(is) incluído(s) neste período`;
     }

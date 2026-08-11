@@ -12,7 +12,20 @@ describe('buildAdminAccessUpdates', () => {
     expect(u.manualGrant).toBe(true);
     expect(u.status).toBe('active');
     expect(u.includedChannels).toBe(5);
+    expect(u.trialEndsAt).toBeNull();
     expect(typeof u.manualAccessEndsAt).toBe('string');
+  });
+
+  it('sobe de 1 canal do trial para 5 e encerra o relógio do teste', () => {
+    const u = buildAdminAccessUpdates(
+      { manualGrant: true, grantDays: 365 },
+      { status: 'trialing', includedChannels: 1, trialEndsAt: '2026-08-11T18:57:00.000Z' },
+      'admin@zap-mass.com',
+      true
+    );
+    expect(u.includedChannels).toBe(5);
+    expect(u.trialEndsAt).toBeNull();
+    expect(u.status).toBe('active');
   });
 
   it('definir canais do plano também libera acesso se ainda não houver', () => {

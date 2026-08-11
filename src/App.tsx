@@ -29,6 +29,7 @@ import { AppConfigProvider } from './context/AppConfigContext';
 import { SubscriptionProvider, useSubscription } from './context/SubscriptionContext';
 import { applyMode, applyTheme, getSavedMode, getSavedTheme } from './theme';
 import { isPlatformAdminUser } from './utils/adminAccess';
+import { isManualGrantAccessActive } from './utils/manualGrantAccess';
 import { canAccessCreatorStudio } from './utils/creatorStudioAccess';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { AppProfileProvider, useAppProfile } from './context/AppProfileContext';
@@ -235,6 +236,7 @@ const MainLayout: React.FC = () => {
   useEffect(() => {
     if (!enforce || !user || !subscription) return;
     if (isAdmin) return;
+    if (isManualGrantAccessActive(subscription)) return;
     if (subscription.status !== 'trialing') return;
 
     const trialEndMs = firestoreTimeToMs(subscription.trialEndsAt);
@@ -285,13 +287,21 @@ const MainLayout: React.FC = () => {
   }, [enforce, user, subscription, isAdmin]);
 
   /** Cobranca desligada: mostra CTA no centro para voce ver/testar. Com cobranca: upgrade em teste, leitura ou dev. */
+  const manualGrantActive = isManualGrantAccessActive(subscription);
+
   const showUpgradeProCenter =
-    !isAdmin && (!enforce || readOnlyMode || subscription?.status === 'trialing');
+    !isAdmin &&
+    (!enforce || readOnlyMode || (subscription?.status === 'trialing' && !manualGrantActive));
 
   const showProActivePill =
-    !isAdmin && enforce && hasFullAccess && subscription?.status === 'active';
+    !isAdmin &&
+    enforce &&
+    hasFullAccess &&
+    (subscription?.status === 'active' || manualGrantActive);
 
-  const accessEndLabel = formatAccessEndPtBR(subscription?.accessEndsAt);
+  const accessEndLabel = formatAccessEndPtBR(
+    manualGrantActive ? subscription?.manualAccessEndsAt : subscription?.accessEndsAt
+  );
 
   const canOpenUpgradeModal = showUpgradeProCenter;
 

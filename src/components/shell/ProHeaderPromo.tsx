@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { firestoreTimeToMs } from '../../utils/firestoreTime';
 import { clearTrialEndLocal, readTrialEndMsFromLocal } from '../../utils/trialLocalEnd';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
+import { isManualGrantAccessActive } from '../../utils/manualGrantAccess';
 
 function formatCountdown(totalSeconds: number): string {
   const s = Math.max(0, totalSeconds);
@@ -29,6 +30,8 @@ export const ProHeaderPromo: React.FC<ProHeaderPromoProps> = ({ showProActivePil
 
   const trialEndMs = useMemo(() => {
     if (isAdmin) return null;
+    if (isManualGrantAccessActive(subscription)) return null;
+    if (subscription?.status === 'active') return null;
     const now = Date.now();
     const fromFs = firestoreTimeToMs(subscription?.trialEndsAt);
     const fromLocal = readTrialEndMsFromLocal();
@@ -51,8 +54,10 @@ export const ProHeaderPromo: React.FC<ProHeaderPromoProps> = ({ showProActivePil
   }, [trialActive, trialEndMs]);
 
   useEffect(() => {
-    if (subscription?.status === 'active') clearTrialEndLocal();
-  }, [subscription?.status]);
+    if (subscription?.status === 'active' || isManualGrantAccessActive(subscription)) {
+      clearTrialEndLocal();
+    }
+  }, [subscription]);
 
   const remainingSec =
     trialEndMs != null ? Math.max(0, Math.floor((trialEndMs - Date.now()) / 1000)) : 0;
