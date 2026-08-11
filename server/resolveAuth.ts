@@ -7,7 +7,7 @@ import {
   resolvePostgresTenantIdAsync,
   resolveStaffAuthSubjectIdAsync
 } from './auth/firebaseUidMap.js';
-import { verifyAccessToken } from './auth/jwt.js';
+import { verifyAccessToken, type AccessTokenClaims } from './auth/jwt.js';
 import type { AuthPrincipal } from './auth/types.js';
 import { findUserById } from './auth/userRepository.js';
 import { getWorkspaceMemberUidSetVps } from './auth/staffRepository.js';
@@ -59,6 +59,16 @@ async function resolveFirebasePrincipal(token: string): Promise<AuthPrincipal | 
   }
 }
 
+function principalFromOwnerClaims(claims: AccessTokenClaims, email?: string): AuthPrincipal {
+  return {
+    provider: 'vps',
+    authUid: claims.sub,
+    tenantUid: claims.tenantUid,
+    email: email || claims.email,
+    role: 'owner'
+  };
+}
+
 async function resolveVpsPrincipal(token: string): Promise<AuthPrincipal | null> {
   const claims = await verifyAccessToken(token);
   if (!claims) return null;
@@ -72,15 +82,17 @@ async function resolveVpsPrincipal(token: string): Promise<AuthPrincipal | null>
       ownerUid: claims.ownerUid || claims.tenantUid
     };
   }
-  const user = await findUserById(claims.sub);
-  if (!user || user.disabled_at) return null;
-  return {
-    provider: 'vps',
-    authUid: claims.sub,
-    tenantUid: claims.tenantUid,
-    email: claims.email || user.email,
-    role: 'owner'
-  };
+  try {
+    const user = await Promise.race([
+      findUserById(claims.sub),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 4_000)),
+    ]);
+    if (user?.disabled_at) return null;
+    return principalFromOwnerClaims(claims, user?.email || claims.email);
+  } catch {
+    // Postgres lento: confia no JWT para não derrubar a API inteira em 30s.
+    return principalFromOwnerClaims(claims);
+  }
 }
 
 /** Resolve dono/funcionário a partir do Bearer (VPS primeiro em modo dual). */

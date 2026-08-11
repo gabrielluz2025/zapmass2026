@@ -249,7 +249,7 @@ export async function reconnectDispatchHealth(): Promise<DispatchHealth> {
   try {
     const r = await fetch(apiUrl('/api/health/dispatch/reconnect'), {
       method: 'POST',
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(8_000),
       cache: 'no-store',
       headers: { 'Cache-Control': 'no-cache' },
     });
@@ -320,7 +320,7 @@ export async function fetchDispatchHealth(options?: { retries?: number }): Promi
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const r = await fetch(apiUrl(`/api/health/dispatch?_=${Date.now()}`), {
-        signal: AbortSignal.timeout(18_000),
+        signal: AbortSignal.timeout(8_000),
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache' },
       });
@@ -383,7 +383,9 @@ export type PreflightResult = {
 export async function apiPreflightCheck(connectionIds: string[]): Promise<PreflightResult> {
   const j = await apiFetchJson<PreflightResult>('/api/campaigns/preflight', {
     method: 'POST',
-    body: JSON.stringify({ connectionIds })
+    body: JSON.stringify({ connectionIds }),
+    timeoutMs: 10_000,
+    retries: 1,
   });
   return j;
 }
@@ -407,7 +409,9 @@ export type FrequencyCapCheckResult = {
 export async function apiFrequencyCapCheck(phones: string[]): Promise<FrequencyCapCheckResult> {
   return apiFetchJson<FrequencyCapCheckResult>('/api/campaigns/frequency-cap-check', {
     method: 'POST',
-    body: JSON.stringify({ phones })
+    body: JSON.stringify({ phones }),
+    timeoutMs: 8_000,
+    retries: 1,
   });
 }
 
@@ -457,7 +461,9 @@ export async function apiCheckScheduledDuplicates(
     '/api/campaigns/check-scheduled-duplicates',
     {
       method: 'POST',
-      body: JSON.stringify({ phones })
+      body: JSON.stringify({ phones }),
+      timeoutMs: 8_000,
+      retries: 1,
     }
   );
   return Array.isArray(j.duplicates) ? j.duplicates : [];

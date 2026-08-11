@@ -8,7 +8,7 @@ export async function fetchNotifications(): Promise<{
   const j = await apiFetchJson<{
     notifications?: AppNotificationRow[];
     unreadCount?: number;
-  }>('/api/notifications');
+  }>('/api/notifications', { timeoutMs: 10_000 });
   return {
     notifications: Array.isArray(j.notifications) ? j.notifications : [],
     unreadCount: Number(j.unreadCount) || 0

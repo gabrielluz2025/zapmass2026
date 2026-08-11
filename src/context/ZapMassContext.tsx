@@ -3778,7 +3778,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
 
     // Garante motor de disparo antes de iniciar (retenta + reconecta automaticamente).
-    const dispatchHealth = await ensureDispatchReady({ maxAttempts: 3, tryReconnect: true });
+    const dispatchHealth = await ensureDispatchReady({ maxAttempts: 2, tryReconnect: true });
     if (!dispatchHealth.ok) {
       throw new Error(formatDispatchUnavailableMessage(dispatchHealth));
     }

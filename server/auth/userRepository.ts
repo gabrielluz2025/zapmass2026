@@ -29,7 +29,13 @@ export async function findUserByEmail(email: string): Promise<UserRow | null> {
   return r.rows[0] ?? null;
 }
 
+const USER_BY_ID_TTL_MS = 60_000;
+const userByIdCache = new Map<string, { at: number; user: UserRow | null }>();
+
 export async function findUserById(id: string): Promise<UserRow | null> {
+  const hit = userByIdCache.get(id);
+  if (hit && Date.now() - hit.at < USER_BY_ID_TTL_MS) return hit.user;
+
   const pool = getZapmassPool();
   if (!pool) return null;
   const r = await pool.query<UserRow>(
@@ -37,7 +43,14 @@ export async function findUserById(id: string): Promise<UserRow | null> {
      FROM zapmass.users WHERE id = $1::uuid LIMIT 1`,
     [id]
   );
-  return r.rows[0] ?? null;
+  const user = r.rows[0] ?? null;
+  userByIdCache.set(id, { at: Date.now(), user });
+  return user;
+}
+
+export function invalidateUserByIdCache(id?: string): void {
+  if (id) userByIdCache.delete(id);
+  else userByIdCache.clear();
 }
 
 export async function createUserWithPassword(

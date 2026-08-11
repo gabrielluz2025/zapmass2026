@@ -55,7 +55,12 @@ export function getZapmassPool(): pg.Pool | null {
       connectionString: zapmassDatabaseUrl(),
       max: Number(process.env.ZAPMASS_PG_POOL_MAX || 8),
       idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 10_000
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+      query_timeout: 8_000,
+    });
+    pool.on('connect', (client) => {
+      void client.query('SET statement_timeout = 8000').catch(() => {});
     });
     pool.on('error', (err) => {
       console.error('[ZapmassDB] pool error:', err?.message || err);

@@ -362,7 +362,12 @@ export function registerCampaignsDataRoutes(app: Express): void {
     const results = await Promise.all(
       filtered.map(async (connId) => {
         try {
-          const stateResult = await evolutionService.getConnectionStatePublic(connId);
+          const stateResult = await Promise.race([
+            evolutionService.getConnectionStatePublic(connId),
+            new Promise<{ status: string; isOpen: boolean }>((resolve) =>
+              setTimeout(() => resolve({ status: 'unknown', isOpen: false }), 5_000)
+            ),
+          ]);
           const isOpen = stateResult.status === 'open' || stateResult.status === 'connected';
           return {
             connectionId: connId,

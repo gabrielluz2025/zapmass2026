@@ -206,36 +206,34 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   const runHealthCheck = useCallback(async () => {
     setMotorStatus('checking');
     setChipStatus('checking');
-    let motorOk = false;
-    try {
-      const h = await ensureDispatchReady({ maxAttempts: 4, tryReconnect: true });
-      motorOk = h.ok;
-      setMotorStatus(h.ok ? 'ok' : h.reachable === false ? 'reconnecting' : 'error');
-    } catch {
-      setMotorStatus('reconnecting');
-    }
 
-    if (selectedConnectionIds.length === 0) {
-      setChipStatus('warn');
-      return;
-    }
-    if (!motorOk) {
-      setChipStatus('warn');
-      setChipResults([]);
-      return;
-    }
-    try {
-      const res = await Promise.race([
-        apiPreflightCheck(selectedConnectionIds),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('timeout')), 12000)
-        ),
-      ]);
-      setChipResults(res.results);
-      setChipStatus(res.allReady ? 'ok' : 'error');
-    } catch {
-      setChipStatus('error');
-    }
+    const motorP = ensureDispatchReady({ maxAttempts: 1, tryReconnect: false }).then(
+      (h) => {
+        setMotorStatus(h.ok ? 'ok' : h.reachable === false ? 'warn' : 'warn');
+        return h.ok;
+      },
+      () => {
+        setMotorStatus('warn');
+        return false;
+      }
+    );
+
+    const chipP =
+      selectedConnectionIds.length === 0
+        ? Promise.resolve().then(() => {
+            setChipStatus('warn');
+          })
+        : apiPreflightCheck(selectedConnectionIds)
+            .then((res) => {
+              setChipResults(res.results);
+              setChipStatus(res.allReady ? 'ok' : 'error');
+            })
+            .catch(() => {
+              setChipStatus('warn');
+              setChipResults([]);
+            });
+
+    await Promise.all([motorP, chipP]);
   }, [selectedConnectionIds]);
 
   // Verificação automática ao abrir
@@ -256,26 +254,39 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
     }
   }, [isOpen, runHealthCheck, runFrequencyCapCheck]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const t = window.setTimeout(() => {
+      setMotorStatus((s) => (s === 'checking' ? 'warn' : s));
+      setChipStatus((s) => (s === 'checking' ? 'warn' : s));
+      setFreqCapStatus((s) => (s === 'checking' ? 'error' : s));
+    }, 10_000);
+    return () => window.clearTimeout(t);
+  }, [isOpen]);
+
   const triageComplete = freqCapStatus === 'ok' || freqCapStatus === 'error';
   const needsRepeatConfirm = cappedCount > 0 && freqCapStatus === 'ok';
   const repeatConfirmed = !needsRepeatConfirm || confirmRepeatSend;
 
   const overallHealth: HealthStatus =
-    motorStatus === 'error'
+    chipStatus === 'error'
       ? 'error'
-      : chipStatus === 'error'
-      ? 'error'
-      : freqCapStatus === 'error'
-      ? 'warn'
       : motorStatus === 'checking' || chipStatus === 'checking' || freqCapStatus === 'checking'
       ? 'checking'
       : motorStatus === 'reconnecting'
       ? 'reconnecting'
-      : motorStatus === 'ok' && chipStatus === 'ok' && triageComplete
+      : chipStatus === 'ok' && (motorStatus === 'ok' || motorStatus === 'warn') && triageComplete
       ? 'ok'
+      : motorStatus === 'warn' || freqCapStatus === 'error' || chipStatus === 'warn'
+      ? 'warn'
       : 'idle';
 
-  const canDispatch = (overallHealth === 'ok' || overallHealth === 'reconnecting') && repeatConfirmed && motorStatus !== 'error' && chipStatus !== 'error';
+  const chipsConfirmedOffline = chipStatus === 'error' && chipResults.some((r) => !r.isReady);
+  const canDispatch =
+    repeatConfirmed &&
+    !chipsConfirmedOffline &&
+    motorStatus !== 'checking' &&
+    chipStatus !== 'checking';
 
   const palette = {
     ok: { bg: '#10b98115', border: '#10b98135', text: '#10b981', icon: <CheckCircle2 className="w-4 h-4" /> },
@@ -399,12 +410,14 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
             <div className="flex items-center gap-2">
               {overallHealth === 'checking' && <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--text-3)' }} />}
               {overallHealth === 'ok' && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+              {overallHealth === 'warn' && <AlertTriangle className="w-4 h-4 text-amber-500" />}
               {overallHealth === 'error' && <AlertTriangle className="w-4 h-4 text-red-500" />}
               {overallHealth === 'idle' && <Wifi className="w-4 h-4" style={{ color: 'var(--text-3)' }} />}
               <span className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>
                 {overallHealth === 'checking' ? 'Preparando envio…' :
                  overallHealth === 'reconnecting' ? 'Sincronizando com o servidor…' :
                  overallHealth === 'ok' ? 'Tudo pronto para disparar!' :
+                 overallHealth === 'warn' ? 'Verificação incompleta — você ainda pode disparar' :
                  overallHealth === 'error' ? (isAdmin ? 'Problema detectado — veja abaixo' : 'Aguarde um instante e tente novamente') :
                  'Verificação de pré-disparo'}
               </span>
@@ -437,6 +450,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
                     {motorStatus === 'ok' ? 'Pronto' :
                      motorStatus === 'error' ? (isAdmin ? 'Indisponível — ver correção' : 'Reconectando…') :
                      motorStatus === 'reconnecting' ? 'Sincronizando…' :
+                     motorStatus === 'warn' ? 'Sem confirmação (pode disparar)' :
                      motorStatus === 'checking' ? 'Verificando…' : 'Não verificado'}
                   </div>
                 </div>

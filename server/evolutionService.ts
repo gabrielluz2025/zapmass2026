@@ -2564,19 +2564,61 @@ export async function checkFrequencyCapForPhones(
     phones: string[]
 ): Promise<FrequencyCapContactResult[]> {
     const seen = new Set<string>();
-    const results: FrequencyCapContactResult[] = [];
+    const unique: Array<{ phone: string; phoneKey: string }> = [];
     for (const phone of phones) {
         const digits = String(phone || '').replace(/\D/g, '');
         const phoneKey = digits.slice(-11);
         if (phoneKey.length < 8 || seen.has(phoneKey)) continue;
         seen.add(phoneKey);
-        const info = await getFrequencyCapInfo(ownerUid, digits);
-        results.push({
-            phone: digits,
-            phoneKey,
-            capped: info.capped,
-            ...(info.lastSentAt ? { lastSentAt: new Date(info.lastSentAt).toISOString() } : {}),
-        });
+        unique.push({ phone: digits, phoneKey });
+    }
+
+    const mem = ownerUid ? getFrequencyCap(ownerUid) : new Map<string, number>();
+    const now = Date.now();
+    const results: FrequencyCapContactResult[] = unique.map(({ phone, phoneKey }) => {
+        const lastMem = mem.get(phoneKey);
+        if (lastMem && now - lastMem < FREQUENCY_CAP_MS) {
+            return {
+                phone,
+                phoneKey,
+                capped: true,
+                lastSentAt: new Date(lastMem).toISOString(),
+            };
+        }
+        return { phone, phoneKey, capped: false };
+    });
+
+    const needRedis = unique
+        .map((u, i) => ({ ...u, i }))
+        .filter((u) => !results[u.i].capped);
+
+    const redis = getRedisConnection();
+    if (!ownerUid || !redis || redis.status !== 'ready' || needRedis.length === 0) {
+        return results;
+    }
+
+    try {
+        const keys = needRedis.map((u) => freqCapRedisKey(ownerUid, u.phoneKey));
+        const raws = await Promise.race([
+            redis.mget(...keys),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 4_000)),
+        ]);
+        if (!raws) return results;
+        for (let k = 0; k < needRedis.length; k++) {
+            const raw = raws[k];
+            if (!raw) continue;
+            const ts = Number(raw);
+            if (!Number.isFinite(ts) || now - ts >= FREQUENCY_CAP_MS) continue;
+            mem.set(needRedis[k].phoneKey, ts);
+            results[needRedis[k].i] = {
+                phone: needRedis[k].phone,
+                phoneKey: needRedis[k].phoneKey,
+                capped: true,
+                lastSentAt: new Date(ts).toISOString(),
+            };
+        }
+    } catch {
+        // Redis lento — devolve o que já está em memória.
     }
     return results;
 }
@@ -6662,7 +6704,11 @@ export function getConnectionsForTenant(tenantId: string): Array<{ id: string; i
 export async function getConnectionStatePublic(instanceName: string): Promise<{ status: string; isOpen: boolean }> {
     const mem = connections.get(instanceName);
     if (mem?.status === 'open') return { status: 'open', isOpen: true };
-    const raw = await getConnectionState(instanceName, { timeoutMs: 6_000, skipCache: true });
+    const raw = await getConnectionState(instanceName, {
+        timeoutMs: 4_000,
+        skipCache: false,
+        maxCacheAgeMs: 20_000,
+    });
     const lower = raw.toLowerCase();
     const isOpen = lower === 'open' || lower === 'connected';
     return { status: lower, isOpen };

@@ -11,7 +11,9 @@ export type OperatingLocation = {
 };
 
 export async function fetchOperatingLocation(): Promise<OperatingLocation> {
-  const j = await apiFetchJson<{ ok: boolean; location: OperatingLocation }>('/api/operating-location');
+  const j = await apiFetchJson<{ ok: boolean; location: OperatingLocation }>('/api/operating-location', {
+    timeoutMs: 8_000,
+  });
   return j.location;
 }
 
