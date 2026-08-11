@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { CampaignWizardDraft } from '../types/campaignMission';
 import {
   campaignWizardSessionKey,
@@ -10,6 +10,33 @@ import {
 } from './campaignWizardSession';
 
 const uid = 'user-1';
+
+/** CI (environment: node) não tem sessionStorage. */
+function installMemorySessionStorage(): void {
+  if (typeof globalThis.sessionStorage !== 'undefined') return;
+  const store = new Map<string, string>();
+  const api: Storage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      store.set(k, String(v));
+    },
+    removeItem: (k: string) => {
+      store.delete(k);
+    },
+    clear: () => {
+      store.clear();
+    },
+    key: (i: number) => [...store.keys()][i] ?? null,
+    get length() {
+      return store.size;
+    }
+  };
+  Object.defineProperty(globalThis, 'sessionStorage', { value: api, configurable: true });
+}
+
+beforeAll(() => {
+  installMemorySessionStorage();
+});
 
 const draft = (over: Partial<CampaignWizardDraft> = {}): CampaignWizardDraft => ({
   name: 'Festa',
