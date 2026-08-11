@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket, Smartphone, Heart, Loader2, Minimize2, SpellCheck2, RotateCw, Database } from 'lucide-react';
@@ -7,6 +7,15 @@ import { Contact, ConnectionStatus, ContactList } from '../types';
 import { useZapMassCore, useZapMassConversations } from '../context/ZapMassContext';
 import { useAppView } from '../context/AppViewContext';
 import { useAppProfile } from '../context/AppProfileContext';
+import {
+  clearFileImportProgress,
+  fileImportPipelineBusy,
+  getFileImportProgress,
+  patchFileImportJob,
+  setFileImportProgress,
+  subscribeFileImportProgress,
+  type FileImportJobState,
+} from '../utils/fileImportProgressStore';
 import { ReligiousMemberProfileModalFields } from './religious/ReligiousMemberProfileModalFields';
 import {
   buildReligiousProfileComplete,
@@ -1112,22 +1121,16 @@ export const ContactsTab: React.FC = () => {
   const [fileImportTargetMode, setFileImportTargetMode] = useState<ImportTargetMode>('none');
   const [fileImportTargetListId, setFileImportTargetListId] = useState('');
   const [fileImportNewListName, setFileImportNewListName] = useState('');
-  /** Modal grande oculto; importação corre em segundo plano com painel fixo. */
-  const [fileImportDocked, setFileImportDocked] = useState(false);
-  type FileImportJob = {
-    phase: 'autofix' | 'import' | 'list' | 'done' | 'error';
-    percent: number;
-    current: number;
-    total: number;
-    message: string;
-    error?: string;
-    /** Importações ainda na fila após o job atual. */
-    queuedBehind?: number;
-  };
-  const [fileImportJob, setFileImportJob] = useState<FileImportJob | null>(null);
+  /** Progresso docked — store global (sobrevive a remount da aba Contatos). */
+  const fileImportProgress = useSyncExternalStore(
+    subscribeFileImportProgress,
+    getFileImportProgress,
+    getFileImportProgress
+  );
+  const fileImportDocked = fileImportProgress.docked;
+  const fileImportJob = fileImportProgress.job;
+  const fileImportProgressLabel = fileImportProgress.label;
   const [autoFixProgress, setAutoFixProgress] = useState<{ percent: number; message: string } | null>(null);
-  /** Pipeline sequencial (confirmar importação / fila); não bloqueia só pelo autofix. */
-  const fileImportPipelineBusyRef = useRef(false);
   const autoFixRunLockRef = useRef(false);
   const fileImportQueueRef = useRef<FileImportQueuedPayload[]>([]);
   /** Merge dos contatos tocados nos jobs anteriores da mesma corrida (estado React pode atrasar). */
@@ -1142,7 +1145,7 @@ export const ContactsTab: React.FC = () => {
 
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (fileImportPipelineBusyRef.current) {
+      if (fileImportPipelineBusy.current) {
         e.preventDefault();
         e.returnValue = '';
       }
@@ -1949,8 +1952,7 @@ export const ContactsTab: React.FC = () => {
       setFileImportTargetMode('new');
       setFileImportTargetListId('');
       setFileImportNewListName(listNameFromImportFile(file.name));
-      setFileImportDocked(false);
-      setFileImportJob(null);
+      clearFileImportProgress();
       setAutoFixProgress(null);
       setFileImportOpen(true);
       const markerHint = truncated.cutByMarker
@@ -2020,8 +2022,7 @@ export const ContactsTab: React.FC = () => {
       setFileImportTargetMode('new');
       setFileImportTargetListId('');
       setFileImportNewListName(listNameFromImportFile(file.name));
-      setFileImportDocked(false);
-      setFileImportJob(null);
+      clearFileImportProgress();
       setAutoFixProgress(null);
       setFileImportOpen(true);
       toast.success(
@@ -3040,13 +3041,26 @@ export const ContactsTab: React.FC = () => {
     }
     const listName = newListName.trim();
     if (!listName) throw new Error('Informe o nome da nova lista.');
-    const listId = await createContactList(listName, contactIds, `Lista criada por ${originLabel} com ${contactIds.length} contato(s).`);
+    // Lista grande: cria vazia e faz append em lotes (evita timeout no POST único).
+    const listId =
+      contactIds.length > 400
+        ? await createContactList(listName, [], `Lista criada por ${originLabel}.`)
+        : await createContactList(
+            listName,
+            contactIds,
+            `Lista criada por ${originLabel} com ${contactIds.length} contato(s).`
+          );
+    if (contactIds.length > 400) {
+      await appendContactIdsToContactList(listId, contactIds, {
+        notesLine: `Atualizada por ${originLabel} em ${new Date().toLocaleString()} (${contactIds.length} contato(s))`,
+      });
+    }
     return { attached: contactIds.length, listName, listId };
   }, [contactLists, createContactList, appendContactIdsToContactList]);
 
   const autoFixFileImportRows = useCallback(async () => {
     const prevRows = fileImportRowsRef.current;
-    if (fileImportPipelineBusyRef.current) {
+    if (fileImportPipelineBusy.current) {
       toast.error('Importação em curso — aguarde ou use «Confirmar importação» para enfileirar outro arquivo.');
       return;
     }
@@ -3098,7 +3112,7 @@ export const ContactsTab: React.FC = () => {
   const aiOrganizeFileImportRows = useCallback(async () => {
     const prevRows = fileImportRowsRef.current;
     if (!aiConfigured || prevRows.length === 0) return;
-    if (fileImportPipelineBusyRef.current) {
+    if (fileImportPipelineBusy.current) {
       toast.error('Importação em curso — aguarde para usar a IA.');
       return;
     }
@@ -3256,8 +3270,8 @@ export const ContactsTab: React.FC = () => {
       }
       const contactsForNormalize = Array.from(baseMap.values());
 
-      const patchQueued = (partial: FileImportJob): void => {
-        setFileImportJob({ ...partial, queuedBehind });
+      const patchQueued = (partial: FileImportJobState): void => {
+        patchFileImportJob({ ...partial, queuedBehind }, { docked: true });
       };
 
       patchQueued({
@@ -3465,7 +3479,6 @@ export const ContactsTab: React.FC = () => {
           error: msg,
           queuedBehind: 0,
         });
-        await new Promise((r) => setTimeout(r, 2200));
         throw err;
       }
     },
@@ -3515,7 +3528,7 @@ export const ContactsTab: React.FC = () => {
       setFileImportNewListName('');
     };
 
-    if (fileImportPipelineBusyRef.current) {
+    if (fileImportPipelineBusy.current) {
       fileImportQueueRef.current.push(payload);
       toast.success(
         `"${payload.label}" na fila (${fileImportQueueRef.current.length}). Será importada após a atual.`
@@ -3524,26 +3537,32 @@ export const ContactsTab: React.FC = () => {
       return;
     }
 
-    fileImportPipelineBusyRef.current = true;
+    fileImportPipelineBusy.current = true;
     fileImportPipelineContactsMergeRef.current.clear();
-    setFileImportDocked(true);
-    setFileImportLabel(payload.label);
+    setFileImportProgress({ docked: true, label: payload.label, job: {
+      phase: 'autofix',
+      percent: 0,
+      current: 0,
+      total: payload.snapshotRows.length,
+      message: 'A preparar importação…',
+    }});
     resetFileImportModalAfterConfirm();
 
     try {
       let job: FileImportQueuedPayload | undefined = payload;
       while (job) {
         const behind = fileImportQueueRef.current.length;
-        setFileImportLabel(job.label);
+        setFileImportProgress({ label: job.label });
         await runSingleFileImportPayload(job, behind);
         job = fileImportQueueRef.current.shift();
       }
+      // Sucesso: mantém o painel “concluído” ~1s (já feito no job) e limpa.
+      clearFileImportProgress();
+    } catch {
+      // Erro: painel fica visível até o utilizador fechar (ver botão no dock).
     } finally {
-      fileImportPipelineBusyRef.current = false;
+      fileImportPipelineBusy.current = false;
       fileImportPipelineContactsMergeRef.current.clear();
-      setFileImportDocked(false);
-      setFileImportJob(null);
-      setFileImportLabel('');
     }
   }, [
     contacts,
@@ -5702,14 +5721,12 @@ export const ContactsTab: React.FC = () => {
       {fileImportOpen && !fileImportDocked && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm zm-layer-modal-elevated flex items-start sm:items-center justify-center overflow-y-auto p-3 sm:p-6 py-8 sm:py-6 animate-fadeIn"
-          onClick={() => {
-            if (autoFixProgress) return;
-            setFileImportOpen(false);
-          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Revisar importação"
         >
           <div
             className="bg-white dark:bg-slate-900 w-full max-w-6xl rounded-2xl shadow-2xl overflow-hidden max-h-[95vh] flex flex-col min-h-0"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-cyan-50 to-emerald-50 dark:from-cyan-950/20 dark:to-emerald-950/20">
               <div className="flex items-center gap-3 min-w-0">
@@ -6041,7 +6058,11 @@ export const ContactsTab: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <p className="text-[11px] text-slate-500">
                 A importar:{' '}
-                <b>{fileImportUiCounts.includedReady}</b> de {fileImportUiCounts.total} linha(s).
+                <b>{fileImportUiCounts.includedReady}</b> novos
+                {fileImportTargetMode !== 'none' && fileImportUiCounts.dup > 0
+                  ? ` · até ${fileImportUiCounts.dup} já na base entram na lista`
+                  : ''}{' '}
+                de {fileImportUiCounts.total} linha(s).
               </p>
               <div className="flex gap-2 justify-end">
                 <Button
@@ -6062,7 +6083,9 @@ export const ContactsTab: React.FC = () => {
                   type="button"
                   leftIcon={<Save className="w-4 h-4" />}
                   disabled={
-                    autoFixProgress !== null || fileImportUiCounts.includedReady === 0
+                    autoFixProgress !== null ||
+                    (fileImportUiCounts.includedReady === 0 &&
+                      !(fileImportTargetMode !== 'none' && fileImportUiCounts.dup > 0))
                   }
                   onClick={() => void executeFileImportConfirm()}
                 >
@@ -6087,7 +6110,7 @@ export const ContactsTab: React.FC = () => {
             </div>
             <div className="min-w-0 flex-1 space-y-1">
               <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                {fileImportLabel || 'Importação em curso'}
+                {fileImportProgressLabel || fileImportLabel || 'Importação em curso'}
               </p>
               <p className="text-[12px] text-slate-600 dark:text-slate-400 leading-snug">{fileImportJob.message}</p>
               {typeof fileImportJob.queuedBehind === 'number' && fileImportJob.queuedBehind > 0 ? (
@@ -6101,7 +6124,16 @@ export const ContactsTab: React.FC = () => {
             </div>
             {fileImportJob.phase !== 'done' && fileImportJob.phase !== 'error' ? (
               <Loader2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 animate-spin shrink-0 mt-0.5" aria-hidden />
-            ) : null}
+            ) : (
+              <button
+                type="button"
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+                aria-label="Fechar"
+                onClick={() => clearFileImportProgress()}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
           <div className="h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
             <div
@@ -6123,6 +6155,11 @@ export const ContactsTab: React.FC = () => {
             </span>
             <span>{Math.min(100, Math.max(0, fileImportJob.percent))}%</span>
           </div>
+          {fileImportJob.phase === 'error' ? (
+            <Button type="button" size="sm" variant="secondary" onClick={() => clearFileImportProgress()}>
+              Fechar
+            </Button>
+          ) : null}
         </div>
       )}
 
