@@ -270,9 +270,12 @@ export async function apiDeleteContact(id: string): Promise<void> {
   await apiFetchJson(`/api/contacts/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+const LISTS_API_TIMEOUT_MS = 15_000;
+
 export async function fetchContactLists(): Promise<ContactList[]> {
   const j = await apiFetchJson<{ lists?: ContactList[] }>('/api/contact-lists', {
-    timeoutMs: CONTACTS_API_TIMEOUT_MS,
+    timeoutMs: LISTS_API_TIMEOUT_MS,
+    retries: 0,
   });
   return Array.isArray(j.lists) ? j.lists : [];
 }
@@ -280,7 +283,8 @@ export async function fetchContactLists(): Promise<ContactList[]> {
 export async function apiCreateContactList(input: Partial<ContactList>): Promise<string> {
   const j = await apiFetchJson<{ id?: string; list?: ContactList }>('/api/contact-lists', {
     method: 'POST',
-    body: JSON.stringify(input)
+    body: JSON.stringify(input),
+    timeoutMs: LISTS_API_TIMEOUT_MS,
   });
   return String(j.id || j.list?.id || '');
 }

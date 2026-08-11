@@ -4001,6 +4001,8 @@ export const ContactsTab: React.FC = () => {
 
   const handleManageList = handleOpenList;
 
+  const [creatingListBusy, setCreatingListBusy] = useState(false);
+
   const handleCreateListQuick = useCallback(async (name: string) => {
     try {
       const id = await createContactList(name, []);
@@ -4017,10 +4019,16 @@ export const ContactsTab: React.FC = () => {
       toast.error('Informe um nome para a lista.');
       return;
     }
-    await handleCreateListQuick(trimmed);
-    setNewListName('');
+    if (creatingListBusy) return;
+    setCreatingListBusy(true);
     setShowCreateList(false);
-  }, [newListName, handleCreateListQuick]);
+    setNewListName('');
+    try {
+      await handleCreateListQuick(trimmed);
+    } finally {
+      setCreatingListBusy(false);
+    }
+  }, [newListName, handleCreateListQuick, creatingListBusy]);
 
   const activeListName = useMemo(() => {
     if (!activeFilter.startsWith('list:')) return undefined;
@@ -4604,8 +4612,13 @@ export const ContactsTab: React.FC = () => {
             <Button variant="ghost" type="button" onClick={() => { setShowCreateList(false); setNewListName(''); }}>
               Cancelar
             </Button>
-            <Button variant="primary" type="button" onClick={() => void submitNewListModal()}>
-              Criar lista
+            <Button
+              variant="primary"
+              type="button"
+              disabled={creatingListBusy}
+              onClick={() => void submitNewListModal()}
+            >
+              {creatingListBusy ? 'A criar…' : 'Criar lista'}
             </Button>
           </div>
         }

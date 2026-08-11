@@ -3258,7 +3258,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ];
       });
     }
-    await reloadVpsContactListsRef.current();
+    void reloadVpsContactListsRef.current();
     return listId;
   };
 
