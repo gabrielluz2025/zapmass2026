@@ -12,10 +12,13 @@ function hashResetToken(plain: string): string {
   return hashRefreshToken(plain.trim());
 }
 
-/** Sempre resolve com sucesso visível (não revela se o e-mail existe). */
-export async function requestPasswordReset(email: string): Promise<void> {
+async function issuePasswordResetUrl(email: string): Promise<{
+  resetUrl: string;
+  to: string;
+  displayName?: string;
+} | null> {
   const user = await findUserByEmail(email);
-  if (!user || user.disabled_at) return;
+  if (!user || user.disabled_at) return null;
 
   const pool = getZapmassPool();
   if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
@@ -36,13 +39,36 @@ export async function requestPasswordReset(email: string): Promise<void> {
   );
 
   const origin = getSurveyLinksBaseOrigin() || 'https://zap-mass.com';
-  const resetUrl = `${origin}/?reset=${encodeURIComponent(plain)}`;
-
-  await sendPasswordResetEmail({
+  return {
+    resetUrl: `${origin}/?reset=${encodeURIComponent(plain)}`,
     to: user.email,
-    displayName: user.display_name || undefined,
-    resetUrl
+    displayName: user.display_name || undefined
+  };
+}
+
+/** Sempre resolve com sucesso visível (não revela se o e-mail existe). */
+export async function requestPasswordReset(email: string): Promise<void> {
+  const issued = await issuePasswordResetUrl(email);
+  if (!issued) return;
+  await sendPasswordResetEmail({
+    to: issued.to,
+    displayName: issued.displayName,
+    resetUrl: issued.resetUrl
   });
+}
+
+/** Só para admin: devolve o link (e-mail transacional pode estar desligado). */
+export async function adminIssuePasswordResetLink(email: string): Promise<string> {
+  const issued = await issuePasswordResetUrl(email);
+  if (!issued) {
+    throw new Error('Usuário não encontrado. O cliente precisa ter criado conta neste ZapMass.');
+  }
+  await sendPasswordResetEmail({
+    to: issued.to,
+    displayName: issued.displayName,
+    resetUrl: issued.resetUrl
+  });
+  return issued.resetUrl;
 }
 
 /** Admin da plataforma define senha sem e-mail (Resend ausente). */

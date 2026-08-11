@@ -728,6 +728,35 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
+  const copyResetLinkForEmail = async (email: string) => {
+    if (!email.trim()) {
+      toast.error('Informe o e-mail do usuário.');
+      return;
+    }
+    setAccessActionBusy(true);
+    try {
+      const res = await fetch(apiUrl('/api/admin/password-reset-link'), {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ email: email.trim() })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok || typeof data.resetUrl !== 'string') {
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao gerar o link.');
+      }
+      await navigator.clipboard.writeText(data.resetUrl);
+      toast.success(
+        data.mailerConfigured
+          ? 'Link copiado. Se o e-mail estiver configurado, o cliente também recebe na caixa.'
+          : 'Link copiado (válido 1h). Envie no WhatsApp — o e-mail automático ainda está desligado.'
+      );
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível gerar o link.');
+    } finally {
+      setAccessActionBusy(false);
+    }
+  };
+
   const setPasswordForUser = async (u: AccessUser) => {
     const pw = window.prompt(`Nova senha para ${u.email} (mínimo 8 caracteres):`);
     if (pw == null) return;
@@ -1408,6 +1437,14 @@ export const AdminPanel: React.FC = () => {
                 >
                   Aplicar senha no e-mail acima
                 </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={accessActionBusy}
+                  onClick={() => void copyResetLinkForEmail(grantEmail)}
+                >
+                  Copiar link de redefinição
+                </Button>
               </div>
             </div>
             <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
@@ -1689,6 +1726,14 @@ export const AdminPanel: React.FC = () => {
                               )}
                               <Button variant="secondary" size="sm" onClick={() => void setPasswordForUser(u)}>
                                 Definir senha
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                disabled={accessActionBusy}
+                                onClick={() => void copyResetLinkForEmail(u.email)}
+                              >
+                                Copiar link senha
                               </Button>
                               {Number(u.manualExtraChannelSlots || 0) > 0 && (
                                 <Button variant="secondary" size="sm" onClick={() => void revokeExtraChannels(u)}>

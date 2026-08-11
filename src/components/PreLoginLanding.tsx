@@ -192,7 +192,7 @@ const QuickAuthPanel: React.FC<{
       if (out.mailerConfigured === false) {
         toast.error(
           out.message ||
-            'O servidor ainda não envia e-mail. Peça ao administrador para definir uma nova senha no Painel do criador.'
+            'Ainda não enviamos e-mail automático. Peça ao administrador um link ou uma nova senha.'
         );
       } else {
         toast.success(out.message || 'Se o e-mail existir na plataforma, enviamos um link de redefinição.');

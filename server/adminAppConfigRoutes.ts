@@ -162,6 +162,31 @@ export function registerAdminAppConfigRoutes(app: Express): void {
     }
   });
 
+  app.post('/api/admin/password-reset-link', async (req: Request, res: Response) => {
+    try {
+      const auth = await assertAdminFromBearer(req, res);
+      if (!auth) return;
+      const email = String((req.body as { email?: unknown })?.email || '').trim();
+      if (!email.includes('@')) {
+        return res.status(400).json({ ok: false, error: 'Informe um e-mail válido.' });
+      }
+      const { adminIssuePasswordResetLink } = await import('./auth/passwordResetService.js');
+      const { isTransactionalEmailConfigured } = await import('./emailService.js');
+      const resetUrl = await adminIssuePasswordResetLink(email);
+      console.log('[api/admin/password-reset-link] gerado por', auth.email, 'para', email.toLowerCase());
+      return res.json({
+        ok: true,
+        resetUrl,
+        mailerConfigured: isTransactionalEmailConfigured(),
+        expiresInHours: 1
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[api/admin/password-reset-link]', msg);
+      return res.status(400).json({ ok: false, error: msg });
+    }
+  });
+
   app.put('/api/admin/access-user', async (req: Request, res: Response) => {
     try {
       const auth = await assertAdminFromBearer(req, res);
