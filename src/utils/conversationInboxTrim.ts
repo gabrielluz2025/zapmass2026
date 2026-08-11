@@ -1,5 +1,6 @@
 import type { ChatMessage, Conversation } from '../types';
 import { collapseConversationsByPhone } from './collapseConversationsByPhone';
+import { ensureLatestPreviewInMessages } from './chatMessageMerge';
 
 /** Últimas N mensagens no estado em memória após cada `conversations-update` (liste + Contacts/temperatura). */
 const SYNC_MSG_TAIL = (() => {
@@ -111,10 +112,10 @@ export function mergeConversationsFromSocketUpdate(
       const incMsgs = Array.isArray(withPic.messages) ? withPic.messages : [];
 
       if (prevMsgs.length === 0) {
-        return trimConversationMessagesTail(mergedMeta, maxTail);
+        return ensureLatestPreviewInMessages(trimConversationMessagesTail(mergedMeta, maxTail));
       }
       if (incMsgs.length === 0) {
-        return { ...mergedMeta, messages: prevMsgs };
+        return ensureLatestPreviewInMessages({ ...mergedMeta, messages: prevMsgs });
       }
 
       const byId = new Map<string, ChatMessage>();
@@ -130,10 +131,12 @@ export function mergeConversationsFromSocketUpdate(
       const mergedMsgs = Array.from(byId.values()).sort(
         (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
       );
-      return trimConversationMessagesTail(
-        { ...mergedMeta, messages: mergedMsgs },
-        maxTail,
-        prevMsgs.length
+      return ensureLatestPreviewInMessages(
+        trimConversationMessagesTail(
+          { ...mergedMeta, messages: mergedMsgs },
+          maxTail,
+          prevMsgs.length
+        )
       );
     })
     .sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
@@ -224,8 +227,12 @@ function mergeOneConversation(
   const prevMsgs = Array.isArray(prev?.messages) ? prev!.messages : [];
   const incMsgs = Array.isArray(withPic.messages) ? withPic.messages : [];
 
-  if (prevMsgs.length === 0) return trimConversationMessagesTail(mergedMeta, maxTail);
-  if (incMsgs.length === 0) return { ...mergedMeta, messages: prevMsgs };
+  if (prevMsgs.length === 0) {
+    return ensureLatestPreviewInMessages(trimConversationMessagesTail(mergedMeta, maxTail));
+  }
+  if (incMsgs.length === 0) {
+    return ensureLatestPreviewInMessages({ ...mergedMeta, messages: prevMsgs });
+  }
 
   const ackOutgoing = incMsgs.some(
     (m) => m.sender === 'me' && m.id && !String(m.id).startsWith('pending-')
@@ -247,10 +254,12 @@ function mergeOneConversation(
   const mergedMsgs = Array.from(byId.values()).sort(
     (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
   );
-  return trimConversationMessagesTail(
-    { ...mergedMeta, messages: mergedMsgs },
-    maxTail,
-    prevMsgs.length
+  return ensureLatestPreviewInMessages(
+    trimConversationMessagesTail(
+      { ...mergedMeta, messages: mergedMsgs },
+      maxTail,
+      prevMsgs.length
+    )
   );
 }
 

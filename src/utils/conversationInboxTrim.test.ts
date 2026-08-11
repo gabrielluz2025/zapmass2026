@@ -76,8 +76,9 @@ describe('mergeConversationsFromSocketUpdate (escopo conn_*)', () => {
     const owns = (cid: string, ou?: string) => ownsConnectionForUid(tenantUid, cid, ou);
     const out = mergeConversationsFromSocketUpdate(prev, incoming, owns);
     expect(out[0].lastMessage).toBe('nova');
-    expect(out[0].messages).toHaveLength(1);
+    expect(out[0].messages).toHaveLength(2);
     expect(out[0].messages[0].text).toBe('antiga');
+    expect(out[0].messages[1].text).toBe('nova');
   });
 
   it('preserva historico profundo apos sync enxuto do socket', () => {

@@ -25,6 +25,10 @@ import {
     mergeConversationsPair
 } from '../src/utils/collapseConversationsByPhone.js';
 import {
+    ensureLatestPreviewInMessages,
+    mergeChatMessageLists
+} from '../src/utils/chatMessageMerge.js';
+import {
     parseEvolutionPresenceWebhook,
     type WaContactPresence,
 } from '../src/utils/evolutionPresence.js';
@@ -408,22 +412,22 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                         ? conv.lastMessage
                         : prev.lastMessage || conv.lastMessage || '',
                 lastMessageTime: bestTs > 0 ? formatTime(bestTs) : '',
-                messages:
-                    (prev.messages?.length || 0) > (conv.messages?.length || 0)
-                        ? prev.messages
-                        : conv.messages?.length
-                          ? conv.messages
-                          : prev.messages,
                 unreadCount: Math.max(prev.unreadCount || 0, conv.unreadCount || 0),
                 tags: prev.tags?.length ? prev.tags : conv.tags,
             };
+            conversations[idx] = ensureLatestPreviewInMessages({
+                ...conversations[idx],
+                messages: mergeChatMessageLists(prev.messages || [], conv.messages || [])
+            });
         } else {
             const ts = conv.lastMessageTimestamp || 0;
-            conversations.push({
-                ...conv,
-                lastMessageTime: ts > 0 ? conv.lastMessageTime || formatTime(ts) : '',
-                lastMessageTimestamp: ts,
-            });
+            conversations.push(
+                ensureLatestPreviewInMessages({
+                    ...conv,
+                    lastMessageTime: ts > 0 ? conv.lastMessageTime || formatTime(ts) : '',
+                    lastMessageTimestamp: ts
+                })
+            );
         }
         conversations.sort(
             (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
@@ -1022,7 +1026,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const fallbackLabel =
             contactPhone || (jid.endsWith('@lid') ? 'Contato' : toPhoneDisplay(jid) || 'Contato');
 
-        return {
+        const row: Conversation = {
             id,
             contactName: pickContactDisplayName({
                 waName: waName || undefined,
@@ -1037,9 +1041,13 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             lastMessage: lastChatMsg?.text || existing?.lastMessage || '',
             lastMessageTime: tsMs > 0 ? lastChatMsg?.timestamp || formatTime(tsMs) : '',
             lastMessageTimestamp: tsMs,
-            messages: existing?.messages || (lastChatMsg ? [lastChatMsg] : []),
+            messages: mergeChatMessageLists(
+                existing?.messages || [],
+                lastChatMsg ? [lastChatMsg] : []
+            ),
             tags: existing?.tags || [],
         };
+        return ensureLatestPreviewInMessages(row);
     }
 
     async function syncChatsForConnection(
