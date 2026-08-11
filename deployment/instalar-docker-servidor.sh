@@ -123,7 +123,29 @@ fi
 echo "    ALLOWED_ORIGINS=${ALLOW}"
 echo "    HOST_PORT=${HOST_PORT} (mapeamento docker compose)"
 
+if ! grep -qE '^ZAPMASS_JWT_SECRET=.+' "$ROOT/.env"; then
+  JWT="$(openssl rand -base64 48 | tr -d '\n')"
+  if grep -q '^ZAPMASS_JWT_SECRET=' "$ROOT/.env"; then
+    sed -i.bak "s|^ZAPMASS_JWT_SECRET=.*|ZAPMASS_JWT_SECRET=${JWT}|" "$ROOT/.env"
+  else
+    echo "ZAPMASS_JWT_SECRET=${JWT}" >> "$ROOT/.env"
+  fi
+  echo "    ZAPMASS_JWT_SECRET gerado"
+fi
+if [[ "${ALLOW}" == https://* ]]; then
+  if grep -q '^TRUST_PROXY=' "$ROOT/.env"; then
+    sed -i.bak "s|^TRUST_PROXY=.*|TRUST_PROXY=1|" "$ROOT/.env"
+  else
+    echo "TRUST_PROXY=1" >> "$ROOT/.env"
+  fi
+fi
+grep -q '^ZAPMASS_AUTH_PROVIDER=' "$ROOT/.env" || echo "ZAPMASS_AUTH_PROVIDER=vps" >> "$ROOT/.env"
+grep -q '^ZAPMASS_DATA_PROVIDER=' "$ROOT/.env" || echo "ZAPMASS_DATA_PROVIDER=vps" >> "$ROOT/.env"
+
 export HOST_PORT
+
+echo "==> Volume Postgres (nome legado zapmass_zapmass-postgres)..."
+docker volume create zapmass_zapmass-postgres >/dev/null
 
 echo "==> Build e subida dos containers (pode levar vários minutos na primeira vez)..."
 HOST_PORT="$HOST_PORT" "${DC[@]}" up -d --build

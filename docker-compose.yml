@@ -11,7 +11,7 @@
 #
 # GA4: com VITE_GA_MEASUREMENT_ID=G-… no `.env`, o `docker compose up --build` embute o gtag no bundle.
 #
-# Porta publicada: HOST_PORT no .env (padrão 3001). Libere essa porta no firewall da VPS.
+# Porta no host: HOST_PORT no .env (padrão 3001), só em 127.0.0.1 (Nginx faz o proxy público 80/443).
 # Dados: volume zapmass-data → /app/data (sessão WhatsApp e filas persistem no servidor).
 #
 # Compose 2.24+: env_file com required:false. Em versões antigas: crie .env antes do up.
@@ -39,7 +39,7 @@ services:
         VITE_USE_VPS_DATA: ${VITE_USE_VPS_DATA:-true}
     init: true
     ports:
-      - "${HOST_PORT:-3001}:3001"
+      - "127.0.0.1:${HOST_PORT:-3001}:3001"
     environment:
       NODE_ENV: production
       PORT: "3001"
@@ -132,7 +132,7 @@ services:
         max-size: "50m"
         max-file: "5"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       - SERVER_PORT=8080
       - AUTHENTICATION_TYPE=apikey
@@ -258,7 +258,7 @@ services:
     container_name: zapmass-uptime-kuma
     restart: unless-stopped
     ports:
-      - "3002:3001"
+      - "127.0.0.1:3002:3001"
     volumes:
       - zapmass-uptime-kuma:/app/data
     logging:
@@ -332,7 +332,7 @@ services:
                sleep 86400;
              done"
     depends_on:
-      - zapmass-postgres
+      - postgres
     logging:
       driver: json-file
       options:
@@ -347,7 +347,6 @@ volumes:
   zapmass-evolution-2:
   zapmass-uptime-kuma:
   zapmass-pg-backups:
-  # Volume criado por deploy antigo (Swarm); reutilizar evita WARN no compose.
+  # Nome fixo (legado Swarm). Sem external: compose cria se faltar e reutiliza se existir.
   zapmass-postgres:
-    external: true
     name: zapmass_zapmass-postgres

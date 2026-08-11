@@ -33,8 +33,7 @@ LOG_FILE="$BACKUP_DIR/backup.log"
 
 # ── Validação ─────────────────────────────────────────────────────────────────
 if [[ -z "$DB_URL" ]]; then
-  echo "[$(date -u +%FT%TZ)] ERROR: ZAPMASS_DATABASE_URL não definida. Backup abortado." | tee -a "$LOG_FILE"
-  exit 1
+  echo "[$(date -u +%FT%TZ)] WARN: ZAPMASS_DATABASE_URL vazia — backup via docker exec zapmass_db." | tee -a "$LOG_FILE"
 fi
 
 mkdir -p "$BACKUP_DIR"
@@ -43,7 +42,8 @@ chmod 700 "$BACKUP_DIR"
 # ── Backup ────────────────────────────────────────────────────────────────────
 echo "[$(date -u +%FT%TZ)] Iniciando backup → $BACKUP_FILE" | tee -a "$LOG_FILE"
 
-if docker exec zapmass-postgres pg_dump "$DB_URL" 2>>"$LOG_FILE" | gzip > "$BACKUP_FILE"; then
+PG_CTR="$(docker ps -qf name=zapmass-postgres | head -1)"
+if [[ -n "$PG_CTR" ]] && docker exec "$PG_CTR" pg_dump -U postgres zapmass_db 2>>"$LOG_FILE" | gzip > "$BACKUP_FILE"; then
   SIZE=$(du -sh "$BACKUP_FILE" | cut -f1)
   echo "[$(date -u +%FT%TZ)] Backup concluído. Tamanho: $SIZE → $BACKUP_FILE" | tee -a "$LOG_FILE"
 else
