@@ -187,9 +187,16 @@ const QuickAuthPanel: React.FC<{
     }
     setBusy(true);
     try {
-      await vpsRequestPasswordReset(trimmed);
+      const out = await vpsRequestPasswordReset(trimmed);
       setForgotSent(true);
-      toast.success('Se o e-mail existir na plataforma, enviamos um link de redefinição.');
+      if (out.mailerConfigured === false) {
+        toast.error(
+          out.message ||
+            'O servidor ainda não envia e-mail. Peça ao administrador para definir uma nova senha no Painel do criador.'
+        );
+      } else {
+        toast.success(out.message || 'Se o e-mail existir na plataforma, enviamos um link de redefinição.');
+      }
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Não foi possível enviar o e-mail.');
     } finally {
@@ -445,7 +452,8 @@ const QuickAuthPanel: React.FC<{
               background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)',
               fontSize: 12.5, color: D.greenLt, lineHeight: 1.5
             }}>
-              Se o e-mail estiver registado, verifique a caixa de entrada e o spam. Depois clique no link para escolher uma nova senha.
+              Se o servidor estiver com e-mail configurado, verifique a caixa de entrada e o spam.
+              Caso contrário, o administrador pode definir uma nova senha no Painel do criador.
             </div>
           ) : null}
           <button

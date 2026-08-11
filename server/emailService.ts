@@ -12,6 +12,10 @@
  * O erro de envio nao quebra o webhook (log + retorna false).
  */
 
+export function isTransactionalEmailConfigured(): boolean {
+  return Boolean(process.env.RESEND_API_KEY?.trim());
+}
+
 interface PaymentConfirmationParams {
   to: string;
   /** Nome do cliente (de MP payer.first_name + last_name). Opcional. */
@@ -724,8 +728,10 @@ function buildPasswordResetHtml(p: PasswordResetEmailParams): string {
 export async function sendPasswordResetEmail(params: PasswordResetEmailParams): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) {
-    console.log('[EmailService] reset senha: RESEND_API_KEY ausente — link gerado mas e-mail não enviado para', params.to);
-    console.log('[EmailService] reset senha link (dev):', params.resetUrl);
+    console.log('[EmailService] reset senha: RESEND_API_KEY ausente — e-mail não enviado');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[EmailService] reset senha link (dev):', params.resetUrl);
+    }
     return false;
   }
 

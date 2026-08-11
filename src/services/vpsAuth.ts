@@ -209,7 +209,9 @@ export async function vpsLogout(): Promise<void> {
   clearVpsSession();
 }
 
-export async function vpsRequestPasswordReset(email: string): Promise<void> {
+export async function vpsRequestPasswordReset(
+  email: string
+): Promise<{ mailerConfigured: boolean; message?: string }> {
   const r = await fetchWithTimeout(
     apiUrl('/api/auth/forgot-password'),
     {
@@ -219,10 +221,14 @@ export async function vpsRequestPasswordReset(email: string): Promise<void> {
     },
     AUTH_FETCH_TIMEOUT_MS
   );
-  const data = await parseJson<{ message?: string }>(r);
+  const data = await parseJson<{ message?: string; mailerConfigured?: boolean }>(r);
   if (!r.ok || data.ok === false) {
     throw new Error(data.error || 'Não foi possível enviar o e-mail de redefinição.');
   }
+  return {
+    mailerConfigured: data.mailerConfigured !== false,
+    message: data.message
+  };
 }
 
 export async function vpsResetPasswordWithToken(token: string, password: string): Promise<void> {

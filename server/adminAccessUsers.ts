@@ -8,6 +8,7 @@ import {
   mergeSubscriptionDocPg
 } from './repositories/subscriptionRepository.js';
 import { usePostgresSubscriptions } from './subscriptionStore.js';
+import { adminSetUserPassword } from './auth/passwordResetService.js';
 
 export type AdminUserAccessRow = {
   uid: string;
@@ -52,6 +53,8 @@ export type AdminAccessUserPutBody = {
   /** Canais do plano (1–5). Usado em Gestão manual / ajuste administrativo. */
   includedChannels?: number | null;
   adminNote?: string;
+  /** Admin define senha do cliente sem e-mail de reset (quando Resend está off). */
+  newPassword?: string;
 };
 
 function tsToIso(v: unknown): string | null {
@@ -399,6 +402,9 @@ function inferAdminAccessAction(body: AdminAccessUserPutBody): string {
         : 'grant-manual-access'
       : 'revoke-manual-access';
   }
+  if (typeof body.newPassword === 'string' && body.newPassword.length >= 8) {
+    return 'set-password';
+  }
   return 'update';
 }
 
@@ -445,6 +451,15 @@ export async function putAdminAccessUser(
   }
   const { uid, email } = resolved;
   const forPg = usePostgresSubscriptions();
+  const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
+  if (newPassword) {
+    if (newPassword.length < 8) {
+      return { error: 'Senha deve ter ao menos 8 caracteres.', status: 400 };
+    }
+    if (!forPg) {
+      return { error: 'Definir senha só está disponível no modo VPS (Postgres).', status: 400 };
+    }
+  }
 
   let cur: Record<string, unknown> = {};
   if (forPg) {
@@ -474,6 +489,9 @@ export async function putAdminAccessUser(
     }
     const next = (await getSubscriptionDocPg(uid)) || merged;
     const row = docToAdminAccessRow(uid, next, email || (await findUserById(uid))?.email || '');
+    if (newPassword) {
+      await adminSetUserPassword(uid, newPassword);
+    }
     try {
       await appendAdminAccessAuditPg(
         uid,

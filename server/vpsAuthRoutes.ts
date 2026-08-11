@@ -308,10 +308,14 @@ export function registerVpsAuthRoutes(app: Express): void {
     }
     try {
       await requestPasswordReset(email);
+      const { isTransactionalEmailConfigured } = await import('./emailService.js');
+      const mailerConfigured = isTransactionalEmailConfigured();
       return res.json({
         ok: true,
-        message:
-          'Se existir uma conta com este e-mail, enviamos um link para redefinir a senha. Verifique também o spam.'
+        mailerConfigured,
+        message: mailerConfigured
+          ? 'Se existir uma conta com este e-mail, enviamos um link para redefinir a senha. Verifique também o spam.'
+          : 'O servidor ainda não envia e-mail (RESEND_API_KEY). Peça ao administrador para definir uma nova senha no Painel do criador.'
       });
     } catch (e) {
       console.error('[auth/forgot-password]', e);

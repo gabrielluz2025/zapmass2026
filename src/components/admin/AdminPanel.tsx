@@ -243,6 +243,7 @@ export const AdminPanel: React.FC = () => {
   const [grantEmail, setGrantEmail] = useState('');
   const [grantDays, setGrantDays] = useState('30');
   const [grantNote, setGrantNote] = useState('');
+  const [grantPassword, setGrantPassword] = useState('');
   const [channelGrantSlots, setChannelGrantSlots] = useState('1');
   const [channelGrantDays, setChannelGrantDays] = useState('30');
   const [channelGrantMonths, setChannelGrantMonths] = useState('0');
@@ -572,6 +573,7 @@ export const AdminPanel: React.FC = () => {
       channelGrantMonths?: number | null;
       channelGrantMode?: 'set' | 'extend';
       includedChannels?: number | null;
+      newPassword?: string;
     }
   ) => {
     const res = await fetch(apiUrl('/api/admin/access-user'), {
@@ -698,6 +700,51 @@ export const AdminPanel: React.FC = () => {
       toast.success(updated.blocked ? 'Usuário bloqueado.' : 'Usuário desbloqueado.');
     } catch (e: any) {
       toast.error(e?.message || 'Não foi possível atualizar bloqueio.');
+    }
+  };
+
+  const handleSetPasswordByEmail = async () => {
+    if (!grantEmail.trim()) {
+      toast.error('Informe o e-mail do usuário.');
+      return;
+    }
+    if (grantPassword.trim().length < 8) {
+      toast.error('Senha deve ter ao menos 8 caracteres.');
+      return;
+    }
+    setAccessActionBusy(true);
+    try {
+      await updateAccessUser({
+        email: grantEmail.trim(),
+        newPassword: grantPassword.trim(),
+        adminNote: grantNote.trim() || 'Senha definida pelo admin (sem e-mail)'
+      });
+      toast.success('Senha definida. O cliente já pode entrar com ela.');
+      setGrantPassword('');
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível definir a senha.');
+    } finally {
+      setAccessActionBusy(false);
+    }
+  };
+
+  const setPasswordForUser = async (u: AccessUser) => {
+    const pw = window.prompt(`Nova senha para ${u.email} (mínimo 8 caracteres):`);
+    if (pw == null) return;
+    if (pw.trim().length < 8) {
+      toast.error('Senha deve ter ao menos 8 caracteres.');
+      return;
+    }
+    try {
+      await updateAccessUser({
+        uid: u.uid,
+        email: u.email,
+        newPassword: pw.trim(),
+        adminNote: 'Senha definida pelo admin (sem e-mail)'
+      });
+      toast.success('Senha definida. O cliente já pode entrar.');
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível definir a senha.');
     }
   };
 
@@ -1336,6 +1383,34 @@ export const AdminPanel: React.FC = () => {
               </Button>
             </div>
             <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+              <p className="text-[12px] font-bold mb-1" style={{ color: 'var(--text-1)' }}>
+                Definir senha (sem e-mail)
+              </p>
+              <p className="text-[11px] mb-2" style={{ color: 'var(--text-3)' }}>
+                O envio de “esqueci a senha” só funciona com RESEND_API_KEY. Enquanto isso, defina a senha aqui e envie ao cliente.
+              </p>
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="min-w-[200px] flex-1">
+                  <label className="ui-eyebrow text-[10px]">Nova senha (mín. 8)</label>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    className="ui-input mt-1"
+                    value={grantPassword}
+                    onChange={(e) => setGrantPassword(e.target.value)}
+                  />
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={accessActionBusy}
+                  onClick={() => void handleSetPasswordByEmail()}
+                >
+                  Aplicar senha no e-mail acima
+                </Button>
+              </div>
+            </div>
+            <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
               <p className="text-[12px] font-bold mb-2" style={{ color: 'var(--text-1)' }}>
                 Liberar canais extras (3.o ao 5.o)
               </p>
@@ -1612,6 +1687,9 @@ export const AdminPanel: React.FC = () => {
                                   Revogar manual
                                 </Button>
                               )}
+                              <Button variant="secondary" size="sm" onClick={() => void setPasswordForUser(u)}>
+                                Definir senha
+                              </Button>
                               {Number(u.manualExtraChannelSlots || 0) > 0 && (
                                 <Button variant="secondary" size="sm" onClick={() => void revokeExtraChannels(u)}>
                                   Revogar canais

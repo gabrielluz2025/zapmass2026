@@ -462,7 +462,8 @@ app.get('/api/health', async (_req, res) => {
     version: getAppVersion(),
     mercadopagoConfigured: mp?.configured ?? false,
     mercadopagoCheckoutAvailable: mp?.valid ?? false,
-    mercadopagoMode: mp?.mode ?? null
+    mercadopagoMode: mp?.mode ?? null,
+    emailConfigured: Boolean(process.env.RESEND_API_KEY?.trim())
   });
 });
 

@@ -45,6 +45,25 @@ export async function requestPasswordReset(email: string): Promise<void> {
   });
 }
 
+/** Admin da plataforma define senha sem e-mail (Resend ausente). */
+export async function adminSetUserPassword(userId: string, password: string): Promise<void> {
+  if (password.length < 8) {
+    throw new Error('Senha deve ter ao menos 8 caracteres.');
+  }
+  const pool = getZapmassPool();
+  if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+  const password_hash = await hashPassword(password);
+  await pool.query(`UPDATE zapmass.users SET password_hash = $2 WHERE id = $1::uuid`, [
+    userId,
+    password_hash
+  ]);
+  await pool.query(
+    `UPDATE zapmass.refresh_tokens SET revoked_at = now()
+     WHERE subject_id = $1::uuid AND revoked_at IS NULL`,
+    [userId]
+  );
+}
+
 export async function resetPasswordWithToken(token: string, password: string): Promise<void> {
   if (password.length < 8) {
     throw new Error('Senha deve ter ao menos 8 caracteres.');
