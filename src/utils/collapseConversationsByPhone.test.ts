@@ -70,4 +70,70 @@ describe('collapseConversationsByPhone', () => {
     ]);
     expect(out).toHaveLength(2);
   });
+
+  it('une threads do mesmo chip com a mesma foto real do WhatsApp', () => {
+    const conn = 'conn_pic';
+    const pic = 'https://pps.whatsapp.net/v/t61.24694-24/abc123/foto.jpg?oe=TOKEN';
+    const out = collapseConversationsByPhone([
+      {
+        id: `${conn}:251174049550446@lid`,
+        connectionId: conn,
+        contactName: 'Zap-mass',
+        contactPhone: '',
+        profilePicUrl: pic,
+        unreadCount: 0,
+        lastMessage: 'teste',
+        lastMessageTime: '',
+        lastMessageTimestamp: 100,
+        messages: [],
+        tags: []
+      },
+      {
+        id: `${conn}:554799127801@s.whatsapp.net`,
+        connectionId: conn,
+        contactName: 'Gabriel Luz',
+        contactPhone: '+554799127801',
+        profilePicUrl: `${pic}&new=1`,
+        unreadCount: 0,
+        lastMessage: 'Blz',
+        lastMessageTime: '',
+        lastMessageTimestamp: 200,
+        messages: [],
+        tags: []
+      }
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].id).toBe(`${conn}:554799127801@s.whatsapp.net`);
+  });
+
+  it('une @lid e nome igual ignorando maiúsculas', () => {
+    const conn = 'conn_name';
+    const out = collapseConversationsByPhone([
+      {
+        id: `${conn}:999888777666555@lid`,
+        connectionId: conn,
+        contactName: 'Gabinete deputado Ismael',
+        contactPhone: '',
+        unreadCount: 0,
+        lastMessage: 'a',
+        lastMessageTime: '',
+        lastMessageTimestamp: 1,
+        messages: [],
+        tags: []
+      },
+      {
+        id: `${conn}:5547999999999@s.whatsapp.net`,
+        connectionId: conn,
+        contactName: 'Gabinete Deputado Ismael',
+        contactPhone: '+5547999999999',
+        unreadCount: 0,
+        lastMessage: 'b',
+        lastMessageTime: '',
+        lastMessageTimestamp: 2,
+        messages: [],
+        tags: []
+      }
+    ]);
+    expect(out).toHaveLength(1);
+  });
 });

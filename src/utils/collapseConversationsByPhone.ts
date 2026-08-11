@@ -33,6 +33,42 @@ function newestActivityMs(conv: Conversation): number {
   return Math.max(conv.lastMessageTimestamp ?? 0, fromMsgN);
 }
 
+/** Foto real do WhatsApp (não avatar gerado). Path estável — query string muda. */
+export function stableWhatsappPicKey(url: string | undefined | null): string {
+  const raw = String(url || '').trim();
+  if (!raw.startsWith('http://') && !raw.startsWith('https://')) return '';
+  try {
+    const parsed = new URL(raw);
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host.includes('ui-avatars.com') ||
+      host.includes('dicebear') ||
+      host.includes('gravatar.com')
+    ) {
+      return '';
+    }
+    const path = parsed.pathname || '';
+    if (path.length < 12) return '';
+    const waHost =
+      host.includes('whatsapp.net') ||
+      host.includes('whatsapp.com') ||
+      host.includes('fbcdn.net');
+    if (!waHost && path.length < 24) return '';
+    return `${host}${path}`;
+  } catch {
+    return '';
+  }
+}
+
+function normalizedInboxName(name: string | undefined | null): string {
+  return String(name || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function phoneKeysForConversation(conv: Conversation): string[] {
   const keys = new Set<string>();
   const addDigits = (raw: string) => {
@@ -182,13 +218,32 @@ function collapseGroup(group: Conversation[]): Conversation[] {
     }
   }
 
+  const picToIdx = new Map<string, number>();
+  for (let i = 0; i < group.length; i++) {
+    const pic = stableWhatsappPicKey(group[i].profilePicUrl);
+    if (!pic) continue;
+    const prev = picToIdx.get(pic);
+    if (prev != null) unite(i, prev);
+    else picToIdx.set(pic, i);
+  }
+
+  const nameToIdx = new Map<string, number>();
+  for (let i = 0; i < group.length; i++) {
+    const nm = normalizedInboxName(group[i].contactName);
+    if (nm.length < 6 || looksLikeLongLidDigits(nm)) continue;
+    const jid = remoteJidFromConversationId(group[i].id);
+    const isLid = isLidJid(jid);
+    const prev = nameToIdx.get(nm);
+    if (prev != null) {
+      const prevLid = isLidJid(remoteJidFromConversationId(group[prev].id));
+      if (isLid || prevLid) unite(i, prev);
+    } else {
+      nameToIdx.set(nm, i);
+    }
+  }
+
   const clusters = new Map<number, Conversation[]>();
   for (let i = 0; i < group.length; i++) {
-    const keys = phoneKeysForConversation(group[i]);
-    if (keys.length === 0) {
-      clusters.set(-1 - i, [group[i]]);
-      continue;
-    }
     const root = find(i);
     if (!clusters.has(root)) clusters.set(root, []);
     clusters.get(root)!.push(group[i]);
