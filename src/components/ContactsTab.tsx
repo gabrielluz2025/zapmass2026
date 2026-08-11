@@ -240,6 +240,13 @@ type FileImportRowView = FileImportRow & {
 
 type ImportTargetMode = 'none' | 'existing' | 'new';
 
+function listNameFromImportFile(fileName: string): string {
+  const base = String(fileName || '')
+    .replace(/\.[^.]+$/, '')
+    .trim();
+  return base || 'Importação';
+}
+
 /** Snapshot estável para fila de importações (vários arquivos em sequência). */
 type FileImportQueuedPayload = {
   snapshotRows: FileImportRow[];
@@ -1151,12 +1158,13 @@ export const ContactsTab: React.FC = () => {
   const [newContactNewListName, setNewContactNewListName] = useState('');
 
   useEffect(() => {
-    if (activeFilter.startsWith('list:')) {
-      const id = activeFilter.slice(5);
-      if (!contactLists.some((l) => l.id === id)) {
-        setActiveFilter('all');
-        setListAddSelectedIds([]);
-      }
+    if (!activeFilter.startsWith('list:')) return;
+    // Lista vazia = ainda hidratando. Resetar aqui apagava a lista recém-criada da UI.
+    if (contactLists.length === 0) return;
+    const id = activeFilter.slice(5);
+    if (!contactLists.some((l) => l.id === id)) {
+      setActiveFilter('all');
+      setListAddSelectedIds([]);
     }
   }, [contactLists, activeFilter]);
 
@@ -1938,9 +1946,9 @@ export const ContactsTab: React.FC = () => {
       setFileImportRows(preview);
       setFileImportLabel(file.name);
       setFileImportFilter('all');
-      setFileImportTargetMode('none');
+      setFileImportTargetMode('new');
       setFileImportTargetListId('');
-      setFileImportNewListName('');
+      setFileImportNewListName(listNameFromImportFile(file.name));
       setFileImportDocked(false);
       setFileImportJob(null);
       setAutoFixProgress(null);
@@ -2009,9 +2017,9 @@ export const ContactsTab: React.FC = () => {
       setFileImportRows(preview);
       setFileImportLabel(file.name);
       setFileImportFilter('all');
-      setFileImportTargetMode('none');
+      setFileImportTargetMode('new');
       setFileImportTargetListId('');
-      setFileImportNewListName('');
+      setFileImportNewListName(listNameFromImportFile(file.name));
       setFileImportDocked(false);
       setFileImportJob(null);
       setAutoFixProgress(null);
@@ -2070,8 +2078,7 @@ export const ContactsTab: React.FC = () => {
       tempsIndexRef.current = phoneMessageIndex;
       tempsProcessedCountRef.current = 0;
       contactTempsAccRef.current = {};
-      setContactTemps({});
-      setContactTempsReady(false);
+      // Recalcula em background sem limpar os chips (evita pisca dos KPIs).
     }
 
     const startFrom = tempsProcessedCountRef.current;
@@ -2987,15 +2994,16 @@ export const ContactsTab: React.FC = () => {
     selectedListId: string,
     newListName: string,
     originLabel: string
-  ): Promise<{ attached: number; listName?: string }> => {
-    if (contactIds.length === 0 || mode === 'none') return { attached: 0 };
+  ): Promise<{ attached: number; listName?: string; listId?: string }> => {
+    if (mode === 'none') return { attached: 0 };
     if (mode === 'existing') {
+      if (contactIds.length === 0) return { attached: 0, listId: selectedListId };
       const target = contactLists.find((l) => l.id === selectedListId);
       try {
         await appendContactIdsToContactList(selectedListId, contactIds, {
           notesLine: `Atualizada por ${originLabel} em ${new Date().toLocaleString()}`,
         });
-        return { attached: contactIds.length, listName: target?.name || 'Lista' };
+        return { attached: contactIds.length, listName: target?.name || 'Lista', listId: selectedListId };
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         // Se a lista escolhida for "legada" (raiz) ela pode existir no UI mas não em `users/{uid}/contact_lists`.
@@ -3012,15 +3020,15 @@ export const ContactsTab: React.FC = () => {
           });
           setFileImportTargetListId(createdId);
           toast.success(`Lista "${legacyName}" foi migrada e atualizada.`);
-          return { attached: contactIds.length, listName: legacyName };
+          return { attached: contactIds.length, listName: legacyName, listId: createdId };
         }
         throw e;
       }
     }
     const listName = newListName.trim();
     if (!listName) throw new Error('Informe o nome da nova lista.');
-    await createContactList(listName, contactIds, `Lista criada por ${originLabel} com ${contactIds.length} contato(s).`);
-    return { attached: contactIds.length, listName };
+    const listId = await createContactList(listName, contactIds, `Lista criada por ${originLabel} com ${contactIds.length} contato(s).`);
+    return { attached: contactIds.length, listName, listId };
   }, [contactLists, createContactList, appendContactIdsToContactList]);
 
   const autoFixFileImportRows = useCallback(async () => {
@@ -3310,7 +3318,19 @@ export const ContactsTab: React.FC = () => {
         };
 
         for (const rv of view) {
-          if (!rv.include) continue;
+          if (!rv.include) {
+            if (
+              job.targetMode !== 'none' &&
+              rv.duplicateAgainstBase &&
+              rv.problems.length === 0
+            ) {
+              const phone = normalizeBRPhone(rv.contact.phone);
+              const k = normPhoneKey(phone);
+              const existing = k ? localByKey.get(k) : undefined;
+              if (existing) touchedIds.add(existing.id);
+            }
+            continue;
+          }
           if (rv.problems.length > 0) {
             skippedProb++;
             continue;
@@ -3352,30 +3372,30 @@ export const ContactsTab: React.FC = () => {
             if (pendingCreates.length >= FIRE_BATCH) await flushCreates();
           }
 
-          patchQueued({
-            phase: 'import',
-            percent: Math.min(99, Math.round((100 * importDone) / totalImport)),
-            current: importDone,
-            total: totalImport,
-            message: `A importar contatos (${importDone} de ${totalImport})…`,
-          });
-          if (importDone % 40 === 0) {
+          if (importDone % 40 === 0 || importDone === totalImport) {
+            patchQueued({
+              phase: 'import',
+              percent: Math.min(99, Math.round((100 * importDone) / totalImport)),
+              current: importDone,
+              total: totalImport,
+              message: `A importar contatos (${importDone} de ${totalImport})…`,
+            });
             await new Promise<void>((r) => setTimeout(r, 0));
           }
         }
 
         await flushCreates();
         await flushUpdates();
-        await refreshContacts();
+        void refreshContactsSavedTotal?.();
         let attached = 0;
         let listName = '';
         const importIds = Array.from(touchedIds);
-        if (importIds.length > 0 && job.targetMode !== 'none') {
+        if (job.targetMode !== 'none' && (importIds.length > 0 || job.targetMode === 'new')) {
           patchQueued({
             phase: 'list',
             percent: 99,
             current: importIds.length,
-            total: importIds.length,
+            total: Math.max(1, importIds.length),
             message: 'A atualizar a lista de destino…',
           });
           const result = await attachContactsToList(
@@ -3387,6 +3407,10 @@ export const ContactsTab: React.FC = () => {
           );
           attached = result.attached;
           listName = result.listName || '';
+          if (result.listId) {
+            setActiveFilter(`list:${result.listId}`);
+            setCurrentPage(1);
+          }
         }
         fileImportPipelineContactsMergeRef.current = localByKey;
 
@@ -3432,7 +3456,7 @@ export const ContactsTab: React.FC = () => {
         throw err;
       }
     },
-    [bulkAddContacts, bulkUpdateContacts, refreshContacts, attachContactsToList]
+    [bulkAddContacts, bulkUpdateContacts, refreshContactsSavedTotal, attachContactsToList]
   );
 
   const executeFileImportConfirm = useCallback(async () => {
@@ -3452,7 +3476,11 @@ export const ContactsTab: React.FC = () => {
     if (snapshotRows.length === 0) return;
     const viewPreview = buildFileImportRowsViewFromState(snapshotRows, contacts);
     const nToImport = viewPreview.filter((rv) => rv.include && rv.problems.length === 0).length;
-    if (nToImport === 0) {
+    const nDupAttach =
+      fileImportTargetMode !== 'none'
+        ? viewPreview.filter((rv) => rv.duplicateAgainstBase && rv.problems.length === 0).length
+        : 0;
+    if (nToImport === 0 && nDupAttach === 0) {
       toast.error('Nenhuma linha válida selecionada para importar.');
       return;
     }
@@ -3789,9 +3817,9 @@ export const ContactsTab: React.FC = () => {
   const openSmartImport = useCallback(() => {
     setSmartImportRaw('');
     setSmartImportRows([]);
-    setSmartImportTargetMode('none');
+    setSmartImportTargetMode('new');
     setSmartImportTargetListId('');
-    setSmartImportNewListName('');
+    setSmartImportNewListName('Importação rápida');
     setSmartImportOpen(true);
   }, []);
   const openImportXLSX = useCallback(() => {
@@ -5941,6 +5969,9 @@ export const ContactsTab: React.FC = () => {
             <div className="shrink-0 px-4 py-3 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-3 bg-slate-50 dark:bg-slate-900/50">
               <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2 bg-white dark:bg-slate-900">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Destino da importação</p>
+                <p className="text-[11px] text-slate-500">
+                  Por padrão criamos uma lista com o nome do arquivo e colocamos os números nela (incluindo os que já estavam na base).
+                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {([
                     ['none', 'Importar sem lista'],
@@ -6547,11 +6578,11 @@ export const ContactsTab: React.FC = () => {
                     }
                     await flushCreates();
                     await flushUpdates();
-                    await refreshContacts();
+                    void refreshContactsSavedTotal?.();
                     let attached = 0;
                     let listName = '';
                     const importIds = Array.from(touchedIds);
-                    if (importIds.length > 0 && smartImportTargetMode !== 'none') {
+                    if (smartImportTargetMode !== 'none' && (importIds.length > 0 || smartImportTargetMode === 'new')) {
                       const result = await attachContactsToList(
                         importIds,
                         smartImportTargetMode,
@@ -6561,6 +6592,10 @@ export const ContactsTab: React.FC = () => {
                       );
                       attached = result.attached;
                       listName = result.listName || '';
+                      if (result.listId) {
+                        setActiveFilter(`list:${result.listId}`);
+                        setCurrentPage(1);
+                      }
                     }
                     toast.success(
                       `${imported} contato(s) novo(s).` +

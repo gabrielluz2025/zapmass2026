@@ -12,7 +12,7 @@
   100% { opacity: 0.5; }
 }
 
-.crm-fade-up { animation: crmFadeUp 0.3s ease both; }
+.crm-fade-up { animation: none; }
 
 /* ── Header principal ─────────────────────────────── */
 .crm-topbar {

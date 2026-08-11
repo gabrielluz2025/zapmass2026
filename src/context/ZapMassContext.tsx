@@ -917,7 +917,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         clearTimeout(contactsBootstrapRetryTimerRef.current);
         contactsBootstrapRetryTimerRef.current = null;
       }
-      setContacts([]);
+      // Não esvaziar a tabela: o wipe gera o “pisca” da aba Contatos.
       setContactsHasMore(true);
       void refreshContactsSavedTotalRef.current();
     }
@@ -3055,7 +3055,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         return merged;
       });
       setContactsSavedTotal((t) => (t != null ? t + contactRows.length : t));
-      setContactsHasMore((prev) => prev || contactRows.length > 0);
     } else {
       await reloadVpsContactsRef.current();
       void refreshContactsSavedTotal();
@@ -3237,12 +3236,28 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para criar lista.');
     const uniqIds = [...new Set(contactIds.filter(Boolean))];
+    const createdAt = new Date().toISOString();
     const listId = await apiCreateContactList({
       name,
       contactIds: uniqIds,
       description: description || '',
-      createdAt: new Date().toISOString()
+      createdAt
     });
+    if (listId) {
+      setContactLists((prev) => {
+        if (prev.some((l) => l.id === listId)) return prev;
+        return [
+          {
+            id: listId,
+            name,
+            contactIds: uniqIds,
+            description: description || '',
+            createdAt,
+          },
+          ...prev,
+        ];
+      });
+    }
     await reloadVpsContactListsRef.current();
     return listId;
   };
