@@ -91,6 +91,7 @@ import {
   isCampaignQueueWorkComplete
 } from '../utils/campaignMetrics';
 import { isConversationalMultiStepCampaign } from '../utils/campaignStageCount';
+import { clearAllCampaignWizardSessions } from '../utils/campaignWizardSession';
 import { computeNextRunIso, localDateTimeToUtcIso } from '../utils/campaignSchedule';
 import { parseFirestoreDateToIso } from '../utils/followUp';
 import {
@@ -3187,7 +3188,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       'zapmass.contactsFilter',
       'zapmass.pendingCampaignDraft',
       'zapmass.openChatByPhone',
-      'zapmass.warmup.state'
+      'zapmass.warmup.state',
+      'zapmass.lastView'
     ];
     for (const key of storageKeys) {
       try {
@@ -3197,6 +3199,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         /* ignore */
       }
     }
+    clearAllCampaignWizardSessions();
     void refreshContactsSavedTotal();
     return summary;
   };

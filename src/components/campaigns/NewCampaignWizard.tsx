@@ -176,6 +176,8 @@ interface NewCampaignWizardProps {
   /** Reidrata o assistente (clone / modelo). */
   initialDraft?: CampaignWizardDraft | null;
   onDraftConsumed?: () => void;
+  /** Autosave para retomar ao trocar de aba (sidebar / F5). */
+  onAutosave?: (draft: CampaignWizardDraft) => void;
 }
 
 const STEPS = [
@@ -192,7 +194,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   onCancel,
   onSubmit,
   initialDraft,
-  onDraftConsumed
+  onDraftConsumed,
+  onAutosave
 }) => {
   /** Conversas globais (socket) — usadas só para calcular temperatura. Tomadas via contexto isolado para evitar prop-drilling pesado e caching deferred. */
   const conversations = useZapMassConversations();
@@ -891,8 +894,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         ? { ...initialDraft.channelWeights }
         : {}
     );
-    setActiveStageIdx(0);
-    setStep(1);
+    const stageIdx = Number(initialDraft.activeStageIdx);
+    setActiveStageIdx(
+      Number.isFinite(stageIdx) && stageIdx >= 0 ? Math.floor(stageIdx) : 0
+    );
+    const resumeStep = initialDraft.step;
+    setStep(resumeStep === 2 || resumeStep === 3 || resumeStep === 4 ? resumeStep : 1);
     onDraftConsumed?.();
   }, [initialDraft, onDraftConsumed]);
 
@@ -926,6 +933,63 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     selectedContactPhones: Array.from(selectedContactPhones),
     manualSelection
   });
+
+  const autosaveRef = useRef(onAutosave);
+  autosaveRef.current = onAutosave;
+  const wizardSnapshotRef = useRef<() => CampaignWizardDraft>(() => ({
+    ...buildCurrentDraft(),
+    step,
+    activeStageIdx
+  }));
+  wizardSnapshotRef.current = () => ({
+    ...buildCurrentDraft(),
+    step,
+    activeStageIdx
+  });
+
+  useEffect(() => {
+    const payload = wizardSnapshotRef.current();
+    const t = window.setTimeout(() => autosaveRef.current?.(payload), 400);
+    return () => window.clearTimeout(t);
+  }, [
+    step,
+    activeStageIdx,
+    name,
+    sendMode,
+    selectedListId,
+    manualNumbers,
+    selectedConnectionIds,
+    delaySeconds,
+    delaySecondsMax,
+    humanizedPauses,
+    campaignFlowMode,
+    messageStages,
+    filterCities,
+    filterChurches,
+    filterRoles,
+    filterProfessions,
+    filterDDDs,
+    filterTemps,
+    filterSearch,
+    selectedContactPhones,
+    manualSelection,
+    channelWeightMode,
+    channelWeightsById
+  ]);
+
+  useEffect(() => {
+    const flush = () => autosaveRef.current?.(wizardSnapshotRef.current());
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      flush();
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onHide);
+    };
+  }, []);
 
   const setActiveMessageBody = (body: string) => {
     setMessageStages((prev) => prev.map((s, i) => (i === activeStageIdx ? { ...s, body } : s)));

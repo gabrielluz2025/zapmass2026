@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -14,6 +14,11 @@ import { useAuth } from '../context/AuthContext';
 import { isWhatsAppRiskAcknowledged, saveWhatsAppRiskAck } from '../utils/whatsappRiskStorage';
 import { appendAudit } from '../utils/campaignMissionStorage';
 import { buildDraftFromCampaign } from '../utils/campaignDraft';
+import {
+  clearCampaignWizardDraft,
+  loadCampaignWizardSession,
+  patchCampaignWizardSession
+} from '../utils/campaignWizardSession';
 import { Badge, Button, Card, Input, Select, Modal } from './ui';
 import {
   CampaignDetails,
@@ -68,20 +73,35 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     systemLogs
   } = useZapMassCore();
 
-  const [subTab, setSubTab] = useState<SubTab>('overview');
-  const [viewState, setViewState] = useState<'list' | 'create' | 'details'>('list');
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const restoredSession = loadCampaignWizardSession(user?.uid);
+  const [subTab, setSubTab] = useState<SubTab>(() => restoredSession?.subTab ?? 'overview');
+  const [viewState, setViewState] = useState<'list' | 'create' | 'details'>(
+    () => restoredSession?.viewState ?? 'list'
+  );
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(
+    () => restoredSession?.selectedCampaignId ?? null
+  );
   const [riskModalOpen, setRiskModalOpen] = useState(false);
   const [testOpen, setTestOpen] = useState(() => localStorage.getItem(LS_TEST_OPEN) === '1');
   const [testFromConn, setTestFromConn] = useState<string>('');
   const [testToPhone, setTestToPhone] = useState<string>('');
   const [testMessage, setTestMessage] = useState<string>('Teste de disparo - ZapMass');
   const [testResult, setTestResult] = useState<string | null>(null);
-  const [wizardDraft, setWizardDraft] = useState<CampaignWizardDraft | null>(null);
+  const [wizardDraft, setWizardDraft] = useState<CampaignWizardDraft | null>(
+    () => (restoredSession?.viewState === 'create' ? restoredSession.wizard : null)
+  );
   const [wizardSessionId, setWizardSessionId] = useState(0);
   const [pendingDraft, setPendingDraft] = useState<CampaignWizardDraft | null>(null);
   const [dismissedInsights, setDismissedInsights] = useState<string[]>(loadDismissed);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const ignoreWizardAutosaveRef = useRef(false);
+
+  const muteWizardAutosaveBriefly = () => {
+    ignoreWizardAutosaveRef.current = true;
+    window.setTimeout(() => {
+      ignoreWizardAutosaveRef.current = false;
+    }, 0);
+  };
 
   // Preview de campanha antes do disparo
   const [previewPayload, setPreviewPayload] = useState<null | {
@@ -111,6 +131,21 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     localStorage.setItem(LS_DISMISSED, JSON.stringify(dismissedInsights));
   }, [dismissedInsights]);
 
+  useEffect(() => {
+    if (!user?.uid) return;
+    patchCampaignWizardSession(user.uid, { viewState, subTab, selectedCampaignId });
+  }, [user?.uid, viewState, subTab, selectedCampaignId]);
+
+  useEffect(() => {
+    if (viewState !== 'details' || !selectedCampaignId) return;
+    if (campaigns.length === 0) return;
+    if (!campaigns.some((c) => c.id === selectedCampaignId)) {
+      setViewState('list');
+      setSubTab('campaigns');
+      setSelectedCampaignId(null);
+    }
+  }, [campaigns, viewState, selectedCampaignId]);
+
   // Draft chegando da aba Contatos ("Criar campanha com selecionados"/"lista") via sessionStorage.
   // O handshake usa storage para sobreviver a navegação entre abas sem prop drilling.
   useEffect(() => {
@@ -138,11 +173,20 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   }, [user?.uid]);
 
   const goToCreateWizard = () => {
+    muteWizardAutosaveBriefly();
     setWizardDraft(null);
     setPendingDraft(null);
     setWizardSessionId((s) => s + 1);
     setSubTab('create');
     setViewState('create');
+    if (user?.uid) {
+      patchCampaignWizardSession(user.uid, {
+        viewState: 'create',
+        subTab: 'create',
+        wizard: null,
+        selectedCampaignId: null
+      });
+    }
   };
 
   const openWizardWithDraft = (draft: CampaignWizardDraft) => {
@@ -160,6 +204,13 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     setWizardSessionId((s) => s + 1);
     setSubTab('create');
     setViewState('create');
+    if (uid) {
+      patchCampaignWizardSession(uid, {
+        viewState: 'create',
+        subTab: 'create',
+        wizard: draft
+      });
+    }
   };
 
   const requestCreateFlow = () => {
@@ -329,14 +380,18 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           toast.success('Campanha iniciada com sucesso.');
         }
       }
+      muteWizardAutosaveBriefly();
       setViewState('list');
       setSubTab('overview');
+      if (user?.uid) clearCampaignWizardDraft(user.uid);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Falha ao iniciar campanha.';
       if (msg.includes('Demoramos a confirmar no servidor')) {
         toast.error(msg, { duration: 12_000 });
+        muteWizardAutosaveBriefly();
         setViewState('list');
         setSubTab('overview');
+        if (user?.uid) clearCampaignWizardDraft(user.uid);
         return;
       }
       throw err;
@@ -543,9 +598,19 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           initialDraft={wizardDraft}
           onDraftConsumed={() => setWizardDraft(null)}
           onCancel={() => {
+            muteWizardAutosaveBriefly();
             setViewState('list');
             setSubTab('overview');
             setWizardDraft(null);
+            if (user?.uid) clearCampaignWizardDraft(user.uid);
+          }}
+          onAutosave={(draft) => {
+            if (ignoreWizardAutosaveRef.current || !user?.uid) return;
+            patchCampaignWizardSession(user.uid, {
+              viewState: 'create',
+              subTab: 'create',
+              wizard: draft
+            });
           }}
           onSubmit={handleSubmitCampaign}
         />

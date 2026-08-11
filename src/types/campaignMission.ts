@@ -34,6 +34,9 @@ export interface CampaignWizardDraft {
   filterSearch: string;
   selectedContactPhones: string[];
   manualSelection: boolean;
+  /** Passo do assistente (1–4) para retomar ao voltar da aba. */
+  step?: 1 | 2 | 3 | 4;
+  activeStageIdx?: number;
 }
 
 export interface SavedCampaignTemplate {
