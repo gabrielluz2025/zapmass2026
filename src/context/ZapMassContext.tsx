@@ -3218,7 +3218,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uniq = [...new Set(ids.filter(Boolean))];
     if (uniq.length === 0 && !options?.notesLine) return;
 
-    const CHUNK = 2500;
+    const CHUNK = 1000;
     for (let i = 0; i < uniq.length; i += CHUNK) {
       const chunk = uniq.slice(i, i + CHUNK);
       const isLast = i + CHUNK >= uniq.length;
@@ -3229,7 +3229,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (uniq.length === 0 && options?.notesLine) {
       await apiAppendContactIdsToList(listId, [], { notesLine: options.notesLine });
     }
-    await reloadVpsContactListsRef.current();
+    void reloadVpsContactListsRef.current();
   };
 
   const createContactList = async (name: string, contactIds: string[], description?: string): Promise<string> => {

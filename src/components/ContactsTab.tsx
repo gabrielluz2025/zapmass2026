@@ -399,18 +399,21 @@ const stripInvisibleChars = (s: string) => s.replace(/[\u200B-\u200D\uFEFF]/g, '
 type FileImportDupBasis = {
   keys: Set<string>;
   nameByKey: Map<string, string>;
+  idByKey: Map<string, string>;
 };
 
 const buildFileImportDupBasis = (contactsList: Contact[]): FileImportDupBasis => {
   const keys = new Set<string>();
   const nameByKey = new Map<string, string>();
+  const idByKey = new Map<string, string>();
   for (const c of contactsList) {
     const k = normPhoneKey(c.phone);
     if (!k) continue;
     keys.add(k);
     if (!nameByKey.has(k)) nameByKey.set(k, c.name);
+    if (!idByKey.has(k)) idByKey.set(k, c.id);
   }
-  return { keys, nameByKey };
+  return { keys, nameByKey, idByKey };
 };
 
 /** Vista derivada (problemas/duplicados) — mesma regra que o preview pós-arquivo. */
@@ -3308,7 +3311,7 @@ export const ContactsTab: React.FC = () => {
           total: totalImport,
           message: 'A importar contatos — pode continuar a usar o sistema.',
         });
-        const FIRE_BATCH = 400;
+        const FIRE_BATCH = 150;
         const pendingCreates: Contact[] = [];
         const pendingUpdates: Array<{ id: string; updates: Partial<Contact> }> = [];
         const pendingCreateKeys = new Set<string>();
@@ -3346,6 +3349,7 @@ export const ContactsTab: React.FC = () => {
 
         for (const rv of view) {
           if (!rv.include) {
+            // Já na base: mesmo sem checkbox, se o destino é uma lista, vincula o id.
             if (
               job.targetMode !== 'none' &&
               rv.duplicateAgainstBase &&
@@ -3354,7 +3358,10 @@ export const ContactsTab: React.FC = () => {
               const phone = normalizeBRPhone(rv.contact.phone);
               const k = normPhoneKey(phone);
               const existing = k ? localByKey.get(k) : undefined;
-              if (existing) touchedIds.add(existing.id);
+              const id =
+                existing?.id ||
+                (k ? fileImportDupBasisRef.current?.idByKey.get(k) : undefined);
+              if (id) touchedIds.add(id);
             }
             continue;
           }
@@ -6013,7 +6020,8 @@ export const ContactsTab: React.FC = () => {
               <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2 bg-white dark:bg-slate-900">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Destino da importação</p>
                 <p className="text-[11px] text-slate-500">
-                  Por padrão criamos uma lista com o nome do arquivo e colocamos os números nela (incluindo os que já estavam na base).
+                  Por padrão criamos uma lista com o nome do arquivo. Contatos novos entram nela;
+                  os que já estão na base (mesmo sem lista) também são vinculados a essa lista.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {([
@@ -6538,7 +6546,7 @@ export const ContactsTab: React.FC = () => {
                     let imported = 0;
                     let skipped = 0;
                     let merged = 0;
-                    const FIRE_BATCH = 400;
+                    const FIRE_BATCH = 150;
                     const pendingCreates: Contact[] = [];
                     const pendingUpdates: Array<{ id: string; updates: Partial<Contact> }> = [];
                     const pendingCreateKeys = new Set<string>();

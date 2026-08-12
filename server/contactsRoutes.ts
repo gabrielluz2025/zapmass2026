@@ -231,12 +231,13 @@ export function registerContactsDataRoutes(app: Express): void {
         return { ...c, ...norm };
       });
       const ids = await bulkCreateContacts(ctx.tenantId, normalized);
-      // Dispara normalização ViaCEP em background para os novos contatos
-      runAddressNormalizationBatch(ctx.tenantId, 100).catch((e) => {
-        console.warn('[api/contacts/bulk] background normalize error:', e);
-      });
+      // Dispara ViaCEP em background só 1× por lote (não a cada flush de 150).
+      if (Math.random() < 0.15) {
+        runAddressNormalizationBatch(ctx.tenantId, 100).catch((e) => {
+          console.warn('[api/contacts/bulk] background normalize error:', e);
+        });
+      }
       invalidateCrmContactIndexCache(ctx.tenantId);
-    invalidateContactsCountCache(ctx.tenantId);
       invalidateContactsCountCache(ctx.tenantId);
       return res.json({ ok: true, ids, count: ids.length });
     } catch (e) {

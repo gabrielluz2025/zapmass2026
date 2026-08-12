@@ -3,6 +3,9 @@ import { apiFetchJson } from '../utils/apiFetchAuth';
 
 /** Bases grandes (40k+) podem levar >30s por página — evita falso "sem conexão". */
 const CONTACTS_API_TIMEOUT_MS = 120_000;
+/** Lotes de import / append de lista — nunca usar o default de 18s. */
+const CONTACTS_MUTATION_TIMEOUT_MS = 120_000;
+const LISTS_API_TIMEOUT_MS = 60_000;
 
 export async function fetchContacts(opts?: {
   limit?: number;
@@ -45,7 +48,8 @@ export async function apiCreateContact(contact: Partial<Contact>): Promise<strin
 export async function apiBulkCreateContacts(contacts: Partial<Contact>[]): Promise<string[]> {
   const j = await apiFetchJson<{ ids?: string[] }>('/api/contacts/bulk', {
     method: 'POST',
-    body: JSON.stringify({ contacts })
+    body: JSON.stringify({ contacts }),
+    timeoutMs: CONTACTS_MUTATION_TIMEOUT_MS,
   });
   return Array.isArray(j.ids) ? j.ids : [];
 }
@@ -189,7 +193,8 @@ export async function apiBulkUpdateContacts(
 ): Promise<void> {
   await apiFetchJson('/api/contacts/bulk-update', {
     method: 'POST',
-    body: JSON.stringify({ items })
+    body: JSON.stringify({ items }),
+    timeoutMs: CONTACTS_MUTATION_TIMEOUT_MS,
   });
 }
 
@@ -270,8 +275,6 @@ export async function apiDeleteContact(id: string): Promise<void> {
   await apiFetchJson(`/api/contacts/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
-const LISTS_API_TIMEOUT_MS = 15_000;
-
 export async function fetchContactLists(): Promise<ContactList[]> {
   const j = await apiFetchJson<{ lists?: ContactList[] }>('/api/contact-lists', {
     timeoutMs: LISTS_API_TIMEOUT_MS,
@@ -284,7 +287,7 @@ export async function apiCreateContactList(input: Partial<ContactList>): Promise
   const j = await apiFetchJson<{ id?: string; list?: ContactList }>('/api/contact-lists', {
     method: 'POST',
     body: JSON.stringify(input),
-    timeoutMs: LISTS_API_TIMEOUT_MS,
+    timeoutMs: CONTACTS_MUTATION_TIMEOUT_MS,
   });
   return String(j.id || j.list?.id || '');
 }
@@ -292,7 +295,8 @@ export async function apiCreateContactList(input: Partial<ContactList>): Promise
 export async function apiUpdateContactList(id: string, updates: Partial<ContactList>): Promise<void> {
   await apiFetchJson(`/api/contact-lists/${encodeURIComponent(id)}`, {
     method: 'PATCH',
-    body: JSON.stringify(updates)
+    body: JSON.stringify(updates),
+    timeoutMs: CONTACTS_MUTATION_TIMEOUT_MS,
   });
 }
 
@@ -305,7 +309,8 @@ export async function apiAppendContactIdsToList(
     `/api/contact-lists/${encodeURIComponent(id)}/append`,
     {
       method: 'POST',
-      body: JSON.stringify({ contactIds, notesLine: opts?.notesLine })
+      body: JSON.stringify({ contactIds, notesLine: opts?.notesLine }),
+      timeoutMs: CONTACTS_MUTATION_TIMEOUT_MS,
     }
   );
   return { added: Number(j.added) || 0, list: j.list as ContactList };
