@@ -14,6 +14,15 @@ export function isApiTimeoutError(err: unknown): boolean {
   return err instanceof Error && /Tempo esgotado ao (conectar|falar) com o servidor/i.test(err.message);
 }
 
+export function isApiNetworkError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return (
+    err.message.startsWith('Sem conexão') ||
+    /Failed to fetch/i.test(err.message) ||
+    /NetworkError|Load failed|ERR_CONNECTION|ECONNRESET/i.test(err.message)
+  );
+}
+
 function mergeAbortSignals(signals: AbortSignal[]): AbortSignal {
   const anyFn = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
   if (typeof anyFn === 'function') {
@@ -76,7 +85,7 @@ export async function apiFetchJson<T = Record<string, unknown>>(
   if (!token) throw new Error('Sessão expirada. Entre novamente.');
 
   const method = methodOf(init);
-  const extraRetries = init?.retries ?? (method === 'GET' || method === 'HEAD' ? 1 : 0);
+  const extraRetries = init?.retries ?? (method === 'GET' || method === 'HEAD' ? 2 : 0);
 
   let lastErr: unknown;
   for (let attempt = 0; attempt <= extraRetries; attempt++) {
@@ -110,7 +119,7 @@ export async function apiFetchJson<T = Record<string, unknown>>(
     } catch (err) {
       lastErr = err;
       const timeout = isApiTimeoutError(err);
-      const net = err instanceof Error && err.message.startsWith('Sem conexão');
+      const net = isApiNetworkError(err);
       if (attempt < extraRetries && (timeout || net)) {
         await sleep(400 * (attempt + 1));
         continue;

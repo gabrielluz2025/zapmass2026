@@ -6277,6 +6277,8 @@ export async function resolveWaDisplayNameForPhone(
     opts?: {
         connectionId?: string;
         phonebookIndex?: PhonebookNameIndex | null;
+        /** Lote grande: não chama fetchProfile (lento e derruba a API). */
+        skipProfile?: boolean;
     }
 ): Promise<{ name: string | null; source: 'phonebook' | 'conversation' | 'profile' | null }> {
     const digits = normalizePhoneDigits(phoneDigits);
@@ -6318,6 +6320,10 @@ export async function resolveWaDisplayNameForPhone(
 
     const fromConv = findConversationDisplayName(connId, digits);
     if (fromConv) return { name: fromConv, source: 'conversation' };
+
+    if (opts?.skipProfile !== false) {
+        return { name: null, source: null };
+    }
 
     const fromProfile = await fetchProfileDisplayName(connId, digits);
     if (fromProfile) return { name: fromProfile, source: 'profile' };

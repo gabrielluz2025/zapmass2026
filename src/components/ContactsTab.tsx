@@ -4340,7 +4340,7 @@ export const ContactsTab: React.FC = () => {
     };
   }, [applyWaNameSyncJobToStore, pollWaNameSyncJob]);
 
-  /** Auto: se há nomes suspeitos visíveis, dispara sync uma vez por sessão. */
+  /** Auto: só os suspeitos visíveis (não varre a base inteira — isso derrubava a API). */
   useEffect(() => {
     if (waNameSyncProgress.autoStartedOnce) return;
     if (waNameSyncProgress.job?.status === 'running') return;
@@ -4350,7 +4350,11 @@ export const ContactsTab: React.FC = () => {
     if (suspiciousVisible.length < 3) return;
     const t = window.setTimeout(() => {
       setWaNameSyncProgress({ autoStartedOnce: true });
-      void startWaNameSync({ mode: 'suspicious', silent: true });
+      void startWaNameSync({
+        mode: 'ids',
+        ids: suspiciousVisible.slice(0, 40).map((c) => c.id),
+        silent: true,
+      });
     }, 2500);
     return () => window.clearTimeout(t);
   }, [

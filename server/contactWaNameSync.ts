@@ -35,6 +35,7 @@ export async function syncContactWaName(
     /** Se true, sobrescreve mesmo com nome “bom” (não usado pelo job padrão). */
     force?: boolean;
     onlyIfSuspicious?: boolean;
+    skipProfile?: boolean;
   }
 ): Promise<WaNameSyncResult> {
   const onlyIfSuspicious = opts?.onlyIfSuspicious !== false;
@@ -56,6 +57,7 @@ export async function syncContactWaName(
     const resolved = await evolutionService.resolveWaDisplayNameForPhone(tenantId, digits, {
       connectionId: opts?.connectionId,
       phonebookIndex: opts?.phonebookIndex,
+      skipProfile: opts?.skipProfile !== false,
     });
     const raw = (resolved.name || '').trim();
     if (!raw || !waNameLooksUsable(raw)) {

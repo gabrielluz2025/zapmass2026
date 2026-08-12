@@ -65,6 +65,7 @@ import {
   formatDispatchUnavailableMessage
 } from '../services/campaignsApi';
 import { getSessionIdToken } from '../utils/sessionAuth';
+import { isApiNetworkError, isApiTimeoutError } from '../utils/apiFetchAuth';
 import { useWorkspace } from './WorkspaceContext';
 import { filterConnectionsForViewer, ownsConnectionForUid } from '../utils/connectionScope';
 import {
@@ -967,10 +968,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setContactsHasMore(true);
         scheduleContactsBootstrapRetry(requestUid);
       }
-      toast.error(
-        err instanceof Error ? err.message : 'Falha ao carregar contatos.',
-        { id: 'contacts-sync-error', duration: 6000 }
-      );
+      if (isApiNetworkError(err) || isApiTimeoutError(err)) {
+        toast.error('Servidor ocupado ou reiniciando. Recarregando a base em instantes…', {
+          id: 'api-offline',
+          duration: 5000
+        });
+      } else {
+        toast.error(
+          err instanceof Error ? err.message : 'Falha ao carregar contatos.',
+          { id: 'contacts-sync-error', duration: 6000 }
+        );
+      }
     } finally {
       if (currentUidRef.current === requestUid) setContactsLoadingMore(false);
       loadAllContactsInFlightRef.current = false;

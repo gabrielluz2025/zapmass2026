@@ -43,7 +43,7 @@ const jobs = new Map<string, WaNameSyncJob>();
 const runningLoops = new Map<string, boolean>();
 
 const PAGE_SIZE = 200;
-const THROTTLE_MS = 350;
+const THROTTLE_MS = 120;
 
 function publicJob(job: WaNameSyncJob): WaNameSyncJobPublic {
   const { tenantId: _t, connectionId: _c, ids: _i, afterId: _a, phonebookIndex: _p, ...pub } = job;
@@ -172,6 +172,7 @@ async function processLoop(jobId: string): Promise<void> {
           connectionId: job.connectionId,
           phonebookIndex: job.phonebookIndex,
           onlyIfSuspicious: true,
+          skipProfile: true,
         });
         job.scanned += 1;
         if (result.status === 'updated') job.updated += 1;
@@ -207,6 +208,7 @@ async function processLoop(jobId: string): Promise<void> {
               connectionId: job.connectionId,
               phonebookIndex: job.phonebookIndex,
               onlyIfSuspicious: true,
+              skipProfile: true,
             });
             if (result.status === 'updated') job.updated += 1;
             else if (result.status === 'skipped') job.skipped += 1;
