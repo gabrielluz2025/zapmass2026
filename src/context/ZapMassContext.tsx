@@ -65,7 +65,7 @@ import {
   formatDispatchUnavailableMessage
 } from '../services/campaignsApi';
 import { getSessionIdToken } from '../utils/sessionAuth';
-import { isApiNetworkError, isApiTimeoutError } from '../utils/apiFetchAuth';
+import { isTransientApiError, API_OFFLINE_TOAST_ID, API_OFFLINE_TOAST_MESSAGE } from '../utils/toastApiError';
 import { useWorkspace } from './WorkspaceContext';
 import { filterConnectionsForViewer, ownsConnectionForUid } from '../utils/connectionScope';
 import {
@@ -643,6 +643,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   /** Evita rajada de POST /api/connections/sync ao abrir abas / reconectar socket. */
   const AUTO_CONNECTIONS_SYNC_MIN_MS = 24 * 60 * 60 * 1000;
   const disconnectToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Início da queda do socket — sync pesado só se ficar offline tempo demais. */
+  const socketDisconnectAtRef = useRef<number | null>(null);
   /** Atraso antes de marcar UI como offline — evita OFFLINE a piscar em quedas < ~3s (sleep da CPU / troca de aba). */
   const offlineBadgeDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasConnectedOnceRef = useRef(false);
@@ -968,9 +970,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setContactsHasMore(true);
         scheduleContactsBootstrapRetry(requestUid);
       }
-      if (isApiNetworkError(err) || isApiTimeoutError(err)) {
-        toast.error('Servidor ocupado ou reiniciando. Recarregando a base em instantes…', {
-          id: 'api-offline',
+      if (isTransientApiError(err)) {
+        toast.error(API_OFFLINE_TOAST_MESSAGE, {
+          id: API_OFFLINE_TOAST_ID,
           duration: 8000
         });
       } else {
@@ -1344,6 +1346,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const resolvedWorkspaceUid = effectiveWorkspaceUid ?? sessionUser?.uid ?? null;
     if (!resolvedWorkspaceUid) return undefined;
     currentUidRef.current = resolvedWorkspaceUid;
+    bootConnectionsSyncDoneRef.current = false;
+    socketDisconnectAtRef.current = null;
 
     const BACKEND_URL = getSocketIoOrigin();
     /** Evita corrida Firebase vs ref: o primeiro connections-update vinha antes do ref estar alinhado e esvaziava a lista (modo estrito uid__). */
@@ -1536,7 +1540,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       // Sem toast em reconexao: troca de aba / retorno do fundo gera muito ruido; o painel
       // usa isBackendConnected; toast so na primeira carga (acima) e se ficar 6s+ off (disconnect).
       devLog('🔌 Conectado ao servidor Socket.io');
-      if (!bootConnectionsSyncDoneRef.current) {
+      const downMs = socketDisconnectAtRef.current
+        ? Date.now() - socketDisconnectAtRef.current
+        : 0;
+      socketDisconnectAtRef.current = null;
+      const needsBootSync =
+        !bootConnectionsSyncDoneRef.current ||
+        downMs > 25_000 ||
+        connectionsRef.current.length === 0;
+      if (needsBootSync) {
         bootConnectionsSyncDoneRef.current = true;
         void syncConnectionsFromApi({ boot: true });
       }
@@ -1556,13 +1568,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         scheduleBackendOffline({ immediate: true });
         return; // logout / socket.disconnect() intencional — sem aviso de falha
       }
-      bootConnectionsSyncDoneRef.current = false;
+      socketDisconnectAtRef.current = Date.now();
       scheduleBackendOffline();
       // Evita falso positivo em quedas rapidas: so avisa erro apos 6s offline continuo
       // (reconexao comum nao dispara: connect() limpa este timer).
       disconnectToastTimerRef.current = setTimeout(() => {
         if (!socket.connected) {
-          toast.error('Conexão perdida com o servidor.', {
+          toast.error(API_OFFLINE_TOAST_MESSAGE, {
+            id: API_OFFLINE_TOAST_ID,
+            duration: 8000,
             icon: '🔴',
             style: { borderRadius: '10px', background: '#333', color: '#fff' }
           });

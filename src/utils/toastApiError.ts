@@ -1,5 +1,5 @@
 import toast from 'react-hot-toast';
-import { isApiNetworkError, isApiTimeoutError } from './apiFetchAuth';
+import { isApiHttpTransientError, isApiNetworkError, isApiTimeoutError } from './apiFetchAuth';
 
 export const API_OFFLINE_TOAST_ID = 'api-offline';
 
@@ -7,7 +7,7 @@ export const API_OFFLINE_TOAST_MESSAGE =
   'Servidor ocupado ou reiniciando. A página tenta de novo sozinha.';
 
 const NETWORK_TOAST_RE =
-  /Failed to fetch|Sem conexão com o servidor|Tempo esgotado ao (conectar|falar) com o servidor|NetworkError|Load failed|ERR_CONNECTION|ECONNRESET|Failed to load/i;
+  /Failed to fetch|Sem conexão com o servidor|Tempo esgotado ao (conectar|falar) com o servidor|NetworkError|Load failed|ERR_CONNECTION|ECONNRESET|Failed to load|Erro HTTP 50[234]|Conexão perdida com o servidor|Servidor ocupado ou reiniciando|Bad Gateway|Service Unavailable|Gateway Timeout/i;
 
 export function isOfflineToastMessage(message: unknown): boolean {
   if (typeof message === 'string') return NETWORK_TOAST_RE.test(message);
@@ -16,7 +16,12 @@ export function isOfflineToastMessage(message: unknown): boolean {
 }
 
 export function isTransientApiError(err: unknown): boolean {
-  return isApiNetworkError(err) || isApiTimeoutError(err) || isOfflineToastMessage(err);
+  return (
+    isApiNetworkError(err) ||
+    isApiTimeoutError(err) ||
+    isApiHttpTransientError(err) ||
+    isOfflineToastMessage(err)
+  );
 }
 
 /** Um único toast para queda de rede — vários GET em paralelo não empilham vermelho. */

@@ -23,6 +23,11 @@ export function isApiNetworkError(err: unknown): boolean {
   );
 }
 
+/** Nginx/API a reiniciar — 502/503/504 não são erro de negócio. */
+export function isApiHttpTransientError(err: unknown): boolean {
+  return err instanceof Error && /Erro HTTP 50[234]\b/.test(err.message);
+}
+
 function mergeAbortSignals(signals: AbortSignal[]): AbortSignal {
   const anyFn = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
   if (typeof anyFn === 'function') {
@@ -120,7 +125,8 @@ export async function apiFetchJson<T = Record<string, unknown>>(
       lastErr = err;
       const timeout = isApiTimeoutError(err);
       const net = isApiNetworkError(err);
-      if (attempt < extraRetries && (timeout || net)) {
+      const httpTransient = isApiHttpTransientError(err);
+      if (attempt < extraRetries && (timeout || net || httpTransient)) {
         await sleep(Math.min(8_000, 600 * 2 ** attempt));
         continue;
       }
