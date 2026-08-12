@@ -3044,20 +3044,13 @@ export const ContactsTab: React.FC = () => {
     }
     const listName = newListName.trim();
     if (!listName) throw new Error('Informe o nome da nova lista.');
-    // Lista grande: cria vazia e faz append em lotes (evita timeout no POST único).
-    const listId =
-      contactIds.length > 400
-        ? await createContactList(listName, [], `Lista criada por ${originLabel}.`)
-        : await createContactList(
-            listName,
-            contactIds,
-            `Lista criada por ${originLabel} com ${contactIds.length} contato(s).`
-          );
-    if (contactIds.length > 400) {
-      await appendContactIdsToContactList(listId, contactIds, {
-        notesLine: `Atualizada por ${originLabel} em ${new Date().toLocaleString()} (${contactIds.length} contato(s))`,
-      });
-    }
+    // Um único INSERT com todos os IDs — bem mais rápido que empty + append repetido
+    // (o append antigo no Postgres estourava o proxy e gerava "Failed to fetch").
+    const listId = await createContactList(
+      listName,
+      contactIds,
+      `Lista criada por ${originLabel} com ${contactIds.length} contato(s).`
+    );
     return { attached: contactIds.length, listName, listId };
   }, [contactLists, createContactList, appendContactIdsToContactList]);
 
@@ -3311,13 +3304,39 @@ export const ContactsTab: React.FC = () => {
           total: totalImport,
           message: 'A importar contatos — pode continuar a usar o sistema.',
         });
-        const FIRE_BATCH = 150;
+        const FIRE_BATCH = 80;
         const pendingCreates: Contact[] = [];
         const pendingUpdates: Array<{ id: string; updates: Partial<Contact> }> = [];
         const pendingCreateKeys = new Set<string>();
 
         const yieldImportUi = () =>
           new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+
+        const withImportRetry = async <T,>(label: string, fn: () => Promise<T>): Promise<T> => {
+          let last: unknown;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              return await fn();
+            } catch (e) {
+              last = e;
+              const msg = e instanceof Error ? e.message : String(e);
+              const retryable =
+                /Sem conexão|Tempo esgotado|Failed to fetch|Erro HTTP 502|Erro HTTP 503|Erro HTTP 504/i.test(
+                  msg
+                );
+              if (!retryable || attempt === 2) throw e;
+              patchQueued({
+                phase: (getFileImportProgress().job?.phase as FileImportJobState['phase']) || 'import',
+                percent: Math.min(99, Math.round((100 * importDone) / totalImport)),
+                current: importDone,
+                total: totalImport,
+                message: `${label} — nova tentativa (${attempt + 2}/3)…`,
+              });
+              await new Promise<void>((r) => setTimeout(r, 800 * (attempt + 1)));
+            }
+          }
+          throw last instanceof Error ? last : new Error(String(last));
+        };
 
         const flushCreates = async () => {
           if (pendingCreates.length === 0) return;
@@ -3326,7 +3345,9 @@ export const ContactsTab: React.FC = () => {
             const kk = normPhoneKey(c.phone);
             if (kk) pendingCreateKeys.delete(kk);
           }
-          const ids = await bulkAddContacts(slice, { silent: true, skipReload: true });
+          const ids = await withImportRetry('Gravar lote', () =>
+            bulkAddContacts(slice, { silent: true, skipReload: true })
+          );
           await yieldImportUi();
           for (let idx = 0; idx < ids.length; idx++) {
             const incoming = slice[idx];
@@ -3342,7 +3363,9 @@ export const ContactsTab: React.FC = () => {
         const flushUpdates = async () => {
           if (pendingUpdates.length === 0) return;
           const slice = pendingUpdates.splice(0, pendingUpdates.length);
-          await bulkUpdateContacts(slice, { silent: true, skipReload: true });
+          await withImportRetry('Atualizar lote', () =>
+            bulkUpdateContacts(slice, { silent: true, skipReload: true })
+          );
           await yieldImportUi();
           await new Promise<void>((r) => setTimeout(r, 40));
         };
@@ -3430,14 +3453,16 @@ export const ContactsTab: React.FC = () => {
             percent: 99,
             current: importIds.length,
             total: Math.max(1, importIds.length),
-            message: 'A atualizar a lista de destino…',
+            message: `A gravar lista de destino (${importIds.length} contato(s))…`,
           });
-          const result = await attachContactsToList(
-            importIds,
-            job.targetMode,
-            job.targetListId,
-            job.newListName,
-            'importação de arquivo'
+          const result = await withImportRetry('Gravar lista', () =>
+            attachContactsToList(
+              importIds,
+              job.targetMode,
+              job.targetListId,
+              job.newListName,
+              'importação de arquivo'
+            )
           );
           attached = result.attached;
           listName = result.listName || '';
@@ -3477,11 +3502,12 @@ export const ContactsTab: React.FC = () => {
         if (pendingDrop > 0) {
           toast.error(`${pendingDrop} importação(ões) foram retiradas da fila devido ao erro.`);
         }
+        const prev = getFileImportProgress();
         patchQueued({
           phase: 'error',
-          percent: 0,
-          current: 0,
-          total: 0,
+          percent: typeof prev.job?.percent === 'number' ? prev.job.percent : 0,
+          current: typeof prev.job?.current === 'number' ? prev.job.current : 0,
+          total: typeof prev.job?.total === 'number' ? prev.job.total : 0,
           message: 'Erro na importação',
           error: msg,
           queuedBehind: 0,
@@ -6546,7 +6572,7 @@ export const ContactsTab: React.FC = () => {
                     let imported = 0;
                     let skipped = 0;
                     let merged = 0;
-                    const FIRE_BATCH = 150;
+                    const FIRE_BATCH = 80;
                     const pendingCreates: Contact[] = [];
                     const pendingUpdates: Array<{ id: string; updates: Partial<Contact> }> = [];
                     const pendingCreateKeys = new Set<string>();

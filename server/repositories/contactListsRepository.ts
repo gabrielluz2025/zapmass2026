@@ -108,61 +108,42 @@ export async function updateContactList(
   return rowToContactList({ ...row, contact_ids: payload.contact_ids });
 }
 
-/** Acrescenta IDs sem reenviar a lista inteira (suporta dezenas de milhares de contatos). */
+/**
+ * Acrescenta IDs à lista. Merge em memória + um UPDATE —
+ * evita jsonb_agg(DISTINCT…) no Postgres, que estoura o proxy (~90s) em listas grandes.
+ */
 export async function appendContactIdsToContactList(
   tenantId: string,
   listId: string,
   newIds: string[],
   opts?: { notesLine?: string }
 ): Promise<{ list: ContactList; added: number } | null> {
-  const pool = getZapmassPool();
-  if (!pool) return null;
   const uniq = [...new Set(newIds.map(String).filter(Boolean))];
   if (uniq.length === 0 && !opts?.notesLine) return null;
 
   const before = await getContactListById(tenantId, listId);
   if (!before) return null;
-  const beforeSet = new Set(before.contactIds || []);
 
-  let list: ContactList | null = before;
-  if (uniq.length > 0) {
-    const r = await pool.query<ContactListRow>(
-      `UPDATE zapmass.contact_lists
-       SET contact_ids = (
-         SELECT COALESCE(jsonb_agg(DISTINCT elem ORDER BY elem), '[]'::jsonb)
-         FROM (
-           SELECT jsonb_array_elements_text(COALESCE(contact_ids, '[]'::jsonb)) AS elem
-           UNION
-           SELECT jsonb_array_elements_text($3::jsonb) AS elem
-         ) AS combined
-       ),
-       updated_at = now()
-       WHERE tenant_id = $1::uuid AND id = $2::uuid
-       RETURNING id::text, tenant_id::text, name, contact_ids, description, tags, created_at, updated_at`,
-      [tenantId, listId, JSON.stringify(uniq)]
-    );
-    const row = r.rows[0];
-    if (!row) return null;
-    list = rowToContactList({
-      ...row,
-      contact_ids: Array.isArray(row.contact_ids)
-        ? row.contact_ids
-        : (row.contact_ids as unknown as string[])
-    });
-  }
-
-  if (opts?.notesLine) {
-    const prevNotes = String(before.description ?? '');
-    const description = `${prevNotes}\n${opts.notesLine}`.trim();
-    const updated = await updateContactList(tenantId, listId, { description });
-    if (updated) list = updated;
-  }
-
-  const afterSet = new Set(list?.contactIds || []);
+  const seen = new Set(before.contactIds || []);
+  const merged = [...(before.contactIds || [])];
   let added = 0;
   for (const id of uniq) {
-    if (!beforeSet.has(id) && afterSet.has(id)) added++;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    merged.push(id);
+    added++;
   }
+
+  const updates: Partial<ContactList> = {};
+  if (added > 0) updates.contactIds = merged;
+  if (opts?.notesLine) {
+    updates.description = `${String(before.description ?? '')}\n${opts.notesLine}`.trim();
+  }
+  if (Object.keys(updates).length === 0) {
+    return { list: before, added: 0 };
+  }
+
+  const list = await updateContactList(tenantId, listId, updates);
   return list ? { list, added } : null;
 }
 

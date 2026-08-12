@@ -50,6 +50,7 @@ export async function apiBulkCreateContacts(contacts: Partial<Contact>[]): Promi
     method: 'POST',
     body: JSON.stringify({ contacts }),
     timeoutMs: CONTACTS_MUTATION_TIMEOUT_MS,
+    retries: 2,
   });
   return Array.isArray(j.ids) ? j.ids : [];
 }
@@ -195,6 +196,7 @@ export async function apiBulkUpdateContacts(
     method: 'POST',
     body: JSON.stringify({ items }),
     timeoutMs: CONTACTS_MUTATION_TIMEOUT_MS,
+    retries: 2,
   });
 }
 
@@ -288,6 +290,7 @@ export async function apiCreateContactList(input: Partial<ContactList>): Promise
     method: 'POST',
     body: JSON.stringify(input),
     timeoutMs: CONTACTS_MUTATION_TIMEOUT_MS,
+    retries: 2,
   });
   return String(j.id || j.list?.id || '');
 }
@@ -297,6 +300,7 @@ export async function apiUpdateContactList(id: string, updates: Partial<ContactL
     method: 'PATCH',
     body: JSON.stringify(updates),
     timeoutMs: CONTACTS_MUTATION_TIMEOUT_MS,
+    retries: 2,
   });
 }
 
@@ -311,6 +315,7 @@ export async function apiAppendContactIdsToList(
       method: 'POST',
       body: JSON.stringify({ contactIds, notesLine: opts?.notesLine }),
       timeoutMs: CONTACTS_MUTATION_TIMEOUT_MS,
+      retries: 2,
     }
   );
   return { added: Number(j.added) || 0, list: j.list as ContactList };

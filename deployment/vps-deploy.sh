@@ -583,6 +583,22 @@ if [ "${ZAPMASS_DEPLOY_SKIP_HEALTHCHECK:-0}" = "1" ]; then
     _api_wait=70
     wait_swarm_service_replicas zapmass_api 1 "${_api_wait}" || recover_swarm_api_service || true
   fi
+  # Import de listas grandes precisa de proxy_read > 90s (senão o browser vê Failed to fetch).
+  if command -v nginx >/dev/null 2>&1; then
+    echo "==> ajustando proxy_*_timeout do nginx para 300s (se existir)"
+    for f in /etc/nginx/sites-enabled/* /etc/nginx/sites-available/* /etc/nginx/conf.d/*; do
+      [ -f "$f" ] || continue
+      grep -q 'proxy_read_timeout' "$f" 2>/dev/null || continue
+      sed -i -E 's/proxy_read_timeout[[:space:]]+[0-9]+s;/proxy_read_timeout          300s;/g' "$f" || true
+      sed -i -E 's/proxy_send_timeout[[:space:]]+[0-9]+s;/proxy_send_timeout          300s;/g' "$f" || true
+    done
+    if nginx -t 2>/dev/null; then
+      systemctl reload nginx 2>/dev/null || nginx -s reload 2>/dev/null || true
+      echo "==> nginx reload OK (timeouts 300s)"
+    else
+      echo "==> AVISO: nginx -t falhou; timeouts não aplicados"
+    fi
+  fi
   echo "==> deploy concluido (sem health inline). Commit: ${VITE_GIT_REF:-?}"
   if [ -f deployment/install-deploy-watch-cron.sh ]; then
     chmod +x deployment/install-deploy-watch-cron.sh deployment/vps-watch-deploy.sh 2>/dev/null || true

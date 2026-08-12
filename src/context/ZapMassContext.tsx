@@ -3218,7 +3218,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uniq = [...new Set(ids.filter(Boolean))];
     if (uniq.length === 0 && !options?.notesLine) return;
 
-    const CHUNK = 1000;
+    const CHUNK = 5000;
     for (let i = 0; i < uniq.length; i += CHUNK) {
       const chunk = uniq.slice(i, i + CHUNK);
       const isLast = i + CHUNK >= uniq.length;

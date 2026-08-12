@@ -98,13 +98,20 @@ export async function apiFetchJson<T = Record<string, unknown>>(
         }
         throw new Error('Sessão expirada. Entre novamente.');
       }
-      if (!r.ok) throw new Error(j.error || `Erro HTTP ${r.status}`);
+      if (!r.ok) {
+        const transient = r.status === 502 || r.status === 503 || r.status === 504;
+        if (transient && attempt < extraRetries) {
+          await sleep(400 * (attempt + 1));
+          continue;
+        }
+        throw new Error(j.error || `Erro HTTP ${r.status}`);
+      }
       return j;
     } catch (err) {
       lastErr = err;
       const timeout = isApiTimeoutError(err);
       const net = err instanceof Error && err.message.startsWith('Sem conexão');
-      if (attempt < extraRetries && (timeout || net) && !retried) {
+      if (attempt < extraRetries && (timeout || net)) {
         await sleep(400 * (attempt + 1));
         continue;
       }
