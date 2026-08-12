@@ -1,5 +1,6 @@
 import type { AxiosInstance } from 'axios';
 import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
+import { buildOutboundPhoneVariants, normalizeOutboundNumber } from './evolutionOutboundPhone.js';
 import {
   hasResolvablePhone,
   isLidJid,
@@ -36,6 +37,12 @@ type EvolutionSendTextResponse = {
   error?: string;
 };
 
+export function isRetryableExistsFalseError(message: string): boolean {
+  return /não encontrado no WhatsApp|exists:\s*false|HTTP 400|status code 400|recusou o envio \(400\)/i.test(
+    message
+  );
+}
+
 /** Envia texto via Evolution API (v1 + v2) com validação da resposta. */
 export async function postEvolutionSendText(
   api: AxiosInstance,
@@ -58,7 +65,7 @@ export async function postEvolutionSendText(
       delay: 1200,
     });
   } catch (err) {
-    throw new Error(formatEvolutionHttpError(err));
+    throw new Error(formatEvolutionHttpError(err, number));
   }
 
   const responseData = response.data;
@@ -97,6 +104,36 @@ export async function postEvolutionSendText(
   }
 
   throw new Error('Evolution retornou resposta sem confirmação de envio.');
+}
+
+/**
+ * Envio de texto com retry BR (com/sem 9º dígito) — mesmo critério das campanhas.
+ * Aniversário / chat 1:1 usam este caminho; sem ele o exists:false aborta na 1ª variante.
+ */
+export async function postEvolutionSendTextWithBrVariants(
+  api: AxiosInstance,
+  instanceName: string,
+  to: string,
+  text: string
+): Promise<{ messageId?: string; numberUsed: string }> {
+  const normalized = normalizeOutboundNumber(to) || normalizeOutboundDigits(to);
+  if (!normalized) throw new Error(`Número inválido: ${to}`);
+  const variants = buildOutboundPhoneVariants(normalized);
+  const list = variants.length > 0 ? variants : [normalized];
+  let lastErr: Error | null = null;
+
+  for (let i = 0; i < list.length; i++) {
+    try {
+      const result = await postEvolutionSendText(api, instanceName, list[i], text);
+      return { ...result, numberUsed: list[i] };
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      const canRetry = i < list.length - 1 && isRetryableExistsFalseError(lastErr.message);
+      if (!canRetry) throw lastErr;
+    }
+  }
+
+  throw lastErr || new Error('Falha ao enviar mensagem');
 }
 
 export type OutboundSendTarget = { number: string };

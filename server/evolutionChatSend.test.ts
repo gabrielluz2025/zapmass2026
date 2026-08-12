@@ -62,3 +62,32 @@ describe('formatEvolutionHttpError', () => {
     expect(msg).toBe('Contato não encontrado no WhatsApp (+55 (47) 98455-6296)');
   });
 });
+
+describe('postEvolutionSendTextWithBrVariants', () => {
+  it('retenta com variante sem 9º dígito após exists:false', async () => {
+    const { postEvolutionSendTextWithBrVariants } = await import('./evolutionChatSend.js');
+    const calls: string[] = [];
+    const api = {
+      post: async (_url: string, body: { number?: string }) => {
+        calls.push(String(body.number || ''));
+        if (body.number === '5547932091005') {
+          const err: any = new Error('Request failed with status code 400');
+          err.response = {
+            data: { response: { message: [{ exists: false, jid: '5547932091005@s.whatsapp.net' }] } }
+          };
+          throw err;
+        }
+        return { data: { key: { id: 'ok1' }, status: 'PENDING' } };
+      }
+    };
+    const result = await postEvolutionSendTextWithBrVariants(
+      api as never,
+      'inst',
+      '5547932091005',
+      'oi'
+    );
+    expect(calls).toEqual(['5547932091005', '554732091005']);
+    expect(result.numberUsed).toBe('554732091005');
+    expect(result.messageId).toBe('ok1');
+  });
+});

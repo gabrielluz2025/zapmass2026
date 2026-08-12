@@ -53,6 +53,7 @@ import { DashboardCommandPanel } from './dashboard/DashboardCommandPanel';
 import { usePastoralVisits } from '../hooks/usePastoralVisits';
 import { openChatNavigate } from '../utils/openChatByPhoneNav';
 import { buildCanonicalConversationId } from '../utils/conversationId';
+import { normalizeBRPhone } from '../utils/brPhoneNormalize';
 import { downloadPastoralVisitIcs } from '../utils/pastoralVisitIcs';
 import {
   getMaxConnectionSlotsForUser,
@@ -857,7 +858,7 @@ export const DashboardTab: React.FC = () => {
       leaveBirthdayContext('contacts');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Falha ao enviar mensagem.';
-      toast.error(msg);
+      toast.error(msg, { id: 'send-message-error', duration: 6000 });
     } finally {
       setBirthdaySending(false);
     }

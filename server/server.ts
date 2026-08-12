@@ -1870,7 +1870,10 @@ const registerSocketHandlers = () => {
       } catch (error: any) {
         logEvent('wa:send-message-error', { conversationId, error: error?.message || 'Erro desconhecido' });
         const errMsg = error?.message || 'Falha ao enviar mensagem';
-        socket.emit('send-message-error', { conversationId, error: errMsg });
+        // Com ack (callback), a UI já trata o erro — evita toast duplicado.
+        if (typeof callback !== 'function') {
+          socket.emit('send-message-error', { conversationId, error: errMsg });
+        }
         callback?.({ ok: false, error: errMsg });
       }
     });
@@ -1958,7 +1961,9 @@ const registerSocketHandlers = () => {
             elapsedMs: Date.now() - startedAt,
             error: message
           });
-          socket.emit('send-message-error', { conversationId, error: message });
+          if (typeof callback !== 'function') {
+            socket.emit('send-message-error', { conversationId, error: message });
+          }
           callback?.({ ok: false, error: message });
         }
       }

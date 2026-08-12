@@ -43,9 +43,11 @@ import {
 import { chatRemoteJidFromFindChatsRow, formatChatListTime, isGarbagePersonChatJid, resolveChatRowTimestampMs } from './evolutionChatJid.js';
 import {
     formatEvolutionHttpError,
-    postEvolutionSendText,
+    isRetryableExistsFalseError,
+    postEvolutionSendTextWithBrVariants,
     resolveOutboundSendTarget
 } from './evolutionChatSend.js';
+import { buildOutboundPhoneVariants, normalizeOutboundNumber } from './evolutionOutboundPhone.js';
 import {
     hasResolvablePhone,
     isLidJid,
@@ -1475,7 +1477,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const peer = await ensureSendablePeer(effectiveId, parsed);
         const { number } = resolveOutboundSendTarget(parsed.remoteJid, peer);
 
-        const { messageId } = await postEvolutionSendText(
+        const { messageId } = await postEvolutionSendTextWithBrVariants(
             api,
             evoInst(parsed.connectionId),
             number,
@@ -1531,20 +1533,32 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             else if (payload.mimeType.startsWith('audio/')) type = 'audio';
         }
 
-        let response: { data?: { key?: { id?: string; _serialized?: string } } };
-        try {
-            response = await api.post(`/message/sendMedia/${evoInst(parsed.connectionId)}`, {
-                number,
-                delay: 1200,
-                mediatype: type,
-                mimetype: payload.mimeType,
-                caption: payload.caption || '',
-                media: url,
-                fileName: payload.fileName,
-            });
-        } catch (err) {
-            throw new Error(formatEvolutionHttpError(err));
+        const normalized = normalizeOutboundNumber(number) || number;
+        const variants = buildOutboundPhoneVariants(normalized);
+        const list = variants.length > 0 ? variants : [normalized];
+        let response: { data?: { key?: { id?: string; _serialized?: string } } } | null = null;
+        let lastErr: Error | null = null;
+
+        for (let i = 0; i < list.length; i++) {
+            try {
+                response = await api.post(`/message/sendMedia/${evoInst(parsed.connectionId)}`, {
+                    number: list[i],
+                    delay: 1200,
+                    mediatype: type,
+                    mimetype: payload.mimeType,
+                    caption: payload.caption || '',
+                    media: url,
+                    fileName: payload.fileName,
+                });
+                lastErr = null;
+                break;
+            } catch (err) {
+                lastErr = new Error(formatEvolutionHttpError(err, number));
+                const canRetry = i < list.length - 1 && isRetryableExistsFalseError(lastErr.message);
+                if (!canRetry) throw lastErr;
+            }
         }
+        if (lastErr || !response) throw lastErr || new Error('Falha ao enviar arquivo.');
 
         const messageId = response.data?.key?.id || response.data?.key?._serialized;
         const nowMs = Date.now();
