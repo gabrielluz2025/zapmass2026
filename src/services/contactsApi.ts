@@ -563,3 +563,52 @@ export async function apiCancelWaNameSyncJob(jobId: string): Promise<void> {
     timeoutMs: 15_000,
   });
 }
+
+export type ContactDedupeJobDto = {
+  id: string;
+  status: string;
+  total: number;
+  scanned: number;
+  groups: number;
+  merged: number;
+  deleted: number;
+  listsUpdated: number;
+  percent: number;
+  message: string;
+  lastError?: string;
+};
+
+export async function apiStartContactDedupe(): Promise<ContactDedupeJobDto> {
+  const j = await apiFetchJson<{ job?: ContactDedupeJobDto }>('/api/contacts/dedupe', {
+    method: 'POST',
+    body: JSON.stringify({}),
+    timeoutMs: 30_000,
+    retries: 1,
+  });
+  if (!j.job?.id) throw new Error('Não foi possível iniciar a união de duplicados.');
+  return j.job;
+}
+
+export async function apiGetContactDedupeJob(jobId: string): Promise<ContactDedupeJobDto> {
+  const j = await apiFetchJson<{ job?: ContactDedupeJobDto }>(
+    `/api/contacts/dedupe/${encodeURIComponent(jobId)}`,
+    { timeoutMs: 30_000, retries: 1 }
+  );
+  if (!j.job) throw new Error('Job não encontrado.');
+  return j.job;
+}
+
+export async function apiGetActiveContactDedupeJob(): Promise<ContactDedupeJobDto | null> {
+  const j = await apiFetchJson<{ job?: ContactDedupeJobDto | null }>(
+    '/api/contacts/dedupe/active',
+    { timeoutMs: 15_000, retries: 1 }
+  );
+  return j.job || null;
+}
+
+export async function apiCancelContactDedupeJob(jobId: string): Promise<void> {
+  await apiFetchJson(`/api/contacts/dedupe/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+    timeoutMs: 15_000,
+  });
+}

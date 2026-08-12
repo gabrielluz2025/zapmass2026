@@ -443,6 +443,44 @@ export async function deleteContact(tenantId: string, id: string): Promise<boole
   return (r.rowCount ?? 0) > 0;
 }
 
+/** Libera o UNIQUE (tenant_id, phone_key) antes de unir duplicados no keeper. */
+export async function neutralizeContactPhoneKeys(tenantId: string, ids: string[]): Promise<void> {
+  const uniq = [...new Set(ids.map(String).filter(Boolean))];
+  if (uniq.length === 0) return;
+  const pool = getZapmassPool();
+  if (!pool) return;
+  const tid = pgTenantId(tenantId);
+  const CHUNK = 200;
+  for (let i = 0; i < uniq.length; i += CHUNK) {
+    const slice = uniq.slice(i, i + CHUNK);
+    await pool.query(
+      `UPDATE zapmass.contacts
+       SET phone_key = '__empty__:' || id::text, updated_at = now()
+       WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
+      [tid, slice]
+    );
+  }
+}
+
+export async function bulkDeleteContacts(tenantId: string, ids: string[]): Promise<number> {
+  const uniq = [...new Set(ids.map(String).filter(Boolean))];
+  if (uniq.length === 0) return 0;
+  const pool = getZapmassPool();
+  if (!pool) return 0;
+  const tid = pgTenantId(tenantId);
+  let deleted = 0;
+  const CHUNK = 200;
+  for (let i = 0; i < uniq.length; i += CHUNK) {
+    const slice = uniq.slice(i, i + CHUNK);
+    const r = await pool.query(
+      `DELETE FROM zapmass.contacts WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
+      [tid, slice]
+    );
+    deleted += r.rowCount ?? 0;
+  }
+  return deleted;
+}
+
 /** Resolve ids por phone_key (útil para vincular duplicados à lista sem UPDATE). */
 export async function findContactIdsByPhoneKeys(
   tenantId: string,

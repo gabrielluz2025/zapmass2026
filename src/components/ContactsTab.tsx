@@ -107,11 +107,16 @@ import {
   apiGetWaNameSyncJob,
   apiGetActiveWaNameSyncJob,
   apiCancelWaNameSyncJob,
+  apiStartContactDedupe,
+  apiGetContactDedupeJob,
+  apiGetActiveContactDedupeJob,
+  apiCancelContactDedupeJob,
   type ChipBaseSyncJob,
   type ContactImportJobDto,
   type ContactImportJobRowDto,
   type NameNormalizeJobDto,
   type WaNameSyncJobDto,
+  type ContactDedupeJobDto,
 } from '../services/contactsApi';
 import {
   clearNameNormalizeProgress,
@@ -125,6 +130,12 @@ import {
   setWaNameSyncProgress,
   subscribeWaNameSyncProgress,
 } from '../utils/waNameSyncProgressStore';
+import {
+  clearContactDedupeProgress,
+  getContactDedupeProgress,
+  setContactDedupeProgress,
+  subscribeContactDedupeProgress,
+} from '../utils/contactDedupeProgressStore';
 import { AiSparkButton } from './ai/AiSparkButton';
 import { useAiStatus } from '../hooks/useAiStatus';
 import { aiEnrichContact, aiOrganizeImportRows, aiParseContactsText } from '../services/aiApi';
@@ -831,6 +842,7 @@ export const ContactsTab: React.FC = () => {
     contactsSavedTotalLoading,
     refreshContactsSavedTotal,
     refreshContacts,
+    refreshContactLists,
     connections,
     contactLists,
     addContact,
@@ -1144,6 +1156,11 @@ export const ContactsTab: React.FC = () => {
     subscribeWaNameSyncProgress,
     getWaNameSyncProgress,
     getWaNameSyncProgress
+  );
+  const contactDedupeProgress = useSyncExternalStore(
+    subscribeContactDedupeProgress,
+    getContactDedupeProgress,
+    getContactDedupeProgress
   );
   const [baseFixModalOpen, setBaseFixModalOpen] = useState(false);
   const [smartImportRaw, setSmartImportRaw] = useState('');
@@ -4291,6 +4308,76 @@ export const ContactsTab: React.FC = () => {
     void startWaNameSync({ mode: 'suspicious' });
   }, [selectedIds, startWaNameSync]);
 
+  const applyContactDedupeJobToStore = useCallback((job: ContactDedupeJobDto) => {
+    setContactDedupeProgress({
+      docked: true,
+      job: {
+        id: job.id,
+        status: job.status,
+        total: job.total,
+        scanned: job.scanned,
+        groups: job.groups,
+        merged: job.merged,
+        deleted: job.deleted,
+        listsUpdated: job.listsUpdated,
+        percent: job.percent,
+        message: job.message,
+        error: job.lastError,
+      },
+    });
+  }, []);
+
+  const pollContactDedupeJob = useCallback(
+    async (jobId: string) => {
+      try {
+        let sj = await apiGetContactDedupeJob(jobId);
+        applyContactDedupeJobToStore(sj);
+        while (sj.status === 'running') {
+          await new Promise<void>((r) => setTimeout(r, 1000));
+          sj = await apiGetContactDedupeJob(jobId);
+          applyContactDedupeJobToStore(sj);
+        }
+        void refreshContactsSavedTotal?.();
+        void refreshContacts?.();
+        void refreshContactLists?.();
+        if (sj.status === 'done') {
+          toast.success(sj.message || 'Duplicados unidos na base.');
+        } else if (sj.status === 'error' || sj.status === 'cancelled') {
+          toast.error(sj.lastError || sj.message || 'União de duplicados interrompida.');
+        }
+      } catch (e) {
+        console.warn('[pollContactDedupeJob]', e);
+      }
+    },
+    [applyContactDedupeJobToStore, refreshContactLists, refreshContacts, refreshContactsSavedTotal]
+  );
+
+  const startContactDedupe = useCallback(() => {
+    if (contactDedupeProgress.job?.status === 'running') {
+      toast('Já há uma união de duplicados em curso.');
+      return;
+    }
+    const ok = window.confirm(
+      'Unir números duplicados na base?\n\nO mesmo número pode continuar em várias listas. Só some a linha extra da base — fica o cadastro mais completo. Pode fechar a aba; o job continua no servidor.'
+    );
+    if (!ok) return;
+    setBaseFixModalOpen(false);
+    void (async () => {
+      try {
+        const job = await apiStartContactDedupe();
+        applyContactDedupeJobToStore(job);
+        toast.success('Unindo duplicados na base…');
+        void pollContactDedupeJob(job.id);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Não foi possível iniciar a união.');
+      }
+    })();
+  }, [
+    applyContactDedupeJobToStore,
+    contactDedupeProgress.job?.status,
+    pollContactDedupeJob,
+  ]);
+
 
   useEffect(() => {
     let cancelled = false;
@@ -4339,6 +4426,25 @@ export const ContactsTab: React.FC = () => {
       cancelled = true;
     };
   }, [applyWaNameSyncJobToStore, pollWaNameSyncJob]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const active = await apiGetActiveContactDedupeJob();
+        if (cancelled || !active) return;
+        const current = getContactDedupeProgress();
+        if (current.job && current.job.status === 'running' && current.job.id === active.id) return;
+        applyContactDedupeJobToStore(active);
+        void pollContactDedupeJob(active.id);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyContactDedupeJobToStore, pollContactDedupeJob]);
 
   /** Auto: só os suspeitos visíveis (não varre a base inteira — isso derrubava a API). */
   useEffect(() => {
@@ -4582,6 +4688,32 @@ export const ContactsTab: React.FC = () => {
           contactsLoadPaused={false}
           onRefreshTotals={() => void refreshContactsSavedTotal?.()}
         />
+
+        {duplicateContactsCount > 0 && (
+          <div
+            className="mb-3 flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl border px-3 py-2.5"
+            style={{ borderColor: 'rgba(251,191,36,0.35)', background: 'rgba(251,191,36,0.08)' }}
+          >
+            <p className="text-[12px] leading-snug flex-1" style={{ color: 'var(--text-2)' }}>
+              <strong style={{ color: 'var(--text-1)' }}>
+                {duplicateContactsCount.toLocaleString('pt-BR')} números repetidos na base.
+              </strong>{' '}
+              O mesmo contato pode estar em várias listas — o que não pode é haver duas linhas
+              do mesmo número. Une e fica um cadastro só.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              leftIcon={<Layers className="w-3.5 h-3.5" />}
+              loading={contactDedupeProgress.job?.status === 'running'}
+              disabled={contactDedupeProgress.job?.status === 'running'}
+              onClick={startContactDedupe}
+            >
+              Unir duplicados
+            </Button>
+          </div>
+        )}
 
         {managedListForView ? (
           <ContactsListManagePanel
@@ -4964,7 +5096,10 @@ export const ContactsTab: React.FC = () => {
         open={baseFixModalOpen}
         onClose={() => setBaseFixModalOpen(false)}
         totalContacts={contactsSavedTotal ?? contacts.length}
+        duplicateCount={duplicateContactsCount}
         onApplied={() => void refreshContacts()}
+        onStartDedupe={startContactDedupe}
+        dedupeBusy={contactDedupeProgress.job?.status === 'running'}
       />
 
       <Modal
@@ -6470,6 +6605,89 @@ export const ContactsTab: React.FC = () => {
                 void apiCancelWaNameSyncJob(waNameSyncProgress.job!.id).then(() => {
                   toast('Sincronização de nomes cancelada.');
                   clearWaNameSyncProgress();
+                });
+              }}
+            >
+              Cancelar
+            </Button>
+          )}
+        </div>
+      )}
+
+      {contactDedupeProgress.docked && contactDedupeProgress.job && (
+        <div
+          className={`fixed bottom-4 left-3 right-3 sm:left-auto sm:right-4 sm:w-[min(440px,calc(100vw-1.5rem))] zm-layer-toast rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl p-4 space-y-3 animate-fadeIn ${
+            waNameSyncProgress.docked && waNameSyncProgress.job
+              ? 'sm:bottom-[13.5rem]'
+              : nameNormalizeProgress.docked && nameNormalizeProgress.job
+                ? 'sm:bottom-[13.5rem]'
+                : fileImportDocked && fileImportJob
+                  ? 'sm:bottom-[13.5rem]'
+                  : ''
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 rounded-lg bg-amber-100 dark:bg-amber-950/50 p-2 shrink-0">
+              <Layers className="w-4 h-4 text-amber-600 dark:text-amber-300" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                Unir duplicados na base
+              </p>
+              <p className="text-[12px] text-slate-600 dark:text-slate-400 leading-snug">
+                {contactDedupeProgress.job.message}
+              </p>
+              <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                Listas não perdem o número — só some a linha extra da base.
+              </p>
+              {contactDedupeProgress.job.error ? (
+                <p className="text-[11px] text-rose-600 dark:text-rose-400">{contactDedupeProgress.job.error}</p>
+              ) : null}
+            </div>
+            {contactDedupeProgress.job.status === 'running' ? (
+              <Loader2 className="w-5 h-5 text-amber-600 dark:text-amber-400 animate-spin shrink-0 mt-0.5" aria-hidden />
+            ) : (
+              <button
+                type="button"
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+                aria-label="Fechar"
+                onClick={() => clearContactDedupeProgress()}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+            <div
+              className="h-full bg-amber-500 transition-[width] duration-200 ease-out"
+              style={{ width: `${Math.min(100, Math.max(0, contactDedupeProgress.job.percent))}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
+            <span>
+              {contactDedupeProgress.job.status === 'done'
+                ? `Removidos: ${contactDedupeProgress.job.deleted.toLocaleString('pt-BR')} · Listas: ${contactDedupeProgress.job.listsUpdated.toLocaleString('pt-BR')}`
+                : `Varridos: ${contactDedupeProgress.job.scanned.toLocaleString('pt-BR')} / ${contactDedupeProgress.job.total.toLocaleString('pt-BR')}`}
+            </span>
+            <span>{Math.min(100, Math.max(0, contactDedupeProgress.job.percent))}%</span>
+          </div>
+          {contactDedupeProgress.job.status === 'error' ||
+          contactDedupeProgress.job.status === 'cancelled' ||
+          contactDedupeProgress.job.status === 'done' ? (
+            <Button type="button" size="sm" variant="secondary" onClick={() => clearContactDedupeProgress()}>
+              Fechar
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                void apiCancelContactDedupeJob(contactDedupeProgress.job!.id).then(() => {
+                  toast('União de duplicados cancelada.');
+                  clearContactDedupeProgress();
                 });
               }}
             >

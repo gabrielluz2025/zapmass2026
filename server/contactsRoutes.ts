@@ -66,6 +66,12 @@ import {
   listActiveWaNameSyncJobs,
   startWaNameSyncJob
 } from './contactWaNameSyncJob.js';
+import {
+  cancelContactDedupeJob,
+  getContactDedupeJob,
+  listActiveContactDedupeJobs,
+  startContactDedupeJob
+} from './contactDedupeJob.js';
 import * as evolutionService from './evolutionService.js';
 import { normalizeTenantContactAddresses, normalizeTenantContactsFull } from './contactsNormalizeService.js';
 import { geocodeSingleContactIfNeeded } from './leadsGeoService.js';
@@ -703,6 +709,41 @@ export function registerContactsDataRoutes(app: Express): void {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
     const job = cancelWaNameSyncJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/dedupe', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    try {
+      const job = await startContactDedupeJob({ tenantId: ctx.tenantId });
+      return res.json({ ok: true, job });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao iniciar união de duplicados.';
+      return res.status(400).json({ ok: false, error: msg });
+    }
+  });
+
+  app.get('/api/contacts/dedupe/active', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const active = listActiveContactDedupeJobs(ctx.tenantId);
+    return res.json({ ok: true, jobs: active, job: active[0] || null });
+  });
+
+  app.get('/api/contacts/dedupe/:jobId', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = getContactDedupeJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/dedupe/:jobId/cancel', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = cancelContactDedupeJob(String(req.params.jobId || ''), ctx.tenantId);
     if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
     return res.json({ ok: true, job });
   });

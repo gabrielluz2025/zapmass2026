@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Database, Loader2, ArrowRight, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Database, Loader2, ArrowRight, CheckCircle2, AlertTriangle, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -9,7 +9,10 @@ type Props = {
   open: boolean;
   onClose: () => void;
   totalContacts: number;
+  duplicateCount?: number;
   onApplied?: () => void;
+  onStartDedupe?: () => void;
+  dedupeBusy?: boolean;
 };
 
 type RunPhase = 'idle' | 'preview' | 'apply';
@@ -25,7 +28,15 @@ const FIELD_LABEL: Record<string, string> = {
   number: 'Número',
 };
 
-export const ContactBaseFixModal: React.FC<Props> = ({ open, onClose, totalContacts, onApplied }) => {
+export const ContactBaseFixModal: React.FC<Props> = ({
+  open,
+  onClose,
+  totalContacts,
+  duplicateCount = 0,
+  onApplied,
+  onStartDedupe,
+  dedupeBusy = false,
+}) => {
   const [phase, setPhase] = useState<RunPhase>('idle');
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ scanned: 0, changed: 0 });
@@ -130,35 +141,62 @@ export const ContactBaseFixModal: React.FC<Props> = ({ open, onClose, totalConta
       isOpen={open}
       onClose={handleClose}
       title="Corrigir base de contatos"
-      subtitle="Padroniza telefones (DDI 55 e 9º dígito), nomes e endereços de toda a sua base."
+      subtitle="Une números repetidos na base (o mesmo número pode continuar em várias listas) e padroniza telefone, nome e endereço."
       icon={<Database className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
       footer={
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 w-full">
-          <Button variant="ghost" type="button" disabled={busy} onClick={handleClose}>
+          <Button variant="ghost" type="button" disabled={busy || dedupeBusy} onClick={handleClose}>
             Fechar
           </Button>
           <Button
             variant="secondary"
             type="button"
             loading={busy && phase === 'preview'}
-            disabled={busy || totalContacts === 0}
+            disabled={busy || dedupeBusy || totalContacts === 0}
             onClick={() => void runPaginated(true)}
           >
             Ver o que mudaria
           </Button>
+          {duplicateCount > 0 && onStartDedupe && (
+            <Button
+              variant="primary"
+              type="button"
+              loading={dedupeBusy}
+              disabled={busy || dedupeBusy || totalContacts === 0}
+              onClick={onStartDedupe}
+            >
+              Unir duplicados
+            </Button>
+          )}
           <Button
-            variant="primary"
+            variant={duplicateCount > 0 ? 'secondary' : 'primary'}
             type="button"
             loading={busy && phase === 'apply'}
-            disabled={busy || totalContacts === 0}
+            disabled={busy || dedupeBusy || totalContacts === 0}
             onClick={handleApply}
           >
-            Corrigir base completa
+            Corrigir formato
           </Button>
         </div>
       }
     >
       <div className="space-y-4 text-[13px]" style={{ color: 'var(--text-1)' }}>
+        {duplicateCount > 0 && (
+          <div
+            className="rounded-xl border p-4 space-y-2"
+            style={{ borderColor: 'rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.08)' }}
+          >
+            <div className="flex items-center gap-2 font-semibold">
+              <Layers className="w-4 h-4 text-amber-500" />
+              {duplicateCount.toLocaleString('pt-BR')} contato(s) com número repetido na base
+            </div>
+            <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-2)' }}>
+              O mesmo número pode estar em várias listas. O que não pode é haver duas linhas
+              iguais na base. A união mantém o cadastro mais completo, atualiza as listas para
+              esse contato e apaga só as linhas extras.
+            </p>
+          </div>
+        )}
         <div
           className="rounded-xl border p-4 space-y-2"
           style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}
