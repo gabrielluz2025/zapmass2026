@@ -11,6 +11,7 @@ import {
 } from '../shared/replyFlowMatch.js';
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
+import { isSuspiciousContactName } from '../src/utils/contactNameNormalize.js';
 import { fetchCampaignDoc, usePostgresCampaigns } from './campaignStore.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -122,6 +123,13 @@ export const applyMessageVars = (
         ...vars,
         telefone: vars.telefone || phone,
     };
+    // Evita saudar com placeholders de agenda bagunçada ("- Casas", "Sem Nome").
+    for (const key of ['nome', 'nome_completo'] as const) {
+        const v = safeVars[key];
+        if (typeof v === 'string' && isSuspiciousContactName(v)) {
+            safeVars[key] = '';
+        }
+    }
     let out = template.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_, key: string) => {
         const v = safeVars[key.toLowerCase()];
         return typeof v === 'string' ? v : '';

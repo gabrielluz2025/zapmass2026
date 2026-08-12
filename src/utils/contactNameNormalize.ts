@@ -180,20 +180,6 @@ export function normalizeContactPersonName(raw: string, opts: ContactNameNormali
   return s.trim();
 }
 
-/** Mesma regra aplicada ao montar `{nome}` / `{nome_completo}` nas campanhas. */
-export function campaignRecipientNameVars(rawFullName: string): { nome: string; nome_completo: string } {
-  const nomeCompleto = normalizeContactPersonName(rawFullName || '', {
-    stripPrefixes: true,
-    titleCase: true,
-    firstAndLastOnly: false
-  });
-  const parts = nomeCompleto.trim().split(/\s+/).filter(Boolean);
-  return {
-    nome: parts[0] || nomeCompleto,
-    nome_completo: nomeCompleto
-  };
-}
-
 const MAX_STORED_NAME_LEN = 120;
 
 /**
@@ -221,6 +207,40 @@ export function normalizeContactName(raw: string): string {
   return s.slice(0, MAX_STORED_NAME_LEN);
 }
 
+/** Tokens genéricos de comércio/local (um único token = nome não-pessoal). */
+const GENERIC_SINGLE_TOKENS = new Set([
+  'casas',
+  'casa',
+  'loja',
+  'lojas',
+  'mercado',
+  'bar',
+  'bares',
+  'farmacia',
+  'farmácia',
+  'padaria',
+  'oficina',
+  'academia',
+  'igreja',
+  'templo',
+  'escola',
+  'empresa',
+  'comercial',
+  'distribuidora',
+  'atacado',
+  'varejo',
+  'salão',
+  'salao',
+  'clinica',
+  'clínica',
+  'hospital',
+  'posto',
+  'auto',
+  'motos',
+  'peças',
+  'pecas',
+]);
+
 /** Sinaliza nomes claramente quebrados/placeholder para relatórios de qualidade. */
 export function isSuspiciousContactName(name: string): boolean {
   const s = String(name ?? '').trim();
@@ -228,5 +248,41 @@ export function isSuspiciousContactName(name: string): boolean {
   if (/^sem nome$/i.test(s)) return true;
   if (!/\p{L}/u.test(s)) return true; // nenhuma letra
   if (/\uFFFD/.test(s)) return true; // marcador de encoding quebrado
+  // Só dígitos / telefone disfarçado
+  if (/^[\d\s().+\-]+$/.test(s) && s.replace(/\D/g, '').length >= 8) return true;
+  // Prefixo de pontuação tipo agenda bagunçada: "- Casas", "– Loja"
+  if (/^[-–—•·*]+\s*\S/.test(s)) return true;
+  const tokens = s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[\s/|,;]+/)
+    .map((t) => t.replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, ''))
+    .filter(Boolean);
+  if (tokens.length === 1 && GENERIC_SINGLE_TOKENS.has(tokens[0])) return true;
   return false;
+}
+
+/**
+ * Variáveis de campanha: se o nome for suspeito, devolve vazio para não saudar
+ * com placeholders tipo "- Casas".
+ */
+export function campaignRecipientNameVars(rawFullName: string): { nome: string; nome_completo: string } {
+  const raw = String(rawFullName ?? '').trim();
+  if (!raw || isSuspiciousContactName(raw)) {
+    return { nome: '', nome_completo: '' };
+  }
+  const nomeCompleto = normalizeContactPersonName(raw, {
+    stripPrefixes: true,
+    titleCase: true,
+    firstAndLastOnly: false
+  });
+  if (!nomeCompleto || isSuspiciousContactName(nomeCompleto)) {
+    return { nome: '', nome_completo: '' };
+  }
+  const parts = nomeCompleto.trim().split(/\s+/).filter(Boolean);
+  return {
+    nome: parts[0] || nomeCompleto,
+    nome_completo: nomeCompleto
+  };
 }

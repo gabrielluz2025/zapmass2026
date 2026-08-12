@@ -33,6 +33,7 @@ interface Props {
   onExport: () => void;
   onOpenInsights: () => void;
   onOpenNormalizeNames?: () => void;
+  onSyncWaNames?: () => void;
   onOpenFixBase?: () => void;
   onSaveBaseToChip?: () => void;
 }
@@ -73,7 +74,7 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
   stats, contactTempsReady, hideWedding, savedTotal,
   searchTerm, onSearchChange, onSelectFilter,
   onNewContact, onImportXLSX, onImportVcf, onSmartImport,
-  onDownloadTemplate, onExport, onOpenInsights, onOpenNormalizeNames, onOpenFixBase, onSaveBaseToChip
+  onDownloadTemplate, onExport, onOpenInsights, onOpenNormalizeNames, onSyncWaNames, onOpenFixBase, onSaveBaseToChip
 }) => {
   const [importOpen, setImportOpen] = React.useState(false);
   const importRef = React.useRef<HTMLDivElement>(null);
@@ -207,6 +208,18 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
             >
               <Smartphone className="w-4 h-4 text-violet-400" />
               <span className="hidden lg:inline">Agenda no chip</span>
+            </button>
+          )}
+
+          {onSyncWaNames && (
+            <button
+              type="button"
+              onClick={onSyncWaNames}
+              className="ch-btn"
+              title="Puxar nomes do perfil WhatsApp para contatos com nome genérico"
+            >
+              <Smartphone className="w-4 h-4 text-emerald-400" />
+              <span className="hidden lg:inline">Nomes do WhatsApp</span>
             </button>
           )}
 

@@ -77,7 +77,7 @@ import {
 } from '../utils/birthdayGreeted';
 import { openChatByConversationIdNavigate } from '../utils/openChatByConversationIdNav';
 import { useContactPicturePrefetch } from '../hooks/useContactPicturePrefetch';
-import { normalizeContactPersonName, parseExtraPrefixes } from '../utils/contactNameNormalize';
+import { normalizeContactPersonName, parseExtraPrefixes, isSuspiciousContactName } from '../utils/contactNameNormalize';
 import { applyAddressNormalizationToContact } from '../utils/contactAddressNormalize';
 import { consumeAtlasContactsHint } from '../utils/atlasRegionLaunch';
 import { getModalPortalContainer } from '../utils/domPortal';
@@ -103,10 +103,15 @@ import {
   apiGetNameNormalizeJob,
   apiGetActiveNameNormalizeJob,
   apiCancelNameNormalizeJob,
+  apiStartWaNameSync,
+  apiGetWaNameSyncJob,
+  apiGetActiveWaNameSyncJob,
+  apiCancelWaNameSyncJob,
   type ChipBaseSyncJob,
   type ContactImportJobDto,
   type ContactImportJobRowDto,
   type NameNormalizeJobDto,
+  type WaNameSyncJobDto,
 } from '../services/contactsApi';
 import {
   clearNameNormalizeProgress,
@@ -114,6 +119,12 @@ import {
   setNameNormalizeProgress,
   subscribeNameNormalizeProgress,
 } from '../utils/nameNormalizeProgressStore';
+import {
+  clearWaNameSyncProgress,
+  getWaNameSyncProgress,
+  setWaNameSyncProgress,
+  subscribeWaNameSyncProgress,
+} from '../utils/waNameSyncProgressStore';
 import { AiSparkButton } from './ai/AiSparkButton';
 import { useAiStatus } from '../hooks/useAiStatus';
 import { aiEnrichContact, aiOrganizeImportRows, aiParseContactsText } from '../services/aiApi';
@@ -1128,6 +1139,11 @@ export const ContactsTab: React.FC = () => {
     subscribeNameNormalizeProgress,
     getNameNormalizeProgress,
     getNameNormalizeProgress
+  );
+  const waNameSyncProgress = useSyncExternalStore(
+    subscribeWaNameSyncProgress,
+    getWaNameSyncProgress,
+    getWaNameSyncProgress
   );
   const [baseFixModalOpen, setBaseFixModalOpen] = useState(false);
   const [smartImportRaw, setSmartImportRaw] = useState('');
@@ -4188,6 +4204,94 @@ export const ContactsTab: React.FC = () => {
     [refreshContacts, refreshContactsSavedTotal]
   );
 
+  const applyWaNameSyncJobToStore = useCallback((job: WaNameSyncJobDto) => {
+    setWaNameSyncProgress({
+      docked: true,
+      job: {
+        id: job.id,
+        status: job.status,
+        total: job.total,
+        scanned: job.scanned,
+        updated: job.updated,
+        skipped: job.skipped,
+        unavailable: job.unavailable,
+        failed: job.failed,
+        percent: job.percent,
+        message: job.message,
+        error: job.lastError,
+      },
+    });
+  }, []);
+
+  const pollWaNameSyncJob = useCallback(
+    async (jobId: string) => {
+      try {
+        let sj = await apiGetWaNameSyncJob(jobId);
+        applyWaNameSyncJobToStore(sj);
+        while (sj.status === 'running') {
+          await new Promise<void>((r) => setTimeout(r, 1000));
+          sj = await apiGetWaNameSyncJob(jobId);
+          applyWaNameSyncJobToStore(sj);
+        }
+        void refreshContactsSavedTotal?.();
+        void refreshContacts?.();
+        if (sj.status === 'done') {
+          toast.success(sj.message || 'Nomes do WhatsApp sincronizados.');
+        } else if (sj.status === 'error' || sj.status === 'cancelled') {
+          toast.error(sj.lastError || sj.message || 'Sincronização de nomes interrompida.');
+        }
+      } catch (e) {
+        console.warn('[pollWaNameSyncJob]', e);
+      }
+    },
+    [applyWaNameSyncJobToStore, refreshContacts, refreshContactsSavedTotal]
+  );
+
+  const startWaNameSync = useCallback(
+    async (opts: { mode: 'ids' | 'suspicious'; ids?: string[]; silent?: boolean }) => {
+      if (waNameSyncProgress.job?.status === 'running') {
+        if (!opts.silent) toast('Já há uma sincronização de nomes em curso.');
+        return;
+      }
+      try {
+        const job = await apiStartWaNameSync({
+          mode: opts.mode,
+          ids: opts.ids,
+        });
+        applyWaNameSyncJobToStore(job);
+        if (!opts.silent) {
+          toast.success(
+            opts.mode === 'ids'
+              ? 'Sincronizando nomes dos selecionados…'
+              : 'Sincronizando nomes suspeitos com o WhatsApp…'
+          );
+        }
+        void pollWaNameSyncJob(job.id);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Não foi possível iniciar a sincronização.';
+        if (!opts.silent) toast.error(msg);
+      }
+    },
+    [applyWaNameSyncJobToStore, pollWaNameSyncJob, waNameSyncProgress.job?.status]
+  );
+
+  const handleSyncWaNamesManual = useCallback(() => {
+    if (selectedIds.length > 0) {
+      const ok = window.confirm(
+        `Puxar nomes do WhatsApp para ${selectedIds.length.toLocaleString('pt-BR')} contato(s) selecionado(s)?\n\nSó altera nomes genéricos (ex.: "- Casas", "Sem Nome"). Nomes de pessoa ficam intactos.`
+      );
+      if (!ok) return;
+      void startWaNameSync({ mode: 'ids', ids: selectedIds });
+      return;
+    }
+    const ok = window.confirm(
+      'Puxar nomes do WhatsApp para contatos com nome genérico/suspeito em toda a base?\n\nRequer canal conectado. Contatos sem nome no WA permanecem iguais. Pode fechar a aba — o job continua no servidor.'
+    );
+    if (!ok) return;
+    void startWaNameSync({ mode: 'suspicious' });
+  }, [selectedIds, startWaNameSync]);
+
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -4216,6 +4320,45 @@ export const ContactsTab: React.FC = () => {
       cancelled = true;
     };
   }, [pollNameNormalizeJob]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const active = await apiGetActiveWaNameSyncJob();
+        if (cancelled || !active) return;
+        const current = getWaNameSyncProgress();
+        if (current.job && current.job.status === 'running' && current.job.id === active.id) return;
+        applyWaNameSyncJobToStore(active);
+        void pollWaNameSyncJob(active.id);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyWaNameSyncJobToStore, pollWaNameSyncJob]);
+
+  /** Auto: se há nomes suspeitos visíveis, dispara sync uma vez por sessão. */
+  useEffect(() => {
+    if (waNameSyncProgress.autoStartedOnce) return;
+    if (waNameSyncProgress.job?.status === 'running') return;
+    const suspiciousVisible = contacts
+      .slice(0, 80)
+      .filter((c) => isSuspiciousContactName(c.name || ''));
+    if (suspiciousVisible.length < 3) return;
+    const t = window.setTimeout(() => {
+      setWaNameSyncProgress({ autoStartedOnce: true });
+      void startWaNameSync({ mode: 'suspicious', silent: true });
+    }, 2500);
+    return () => window.clearTimeout(t);
+  }, [
+    contacts,
+    startWaNameSync,
+    waNameSyncProgress.autoStartedOnce,
+    waNameSyncProgress.job?.status,
+  ]);
 
   const runNameNormalizePreview = useCallback(async () => {
     setNameNormalizePreviewBusy(true);
@@ -4333,6 +4476,7 @@ export const ContactsTab: React.FC = () => {
         onExport={handleExport}
         onOpenInsights={openInsights}
         onOpenNormalizeNames={openNameNormalizeModal}
+        onSyncWaNames={handleSyncWaNamesManual}
         onOpenFixBase={() => setBaseFixModalOpen(true)}
         onSaveBaseToChip={() => void openBaseChipSyncModal()}
       />
@@ -4655,6 +4799,7 @@ export const ContactsTab: React.FC = () => {
           onAddToBlacklist={() => void handleBulkAddToBlacklist()}
           onRemoveFromBlacklist={() => void handleBulkRemoveFromBlacklist()}
           onSaveToChip={openSaveToChipForSelection}
+          onSyncWaNames={handleSyncWaNamesManual}
           activeFilter={activeFilter}
         />
       )}
@@ -6238,6 +6383,89 @@ export const ContactsTab: React.FC = () => {
                 void apiCancelNameNormalizeJob(nameNormalizeProgress.job!.id).then(() => {
                   toast('Padronização cancelada.');
                   clearNameNormalizeProgress();
+                });
+              }}
+            >
+              Cancelar
+            </Button>
+          )}
+        </div>
+      )}
+
+      {waNameSyncProgress.docked && waNameSyncProgress.job && (
+        <div
+          className={`fixed bottom-4 left-3 right-3 sm:left-auto sm:right-4 sm:w-[min(440px,calc(100vw-1.5rem))] zm-layer-toast rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl p-4 space-y-3 animate-fadeIn ${
+            nameNormalizeProgress.docked && nameNormalizeProgress.job
+              ? fileImportDocked && fileImportJob
+                ? 'sm:bottom-[26.5rem]'
+                : 'sm:bottom-[13.5rem]'
+              : fileImportDocked && fileImportJob
+                ? 'sm:bottom-[13.5rem]'
+                : ''
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/50 p-2 shrink-0">
+              <Smartphone className="w-4 h-4 text-emerald-600 dark:text-emerald-300" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                Nomes do WhatsApp
+              </p>
+              <p className="text-[12px] text-slate-600 dark:text-slate-400 leading-snug">
+                {waNameSyncProgress.job.message}
+              </p>
+              <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                Roda no servidor — pode fechar a aba; ao voltar o progresso continua.
+              </p>
+              {waNameSyncProgress.job.error ? (
+                <p className="text-[11px] text-rose-600 dark:text-rose-400">{waNameSyncProgress.job.error}</p>
+              ) : null}
+            </div>
+            {waNameSyncProgress.job.status === 'running' ? (
+              <Loader2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 animate-spin shrink-0 mt-0.5" aria-hidden />
+            ) : (
+              <button
+                type="button"
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+                aria-label="Fechar"
+                onClick={() => clearWaNameSyncProgress()}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+            <div
+              className="h-full bg-emerald-500 transition-[width] duration-200 ease-out"
+              style={{ width: `${Math.min(100, Math.max(0, waNameSyncProgress.job.percent))}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
+            <span>
+              {waNameSyncProgress.job.status === 'done'
+                ? `Atualizados: ${waNameSyncProgress.job.updated.toLocaleString('pt-BR')} · Sem nome WA: ${waNameSyncProgress.job.unavailable.toLocaleString('pt-BR')}`
+                : `${waNameSyncProgress.job.scanned.toLocaleString('pt-BR')}/${waNameSyncProgress.job.total.toLocaleString('pt-BR')} · ${waNameSyncProgress.job.updated.toLocaleString('pt-BR')} atualizados`}
+            </span>
+            <span>{Math.min(100, Math.max(0, waNameSyncProgress.job.percent))}%</span>
+          </div>
+          {waNameSyncProgress.job.status === 'error' ||
+          waNameSyncProgress.job.status === 'cancelled' ||
+          waNameSyncProgress.job.status === 'done' ? (
+            <Button type="button" size="sm" variant="secondary" onClick={() => clearWaNameSyncProgress()}>
+              Fechar
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                void apiCancelWaNameSyncJob(waNameSyncProgress.job!.id).then(() => {
+                  toast('Sincronização de nomes cancelada.');
+                  clearWaNameSyncProgress();
                 });
               }}
             >

@@ -60,6 +60,12 @@ import {
   resumeNameNormalizeJob,
   startNameNormalizeJob
 } from './contactNameNormalizeJob.js';
+import {
+  cancelWaNameSyncJob,
+  getWaNameSyncJob,
+  listActiveWaNameSyncJobs,
+  startWaNameSyncJob
+} from './contactWaNameSyncJob.js';
 import * as evolutionService from './evolutionService.js';
 import { normalizeTenantContactAddresses, normalizeTenantContactsFull } from './contactsNormalizeService.js';
 import { geocodeSingleContactIfNeeded } from './leadsGeoService.js';
@@ -651,6 +657,52 @@ export function registerContactsDataRoutes(app: Express): void {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
     const job = cancelNameNormalizeJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/sync-wa-names', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body || {}) as {
+      mode?: 'ids' | 'suspicious';
+      ids?: string[];
+      connectionId?: string;
+    };
+    const mode = body.mode === 'ids' ? 'ids' : 'suspicious';
+    try {
+      const job = await startWaNameSyncJob({
+        tenantId: ctx.tenantId,
+        mode,
+        ids: Array.isArray(body.ids) ? body.ids : undefined,
+        connectionId: typeof body.connectionId === 'string' ? body.connectionId : undefined,
+      });
+      return res.json({ ok: true, job });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao iniciar sincronização de nomes.';
+      return res.status(400).json({ ok: false, error: msg });
+    }
+  });
+
+  app.get('/api/contacts/sync-wa-names/active', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const active = listActiveWaNameSyncJobs(ctx.tenantId);
+    return res.json({ ok: true, jobs: active, job: active[0] || null });
+  });
+
+  app.get('/api/contacts/sync-wa-names/:jobId', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = getWaNameSyncJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/sync-wa-names/:jobId/cancel', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = cancelWaNameSyncJob(String(req.params.jobId || ''), ctx.tenantId);
     if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
     return res.json({ ok: true, job });
   });

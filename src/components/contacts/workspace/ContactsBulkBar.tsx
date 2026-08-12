@@ -12,6 +12,7 @@ interface Props {
   onAddToBlacklist?: () => void;
   onRemoveFromBlacklist?: () => void;
   onSaveToChip?: () => void;
+  onSyncWaNames?: () => void;
   activeFilter?: string;
 }
 
@@ -21,7 +22,7 @@ interface Props {
  */
 export const ContactsBulkBar: React.FC<Props> = React.memo(({
   count, onClear, onCreateCampaign, onAddToList, onAddTag, onExport, onDelete,
-  onAddToBlacklist, onRemoveFromBlacklist, onSaveToChip, activeFilter
+  onAddToBlacklist, onRemoveFromBlacklist, onSaveToChip, onSyncWaNames, activeFilter
 }) => {
   if (count === 0) return null;
 
@@ -51,6 +52,9 @@ export const ContactsBulkBar: React.FC<Props> = React.memo(({
         <BulkBtn icon={<Tag className="w-3.5 h-3.5" />} label="Tag" onClick={onAddTag} />
         {onSaveToChip && (
           <BulkBtn icon={<Smartphone className="w-3.5 h-3.5" />} label="Salvar no chip" onClick={onSaveToChip} />
+        )}
+        {onSyncWaNames && (
+          <BulkBtn icon={<Smartphone className="w-3.5 h-3.5" />} label="Nomes WA" onClick={onSyncWaNames} />
         )}
         <BulkBtn icon={<Download className="w-3.5 h-3.5" />} label="Exportar" onClick={onExport} />
         <BulkBtn icon={<Trash2 className="w-3.5 h-3.5" />} label="Remover" onClick={onDelete} danger />

@@ -30,6 +30,15 @@ import {
     pickWhatsAppCheckResult,
     type WhatsAppNumberCheckRow,
 } from './evolutionOutboundPhone.js';
+import {
+    createPhonebookNameIndex,
+    evolutionContactDisplayName,
+    filterEvolutionContactLabel,
+    indexPhonebookRow,
+    resolvePhonebookName,
+    type PhonebookNameIndex,
+} from './evolutionContactName.js';
+import { buildPhoneDigitLookupKeys, normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
 import { LID_SEND_BLOCKED_MSG } from './evolutionLidResolve.js';
 import {
     ReplyFlowEngine,
@@ -6158,6 +6167,162 @@ export async function fetchProfilePictureForPhone(
     if (!connId) return null;
     const conversationId = resolveConversationIdForPhone(connId, digits);
     return fetchConversationPicture(conversationId);
+}
+
+/** Carrega índice de nomes da agenda Evolution (findContacts paginado). */
+export async function loadPhonebookNameIndexForConnection(
+    connectionId: string
+): Promise<PhonebookNameIndex> {
+    const id = String(connectionId || '').trim();
+    const index = createPhonebookNameIndex();
+    if (!id) return index;
+    const inst = evoInst(id);
+    const tryExtract = (raw: unknown): unknown[] => {
+        if (Array.isArray(raw)) return raw;
+        if (!raw || typeof raw !== 'object') return [];
+        const row = raw as Record<string, unknown>;
+        for (const key of ['contacts', 'records', 'data', 'response'] as const) {
+            const v = row[key];
+            if (Array.isArray(v)) return v;
+        }
+        return [];
+    };
+    for (let page = 1; page <= 30; page++) {
+        try {
+            const response = await api.post(`/chat/findContacts/${inst}`, {
+                where: {},
+                page,
+                offset: 500,
+                limit: 500,
+            });
+            const list = tryExtract(response.data);
+            if (list.length === 0) break;
+            for (const ct of list) {
+                if (ct && typeof ct === 'object') {
+                    indexPhonebookRow(index, ct as Record<string, unknown>);
+                }
+            }
+            if (list.length < 500) break;
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[Evolution] findContacts phonebook ${id} p${page}:`, msg);
+            break;
+        }
+    }
+    return index;
+}
+
+function findConversationDisplayName(connectionId: string, phoneDigits: string): string | undefined {
+    const digits = normalizePhoneDigits(phoneDigits);
+    if (digits.length < 10) return undefined;
+    const keys = new Set(buildPhoneDigitLookupKeys(digits));
+    keys.add(digits);
+    for (const c of getConversations()) {
+        if (c.connectionId && c.connectionId !== connectionId) continue;
+        const phone = normalizePhoneDigits(c.contactPhone || '');
+        if (phone.length >= 10) {
+            const hit = [...buildPhoneDigitLookupKeys(phone)].some((k) => keys.has(k));
+            if (hit) {
+                const name =
+                    filterEvolutionContactLabel((c as { waContactName?: string }).waContactName) ||
+                    filterEvolutionContactLabel(c.contactName);
+                if (name) return name;
+            }
+        }
+        const fromId = String(c.id || '').split(':').slice(1).join(':');
+        const jidDigits = normalizePhoneDigits(fromId.split('@')[0] || '');
+        if (jidDigits.length >= 10 && jidDigits.length <= 13) {
+            if ([...buildPhoneDigitLookupKeys(jidDigits)].some((k) => keys.has(k))) {
+                const name =
+                    filterEvolutionContactLabel((c as { waContactName?: string }).waContactName) ||
+                    filterEvolutionContactLabel(c.contactName);
+                if (name) return name;
+            }
+        }
+    }
+    return undefined;
+}
+
+async function fetchProfileDisplayName(connectionId: string, phoneDigits: string): Promise<string | undefined> {
+    const digits = normalizePhoneDigits(phoneDigits);
+    if (digits.length < 10) return undefined;
+    const inst = evoInst(connectionId);
+    const candidates = [`${digits}@s.whatsapp.net`, digits];
+    for (const number of candidates) {
+        try {
+            const response = await api.post(`/chat/fetchProfile/${inst}`, { number }, { timeout: 12_000 });
+            const data = response?.data;
+            const row =
+                data && typeof data === 'object'
+                    ? ((data as { data?: unknown }).data && typeof (data as { data?: unknown }).data === 'object'
+                          ? ((data as { data: Record<string, unknown> }).data)
+                          : (data as Record<string, unknown>))
+                    : null;
+            const name = evolutionContactDisplayName(row);
+            if (name) return name;
+        } catch {
+            /* tenta próximo formato */
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Resolve nome de exibição WA para um telefone:
+ * agenda do chip → conversas em memória → fetchProfile.
+ */
+export async function resolveWaDisplayNameForPhone(
+    tenantUid: string,
+    phoneDigits: string,
+    opts?: {
+        connectionId?: string;
+        phonebookIndex?: PhonebookNameIndex | null;
+    }
+): Promise<{ name: string | null; source: 'phonebook' | 'conversation' | 'profile' | null }> {
+    const digits = normalizePhoneDigits(phoneDigits);
+    if (digits.length < 10) return { name: null, source: null };
+    const connId = pickOpenConnectionForTenant(tenantUid, opts?.connectionId);
+    if (!connId) return { name: null, source: null };
+
+    const index = opts?.phonebookIndex ?? null;
+    if (index) {
+        const book = resolvePhonebookName(index, {
+            remoteJid: `${digits}@s.whatsapp.net`,
+            contactPhone: digits,
+        });
+        if (book) return { name: book, source: 'phonebook' };
+    } else {
+        // Lookup pontual por JID (mais barato que varrer a agenda inteira)
+        try {
+            const response = await api.post(`/chat/findContacts/${evoInst(connId)}`, {
+                where: { id: `${digits}@s.whatsapp.net` },
+                page: 1,
+                limit: 5,
+            });
+            const list = Array.isArray(response.data)
+                ? response.data
+                : Array.isArray(response.data?.contacts)
+                  ? response.data.contacts
+                  : Array.isArray(response.data?.data)
+                    ? response.data.data
+                    : [];
+            for (const row of list) {
+                if (!row || typeof row !== 'object') continue;
+                const name = evolutionContactDisplayName(row as Record<string, unknown>);
+                if (name) return { name, source: 'phonebook' };
+            }
+        } catch {
+            /* segue para conversa/profile */
+        }
+    }
+
+    const fromConv = findConversationDisplayName(connId, digits);
+    if (fromConv) return { name: fromConv, source: 'conversation' };
+
+    const fromProfile = await fetchProfileDisplayName(connId, digits);
+    if (fromProfile) return { name: fromProfile, source: 'profile' };
+
+    return { name: null, source: null };
 }
 
 /** Indica se o número já parece existir na agenda Evolution do chip. */

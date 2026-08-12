@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeContactName, isSuspiciousContactName } from './contactNameNormalize';
+import { normalizeContactName, isSuspiciousContactName, campaignRecipientNameVars } from './contactNameNormalize';
 
 describe('normalizeContactName', () => {
   it('converte CAIXA ALTA em Title Case', () => {
@@ -32,6 +32,14 @@ describe('normalizeContactName', () => {
     expect(isSuspiciousContactName('')).toBe(true);
     expect(isSuspiciousContactName('Sem Nome')).toBe(true);
     expect(isSuspiciousContactName('1234')).toBe(true);
+    expect(isSuspiciousContactName('- Casas')).toBe(true);
+    expect(isSuspiciousContactName('Casas')).toBe(true);
     expect(isSuspiciousContactName('João')).toBe(false);
+    expect(isSuspiciousContactName('Maria Silva')).toBe(false);
+  });
+
+  it('campaignRecipientNameVars esvazia nomes suspeitos', () => {
+    expect(campaignRecipientNameVars('- Casas')).toEqual({ nome: '', nome_completo: '' });
+    expect(campaignRecipientNameVars('João Silva').nome).toBe('João');
   });
 });

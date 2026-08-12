@@ -509,3 +509,57 @@ export async function apiCancelNameNormalizeJob(jobId: string): Promise<void> {
     timeoutMs: 15_000,
   });
 }
+
+export type WaNameSyncJobDto = {
+  id: string;
+  status: string;
+  mode: string;
+  total: number;
+  scanned: number;
+  updated: number;
+  skipped: number;
+  unavailable: number;
+  failed: number;
+  percent: number;
+  message: string;
+  lastError?: string;
+};
+
+export async function apiStartWaNameSync(opts: {
+  mode: 'ids' | 'suspicious';
+  ids?: string[];
+  connectionId?: string;
+}): Promise<WaNameSyncJobDto> {
+  const j = await apiFetchJson<{ job?: WaNameSyncJobDto }>('/api/contacts/sync-wa-names', {
+    method: 'POST',
+    body: JSON.stringify(opts),
+    timeoutMs: 30_000,
+    retries: 1,
+  });
+  if (!j.job?.id) throw new Error('Não foi possível iniciar a sincronização de nomes.');
+  return j.job;
+}
+
+export async function apiGetWaNameSyncJob(jobId: string): Promise<WaNameSyncJobDto> {
+  const j = await apiFetchJson<{ job?: WaNameSyncJobDto }>(
+    `/api/contacts/sync-wa-names/${encodeURIComponent(jobId)}`,
+    { timeoutMs: 30_000, retries: 1 }
+  );
+  if (!j.job) throw new Error('Job não encontrado.');
+  return j.job;
+}
+
+export async function apiGetActiveWaNameSyncJob(): Promise<WaNameSyncJobDto | null> {
+  const j = await apiFetchJson<{ job?: WaNameSyncJobDto | null }>(
+    '/api/contacts/sync-wa-names/active',
+    { timeoutMs: 15_000, retries: 1 }
+  );
+  return j.job || null;
+}
+
+export async function apiCancelWaNameSyncJob(jobId: string): Promise<void> {
+  await apiFetchJson(`/api/contacts/sync-wa-names/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+    timeoutMs: 15_000,
+  });
+}
