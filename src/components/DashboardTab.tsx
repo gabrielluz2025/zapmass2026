@@ -1117,6 +1117,7 @@ export const DashboardTab: React.FC = () => {
       <DashboardIntelPanel
         campaigns={campaigns}
         contacts={contacts}
+        contactsSavedTotal={contactsSavedTotal}
         connections={connections}
         conversations={deferredConversations}
         systemLogs={systemLogs}

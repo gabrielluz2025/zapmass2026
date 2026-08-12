@@ -10,18 +10,21 @@ import {
   AlertTriangle,
   CalendarClock,
   ChevronRight,
+  Copy,
   Flame,
   Goal,
-  Layers,
+  PhoneOff,
   Radar,
   Reply,
   Send,
+  ShieldOff,
   Signal,
   Snowflake,
   Sparkles,
   Thermometer,
   TrendingUp,
   Trophy,
+  UserRound,
   Zap
 } from 'lucide-react';
 import { Button, Card, Modal } from '../ui';
@@ -44,7 +47,7 @@ import {
   getMonthlyGoal,
   setMonthlyGoal
 } from '../../utils/dashboardLocalStats';
-import { qualityScoreLabel } from '../../utils/dashboardActivityFeed';
+import { baseAttentionBadge, computeBaseAttention } from '../../utils/dashboardBaseAttention';
 import { buildDashboardRecentReplies } from '../../utils/dashboardRecentReplies';
 
 const FUNNEL_CHART_MAX_PX = 72;
@@ -71,7 +74,6 @@ function formatSendChartDay(dateStr: string): { day: string; weekday: string; is
   return { day: String(d || 0).padStart(2, '0'), weekday, isToday };
 }
 import { computeContactTemperatures, CONTACT_TEMP_LABEL, type ContactTemperature } from '../../utils/contactTemperature';
-import { normPhoneKey } from '../../utils/brPhoneNormalize';
 
 const RATE_CAP_MESSAGES_PER_HOUR = 100;
 
@@ -84,30 +86,6 @@ const TEMP_VISUAL: Record<
   cold: { fg: '#3b82f6', icon: <Snowflake className="w-4 h-4" /> },
   new: { fg: '#10b981', icon: <Sparkles className="w-4 h-4" /> }
 };
-
-function computeBaseQuality(contacts: Contact[]): { validPct: number; namedPct: number; uniquePct: number; score: number } {
-  const n = contacts.length;
-  if (!n) return { validPct: 100, namedPct: 100, uniquePct: 100, score: 100 };
-  let valid = 0;
-  let named = 0;
-  const keyCounts = new Map<string, number>();
-  for (const c of contacts) {
-    const digits = (c.phone || '').replace(/\D/g, '');
-    if (digits.length >= 10) valid++;
-    if (String(c.name || '').trim().length >= 2) named++;
-    const k = normPhoneKey(c.phone);
-    if (k.length >= 10) keyCounts.set(k, (keyCounts.get(k) || 0) + 1);
-  }
-  let dupContacts = 0;
-  for (const count of keyCounts.values()) {
-    if (count > 1) dupContacts += count - 1;
-  }
-  const validPct = Math.round((valid / n) * 100);
-  const namedPct = Math.round((named / n) * 100);
-  const uniquePct = Math.round((1 - dupContacts / Math.max(n, 1)) * 100);
-  const score = Math.round(validPct * 0.4 + namedPct * 0.35 + uniquePct * 0.25);
-  return { validPct, namedPct, uniquePct, score };
-}
 
 function formatTimeAgo(ts: string): string {
   const t = new Date(ts).getTime();
@@ -122,6 +100,7 @@ function formatTimeAgo(ts: string): string {
 interface Props {
   campaigns: Campaign[];
   contacts: Contact[];
+  contactsSavedTotal?: number | null;
   connections: WhatsAppConnection[];
   conversations: Conversation[];
   systemLogs: SystemLog[];
@@ -144,6 +123,7 @@ interface Props {
 export const DashboardIntelPanel: React.FC<Props> = ({
   campaigns,
   contacts,
+  contactsSavedTotal,
   connections,
   conversations,
   systemLogs,
@@ -233,8 +213,9 @@ export const DashboardIntelPanel: React.FC<Props> = ({
   );
   const monthlyGoal = useMemo(() => getMonthlyGoal(userUid), [userUid, goalRevision]);
 
-  const quality = useMemo(() => computeBaseQuality(contacts), [contacts]);
-  const qualityMeta = useMemo(() => qualityScoreLabel(quality.score), [quality.score]);
+  const attention = useMemo(() => computeBaseAttention(contacts), [contacts]);
+  const attentionMeta = useMemo(() => baseAttentionBadge(attention), [attention]);
+  const displayedTotal = Math.max(contacts.length, contactsSavedTotal ?? 0);
 
   const recentReplies = useMemo(
     () => buildDashboardRecentReplies(deferredConversations, contacts, systemLogs, 8),
@@ -844,65 +825,138 @@ export const DashboardIntelPanel: React.FC<Props> = ({
           <div className="p-4">
             <div className="flex items-center justify-between gap-2 mb-3">
               <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4" style={{ color: '#06b6d4' }} />
-                <h3 className="ui-title text-[14px]">Qualidade da base</h3>
+                <Send className="w-4 h-4" style={{ color: '#06b6d4' }} />
+                <h3 className="ui-title text-[14px]">Prontos para disparo</h3>
               </div>
               <span
                 className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-full"
-                style={{ background: `${qualityMeta.color}22`, color: qualityMeta.color }}
+                style={{ background: `${attentionMeta.color}22`, color: attentionMeta.color }}
               >
-                {qualityMeta.label}
+                {attentionMeta.label}
               </span>
             </div>
             <div className="flex items-center gap-4 mb-3">
               <div
                 className="relative w-20 h-20 rounded-full flex items-center justify-center text-lg font-black shrink-0"
-                style={{ background: `conic-gradient(${qualityMeta.color} ${quality.score * 3.6}deg, var(--surface-3) 0deg)` }}
+                style={{
+                  background: `conic-gradient(${attentionMeta.color} ${attention.readyPct * 3.6}deg, var(--surface-3) 0deg)`
+                }}
               >
                 <div
                   className="absolute inset-2 rounded-full flex flex-col items-center justify-center"
                   style={{ background: 'var(--surface-0)' }}
                 >
-                  <span style={{ color: 'var(--text-1)' }}>{quality.score}</span>
+                  <span style={{ color: 'var(--text-1)' }}>{attention.readyPct}</span>
                   <span className="text-[8px]" style={{ color: 'var(--text-3)' }}>
-                    nota
+                    %
                   </span>
                 </div>
               </div>
               <div className="min-w-0">
                 <p className="text-[20px] font-black tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
-                  {contacts.length.toLocaleString('pt-BR')}
+                  {attention.ready.toLocaleString('pt-BR')}
                 </p>
                 <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                  contatos na base
+                  com nome e telefone ok
                 </p>
-                {quality.uniquePct < 100 && (
-                  <p className="text-[9px] mt-1" style={{ color: '#f59e0b' }}>
-                    Revise duplicados para melhorar disparos
-                  </p>
-                )}
+                <p className="text-[10px] mt-0.5 tabular-nums" style={{ color: 'var(--text-3)' }}>
+                  {displayedTotal.toLocaleString('pt-BR')} na base
+                  {displayedTotal > attention.sampleSize && attention.sampleSize > 0
+                    ? ` · amostra ${attention.sampleSize.toLocaleString('pt-BR')}`
+                    : ''}
+                </p>
               </div>
             </div>
-            <ul className="space-y-2.5 text-[11px]" style={{ color: 'var(--text-2)' }}>
-              {[
-                { label: 'Tel. válido', pct: quality.validPct, color: '#10b981' },
-                { label: 'Nome preenchido', pct: quality.namedPct, color: '#3b82f6' },
-                { label: 'Sem duplicados', pct: quality.uniquePct, color: '#06b6d4' }
-              ].map((row) => (
-                <li key={row.label}>
-                  <div className="flex justify-between gap-2 mb-1">
-                    <span>{row.label}</span>
-                    <strong className="tabular-nums">{row.pct}%</strong>
-                  </div>
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-3)' }}>
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{ width: `${row.pct}%`, background: row.color }}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
+            {attention.issueCount === 0 ? (
+              <p className="text-[11px] leading-snug" style={{ color: 'var(--text-3)' }}>
+                Nada urgente. Pode saudar pelo nome sem risco de “- Casas”.
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {(
+                  [
+                    {
+                      key: 'generic',
+                      show: attention.genericNames > 0,
+                      icon: <UserRound className="w-3.5 h-3.5" />,
+                      label: 'Nomes genéricos',
+                      hint: 'Puxe o nome do WhatsApp',
+                      count: attention.genericNames,
+                      color: '#f59e0b'
+                    },
+                    {
+                      key: 'invalid',
+                      show: attention.invalidPhone > 0,
+                      icon: <PhoneOff className="w-3.5 h-3.5" />,
+                      label: 'Tel. inválido',
+                      hint: 'Não disparam',
+                      count: attention.invalidPhone,
+                      color: '#f43f5e'
+                    },
+                    {
+                      key: 'dup',
+                      show: attention.duplicates > 0,
+                      icon: <Copy className="w-3.5 h-3.5" />,
+                      label: 'Duplicados',
+                      hint: 'Mesmo número',
+                      count: attention.duplicates,
+                      color: '#38bdf8'
+                    },
+                    {
+                      key: 'follow',
+                      show: attention.overdueFollowUps > 0,
+                      icon: <CalendarClock className="w-3.5 h-3.5" />,
+                      label: 'Retornos atrasados',
+                      hint: 'Combinado passou',
+                      count: attention.overdueFollowUps,
+                      color: '#a78bfa'
+                    },
+                    {
+                      key: 'optout',
+                      show: attention.optOut > 0,
+                      icon: <ShieldOff className="w-3.5 h-3.5" />,
+                      label: 'Lista negra',
+                      hint: 'Fora do marketing',
+                      count: attention.optOut,
+                      color: '#94a3b8'
+                    }
+                  ] as const
+                )
+                  .filter((row) => row.show)
+                  .map((row) => (
+                    <li key={row.key}>
+                      <button
+                        type="button"
+                        onClick={onOpenContacts}
+                        className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/5"
+                      >
+                        <span style={{ color: row.color }}>{row.icon}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                            {row.label}
+                          </span>
+                          <span className="block text-[9px]" style={{ color: 'var(--text-3)' }}>
+                            {row.hint}
+                          </span>
+                        </span>
+                        <strong className="tabular-nums text-[12px]" style={{ color: row.color }}>
+                          {row.count.toLocaleString('pt-BR')}
+                        </strong>
+                        <ChevronRight className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} />
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-between mt-3"
+              onClick={onOpenContacts}
+            >
+              {attention.genericNames > 0 ? 'Corrigir nomes na aba Contatos' : 'Abrir Contatos'}
+              <ChevronRight className="w-4 h-4" />
+            </Button>
           </div>
         </Card>
 
