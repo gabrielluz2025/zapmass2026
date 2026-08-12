@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Flame, MapPin, Church, Briefcase, MessageCircle, Activity, Rocket, Cake, Clock, Snowflake, Info, AlertCircle, Tag as TagIcon, Sparkles, TrendingUp } from 'lucide-react';
 import type { Contact } from '../../types';
+import { useAppProfile } from '../../context/AppProfileContext';
 import { DonutChart, DonutLegend, BarList, MiniHeatmap, useDailyGrowth } from './ContactsVisuals';
 
 type Temperature = 'hot' | 'warm' | 'cold' | 'new';
@@ -34,6 +35,7 @@ const ContactsOverviewBase: React.FC<ContactsOverviewProps> = ({
   onGoToSegments,
   onGoToBirthdays
 }) => {
+  const { segment } = useAppProfile();
   const growth90d = useDailyGrowth(contacts, 91);
   const growth30d = useDailyGrowth(contacts, 30);
 
@@ -278,9 +280,9 @@ const ContactsOverviewBase: React.FC<ContactsOverviewProps> = ({
         </div>
       </div>
 
-      {/* Linha 2: Top cidades + Top igrejas + Top profissões */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="ui-card p-5 lg:col-span-4">
+      {/* Linha 2: Top cidades + Top igrejas (religioso) + Top profissões */}
+      <div className={`grid grid-cols-1 gap-4 ${segment === 'religious' ? 'lg:grid-cols-12' : 'lg:grid-cols-2'}`}>
+        <div className={`ui-card p-5 ${segment === 'religious' ? 'lg:col-span-4' : ''}`}>
           <div className="flex items-start justify-between mb-4">
             <div>
               <h3 className="font-black text-slate-900 dark:text-white flex items-center gap-2 text-sm">
@@ -293,20 +295,22 @@ const ContactsOverviewBase: React.FC<ContactsOverviewProps> = ({
           <BarList items={topCities} emptyLabel="Nenhuma cidade cadastrada." />
         </div>
 
-        <div className="ui-card p-5 lg:col-span-4">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <h3 className="font-black text-slate-900 dark:text-white flex items-center gap-2 text-sm">
-                <Church className="w-4 h-4 text-cyan-500" /> Top igrejas
-              </h3>
-              <p className="text-[11px] text-slate-500 mt-0.5">Distribuição por congregação</p>
+        {segment === 'religious' && (
+          <div className="ui-card p-5 lg:col-span-4">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="font-black text-slate-900 dark:text-white flex items-center gap-2 text-sm">
+                  <Church className="w-4 h-4 text-cyan-500" /> Top igrejas
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">Distribuição por congregação</p>
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{topChurches.length}</span>
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{topChurches.length}</span>
+            <BarList items={topChurches} emptyLabel="Nenhuma igreja cadastrada." />
           </div>
-          <BarList items={topChurches} emptyLabel="Nenhuma igreja cadastrada." />
-        </div>
+        )}
 
-        <div className="ui-card p-5 lg:col-span-4">
+        <div className={`ui-card p-5 ${segment === 'religious' ? 'lg:col-span-4' : ''}`}>
           <div className="flex items-start justify-between mb-4">
             <div>
               <h3 className="font-black text-slate-900 dark:text-white flex items-center gap-2 text-sm">

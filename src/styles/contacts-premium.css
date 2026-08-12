@@ -502,6 +502,21 @@
   cursor: default;
 }
 
+.ch-kpi-chip--clickable {
+  cursor: pointer;
+}
+
+.ch-kpi-chip--clickable:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -4px rgba(0,0,0,0.3);
+  filter: brightness(1.08);
+}
+
+.ch-kpi-chip--clickable:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--chip-color, #10b981) 55%, transparent);
+  outline-offset: 2px;
+}
+
 .ch-kpi-chip:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px -4px rgba(0,0,0,0.3);

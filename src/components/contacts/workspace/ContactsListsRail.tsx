@@ -1,7 +1,7 @@
 ﻿import React from 'react';
 import { List as ListIcon, Plus, ChevronRight } from 'lucide-react';
 import type { ContactList } from '../../../types';
-import type { SmartFilterId } from './ContactsSidebar';
+import type { SmartFilterId } from './contactsFilters';
 
 type Props = {
   lists: ContactList[];

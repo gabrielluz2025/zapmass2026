@@ -29,11 +29,9 @@ import {
 import type { CampaignWizardDraft } from '../types/campaignMission';
 import toast from 'react-hot-toast';
 import { Badge, BrDateInput, Button, Card, EmptyState, Modal, PageShell, SectionHeader, StatCard } from './ui';
-import { ContactsHeaderBar } from './contacts/workspace/ContactsHeaderBar';
 import { ContactsListsRail } from './contacts/workspace/ContactsListsRail';
 import { ContactsListsPanel } from './contacts/workspace/ContactsListsPanel';
-import { type SmartFilterId, type SidebarCounts } from './contacts/workspace/ContactsSidebar';
-// ContactsSidebar mantida no arquivo mas não renderizada no novo layout hub fullwidth
+import { type SmartFilterId, type SidebarCounts } from './contacts/workspace/contactsFilters';
 import { ContactsWorkspaceToolbar } from './contacts/workspace/ContactsWorkspaceToolbar';
 import { ContactsListManagePanel } from './contacts/workspace/ContactsListManagePanel';
 import { ContactsTableVirtual } from './contacts/workspace/ContactsTableVirtual';
@@ -983,10 +981,6 @@ export const ContactsTab: React.FC = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
-  const [showFilterPanel, setShowFilterPanel] = useState(false);
-  const [filterStatus, setFilterStatus] = useState<'ALL' | 'VALID' | 'INVALID'>('ALL');
-  const [filterTag, setFilterTag] = useState('');
-  const [filterTemp, setFilterTemp] = useState<'ALL' | Temperature>('ALL');
   const [newContact, setNewContact] = useState<Partial<Contact>>({
     name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '',
     church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: ''
@@ -1101,8 +1095,6 @@ export const ContactsTab: React.FC = () => {
 
   const [religiousMemberForm, setReligiousMemberForm] = useState<MemberFormState>(() => emptyForm());
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
-  const [editingListId, setEditingListId] = useState<string | null>(null);
-  const [editingListName, setEditingListName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const vcfInputRef = useRef<HTMLInputElement>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -1115,13 +1107,11 @@ export const ContactsTab: React.FC = () => {
   const [listMemberSearch, setListMemberSearch] = useState('');
   const [listAddSearch, setListAddSearch] = useState('');
   const [listAddSelectedIds, setListAddSelectedIds] = useState<string[]>([]);
-  const [addToListSelectId, setAddToListSelectId] = useState('');
   /** Escolha de lista via modal (substitui `window.prompt` ao adicionar contato(s) a uma lista). */
   const [pickListPayload, setPickListPayload] = useState<
     null | { mode: 'single'; contact: Contact } | { mode: 'bulk'; contactIds?: string[] }
   >(null);
   const [pickListTargetId, setPickListTargetId] = useState('');
-  const [quickListName, setQuickListName] = useState('');
   // Smart Import: colar do Excel/Word e interpretar livremente
   const [smartImportOpen, setSmartImportOpen] = useState(false);
   const [nameNormalizeModalOpen, setNameNormalizeModalOpen] = useState(false);
@@ -1590,24 +1580,6 @@ export const ContactsTab: React.FC = () => {
     toast.success(`Tag aplicada em ${n} contato(s).`);
   };
 
-  const handleBulkRemoveTag = async () => {
-    if (selectedIds.length === 0) return;
-    const raw = window.prompt('Tag a remover dos selecionados:', '');
-    if (raw == null) return;
-    const tag = raw.trim();
-    if (!tag) return;
-    const lower = tag.toLowerCase();
-    let n = 0;
-    for (const id of selectedIds) {
-      const c = contacts.find((x) => x.id === id);
-      if (!c) continue;
-      if (!(c.tags || []).some((t) => t.toLowerCase() === lower)) continue;
-      await updateContact(id, { tags: (c.tags || []).filter((t) => t.toLowerCase() !== lower) });
-      n++;
-    }
-    toast.success(`Tag "${tag}" removida de ${n} contato(s).`);
-  };
-
   const toggleSelect = (id: string) =>
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
@@ -1638,31 +1610,6 @@ export const ContactsTab: React.FC = () => {
       setSelectedIds([]);
     } catch {
       toast.error('Não foi possível criar a lista agora.');
-    }
-  };
-
-  const handleCreateQuickList = async () => {
-    const baseIds = selectedIds.length > 0 ? selectedIds : filteredContacts.map(contact => contact.id);
-    const validIds = baseIds.filter(id => {
-      const contact = contacts.find(item => item.id === id);
-      return Boolean(contact?.phone?.replace(/\D/g, '').length >= 10);
-    });
-
-    if (!quickListName.trim()) {
-      toast.error('Informe um nome para a nova lista.');
-      return;
-    }
-    if (validIds.length === 0) {
-      toast.error('Selecione contatos validos ou ajuste o filtro antes de criar a lista.');
-      return;
-    }
-
-    try {
-      await createContactList(quickListName.trim(), validIds, `Lista criada rapidamente com ${validIds.length} contato(s).`);
-      toast.success(`Lista "${quickListName.trim()}" criada com ${validIds.length} contatos.`);
-      setQuickListName('');
-    } catch {
-      toast.error('Não foi possível criar a lista.');
     }
   };
 
@@ -2395,7 +2342,7 @@ export const ContactsTab: React.FC = () => {
   const [activeSegment, setActiveSegment] = useState<SmartSegmentId | null>(null);
 
   useEffect(() => {
-    if (segment !== 'religious') return;
+    if (segment === 'religious') return;
     setActiveFilter((f) => (f === 'wedding_today' || f === 'wedding_week' ? 'all' : f));
     setActiveSegment((s) => (s === 'wedding-week' ? null : s));
   }, [segment]);
@@ -2665,9 +2612,6 @@ export const ContactsTab: React.FC = () => {
     // Caminho rápido: sem busca nem critérios — evita uma passagem de O(n) em bases enormes ao abrir a aba.
     if (
       !q &&
-      filterStatus === 'ALL' &&
-      !filterTag &&
-      filterTemp === 'ALL' &&
       !activeSegment &&
       activeFilter === 'all'
     ) {
@@ -2692,22 +2636,16 @@ export const ContactsTab: React.FC = () => {
         (c.followUpNote?.toLowerCase().includes(q) ?? false) ||
         (c.religiousMemberProfile?.spouseName?.toLowerCase().includes(q) ?? false) ||
         (c.religiousMemberProfile?.weddingDate?.toLowerCase().includes(q) ?? false);
-      const matchesStatus = filterStatus === 'ALL' || c.status === filterStatus;
-      const matchesTag = !filterTag || c.tags.some((t) => t.toLowerCase() === filterTag.toLowerCase());
-      const matchesTemp = filterTemp === 'ALL' || contactTemps[c.id]?.temp === filterTemp;
       const matchesSegment = !activeSegment || getSmartSegmentMatches(activeSegment, c);
       const matchesSmart = matchesSmartFilter(c, activeFilter);
-      return matchesSearch && matchesStatus && matchesTag && matchesTemp && matchesSegment && matchesSmart;
+      return matchesSearch && matchesSegment && matchesSmart;
     });
   }, [
+    contacts,
     deferredContacts,
     deferredSearchTerm,
-    filterStatus,
-    filterTag,
-    filterTemp,
     activeSegment,
     activeFilter,
-    contactTemps,
     matchesSmartFilter,
     getSmartSegmentMatches
   ]);
@@ -2832,63 +2770,6 @@ export const ContactsTab: React.FC = () => {
     setNewContactTargetListId('');
     setNewContactNewListName('');
     setIsModalOpen(true);
-  };
-
-  const beginEditList = (list: ContactList) => {
-    setEditingListId(list.id);
-    setEditingListName(list.name);
-  };
-
-  const saveListName = async () => {
-    if (!editingListId) return;
-    if (!editingListName.trim()) {
-      toast.error('Informe um nome para a lista.');
-      return;
-    }
-    try {
-      await updateContactList(editingListId, { name: editingListName.trim(), lastUpdated: new Date().toISOString() });
-      toast.success('Nome da lista atualizado.');
-      setEditingListId(null);
-      setEditingListName('');
-    } catch {
-      toast.error('N�o foi poss�vel atualizar a lista.');
-    }
-  };
-
-  const handleAddSelectionToList = async () => {
-    if (!addToListSelectId) {
-      toast.error('Escolha uma lista.');
-      return;
-    }
-    const list = contactLists.find((l) => l.id === addToListSelectId);
-    if (!list) {
-      toast.error('Lista nao encontrada.');
-      return;
-    }
-    const validIds = selectedIds.filter((id) => {
-      const c = contacts.find((x) => x.id === id);
-      return Boolean(c && (c.phone || '').replace(/\D/g, '').length >= 10);
-    });
-    if (validIds.length === 0) {
-      toast.error('Selecione ao menos um contato com telefone valido.');
-      return;
-    }
-    const nextIds = mergeContactsIntoListIds(list.contactIds || [], validIds, contacts);
-    const added = nextIds.length - (list.contactIds?.length || 0);
-    if (added === 0) {
-      toast.error('Nenhum contato novo para incluir (jÃ¡ estÃ£o na lista ou invÃ¡lidos).');
-      return;
-    }
-    try {
-      await updateContactList(addToListSelectId, {
-        contactIds: nextIds,
-        lastUpdated: new Date().toISOString()
-      });
-      toast.success(`${added} contato(s) incluido(s) em "${list.name}".`);
-      setSelectedIds([]);
-    } catch {
-      toast.error('N�o foi poss�vel atualizar a lista.');
-    }
   };
 
   const handleRemoveContactFromList = async (listId: string, contact: Contact) => {
@@ -4079,19 +3960,6 @@ export const ContactsTab: React.FC = () => {
     [smartStats, noListCount]
   );
 
-  /** Stats enxutas para o HeaderBar (sem sparklines, sem grids pesados). */
-  const headerStats = useMemo(
-    () => ({
-      total: smartStats.total,
-      valid: smartStats.total - smartStats.invalid,
-      newLast7: smartStats.last7,
-      hot: smartStats.hot,
-      bdayToday: smartStats.bdayToday,
-      weddingWeek: smartStats.weddingWeek
-    }),
-    [smartStats]
-  );
-
   /** Contato em destaque (drawer) — tempStats equivalente. */
   const selectedContactTemps = selectedContact
     ? (contactTemps[selectedContact.id] ?? CONTACT_TEMP_DEFAULT)
@@ -4452,9 +4320,11 @@ export const ContactsTab: React.FC = () => {
       <ContactsCommandHero
         stats={smartStats}
         contactTempsReady={contactTempsReady}
+        hideWedding={segment !== 'religious'}
         savedTotal={contactsSavedTotal}
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
+        onSelectFilter={handleSelectSmartFilter}
         onNewContact={openNewContactModal}
         onImportXLSX={openImportXLSX}
         onImportVcf={openImportVcf}
@@ -4485,12 +4355,10 @@ export const ContactsTab: React.FC = () => {
       {/* ── Faixa de filtros horizontais ── */}
       <div className="ch-filter-strip">
         {([
-          { id: 'all',     label: 'Todos',      count: sidebarCounts.all  },
           { id: 'hot',     label: 'Quentes',    count: sidebarCounts.hot,  clr: '#ef4444', cbg: 'rgba(239,68,68,0.12)'    },
           { id: 'warm',    label: 'Mornos',     count: sidebarCounts.warm, clr: '#f59e0b', cbg: 'rgba(245,158,11,0.12)'   },
           { id: 'cold',    label: 'Frios',      count: sidebarCounts.cold, clr: '#22d3ee', cbg: 'rgba(6,182,212,0.12)'    },
           { id: 'new',     label: 'Sem hist.',  count: sidebarCounts.new,  clr: '#a78bfa', cbg: 'rgba(139,92,246,0.12)'   },
-          { id: 'no_list', label: 'Sem lista',  count: sidebarCounts.no_list, clr: '#fb923c', cbg: 'rgba(249,115,22,0.12)' },
         ] as { id: SmartFilterId; label: string; count: number; clr?: string; cbg?: string }[]).map((f) => {
           const active = activeFilter === f.id;
           return (
@@ -4520,6 +4388,12 @@ export const ContactsTab: React.FC = () => {
         {showMoreFilters && ([
           { id: 'bday_today',       label: '🎂 Aniv. hoje',        count: sidebarCounts.bday_today,       clr: '#f472b6' },
           { id: 'bday_week',        label: '🎂 Aniv. 7d',           count: sidebarCounts.bday_week,        clr: '#fb923c' },
+          ...(segment === 'religious'
+            ? ([
+                { id: 'wedding_today', label: '💒 Bodas hoje', count: sidebarCounts.wedding_today, clr: '#f472b6' },
+                { id: 'wedding_week',  label: '💒 Bodas 7d',   count: sidebarCounts.wedding_week,  clr: '#fb7185' },
+              ] as { id: SmartFilterId; label: string; count: number; clr: string }[])
+            : []),
           { id: 'retorno_hoje',     label: '📌 Retorno hoje',       count: sidebarCounts.retorno_hoje,     clr: '#34d399' },
           { id: 'retorno_atrasados',label: '⚠️ Ret. atrasados',     count: sidebarCounts.retorno_atrasados,clr: '#f87171' },
           { id: 'retorno_semana',   label: '📅 Ret. semana',         count: sidebarCounts.retorno_semana,  clr: '#10b981' },
@@ -4654,7 +4528,7 @@ export const ContactsTab: React.FC = () => {
               </Button>
             </div>
           )}
-          {segment !== 'religious' &&
+          {segment === 'religious' &&
             (activeFilter === 'wedding_week' || activeFilter === 'wedding_today') &&
             listFilteredContacts.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-rose-200/80 dark:border-rose-900/50 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2">
@@ -5805,7 +5679,7 @@ export const ContactsTab: React.FC = () => {
                         <Clock className="w-3.5 h-3.5" /> Retorno (lembrete)
                       </h4>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Data e hora em que pretende contactar de novo. Aparece nos filtros &quot;Retornos&quot; na lateral.
+                        Data e hora em que pretende contactar de novo. Aparece nos filtros avançados de Retornos.
                       </p>
                       <div>
                         <label htmlFor="followUpDatetime" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Data e hora</label>

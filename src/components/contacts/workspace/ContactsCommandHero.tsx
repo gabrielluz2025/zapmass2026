@@ -2,8 +2,9 @@
 import {
   UserPlus, Upload, Download, Wand2, FileSpreadsheet, Smartphone,
   ChevronDown, SpellCheck2, BarChart3, Search, X, Database,
-  Users, Flame, Thermometer, Snowflake, Sparkles, Calendar
+  Users, Flame, Thermometer, Snowflake, Sparkles, Calendar, Heart
 } from 'lucide-react';
+import type { SmartFilterId } from './contactsFilters';
 
 export interface ContactsCommandHeroStats {
   total: number;
@@ -23,6 +24,7 @@ interface Props {
   savedTotal?: number | null;
   searchTerm: string;
   onSearchChange: (q: string) => void;
+  onSelectFilter?: (id: SmartFilterId) => void;
   onNewContact: () => void;
   onImportXLSX: () => void;
   onImportVcf: () => void;
@@ -42,23 +44,34 @@ const KpiChip: React.FC<{
   color: string;
   bg: string;
   show?: boolean;
-}> = ({ icon, label, value, color, bg, show = true }) => {
+  onClick?: () => void;
+}> = ({ icon, label, value, color, bg, show = true, onClick }) => {
   if (!show) return null;
-  return (
-    <div
-      className="ch-kpi-chip"
-      style={{ '--chip-color': color, '--chip-bg': bg } as React.CSSProperties}
-    >
+  const style = { '--chip-color': color, '--chip-bg': bg } as React.CSSProperties;
+  const body = (
+    <>
       <span className="ch-kpi-chip__icon">{icon}</span>
       <span className="ch-kpi-chip__value">{value.toLocaleString('pt-BR')}</span>
       <span className="ch-kpi-chip__label">{label}</span>
+    </>
+  );
+  if (onClick) {
+    return (
+      <button type="button" className="ch-kpi-chip ch-kpi-chip--clickable" style={style} onClick={onClick}>
+        {body}
+      </button>
+    );
+  }
+  return (
+    <div className="ch-kpi-chip" style={style}>
+      {body}
     </div>
   );
 };
 
 export const ContactsCommandHero: React.FC<Props> = React.memo(({
-  stats, contactTempsReady, savedTotal,
-  searchTerm, onSearchChange,
+  stats, contactTempsReady, hideWedding, savedTotal,
+  searchTerm, onSearchChange, onSelectFilter,
   onNewContact, onImportXLSX, onImportVcf, onSmartImport,
   onDownloadTemplate, onExport, onOpenInsights, onOpenNormalizeNames, onOpenFixBase, onSaveBaseToChip
 }) => {
@@ -76,6 +89,7 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
   }, [importOpen]);
 
   const displayTotal = Math.max(stats.total, savedTotal ?? 0, 0);
+  const pick = (id: SmartFilterId) => (onSelectFilter ? () => onSelectFilter(id) : undefined);
 
   return (
     <div className="ch-hero crm-fade-up">
@@ -173,7 +187,12 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
           </button>
 
           {onOpenFixBase && (
-            <button type="button" onClick={onOpenFixBase} className="ch-btn" title="Corrigir telefones, nomes e endereços">
+            <button
+              type="button"
+              onClick={onOpenFixBase}
+              className="ch-btn"
+              title="Corrigir telefones, nomes e endereços"
+            >
               <Database className="w-4 h-4 text-amber-400" />
               <span className="hidden lg:inline">Corrigir base</span>
             </button>
@@ -192,9 +211,14 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
           )}
 
           {onOpenNormalizeNames && (
-            <button type="button" onClick={onOpenNormalizeNames} className="ch-btn" title="Padronizar nomes">
+            <button
+              type="button"
+              onClick={onOpenNormalizeNames}
+              className="ch-btn"
+              title="Padronizar capitalização e prefixos dos nomes"
+            >
               <SpellCheck2 className="w-4 h-4 text-cyan-400" />
-              <span className="hidden lg:inline">Limpar nomes</span>
+              <span className="hidden lg:inline">Padronizar nomes</span>
             </button>
           )}
 
@@ -207,12 +231,21 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
 
       {/* ── Linha 2: KPI chips ───────────────────── */}
       <div className="ch-hero__kpis">
-        <KpiChip icon={<Users className="w-3.5 h-3.5" />}     label="total"       value={displayTotal}  color="#10b981" bg="rgba(16,185,129,0.1)" />
-        <KpiChip icon={<Flame className="w-3.5 h-3.5" />}     label="quentes"     value={stats.hot}     color="#f87171" bg="rgba(239,68,68,0.1)" />
-        <KpiChip icon={<Thermometer className="w-3.5 h-3.5" />} label="mornos"    value={stats.warm}    color="#fbbf24" bg="rgba(245,158,11,0.1)" />
-        <KpiChip icon={<Snowflake className="w-3.5 h-3.5" />} label="frios"       value={stats.cold}    color="#22d3ee" bg="rgba(6,182,212,0.1)" />
-        <KpiChip icon={<Sparkles className="w-3.5 h-3.5" />}  label="novos 7d"    value={stats.last7}   color="#a78bfa" bg="rgba(139,92,246,0.1)" />
-        <KpiChip icon={<Calendar className="w-3.5 h-3.5" />}  label="aniv. hoje"  value={stats.bdayToday} color="#fb923c" bg="rgba(249,115,22,0.1)" show={stats.bdayToday > 0} />
+        <KpiChip icon={<Users className="w-3.5 h-3.5" />} label="total" value={displayTotal} color="#10b981" bg="rgba(16,185,129,0.1)" onClick={pick('all')} />
+        <KpiChip icon={<Flame className="w-3.5 h-3.5" />} label="quentes" value={stats.hot} color="#f87171" bg="rgba(239,68,68,0.1)" onClick={pick('hot')} />
+        <KpiChip icon={<Thermometer className="w-3.5 h-3.5" />} label="mornos" value={stats.warm} color="#fbbf24" bg="rgba(245,158,11,0.1)" onClick={pick('warm')} />
+        <KpiChip icon={<Snowflake className="w-3.5 h-3.5" />} label="frios" value={stats.cold} color="#22d3ee" bg="rgba(6,182,212,0.1)" onClick={pick('cold')} />
+        <KpiChip icon={<Sparkles className="w-3.5 h-3.5" />} label="novos 7d" value={stats.last7} color="#a78bfa" bg="rgba(139,92,246,0.1)" onClick={pick('new')} />
+        <KpiChip icon={<Calendar className="w-3.5 h-3.5" />} label="aniv. hoje" value={stats.bdayToday} color="#fb923c" bg="rgba(249,115,22,0.1)" show={stats.bdayToday > 0} onClick={pick('bday_today')} />
+        <KpiChip
+          icon={<Heart className="w-3.5 h-3.5" />}
+          label="bodas 7d"
+          value={stats.weddingWeek}
+          color="#f472b6"
+          bg="rgba(244,114,182,0.1)"
+          show={!hideWedding && stats.weddingWeek > 0}
+          onClick={pick('wedding_week')}
+        />
 
         {/* Barra de engajamento — só quando pronto */}
         {contactTempsReady && (stats.hot + stats.warm + stats.cold) > 0 && (
