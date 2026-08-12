@@ -67,10 +67,10 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   return (
     <div
-      className="zm-topbar-aurora sticky top-0 z-20 border-b px-3 sm:px-5 py-2 sm:py-2.5"
+      className="zm-topbar-aurora sticky top-0 z-20 border-b px-3 sm:px-5"
     >
-      <div className="mx-auto grid w-full max-w-[1800px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-2 sm:gap-x-3 gap-y-1.5 min-h-[40px] sm:min-h-[44px]">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+      <div className="mx-auto flex w-full max-w-[1800px] items-center gap-2 min-h-[var(--topbar-h)]">
+        <div className="flex min-w-0 shrink items-center gap-2 sm:gap-3">
           <button
             onClick={onOpenMobileNav}
             className="lg:hidden p-2 rounded-lg transition-colors flex-shrink-0"
@@ -83,19 +83,25 @@ export const TopBar: React.FC<TopBarProps> = ({
           <div className="min-w-0">
             <h1 className="ui-section-title truncate leading-tight">{meta.title}</h1>
             {meta.subtitle ? (
-              <p className="ui-caption truncate hidden sm:block mt-0.5 max-w-lg">{meta.subtitle}</p>
+              <p className="ui-caption truncate hidden lg:block mt-0.5 max-w-[14rem] xl:max-w-lg">{meta.subtitle}</p>
             ) : null}
           </div>
         </div>
 
-        <div className="flex justify-center items-center gap-2 flex-wrap px-1">{centerSlot}</div>
+        {centerSlot ? (
+          <div className="hidden xl:flex flex-1 justify-center items-center min-w-0 px-2 overflow-hidden">
+            {centerSlot}
+          </div>
+        ) : (
+          <div className="hidden xl:block flex-1 min-w-0" />
+        )}
 
-        <div className="flex min-w-0 justify-end items-center gap-2 flex-wrap sm:flex-nowrap">
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2 flex-nowrap shrink-0">
           {actions}
 
           {/* Barra unificada: latencia | upgrade | marca Pro — mesmo estilo e altura */}
           <div
-            className="hidden md:flex h-9 items-stretch rounded-lg overflow-hidden shrink-0 border"
+            className="hidden lg:flex h-9 items-stretch rounded-lg overflow-hidden shrink-0 border"
             style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-2)' }}
           >
             <div
@@ -123,7 +129,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           </div>
 
         <div
-          className="hidden sm:flex h-9 items-center gap-1.5 px-2.5 rounded-lg border shrink-0"
+          className="hidden md:flex h-9 items-center gap-1.5 px-2.5 rounded-lg border shrink-0"
           style={{ background: 'var(--surface-2)', borderColor: 'var(--border-subtle)' }}
           title={
             backendLinkState === 'online'
@@ -152,7 +158,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
 
         {/* ==================== USER MENU ==================== */}
-        <div ref={menuRef} className="relative flex items-center">
+        <div ref={menuRef} className="relative flex items-center shrink-0">
           <button
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
@@ -170,7 +176,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               fallbackClassName="w-7 h-7 rounded-md flex items-center justify-center text-[11px] font-bold"
             />
             <span
-              className="hidden md:inline text-[12px] font-semibold max-w-[110px] truncate"
+              className="hidden xl:inline text-[12px] font-semibold max-w-[110px] truncate"
               style={{ color: 'var(--text-1)' }}
             >
               {displayName}
@@ -179,7 +185,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
           {menuOpen && (
             <div
-              className="absolute right-0 mt-2 min-w-[260px] rounded-xl overflow-hidden z-30"
+              className="absolute right-0 top-full mt-2 min-w-[260px] rounded-xl overflow-hidden z-30"
               style={{
                 background: 'var(--surface-0)',
                 border: '1px solid var(--border)',

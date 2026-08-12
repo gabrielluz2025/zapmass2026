@@ -465,12 +465,12 @@ const MainLayout: React.FC = () => {
                 type="button"
                 onClick={() => setSearchOpen(true)}
                 title="Busca global (Ctrl+K)"
-                className="hidden sm:flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--surface-2)]"
+                className="hidden sm:flex items-center gap-2 rounded-xl border px-2.5 lg:px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--surface-2)] shrink-0"
                 style={{ borderColor: 'var(--border)', color: 'var(--text-3)', background: 'var(--surface-1)' }}
               >
                 <Search className="w-3.5 h-3.5" />
-                Buscar
-                <kbd className="ml-1 rounded px-1 py-0.5 text-[9px] font-bold" style={{ background: 'var(--surface-2)' }}>
+                <span className="hidden xl:inline">Buscar</span>
+                <kbd className="ml-1 hidden xl:inline rounded px-1 py-0.5 text-[9px] font-bold" style={{ background: 'var(--surface-2)' }}>
                   ⌘K
                 </kbd>
               </button>

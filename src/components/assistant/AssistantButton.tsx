@@ -36,7 +36,7 @@ export const AssistantButton: React.FC<Props> = ({ currentView, onNavigate, onOp
         }}
       >
         <Bot className="h-4 w-4 text-emerald-500" />
-        <span className="hidden sm:inline text-[11px] font-semibold">Assistente</span>
+        <span className="hidden xl:inline text-[11px] font-semibold">Assistente</span>
       </button>
       <AssistantPanel
         open={open}

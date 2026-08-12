@@ -90,7 +90,9 @@
 
 /* ── TopBar ───────────────────────────────── */
 .zm-topbar-aurora {
-  height: var(--topbar-h);
+  position: relative;
+  min-height: var(--topbar-h);
+  height: auto;
   background: rgba(17, 17, 21, 0.95) !important;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);

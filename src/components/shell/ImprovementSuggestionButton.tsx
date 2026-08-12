@@ -232,7 +232,7 @@ export const ImprovementSuggestionButton: React.FC<ImprovementSuggestionButtonPr
         <span className="relative flex h-6 w-6 items-center justify-center rounded-full" style={{ background: 'rgba(245,158,11,0.15)' }}>
           <Sparkles className="w-3.5 h-3.5 text-amber-500" aria-hidden />
         </span>
-        <span className="relative text-[11px] font-semibold tracking-tight hidden sm:inline bg-gradient-to-r from-amber-600 to-orange-600 dark:from-amber-400 dark:to-orange-400 bg-clip-text text-transparent">
+        <span className="relative text-[11px] font-semibold tracking-tight hidden xl:inline bg-gradient-to-r from-amber-600 to-orange-600 dark:from-amber-400 dark:to-orange-400 bg-clip-text text-transparent">
           Ideias
         </span>
       </button>
