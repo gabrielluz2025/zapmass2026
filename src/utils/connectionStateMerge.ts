@@ -32,7 +32,8 @@ export function mergeWhatsAppConnectionRow(
     return {
       ...incoming,
       status,
-      qrCode: undefined
+      qrCode: undefined,
+      connectedSince: incoming.connectedSince ?? previous?.connectedSince
     };
   }
   const rawQr = qrFromCache ?? previous?.qrCode ?? incoming.qrCode;

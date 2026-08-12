@@ -9,11 +9,12 @@ import { buildChannelDispatchInsights, formatChannelSparkDay } from '../utils/ch
 
 const formatUptime = (connectedSince?: number): string => {
   if (!connectedSince) return '—';
-  const ms = Date.now() - connectedSince;
+  const ms = Math.max(0, Date.now() - connectedSince);
   const h = Math.floor(ms / 3600000);
   const m = Math.floor((ms % 3600000) / 60000);
   if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+  if (m > 0) return `${m}m`;
+  return '<1m';
 };
 
 interface ConnectionCardProps {
@@ -682,9 +683,17 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
             )}
             {isConnected && (
               <>
-                <button onClick={() => onReconnect(connection.id)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
-                  style={{ background: 'var(--surface-2)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                <button
+                  type="button"
+                  onClick={() => onReconnect(connection.id)}
+                  title="Reinicia a sessão WhatsApp deste canal"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95 hover:opacity-90"
+                  style={{
+                    background: 'rgba(16,185,129,0.12)',
+                    color: '#059669',
+                    border: '1px solid rgba(16,185,129,0.35)',
+                  }}
+                >
                   <RotateCcw className="w-3.5 h-3.5" />
                   Reiniciar
                 </button>

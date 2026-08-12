@@ -27,11 +27,12 @@ import { buildChannelDispatchInsights } from '../utils/channelDispatchInsights';
 
 const formatUptime = (connectedSince?: number): string => {
   if (!connectedSince) return '—';
-  const ms = Date.now() - connectedSince;
+  const ms = Math.max(0, Date.now() - connectedSince);
   const h = Math.floor(ms / 3600000);
   const m = Math.floor((ms % 3600000) / 60000);
   if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+  if (m > 0) return `${m}m`;
+  return '<1m';
 };
 
 export interface ConnectionListRowProps {

@@ -1435,7 +1435,11 @@ function applyConnectionStateUpdate(
             pairingStartedAt.delete(instance);
             clearAutoReconnect(instance);
             conn.qrCode = undefined;
-            conn.lastOpenAt = Date.now();
+            // Uptime: marca o momento do open; não zera em webhook "open" repetido.
+            if (prevStatus !== 'open' || !conn.lastOpenAt) {
+                conn.lastOpenAt = Date.now();
+                mergeConnectionSettingsCache(instance, { connectedSince: conn.lastOpenAt });
+            }
             const phone = phoneFromWebhookData(data);
             if (phone) conn.phoneNumber = phone;
             // Ao reconectar com sucesso, libera quarentenas causadas por razões não-confirmadas
@@ -1457,6 +1461,8 @@ function applyConnectionStateUpdate(
             stopQrWatch(instance);
             stopWatchingConnection(instance);
             pairingStartedAt.delete(instance);
+            conn.lastOpenAt = undefined;
+            mergeConnectionSettingsCache(instance, { connectedSince: undefined });
 
             // Detecção de ban: SOMENTE via statusReason 401/"loggedOut" do WhatsApp.
             // Heurística de "rapid_close" foi removida — causava falsos positivos em
@@ -1844,8 +1850,13 @@ async function hydrateInstancesFromEvolution() {
                 phoneNumber: phoneFromApi || existing?.phoneNumber,
                 qrCode: existing?.qrCode,
                 proxy: existing?.proxy,
+                lastOpenAt: existing?.lastOpenAt ?? cachedRow?.connectedSince,
             };
             applySettingsToInstance(instanceObj);
+            if (mappedState === 'open' && !instanceObj.lastOpenAt) {
+                instanceObj.lastOpenAt = Date.now();
+                mergeConnectionSettingsCache(instanceName, { connectedSince: instanceObj.lastOpenAt });
+            }
             healConnectionFriendlyName(instanceName);
 
             if (existing && mappedState !== prevStatus) {
@@ -2129,6 +2140,8 @@ interface ConnectionSettingsPayload {
     lastBanReason?: string;
     /** Quarentena: chip bloqueado de campanhas até este timestamp. */
     quarantineUntil?: number;
+    /** Epoch ms em que o chip ficou open — sobrevive a restart (Uptime no cartão). */
+    connectedSince?: number;
 }
 
 function pickNonEmptyUid(...candidates: Array<string | undefined>): string | undefined {
@@ -2371,6 +2384,9 @@ function applySettingsToInstance(conn: EvolutionInstance) {
         conn.messagesSentToday = cached.messagesSentToday || 0;
         conn.limitExceededApproved = cached.limitExceededApproved || false;
         conn.lastLimitResetDate = cached.lastLimitResetDate;
+        if (typeof cached.connectedSince === 'number' && cached.connectedSince > 0) {
+            conn.lastOpenAt = cached.connectedSince;
+        }
         // Restaurar nome amigável salvo pelo usuário (rename-connection persiste aqui).
         if ((cached as Record<string, unknown>).friendlyName && typeof (cached as Record<string, unknown>).friendlyName === 'string') {
             conn.friendlyName = (cached as Record<string, unknown>).friendlyName as string;
@@ -5933,6 +5949,7 @@ export async function handleWebhook(event: any) {
 
 export function getConnections(): WhatsAppConnection[] {
     const result: WhatsAppConnection[] = [];
+    let seededConnectedSince = false;
     for (const [id, conn] of connections.entries()) {
         let status = ConnectionStatus.DISCONNECTED;
         if (conn.status === 'open') status = ConnectionStatus.CONNECTED;
@@ -5941,6 +5958,13 @@ export function getConnections(): WhatsAppConnection[] {
         else if (conn.status === 'created') status = ConnectionStatus.QR_READY;
 
         const banInfo = getConnectionBanInfo(id);
+        // Chip online sem timestamp (boot antigo / hydrate): inicia o relógio agora e persiste.
+        if (status === ConnectionStatus.CONNECTED && !conn.lastOpenAt) {
+            conn.lastOpenAt = Date.now();
+            mergeConnectionSettingsCache(id, { connectedSince: conn.lastOpenAt });
+            connections.set(id, conn);
+            seededConnectedSince = true;
+        }
         result.push({
             id,
             name: resolveDisplayFriendlyName(id, conn),
@@ -5957,6 +5981,9 @@ export function getConnections(): WhatsAppConnection[] {
             lastBannedAt: banInfo.lastBannedAt,
             lastBanReason: banInfo.lastBanReason,
             quarantineUntil: banInfo.quarantineUntil,
+            ...(status === ConnectionStatus.CONNECTED && conn.lastOpenAt
+                ? { connectedSince: conn.lastOpenAt }
+                : {}),
             ...(conn.qrCode ? { qrCode: conn.qrCode } : {}),
             ...(conn.proxy?.host
                 ? {
@@ -5975,6 +6002,7 @@ export function getConnections(): WhatsAppConnection[] {
             limitExceededApproved: conn.limitExceededApproved || false,
         });
     }
+    if (seededConnectedSince) saveConnectionsSettings();
     return result;
 }
 
