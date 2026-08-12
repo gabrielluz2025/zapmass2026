@@ -39,6 +39,8 @@ interface Props {
   heightClass?: string;
   emptyHint?: React.ReactNode;
   loading?: boolean;
+  /** Nomes das listas em que cada contato está (id → nomes). */
+  listNamesByContactId?: Record<string, string[]>;
 }
 
 // Premium temperature badge config
@@ -90,7 +92,8 @@ export const ContactsTableVirtual: React.FC<Props> = ({
   onToggleSelect, onToggleSelectAll, onRowClick,
   onEdit, onDelete, onOpenChat, onCreateCampaign, onCopyPhone,
   loading = false, onAddToList, selectedContactId,
-  heightClass = 'h-[calc(100vh-230px)]', emptyHint
+  heightClass = 'h-[calc(100vh-230px)]', emptyHint,
+  listNamesByContactId,
 }) => {
   const parentRef = useRef<HTMLDivElement>(null);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -136,7 +139,7 @@ export const ContactsTableVirtual: React.FC<Props> = ({
         </button>
         <span>Contato</span>
         <span className="hidden sm:inline">Telefone</span>
-        <span className="hidden lg:inline">Cidade</span>
+        <span className="hidden lg:inline">Lista</span>
         <span className="hidden lg:inline">Disparos</span>
         <span className="hidden sm:inline">Temperatura</span>
         <span className="text-right">Ações</span>
@@ -173,6 +176,7 @@ export const ContactsTableVirtual: React.FC<Props> = ({
                   selected={selectedSet.has(contact.id)}
                   highlighted={selectedContactId === contact.id}
                   top={vRow.start}
+                  listNames={listNamesByContactId?.[contact.id] || []}
                   onToggleSelect={onToggleSelect}
                   onRowClick={onRowClick}
                   onEdit={onEdit}
@@ -197,6 +201,7 @@ interface RowProps {
   selected: boolean;
   highlighted: boolean;
   top: number;
+  listNames: string[];
   onToggleSelect: (id: string) => void;
   onRowClick: (contact: Contact) => void;
   onEdit: (contact: Contact) => void;
@@ -208,7 +213,7 @@ interface RowProps {
 }
 
 const ContactRow: React.FC<RowProps> = React.memo(({
-  contact, temp, selected, highlighted, top,
+  contact, temp, selected, highlighted, top, listNames,
   onToggleSelect, onRowClick, onEdit, onDelete,
   onOpenChat, onCreateCampaign, onCopyPhone, onAddToList
 }) => {
@@ -301,42 +306,69 @@ const ContactRow: React.FC<RowProps> = React.memo(({
             )}
           </div>
 
-          {/* Tags como pills */}
-          {tags.length > 0 ? (
-            <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-              {tags.map((t) => (
-                <span
-                  key={t}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 2,
-                    background: 'rgba(99,102,241,0.1)', color: '#a5b4fc',
-                    borderRadius: 4, padding: '1px 5px', fontSize: 9, fontWeight: 700,
-                    maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}
-                >
-                  <Tag className="w-2 h-2 shrink-0" />
-                  {t}
-                </span>
-              ))}
-              {(contact.tags?.length ?? 0) > 2 && (
-                <span style={{ fontSize: 9, color: 'var(--crm-dim)' }}>
-                  +{(contact.tags?.length ?? 0) - 2}
-                </span>
-              )}
-            </div>
-          ) : followMs != null ? (
-            <div
-              className="flex items-center gap-1 mt-0.5"
-              style={{ fontSize: 10, color: followOverdue ? '#f87171' : 'var(--crm-dim)', fontWeight: followOverdue ? 600 : 400 }}
-            >
-              <Clock className="w-2.5 h-2.5 shrink-0" />
-              Retorno {formatFollowUpLabel(contact.followUpAt)}
-            </div>
-          ) : (
-            <div style={{ fontSize: 10, color: 'var(--crm-dim)', opacity: 0.5, marginTop: 1 }}>
-              Importado · vCard
-            </div>
-          )}
+          {/* Tags como pills + listas (mobile) */}
+          <div className="flex items-center gap-1 mt-0.5 flex-wrap min-w-0">
+            {listNames.length > 0 ? (
+              <>
+                {listNames.slice(0, 2).map((n) => (
+                  <span
+                    key={n}
+                    title={n}
+                    className="lg:hidden"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 2,
+                      background: 'rgba(16,185,129,0.12)', color: '#34d399',
+                      borderRadius: 4, padding: '1px 5px', fontSize: 9, fontWeight: 700,
+                      maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <Users className="w-2 h-2 shrink-0" />
+                    {n}
+                  </span>
+                ))}
+                {listNames.length > 2 && (
+                  <span className="lg:hidden" style={{ fontSize: 9, color: 'var(--crm-dim)' }}>
+                    +{listNames.length - 2}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span
+                className="lg:hidden"
+                style={{ fontSize: 9, color: 'var(--crm-dim)', fontWeight: 600 }}
+              >
+                Sem lista
+              </span>
+            )}
+            {tags.map((t) => (
+              <span
+                key={t}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 2,
+                  background: 'rgba(99,102,241,0.1)', color: '#a5b4fc',
+                  borderRadius: 4, padding: '1px 5px', fontSize: 9, fontWeight: 700,
+                  maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}
+              >
+                <Tag className="w-2 h-2 shrink-0" />
+                {t}
+              </span>
+            ))}
+            {(contact.tags?.length ?? 0) > 2 && (
+              <span style={{ fontSize: 9, color: 'var(--crm-dim)' }}>
+                +{(contact.tags?.length ?? 0) - 2}
+              </span>
+            )}
+            {tags.length === 0 && listNames.length === 0 && followMs != null && (
+              <span
+                className="flex items-center gap-1"
+                style={{ fontSize: 10, color: followOverdue ? '#f87171' : 'var(--crm-dim)', fontWeight: followOverdue ? 600 : 400 }}
+              >
+                <Clock className="w-2.5 h-2.5 shrink-0" />
+                Retorno {formatFollowUpLabel(contact.followUpAt)}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -346,10 +378,38 @@ const ContactRow: React.FC<RowProps> = React.memo(({
         <span className="truncate font-mono">{formatPhone(contact.phone || '')}</span>
       </div>
 
-      {/* Cidade — só desktop */}
+      {/* Lista — só desktop (no lugar da coluna Cidade) */}
       <div className="hidden lg:flex items-center gap-1.5 min-w-0" style={{ fontSize: 12, color: 'var(--crm-muted)' }}>
-        <MapPin className="w-3 h-3 shrink-0" style={{ color: 'var(--crm-dim)', opacity: 0.6 }} />
-        <span className="truncate">{cityLabel}</span>
+        {listNames.length > 0 ? (
+          <div className="min-w-0 flex flex-col gap-0.5">
+            <div className="flex items-center gap-1 min-w-0" title={listNames.join(', ')}>
+              <Users className="w-3 h-3 shrink-0" style={{ color: '#34d399', opacity: 0.85 }} />
+              <span className="truncate" style={{ fontWeight: 600, color: 'var(--text-1)' }}>
+                {listNames[0]}
+              </span>
+            </div>
+            {listNames.length > 1 && (
+              <span style={{ fontSize: 10, color: 'var(--crm-dim)' }}>
+                +{listNames.length - 1} lista{listNames.length > 2 ? 's' : ''}
+              </span>
+            )}
+            {cityLabel !== '—' && (
+              <span className="truncate" style={{ fontSize: 10, color: 'var(--crm-dim)' }}>
+                {cityLabel}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="min-w-0">
+            <span style={{ fontSize: 12, color: 'var(--crm-dim)', fontWeight: 600 }}>Sem lista</span>
+            {cityLabel !== '—' && (
+              <div className="truncate flex items-center gap-1 mt-0.5" style={{ fontSize: 10, color: 'var(--crm-dim)' }}>
+                <MapPin className="w-2.5 h-2.5 shrink-0" />
+                {cityLabel}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Disparos — só desktop */}

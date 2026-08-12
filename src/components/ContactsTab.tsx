@@ -4600,6 +4600,7 @@ export const ContactsTab: React.FC = () => {
               onCopyPhone={handleCopyPhone}
               onAddToList={handleAddSingleToList}
               selectedContactId={selectedContact?.id || null}
+              listNamesByContactId={contactListMembership.names}
               loading={false}
               heightClass="h-[calc(100vh-310px)]"
               emptyHint={

@@ -149,7 +149,15 @@ export const ContactDetailDrawer: React.FC<Props> = ({
   onSaveToChip
 }) => {
   const { segment } = useAppProfile();
-  const { updateContact } = useZapMassCore();
+  const { updateContact, contactLists } = useZapMassCore();
+
+  const memberListNames = useMemo(() => {
+    if (!contact) return [] as string[];
+    return contactLists
+      .filter((l) => (l.contactIds || []).includes(contact.id))
+      .map((l) => l.name)
+      .filter(Boolean);
+  }, [contact, contactLists]);
   const [marketingBusy, setMarketingBusy] = useState(false);
   const [campaignDeliveries, setCampaignDeliveries] = useState<ContactCampaignDelivery[]>([]);
 
@@ -441,6 +449,27 @@ export const ContactDetailDrawer: React.FC<Props> = ({
               </div>
             </Section>
           )}
+
+          {/* Listas */}
+          <Section title="Listas">
+            {memberListNames.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {memberListNames.map((n) => (
+                  <span
+                    key={n}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
+                  >
+                    <ListPlus className="w-3 h-3" />
+                    {n}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Sem lista — use o botão Lista acima para vincular.
+              </p>
+            )}
+          </Section>
 
           {/* Tags */}
           {Array.isArray(contact.tags) && contact.tags.length > 0 && (
