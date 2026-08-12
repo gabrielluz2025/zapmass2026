@@ -818,7 +818,7 @@ export const DashboardTab: React.FC = () => {
       toast.error('Canal offline ou suspenso. Reconecte o chip antes de enviar.');
       return;
     }
-    const phone = selectedContact.phone?.replace(/\D/g, '');
+    const phone = normalizeBRPhone(selectedContact.phone || '');
     if (!phone) {
       toast.error('Contato sem numero de telefone.');
       return;
@@ -883,7 +883,7 @@ export const DashboardTab: React.FC = () => {
       toast.error('Canal offline ou suspenso. Reconecte o chip antes de enviar.');
       return;
     }
-    const phone = selectedWedding.phone?.replace(/\D/g, '');
+    const phone = normalizeBRPhone(selectedWedding.phone || '');
     if (!phone) {
       toast.error('Contato sem número de telefone.');
       return;
