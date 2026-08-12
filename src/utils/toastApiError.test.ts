@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { isOfflineToastMessage, isTransientApiError } from './toastApiError';
 
 describe('toastApiError', () => {
@@ -22,5 +22,15 @@ describe('toastApiError', () => {
     expect(isOfflineToastMessage('Conexão perdida com o servidor.')).toBe(true);
     expect(isTransientApiError(new Error('Erro HTTP 502'))).toBe(true);
     expect(isTransientApiError(new Error('Usuário já existe'))).toBe(false);
+  });
+
+  it('cancela o aviso se dismiss for chamado antes do atraso', async () => {
+    const { scheduleApiOfflineToast, dismissApiOfflineToast, API_OFFLINE_TOAST_DELAY_MS } =
+      await import('./toastApiError');
+    vi.useFakeTimers();
+    scheduleApiOfflineToast();
+    dismissApiOfflineToast();
+    vi.advanceTimersByTime(API_OFFLINE_TOAST_DELAY_MS + 50);
+    vi.useRealTimers();
   });
 });

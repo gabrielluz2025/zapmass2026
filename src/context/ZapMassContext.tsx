@@ -65,7 +65,11 @@ import {
   formatDispatchUnavailableMessage
 } from '../services/campaignsApi';
 import { getSessionIdToken } from '../utils/sessionAuth';
-import { isTransientApiError, API_OFFLINE_TOAST_ID, API_OFFLINE_TOAST_MESSAGE } from '../utils/toastApiError';
+import {
+  isTransientApiError,
+  scheduleApiOfflineToast,
+  dismissApiOfflineToast
+} from '../utils/toastApiError';
 import { useWorkspace } from './WorkspaceContext';
 import { filterConnectionsForViewer, ownsConnectionForUid } from '../utils/connectionScope';
 import {
@@ -446,6 +450,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const loadAllContactsInFlightRef = useRef(false);
   const contactsReloadPendingRef = useRef(false);
   const contactsLastCachedLenRef = useRef(0);
+  const contactsLenRef = useRef(0);
   const contactsPreloadStartedRef = useRef(false);
   const contactsPreloadToastDoneRef = useRef(false);
   const contactsPreloadToastAtRef = useRef(0);
@@ -467,6 +472,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const list = await fetchCampaigns();
       if (currentUidRef.current !== uid) return;
       setCampaigns(healStuckRunningCampaignsList(list));
+      dismissApiOfflineToast();
     } catch (err) {
       warnProd('[VPS] reload campaigns:', (err as Error)?.message || err);
     }
@@ -956,6 +962,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           contactsSavedTotalRef.current = total;
         }
         contactsBootstrapRetryRef.current = 0;
+        dismissApiOfflineToast();
         if (opts.reset && offset === batch.length) {
           setContacts(batch);
         } else {
@@ -971,10 +978,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         scheduleContactsBootstrapRetry(requestUid);
       }
       if (isTransientApiError(err)) {
-        toast.error(API_OFFLINE_TOAST_MESSAGE, {
-          id: API_OFFLINE_TOAST_ID,
-          duration: 8000
-        });
+        const haveLocal =
+          contactsLenRef.current > 0 ||
+          contactsLastCachedLenRef.current > 0 ||
+          (contactsSavedTotalRef.current ?? 0) > 0;
+        // Base já na tela (IndexedDB/cache): retry silencioso — não assustar todas as abas.
+        if (!haveLocal) scheduleApiOfflineToast();
       } else {
         toast.error(
           err instanceof Error ? err.message : 'Falha ao carregar contatos.',
@@ -1007,6 +1016,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const lists = await fetchContactLists();
       if (currentUidRef.current !== uid) return;
       setContactLists(lists);
+      dismissApiOfflineToast();
     } catch (err) {
       warnProd('[VPS] reload contact lists:', (err as Error)?.message || err);
     }
@@ -1339,6 +1349,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     connectionsRef.current = connections;
   }, [connections]);
 
+  useEffect(() => {
+    contactsLenRef.current = contacts.length;
+  }, [contacts.length]);
+
   // --- SOCKET.IO REAL-TIME CONNECTION ---
   useEffect(() => {
     /** Workspace (userWorkspaceLinks) tem de resolver antes do socket — senão o filtro usa authUid e bloqueia canais/conversas do tenant. */
@@ -1530,6 +1544,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         disconnectToastTimerRef.current = null;
       }
       markBackendOnline();
+      dismissApiOfflineToast();
       if (!hasConnectedOnceRef.current) {
         hasConnectedOnceRef.current = true;
         toast.success('Servidor conectado!', {
@@ -1570,19 +1585,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       socketDisconnectAtRef.current = Date.now();
       scheduleBackendOffline();
-      // Evita falso positivo em quedas rapidas: so avisa erro apos 6s offline continuo
-      // (reconexao comum nao dispara: connect() limpa este timer).
-      disconnectToastTimerRef.current = setTimeout(() => {
-        if (!socket.connected) {
-          toast.error(API_OFFLINE_TOAST_MESSAGE, {
-            id: API_OFFLINE_TOAST_ID,
-            duration: 8000,
-            icon: '🔴',
-            style: { borderRadius: '10px', background: '#333', color: '#fff' }
-          });
-        }
-        disconnectToastTimerRef.current = null;
-      }, 6000);
+      scheduleApiOfflineToast();
     });
 
     socket.on('connect_error', (err) => {
