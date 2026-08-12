@@ -210,45 +210,78 @@ export const StaffPasswordAccountsPanel: React.FC<Props> = ({ noTopMargin, onMut
           </Button>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div>
-            <label className="text-[10px] font-bold uppercase tracking-wide block mb-1.5" style={{ color: 'var(--text-3)' }}>
-              Nome interno
-            </label>
-            <Input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Ex.: Maria"
-              disabled={busy || atLimit}
-              className="text-[13px] w-full"
-            />
+        <form
+          className="relative"
+          autoComplete="off"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (canSubmit && !busy && !atLimit) void handleCreate();
+          }}
+        >
+          {/* Isca: o Chrome/Edge cola o login do admin no 1.º par usuário+senha da página. */}
+          <div aria-hidden="true" className="absolute overflow-hidden" style={{ height: 0, width: 0, opacity: 0 }}>
+            <input type="text" name="username" autoComplete="username" tabIndex={-1} />
+            <input type="password" name="password" autoComplete="current-password" tabIndex={-1} />
           </div>
-          <div>
-            <label className="text-[10px] font-bold uppercase tracking-wide block mb-1.5" style={{ color: 'var(--text-3)' }}>
-              Usuário
-            </label>
-            <Input
-              value={loginName}
-              onChange={(e) => setLoginName(e.target.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-              placeholder="maria_silva"
-              disabled={busy || atLimit}
-              className="text-[13px] font-mono w-full"
-            />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wide block mb-1.5" style={{ color: 'var(--text-3)' }}>
+                Nome interno
+              </label>
+              <Input
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Ex.: Maria"
+                autoComplete="off"
+                name="zm-staff-display-name"
+                disabled={busy || atLimit}
+                className="text-[13px] w-full"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wide block mb-1.5" style={{ color: 'var(--text-3)' }}>
+                Usuário
+              </label>
+              <Input
+                value={loginName}
+                onChange={(e) => setLoginName(e.target.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                placeholder="ex.: joao_equipe"
+                autoComplete="off"
+                name="zm-staff-login-new"
+                inputMode="text"
+                spellCheck={false}
+                readOnly
+                onFocus={(e) => e.currentTarget.removeAttribute('readOnly')}
+                data-1p-ignore
+                data-lpignore="true"
+                disabled={busy || atLimit}
+                className="text-[13px] font-mono w-full"
+              />
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>
+                Não use e-mail — só letras, números e _
+              </p>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wide block mb-1.5" style={{ color: 'var(--text-3)' }}>
+                Senha inicial
+              </label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="ex.: TrocarAcesso1"
+                autoComplete="new-password"
+                name="zm-staff-password-new"
+                readOnly
+                onFocus={(e) => e.currentTarget.removeAttribute('readOnly')}
+                data-1p-ignore
+                data-lpignore="true"
+                disabled={busy || atLimit}
+                className="text-[13px] w-full"
+              />
+            </div>
           </div>
-          <div>
-            <label className="text-[10px] font-bold uppercase tracking-wide block mb-1.5" style={{ color: 'var(--text-3)' }}>
-              Senha inicial
-            </label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Mín. 8 caracteres"
-              disabled={busy || atLimit}
-              className="text-[13px] w-full"
-            />
-          </div>
-        </div>
+        </form>
 
         <Button
           type="button"
