@@ -101,6 +101,36 @@ export async function listContacts(
   return r.rows.map(rowToContact);
 }
 
+/** Paginação estável por id (segura quando sort_name muda no meio do job). */
+export async function listContactsAfterId(
+  tenantId: string,
+  opts: { afterId?: string | null; limit?: number } = {}
+): Promise<Contact[]> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const tid = pgTenantId(tenantId);
+  const limit = Math.min(Math.max(opts.limit ?? DEFAULT_LIMIT, 1), 10_000);
+  const afterId = opts.afterId ? String(opts.afterId) : null;
+  const r = afterId
+    ? await pool.query<ContactRow>(
+        `SELECT id::text, tenant_id::text, name, phone, sort_name, doc, created_at, updated_at
+         FROM zapmass.contacts
+         WHERE tenant_id = $1::uuid AND id > $2::uuid
+         ORDER BY id ASC
+         LIMIT $3`,
+        [tid, afterId, limit]
+      )
+    : await pool.query<ContactRow>(
+        `SELECT id::text, tenant_id::text, name, phone, sort_name, doc, created_at, updated_at
+         FROM zapmass.contacts
+         WHERE tenant_id = $1::uuid
+         ORDER BY id ASC
+         LIMIT $2`,
+        [tid, limit]
+      );
+  return r.rows.map(rowToContact);
+}
+
 /** Só nome+telefone — índice CRM no chat (evita parse de doc JSON em massa). */
 export async function listContactNamePhones(
   tenantId: string,

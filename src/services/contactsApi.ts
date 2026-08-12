@@ -437,3 +437,75 @@ export async function apiCancelContactImportJob(jobId: string): Promise<void> {
     timeoutMs: 15_000,
   });
 }
+
+export type NameNormalizeJobDto = {
+  id: string;
+  status: string;
+  total: number;
+  scanned: number;
+  updated: number;
+  unchanged: number;
+  percent: number;
+  message: string;
+  lastError?: string;
+};
+
+export async function apiPreviewNameNormalize(opts: {
+  stripPrefixes: boolean;
+  titleCase: boolean;
+  firstAndLastOnly: boolean;
+  sanitizeCharacters: boolean;
+  extraPrefixes: string[];
+}): Promise<{ total: number; changed: number }> {
+  const j = await apiFetchJson<{ total?: number; changed?: number }>(
+    '/api/contacts/normalize-names/preview',
+    {
+      method: 'POST',
+      body: JSON.stringify(opts),
+      timeoutMs: 180_000,
+      retries: 0,
+    }
+  );
+  return { total: Number(j.total) || 0, changed: Number(j.changed) || 0 };
+}
+
+export async function apiStartNameNormalize(opts: {
+  stripPrefixes: boolean;
+  titleCase: boolean;
+  firstAndLastOnly: boolean;
+  sanitizeCharacters: boolean;
+  extraPrefixes: string[];
+}): Promise<NameNormalizeJobDto> {
+  const j = await apiFetchJson<{ job?: NameNormalizeJobDto }>('/api/contacts/normalize-names', {
+    method: 'POST',
+    body: JSON.stringify(opts),
+    timeoutMs: 30_000,
+    retries: 1,
+  });
+  if (!j.job?.id) throw new Error('Não foi possível iniciar a padronização.');
+  return j.job;
+}
+
+export async function apiGetNameNormalizeJob(jobId: string): Promise<NameNormalizeJobDto> {
+  const j = await apiFetchJson<{ job?: NameNormalizeJobDto }>(
+    `/api/contacts/normalize-names/${encodeURIComponent(jobId)}`,
+    { timeoutMs: 30_000, retries: 1 }
+  );
+  if (!j.job) throw new Error('Job não encontrado.');
+  return j.job;
+}
+
+export async function apiGetActiveNameNormalizeJob(): Promise<NameNormalizeJobDto | null> {
+  const j = await apiFetchJson<{ job?: NameNormalizeJobDto | null }>(
+    '/api/contacts/normalize-names/active',
+    { timeoutMs: 15_000, retries: 1 }
+  );
+  return j.job || null;
+}
+
+export async function apiCancelNameNormalizeJob(jobId: string): Promise<void> {
+  await apiFetchJson(`/api/contacts/normalize-names/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+    timeoutMs: 15_000,
+  });
+}

@@ -100,10 +100,22 @@ import {
   apiGetContactImportJob,
   apiGetActiveContactImportJob,
   apiCancelContactImportJob,
+  apiPreviewNameNormalize,
+  apiStartNameNormalize,
+  apiGetNameNormalizeJob,
+  apiGetActiveNameNormalizeJob,
+  apiCancelNameNormalizeJob,
   type ChipBaseSyncJob,
   type ContactImportJobDto,
   type ContactImportJobRowDto,
+  type NameNormalizeJobDto,
 } from '../services/contactsApi';
+import {
+  clearNameNormalizeProgress,
+  getNameNormalizeProgress,
+  setNameNormalizeProgress,
+  subscribeNameNormalizeProgress,
+} from '../utils/nameNormalizeProgressStore';
 import { AiSparkButton } from './ai/AiSparkButton';
 import { useAiStatus } from '../hooks/useAiStatus';
 import { aiEnrichContact, aiOrganizeImportRows, aiParseContactsText } from '../services/aiApi';
@@ -1119,8 +1131,14 @@ export const ContactsTab: React.FC = () => {
   const [nameNormalizeSanitizeChars, setNameNormalizeSanitizeChars] = useState(true);
   const [nameNormalizeExtraPrefixes, setNameNormalizeExtraPrefixes] = useState('');
   const [nameNormalizePreviewCount, setNameNormalizePreviewCount] = useState<number | null>(null);
+  const [nameNormalizePreviewTotal, setNameNormalizePreviewTotal] = useState<number | null>(null);
   const [nameNormalizePreviewBusy, setNameNormalizePreviewBusy] = useState(false);
   const [nameNormalizeApplyBusy, setNameNormalizeApplyBusy] = useState(false);
+  const nameNormalizeProgress = useSyncExternalStore(
+    subscribeNameNormalizeProgress,
+    getNameNormalizeProgress,
+    getNameNormalizeProgress
+  );
   const [baseFixModalOpen, setBaseFixModalOpen] = useState(false);
   const [smartImportRaw, setSmartImportRaw] = useState('');
   const [smartImportRows, setSmartImportRows] = useState<SmartRow[]>([]);
@@ -4259,8 +4277,77 @@ export const ContactsTab: React.FC = () => {
 
   const openNameNormalizeModal = useCallback(() => {
     setNameNormalizePreviewCount(null);
+    setNameNormalizePreviewTotal(null);
     setNameNormalizeModalOpen(true);
   }, []);
+
+  const pollNameNormalizeJob = useCallback(
+    async (jobId: string) => {
+      try {
+        let sj = await apiGetNameNormalizeJob(jobId);
+        const apply = (job: NameNormalizeJobDto) => {
+          setNameNormalizeProgress({
+            docked: true,
+            job: {
+              id: job.id,
+              status: job.status,
+              total: job.total,
+              scanned: job.scanned,
+              updated: job.updated,
+              percent: job.percent,
+              message: job.message,
+              error: job.lastError,
+            },
+          });
+        };
+        apply(sj);
+        while (sj.status === 'running' || sj.status === 'paused') {
+          await new Promise<void>((r) => setTimeout(r, 900));
+          sj = await apiGetNameNormalizeJob(jobId);
+          apply(sj);
+        }
+        void refreshContactsSavedTotal?.();
+        void refreshContacts?.();
+        if (sj.status === 'done') {
+          toast.success(sj.message || 'Nomes padronizados.');
+        } else if (sj.status === 'error' || sj.status === 'cancelled') {
+          toast.error(sj.lastError || sj.message || 'Padronização interrompida.');
+        }
+      } catch (e) {
+        console.warn('[pollNameNormalizeJob]', e);
+      }
+    },
+    [refreshContacts, refreshContactsSavedTotal]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const active = await apiGetActiveNameNormalizeJob();
+        if (cancelled || !active) return;
+        if (nameNormalizeProgress.job && nameNormalizeProgress.job.status === 'running') return;
+        setNameNormalizeProgress({
+          docked: true,
+          job: {
+            id: active.id,
+            status: active.status,
+            total: active.total,
+            scanned: active.scanned,
+            updated: active.updated,
+            percent: active.percent,
+            message: active.message || 'A retomar padronização…',
+          },
+        });
+        void pollNameNormalizeJob(active.id);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pollNameNormalizeJob]);
 
   const runNameNormalizePreview = useCallback(async () => {
     setNameNormalizePreviewBusy(true);
@@ -4270,23 +4357,13 @@ export const ContactsTab: React.FC = () => {
         titleCase: nameNormalizeTitleCase,
         firstAndLastOnly: nameNormalizeFirstLast,
         sanitizeCharacters: nameNormalizeSanitizeChars,
-        extraPrefixes: parseExtraPrefixes(nameNormalizeExtraPrefixes)
+        extraPrefixes: parseExtraPrefixes(nameNormalizeExtraPrefixes),
       };
-      let changed = 0;
-      const list = contactsRef.current;
-      const CHUNK = 350;
-      for (let i = 0; i < list.length; i += CHUNK) {
-        const end = Math.min(i + CHUNK, list.length);
-        for (let j = i; j < end; j++) {
-          const c = list[j];
-          const before = (c.name || '').trim();
-          const after = normalizeContactPersonName(before, opts);
-          if (!before && !after) continue;
-          if (after !== before) changed++;
-        }
-        await new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
-      }
-      setNameNormalizePreviewCount(changed);
+      const result = await apiPreviewNameNormalize(opts);
+      setNameNormalizePreviewCount(result.changed);
+      setNameNormalizePreviewTotal(result.total);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao calcular alterações.');
     } finally {
       setNameNormalizePreviewBusy(false);
     }
@@ -4295,7 +4372,7 @@ export const ContactsTab: React.FC = () => {
     nameNormalizeTitleCase,
     nameNormalizeFirstLast,
     nameNormalizeSanitizeChars,
-    nameNormalizeExtraPrefixes
+    nameNormalizeExtraPrefixes,
   ]);
 
   const applyNameNormalize = useCallback(async () => {
@@ -4304,42 +4381,52 @@ export const ContactsTab: React.FC = () => {
       titleCase: nameNormalizeTitleCase,
       firstAndLastOnly: nameNormalizeFirstLast,
       sanitizeCharacters: nameNormalizeSanitizeChars,
-      extraPrefixes: parseExtraPrefixes(nameNormalizeExtraPrefixes)
+      extraPrefixes: parseExtraPrefixes(nameNormalizeExtraPrefixes),
     };
-    const items: Array<{ id: string; updates: Partial<Contact> }> = [];
-    for (const c of contactsRef.current) {
-      const before = (c.name || '').trim();
-      const after = normalizeContactPersonName(before, opts);
-      if (!after) continue;
-      if (after === before) continue;
-      items.push({ id: c.id, updates: { name: after } });
-    }
-    if (items.length === 0) {
-      toast('Nenhum nome precisou de alteração com estes critérios.');
+    const estimate =
+      nameNormalizePreviewCount != null
+        ? `${nameNormalizePreviewCount.toLocaleString('pt-BR')} nome(s)`
+        : 'os nomes da base inteira';
+    if (
+      !window.confirm(
+        `Aplicar padronização em segundo plano na base (${estimate})?\n\nPode fechar a aba — o progresso continua no servidor.`
+      )
+    ) {
       return;
     }
-    if (!window.confirm(`Atualizar ${items.length.toLocaleString('pt-BR')} contato(s) na base?`)) return;
     setNameNormalizeApplyBusy(true);
     try {
-      const SLICE = 200;
-      for (let i = 0; i < items.length; i += SLICE) {
-        const part = items.slice(i, i + SLICE);
-        await bulkUpdateContacts(part, { silent: true });
-        await new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
-      }
-      toast.success(`${items.length.toLocaleString('pt-BR')} nome(s) atualizado(s).`);
+      const job = await apiStartNameNormalize(opts);
       setNameNormalizeModalOpen(false);
       setNameNormalizePreviewCount(null);
+      setNameNormalizePreviewTotal(null);
+      setNameNormalizeProgress({
+        docked: true,
+        job: {
+          id: job.id,
+          status: job.status,
+          total: job.total,
+          scanned: job.scanned,
+          updated: job.updated,
+          percent: job.percent,
+          message: job.message,
+        },
+      });
+      toast.success('Padronização iniciada em segundo plano.');
+      void pollNameNormalizeJob(job.id);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao iniciar padronização.');
     } finally {
       setNameNormalizeApplyBusy(false);
     }
   }, [
-    bulkUpdateContacts,
+    pollNameNormalizeJob,
+    nameNormalizePreviewCount,
     nameNormalizeStripPrefixes,
     nameNormalizeTitleCase,
     nameNormalizeFirstLast,
     nameNormalizeSanitizeChars,
-    nameNormalizeExtraPrefixes
+    nameNormalizeExtraPrefixes,
   ]);
 
   return (
@@ -4864,7 +4951,7 @@ export const ContactsTab: React.FC = () => {
           setNameNormalizeModalOpen(false);
         }}
         title="Limpar e padronizar nomes"
-        subtitle="Remove prefixos, padroniza maiúsculas, opcionalmente reduz a primeiro/último nome e pode limpar símbolos, números e emoji no nome."
+        subtitle="Remove prefixos, padroniza maiúsculas, opcionalmente reduz a primeiro/último nome e pode limpar símbolos, números e emoji no nome. A aplicação roda no servidor em segundo plano."
         icon={<SpellCheck2 className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
         footer={
           <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 w-full">
@@ -4880,7 +4967,7 @@ export const ContactsTab: React.FC = () => {
               variant="secondary"
               type="button"
               loading={nameNormalizePreviewBusy}
-              disabled={nameNormalizeApplyBusy || contacts.length === 0}
+              disabled={nameNormalizeApplyBusy || (contactsSavedTotal ?? contacts.length) === 0}
               onClick={() => void runNameNormalizePreview()}
             >
               Calcular alterações
@@ -4889,7 +4976,7 @@ export const ContactsTab: React.FC = () => {
               variant="primary"
               type="button"
               loading={nameNormalizeApplyBusy}
-              disabled={nameNormalizePreviewBusy || contacts.length === 0}
+              disabled={nameNormalizePreviewBusy || (contactsSavedTotal ?? contacts.length) === 0}
               onClick={() => void applyNameNormalize()}
             >
               Aplicar na base
@@ -4906,6 +4993,7 @@ export const ContactsTab: React.FC = () => {
               onChange={(e) => {
                 setNameNormalizeSanitizeChars(e.target.checked);
                 setNameNormalizePreviewCount(null);
+                setNameNormalizePreviewTotal(null);
               }}
             />
             <span>
@@ -4921,6 +5009,7 @@ export const ContactsTab: React.FC = () => {
               onChange={(e) => {
                 setNameNormalizeStripPrefixes(e.target.checked);
                 setNameNormalizePreviewCount(null);
+                setNameNormalizePreviewTotal(null);
               }}
             />
             <span>
@@ -4935,6 +5024,7 @@ export const ContactsTab: React.FC = () => {
               onChange={(e) => {
                 setNameNormalizeTitleCase(e.target.checked);
                 setNameNormalizePreviewCount(null);
+                setNameNormalizePreviewTotal(null);
               }}
             />
             <span>
@@ -4949,6 +5039,7 @@ export const ContactsTab: React.FC = () => {
               onChange={(e) => {
                 setNameNormalizeFirstLast(e.target.checked);
                 setNameNormalizePreviewCount(null);
+                setNameNormalizePreviewTotal(null);
               }}
             />
             <span>
@@ -4971,6 +5062,7 @@ export const ContactsTab: React.FC = () => {
               onChange={(e) => {
                 setNameNormalizeExtraPrefixes(e.target.value);
                 setNameNormalizePreviewCount(null);
+                setNameNormalizePreviewTotal(null);
               }}
             />
           </div>
@@ -4978,16 +5070,21 @@ export const ContactsTab: React.FC = () => {
             className="rounded-lg px-3 py-2 text-[12px]"
             style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}
           >
-            {contacts.length === 0 ? (
+            {contactsSavedTotal === 0 && contacts.length === 0 ? (
               <>Sem contatos na base.</>
             ) : nameNormalizePreviewCount === null ? (
-              <>Clique em «Calcular alterações» para estimar quantos registros mudariam antes de aplicar.</>
+              <>
+                Clique em «Calcular alterações» para estimar na base inteira. «Aplicar na base» roda em
+                segundo plano (pode fechar a aba).
+              </>
             ) : (
               <>
                 Estimativa:{' '}
                 <strong className="tabular-nums">{nameNormalizePreviewCount.toLocaleString('pt-BR')}</strong> de{' '}
-                <span className="tabular-nums">{contacts.length.toLocaleString('pt-BR')}</span> contato(s) com nome
-                diferente após as regras acima.
+                <span className="tabular-nums">
+                  {(nameNormalizePreviewTotal ?? contactsSavedTotal ?? contacts.length).toLocaleString('pt-BR')}
+                </span>{' '}
+                contato(s) com nome diferente após as regras acima.
               </>
             )}
           </div>
@@ -6195,6 +6292,84 @@ export const ContactsTab: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {nameNormalizeProgress.docked && nameNormalizeProgress.job && (
+        <div
+          className={`fixed bottom-4 left-3 right-3 sm:left-auto sm:right-4 sm:w-[min(440px,calc(100vw-1.5rem))] zm-layer-toast rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl p-4 space-y-3 animate-fadeIn ${
+            fileImportDocked && fileImportJob ? 'sm:bottom-[13.5rem]' : ''
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 rounded-lg bg-violet-100 dark:bg-violet-950/50 p-2 shrink-0">
+              <SpellCheck2 className="w-4 h-4 text-violet-600 dark:text-violet-300" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                Padronizar nomes
+              </p>
+              <p className="text-[12px] text-slate-600 dark:text-slate-400 leading-snug">
+                {nameNormalizeProgress.job.message}
+              </p>
+              <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                Roda no servidor — pode fechar a aba; ao voltar o progresso continua.
+              </p>
+              {nameNormalizeProgress.job.error ? (
+                <p className="text-[11px] text-rose-600 dark:text-rose-400">{nameNormalizeProgress.job.error}</p>
+              ) : null}
+            </div>
+            {nameNormalizeProgress.job.status === 'running' ||
+            nameNormalizeProgress.job.status === 'paused' ? (
+              <Loader2 className="w-5 h-5 text-violet-600 dark:text-violet-400 animate-spin shrink-0 mt-0.5" aria-hidden />
+            ) : (
+              <button
+                type="button"
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+                aria-label="Fechar"
+                onClick={() => clearNameNormalizeProgress()}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+            <div
+              className="h-full bg-violet-500 transition-[width] duration-200 ease-out"
+              style={{ width: `${Math.min(100, Math.max(0, nameNormalizeProgress.job.percent))}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
+            <span>
+              {nameNormalizeProgress.job.status === 'done'
+                ? `Atualizados: ${nameNormalizeProgress.job.updated.toLocaleString('pt-BR')}`
+                : `Varridos: ${nameNormalizeProgress.job.scanned.toLocaleString('pt-BR')} / ${nameNormalizeProgress.job.total.toLocaleString('pt-BR')} · ${nameNormalizeProgress.job.updated.toLocaleString('pt-BR')} alterados`}
+            </span>
+            <span>{Math.min(100, Math.max(0, nameNormalizeProgress.job.percent))}%</span>
+          </div>
+          {nameNormalizeProgress.job.status === 'error' ||
+          nameNormalizeProgress.job.status === 'cancelled' ||
+          nameNormalizeProgress.job.status === 'done' ? (
+            <Button type="button" size="sm" variant="secondary" onClick={() => clearNameNormalizeProgress()}>
+              Fechar
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                void apiCancelNameNormalizeJob(nameNormalizeProgress.job!.id).then(() => {
+                  toast('Padronização cancelada.');
+                  clearNameNormalizeProgress();
+                });
+              }}
+            >
+              Cancelar
+            </Button>
+          )}
         </div>
       )}
 

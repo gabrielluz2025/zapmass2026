@@ -51,6 +51,15 @@ import {
   type ContactImportJobRow,
   type ContactImportTargetMode
 } from './contactImportJob.js';
+import {
+  cancelNameNormalizeJob,
+  getNameNormalizeJob,
+  listActiveNameNormalizeJobs,
+  pauseNameNormalizeJob,
+  previewNameNormalizeChanges,
+  resumeNameNormalizeJob,
+  startNameNormalizeJob
+} from './contactNameNormalizeJob.js';
 import * as evolutionService from './evolutionService.js';
 import { normalizeTenantContactAddresses, normalizeTenantContactsFull } from './contactsNormalizeService.js';
 import { geocodeSingleContactIfNeeded } from './leadsGeoService.js';
@@ -551,6 +560,98 @@ export function registerContactsDataRoutes(app: Express): void {
     if (!ctx) return;
     const job = cancelContactImportJob(String(req.params.jobId || ''), ctx.tenantId);
     if (!job) return res.status(404).json({ ok: false, error: 'Importação não encontrada.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/normalize-names/preview', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body || {}) as {
+      stripPrefixes?: boolean;
+      titleCase?: boolean;
+      firstAndLastOnly?: boolean;
+      sanitizeCharacters?: boolean;
+      extraPrefixes?: string[];
+    };
+    try {
+      const result = await previewNameNormalizeChanges(ctx.tenantId, {
+        stripPrefixes: body.stripPrefixes !== false,
+        titleCase: body.titleCase !== false,
+        firstAndLastOnly: !!body.firstAndLastOnly,
+        sanitizeCharacters: body.sanitizeCharacters !== false,
+        extraPrefixes: Array.isArray(body.extraPrefixes) ? body.extraPrefixes : []
+      });
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      console.error('[api/contacts/normalize-names/preview]', e);
+      return res.status(500).json({ ok: false, error: 'Falha ao calcular alterações.' });
+    }
+  });
+
+  app.post('/api/contacts/normalize-names', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body || {}) as {
+      stripPrefixes?: boolean;
+      titleCase?: boolean;
+      firstAndLastOnly?: boolean;
+      sanitizeCharacters?: boolean;
+      extraPrefixes?: string[];
+    };
+    try {
+      const job = await startNameNormalizeJob({
+        tenantId: ctx.tenantId,
+        normalizeOpts: {
+          stripPrefixes: body.stripPrefixes !== false,
+          titleCase: body.titleCase !== false,
+          firstAndLastOnly: !!body.firstAndLastOnly,
+          sanitizeCharacters: body.sanitizeCharacters !== false,
+          extraPrefixes: Array.isArray(body.extraPrefixes) ? body.extraPrefixes : []
+        }
+      });
+      return res.json({ ok: true, job });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao iniciar padronização.';
+      return res.status(400).json({ ok: false, error: msg });
+    }
+  });
+
+  app.get('/api/contacts/normalize-names/active', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const active = listActiveNameNormalizeJobs(ctx.tenantId);
+    return res.json({ ok: true, jobs: active, job: active[0] || null });
+  });
+
+  app.get('/api/contacts/normalize-names/:jobId', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = getNameNormalizeJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/normalize-names/:jobId/pause', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = pauseNameNormalizeJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/normalize-names/:jobId/resume', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = resumeNameNormalizeJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/normalize-names/:jobId/cancel', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = cancelNameNormalizeJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
     return res.json({ ok: true, job });
   });
 
