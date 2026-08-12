@@ -69,6 +69,8 @@ jobs:
     name: Validar build (Vite)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -86,7 +88,6 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: "true"
           PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
           VITE_GA_MEASUREMENT_ID: ${{ vars.VITE_GA_MEASUREMENT_ID }}
-          TZ: America/Sao_Paulo
         run: |
           set -euo pipefail
           node -v
@@ -427,17 +428,17 @@ jobs:
           always() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.verify_prod.outputs.verified != 'true' &&
-          steps.deploy_vps.outcome == 'failure' &&
+          (steps.deploy_vps.outcome == 'failure' || steps.deploy_vps.outcome == 'skipped') &&
           !(steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success')
         run: |
           set -euo pipefail
           EXPECTED="${GITHUB_SHA::7}"
           echo "==> Ultima conferencia de versao em producao (${EXPECTED})..."
-          for i in $(seq 1 12); do
+          for i in $(seq 1 24); do
             resp=$(curl -sf --max-time 12 https://zap-mass.com/api/health 2>/dev/null || echo "")
             if [ -n "${resp}" ] && echo "${resp}" | grep -q '"status":"ok"'; then
               ver=$(echo "${resp}" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
-              echo "tentativa ${i}/12: version=${ver:-?}"
+              echo "tentativa ${i}/24: version=${ver:-?}"
               if [ -n "${ver}" ] && { [ "${ver}" = "${EXPECTED}" ] || [ "${ver}" = "${GITHUB_SHA}" ]; }; then
                 echo "verified=true" >> "$GITHUB_OUTPUT"
                 echo "## Deploy confirmado em producao apos retries (version=${ver})" >> "$GITHUB_STEP_SUMMARY"
@@ -458,6 +459,19 @@ jobs:
           steps.prod_before_retry.outputs.skip != 'true' &&
           !(steps.deploy_vps.outcome == 'success' || steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success')
         run: |
+          set -euo pipefail
+          EXPECTED="${GITHUB_SHA::7}"
+          # Ultima chance: cron da VPS pode ter concluido apos o loop de espera.
+          resp=$(curl -sf --max-time 15 https://zap-mass.com/api/health 2>/dev/null || echo "")
+          if [ -n "${resp}" ] && echo "${resp}" | grep -q '"status":"ok"'; then
+            ver=$(echo "${resp}" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
+            if [ -n "${ver}" ] && { [ "${ver}" = "${EXPECTED}" ] || [ "${ver}" = "${GITHUB_SHA}" ]; }; then
+              echo "==> Producao ja em ${ver} — SSH falhou mas deploy esta OK. Job verde."
+              echo "## Deploy confirmado em producao (checagem final; version=${ver})" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "==> Producao version=${ver:-?} esperado=${EXPECTED}"
+          fi
           echo "::error::Deploy nao confirmado em producao. SSH bloqueado ou script na VPS falhou."
           echo "::error::Na VPS (terminal Hostinger): cd /opt/zapmass && git pull origin main && sudo bash deployment/install-deploy-watch-cron.sh && bash deployment/manual-pull-deploy.sh"
           exit 1
