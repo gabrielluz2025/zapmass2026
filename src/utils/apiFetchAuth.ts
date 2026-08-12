@@ -85,7 +85,7 @@ export async function apiFetchJson<T = Record<string, unknown>>(
   if (!token) throw new Error('Sessão expirada. Entre novamente.');
 
   const method = methodOf(init);
-  const extraRetries = init?.retries ?? (method === 'GET' || method === 'HEAD' ? 2 : 0);
+  const extraRetries = init?.retries ?? (method === 'GET' || method === 'HEAD' ? 4 : 0);
 
   let lastErr: unknown;
   for (let attempt = 0; attempt <= extraRetries; attempt++) {
@@ -110,7 +110,7 @@ export async function apiFetchJson<T = Record<string, unknown>>(
       if (!r.ok) {
         const transient = r.status === 502 || r.status === 503 || r.status === 504;
         if (transient && attempt < extraRetries) {
-          await sleep(400 * (attempt + 1));
+          await sleep(Math.min(8_000, 600 * 2 ** attempt));
           continue;
         }
         throw new Error(j.error || `Erro HTTP ${r.status}`);
@@ -121,7 +121,7 @@ export async function apiFetchJson<T = Record<string, unknown>>(
       const timeout = isApiTimeoutError(err);
       const net = isApiNetworkError(err);
       if (attempt < extraRetries && (timeout || net)) {
-        await sleep(400 * (attempt + 1));
+        await sleep(Math.min(8_000, 600 * 2 ** attempt));
         continue;
       }
       throw err;

@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import toast, { Toaster } from 'react-hot-toast';
+import { Toaster } from 'react-hot-toast';
 import { Crown, Loader2, Search, Zap } from 'lucide-react';
 import { AppShell } from './components/shell';
 import { ConnectionsTab } from './components/ConnectionsTab';
@@ -47,6 +47,9 @@ import { readPublicLegalPageFromWindow } from './utils/readPublicLegalPageFromWi
 import { lazyWithRetry } from './utils/lazyWithRetry';
 import { prefetchDefaultAppViews } from './utils/prefetchAppViews';
 import { useRegisterLegalAcceptances } from './hooks/useRegisterLegalAcceptances';
+import { installApiErrorToastGuard } from './utils/toastApiError';
+
+installApiErrorToastGuard();
 
 /** Rota pública `/avaliacao` — não entra no bundle principal. */
 const ClientSatisfactionSurveyPage = lazyWithRetry(
@@ -624,7 +627,9 @@ const App: React.FC = () => {
     <>
       <Toaster
         position="top-right"
+        gutter={10}
         toastOptions={{
+          duration: 5000,
           style: {
             background: 'var(--surface-0)',
             color: 'var(--text-1)',

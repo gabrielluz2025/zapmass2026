@@ -13,6 +13,7 @@ import toast from 'react-hot-toast';
 import { Badge, Button, Input } from '../ui';
 import { Modal } from '../ui/Modal';
 import { apiFetchJson } from '../../utils/apiFetchAuth';
+import { dismissApiOfflineToast, isTransientApiError, toastApiError } from '../../utils/toastApiError';
 import { getVpsAuthUser } from '../../services/vpsAuth';
 import { useAuth } from '../../context/AuthContext';
 
@@ -83,8 +84,8 @@ export const WorkspaceTeamMembersPanel: React.FC<Props> = ({
   const [resetConfirm, setResetConfirm] = useState('');
   const [resetSaving, setResetSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!enabled) return;
+  const load = useCallback(async (): Promise<boolean> => {
+    if (!enabled) return true;
     setLoading(true);
     try {
       const j = await apiFetchJson<{
@@ -111,22 +112,42 @@ export const WorkspaceTeamMembersPanel: React.FC<Props> = ({
           }))
           .filter((r) => Boolean(r.uid))
       );
+      dismissApiOfflineToast();
+      return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (isServerConfigError(msg)) {
         setConfigError(true);
         setRows([]);
-      } else {
-        toast.error(msg || 'Não foi possível carregar membros da equipa.');
-        setRows([]);
+        return true;
       }
+      toastApiError(e, 'Não foi possível carregar membros da equipa.');
+      if (isTransientApiError(e)) return false;
+      setRows([]);
+      return true;
     } finally {
       setLoading(false);
     }
   }, [enabled]);
 
   useEffect(() => {
-    void load();
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    const run = async () => {
+      const ok = await load();
+      if (cancelled || ok) return;
+      attempt += 1;
+      if (attempt > 12) return;
+      timer = setTimeout(() => {
+        void run();
+      }, Math.min(15_000, 2500 * attempt));
+    };
+    void run();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [load, reloadToken]);
 
   const revoke = async (row: WorkspaceMemberRow) => {
@@ -148,7 +169,7 @@ export const WorkspaceTeamMembersPanel: React.FC<Props> = ({
       await load();
       onRevoked?.();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Falha ao remover.');
+      toastApiError(e, 'Falha ao remover.');
     } finally {
       setBusyUid(null);
     }
@@ -189,7 +210,7 @@ export const WorkspaceTeamMembersPanel: React.FC<Props> = ({
       setResetConfirm('');
       onRevoked?.();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Não foi possível alterar a senha.');
+      toastApiError(e, 'Não foi possível alterar a senha.');
     } finally {
       setResetSaving(false);
     }

@@ -3,6 +3,7 @@ import { AlertTriangle, ClipboardCopy, KeyRound, Loader2, UserPlus } from 'lucid
 import toast from 'react-hot-toast';
 import { Badge, Button, Input } from '../ui';
 import { apiFetchJson } from '../../utils/apiFetchAuth';
+import { dismissApiOfflineToast, isTransientApiError, toastApiError } from '../../utils/toastApiError';
 import { useAuth } from '../../context/AuthContext';
 import { getVpsAuthUser } from '../../services/vpsAuth';
 import { STAFF_PASSWORD_ACCOUNTS_FALLBACK_MAX } from '../../constants/workspaceStaff';
@@ -54,7 +55,7 @@ export const StaffPasswordAccountsPanel: React.FC<Props> = ({ noTopMargin, onMut
 
   const mail = managerEmail();
 
-  const loadMeta = useCallback(async () => {
+  const loadMeta = useCallback(async (): Promise<boolean> => {
     try {
       const j = await apiFetchJson<{
         items?: Array<{ revoked?: boolean }>;
@@ -66,20 +67,43 @@ export const StaffPasswordAccountsPanel: React.FC<Props> = ({ noTopMargin, onMut
       setConfigError(false);
       if (typeof j.max === 'number') setMax(j.max);
       onActiveCount?.(active, typeof j.max === 'number' ? j.max : max);
+      dismissApiOfflineToast();
+      return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (isServerConfigError(msg)) {
         setConfigError(true);
-      } else {
-        toast.error(msg || 'Não foi possível carregar os acessos com senha.');
+        return true;
       }
+      if (isTransientApiError(e)) {
+        toastApiError(e, 'Não foi possível carregar os acessos com senha.');
+        return false;
+      }
+      toastApiError(e, 'Não foi possível carregar os acessos com senha.');
+      return true;
     } finally {
       setLoading(false);
     }
   }, [max, onActiveCount]);
 
   useEffect(() => {
-    void loadMeta();
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    const run = async () => {
+      const ok = await loadMeta();
+      if (cancelled || ok) return;
+      attempt += 1;
+      if (attempt > 12) return;
+      timer = setTimeout(() => {
+        void run();
+      }, Math.min(15_000, 2500 * attempt));
+    };
+    void run();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [loadMeta]);
 
   const handleCreate = async () => {
@@ -112,7 +136,7 @@ export const StaffPasswordAccountsPanel: React.FC<Props> = ({ noTopMargin, onMut
       await loadMeta();
       onMutation?.();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Falha ao criar.');
+      toastApiError(e, 'Falha ao criar.');
     } finally {
       setBusy(false);
     }

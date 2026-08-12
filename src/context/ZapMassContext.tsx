@@ -971,7 +971,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (isApiNetworkError(err) || isApiTimeoutError(err)) {
         toast.error('Servidor ocupado ou reiniciando. Recarregando a base em instantes…', {
           id: 'api-offline',
-          duration: 5000
+          duration: 8000
         });
       } else {
         toast.error(
