@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Toaster } from 'react-hot-toast';
+import toast, { Toaster } from 'react-hot-toast';
 import { Crown, Loader2, Search, Zap } from 'lucide-react';
 import { AppShell } from './components/shell';
 import { ConnectionsTab } from './components/ConnectionsTab';
