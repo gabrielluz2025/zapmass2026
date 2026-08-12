@@ -10,6 +10,8 @@ export type FileImportJobState = {
   message: string;
   error?: string;
   queuedBehind?: number;
+  /** Job no servidor — sobrevive a fechar a aba. */
+  serverJobId?: string;
 };
 
 export type FileImportProgressState = {

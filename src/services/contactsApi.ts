@@ -335,3 +335,105 @@ export async function apiClearTenantContactsData(): Promise<{ contacts: number; 
     contactLists: Number(j.contactLists) || 0
   };
 }
+
+export type ContactImportJobDto = {
+  id: string;
+  status: string;
+  label: string;
+  total: number;
+  staged: number;
+  processed: number;
+  upserted: number;
+  linked: number;
+  failed: number;
+  listAttached: number;
+  listId?: string;
+  listName?: string;
+  percent: number;
+  phase: string;
+  message: string;
+  lastError?: string;
+};
+
+export type ContactImportJobRowDto = {
+  mode: 'upsert' | 'link';
+  phone: string;
+  name?: string;
+  city?: string;
+  state?: string;
+  neighborhood?: string;
+  street?: string;
+  zipCode?: string;
+  number?: string;
+  tags?: string[];
+  email?: string;
+  notes?: string;
+};
+
+export async function apiCreateContactImportJob(input: {
+  label: string;
+  total: number;
+  targetMode: 'none' | 'new' | 'existing';
+  targetListId?: string;
+  newListName?: string;
+  originLabel?: string;
+}): Promise<ContactImportJobDto> {
+  const j = await apiFetchJson<{ job?: ContactImportJobDto }>('/api/contacts/import-jobs', {
+    method: 'POST',
+    body: JSON.stringify(input),
+    timeoutMs: CONTACTS_MUTATION_TIMEOUT_MS,
+    retries: 1,
+  });
+  if (!j.job?.id) throw new Error('Não foi possível criar a importação no servidor.');
+  return j.job;
+}
+
+export async function apiAppendContactImportJobRows(
+  jobId: string,
+  rows: ContactImportJobRowDto[]
+): Promise<ContactImportJobDto> {
+  const j = await apiFetchJson<{ job?: ContactImportJobDto }>(
+    `/api/contacts/import-jobs/${encodeURIComponent(jobId)}/rows`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ rows }),
+      timeoutMs: CONTACTS_MUTATION_TIMEOUT_MS,
+      retries: 2,
+    }
+  );
+  if (!j.job) throw new Error('Falha ao enviar linhas da importação.');
+  return j.job;
+}
+
+export async function apiStartContactImportJob(jobId: string): Promise<ContactImportJobDto> {
+  const j = await apiFetchJson<{ job?: ContactImportJobDto }>(
+    `/api/contacts/import-jobs/${encodeURIComponent(jobId)}/start`,
+    { method: 'POST', timeoutMs: 30_000, retries: 1 }
+  );
+  if (!j.job) throw new Error('Falha ao iniciar importação no servidor.');
+  return j.job;
+}
+
+export async function apiGetContactImportJob(jobId: string): Promise<ContactImportJobDto> {
+  const j = await apiFetchJson<{ job?: ContactImportJobDto }>(
+    `/api/contacts/import-jobs/${encodeURIComponent(jobId)}`,
+    { timeoutMs: 30_000, retries: 1 }
+  );
+  if (!j.job) throw new Error('Importação não encontrada.');
+  return j.job;
+}
+
+export async function apiGetActiveContactImportJob(): Promise<ContactImportJobDto | null> {
+  const j = await apiFetchJson<{ job?: ContactImportJobDto | null }>(
+    '/api/contacts/import-jobs/active',
+    { timeoutMs: 15_000, retries: 1 }
+  );
+  return j.job || null;
+}
+
+export async function apiCancelContactImportJob(jobId: string): Promise<void> {
+  await apiFetchJson(`/api/contacts/import-jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+    timeoutMs: 15_000,
+  });
+}

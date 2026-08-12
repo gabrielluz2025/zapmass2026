@@ -13,7 +13,7 @@ import {
 } from './contactMapper.js';
 
 const DEFAULT_LIMIT = 10_000;
-const BULK_INSERT_CHUNK = 100;
+const BULK_INSERT_CHUNK = 200;
 
 function pgTenantId(tenantId: string): string {
   return resolvePostgresTenantId(String(tenantId || '').trim());
@@ -220,8 +220,8 @@ export async function bulkCreateContacts(
       }
     }
 
-    const toInsert: ReturnType<typeof preparedNamePhone>[] = [];
-    const insertAt: number[] = [];
+    const toUpsert: ReturnType<typeof preparedNamePhone>[] = [];
+    const upsertAt: number[] = [];
 
     for (let i = 0; i < preparedRows.length; i++) {
       const row = preparedRows[i]!;
@@ -230,18 +230,22 @@ export async function bulkCreateContacts(
         : undefined;
 
       if (existing) {
-        outIds[i] = existing.id;
+        // Reusa id existente e faz upsert multi-row (evita UPDATE 1×1, gargalo do import).
         const merged = prepareContactForPersistence(mergeContactUpdates(existing, row.prepared));
         const name = String(merged.name || 'Sem Nome').slice(0, 500);
         const phone = String(merged.phone || '').slice(0, 64);
         const phoneKey = phoneKeyForContact(phone, existing.id);
         const doc = contactToDocPayload(merged);
-        await client.query(
-          `UPDATE zapmass.contacts
-           SET name = $3, phone = $4, phone_key = $5, sort_name = $6, doc = $7::jsonb, updated_at = now()
-           WHERE tenant_id = $1::uuid AND id = $2::uuid`,
-          [tid, existing.id, name, phone, phoneKey, sortNameForContact(name), JSON.stringify(doc)]
-        );
+        toUpsert.push({
+          ...row,
+          id: existing.id,
+          name,
+          phone,
+          phoneKey,
+          doc,
+          prepared: merged
+        });
+        upsertAt.push(i);
         existingByKey.set(row.phoneKey, { ...existing, ...merged, id: existing.id, name, phone });
         continue;
       }
@@ -249,14 +253,14 @@ export async function bulkCreateContacts(
       const isCanon =
         row.phoneKey.startsWith('__empty__:') || canonByKey.get(row.phoneKey) === i;
       if (isCanon) {
-        toInsert.push(row);
-        insertAt.push(i);
+        toUpsert.push(row);
+        upsertAt.push(i);
       }
     }
 
-    for (let offset = 0; offset < toInsert.length; offset += BULK_INSERT_CHUNK) {
-      const chunk = toInsert.slice(offset, offset + BULK_INSERT_CHUNK);
-      const chunkIdx = insertAt.slice(offset, offset + BULK_INSERT_CHUNK);
+    for (let offset = 0; offset < toUpsert.length; offset += BULK_INSERT_CHUNK) {
+      const chunk = toUpsert.slice(offset, offset + BULK_INSERT_CHUNK);
+      const chunkIdx = upsertAt.slice(offset, offset + BULK_INSERT_CHUNK);
       if (chunk.length === 0) continue;
 
       const values: string[] = [];
@@ -407,6 +411,29 @@ export async function deleteContact(tenantId: string, id: string): Promise<boole
     [tid, id]
   );
   return (r.rowCount ?? 0) > 0;
+}
+
+/** Resolve ids por phone_key (útil para vincular duplicados à lista sem UPDATE). */
+export async function findContactIdsByPhoneKeys(
+  tenantId: string,
+  phoneKeys: string[]
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const keys = [...new Set(phoneKeys.map(String).filter((k) => k && !k.startsWith('__empty__:')))];
+  if (keys.length === 0) return out;
+  const pool = getZapmassPool();
+  if (!pool) return out;
+  const tid = pgTenantId(tenantId);
+  const r = await pool.query<{ id: string; phone_key: string }>(
+    `SELECT id::text, phone_key
+     FROM zapmass.contacts
+     WHERE tenant_id = $1::uuid AND phone_key = ANY($2::text[])`,
+    [tid, keys]
+  );
+  for (const row of r.rows) {
+    if (row.phone_key) out.set(row.phone_key, row.id);
+  }
+  return out;
 }
 
 export async function deleteAllContacts(tenantId: string): Promise<number> {

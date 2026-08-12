@@ -94,7 +94,15 @@ import {
   apiPauseSaveToChipBase,
   apiResumeSaveToChipBase,
   apiCancelSaveToChipBase,
-  type ChipBaseSyncJob
+  apiCreateContactImportJob,
+  apiAppendContactImportJobRows,
+  apiStartContactImportJob,
+  apiGetContactImportJob,
+  apiGetActiveContactImportJob,
+  apiCancelContactImportJob,
+  type ChipBaseSyncJob,
+  type ContactImportJobDto,
+  type ContactImportJobRowDto,
 } from '../services/contactsApi';
 import { AiSparkButton } from './ai/AiSparkButton';
 import { useAiStatus } from '../hooks/useAiStatus';
@@ -3290,204 +3298,167 @@ export const ContactsTab: React.FC = () => {
         });
 
         const view = buildFileImportRowsViewFromState(workingRows, contactsForNormalize);
-        const localByKey = new Map(baseMap);
-        const touchedIds = new Set<string>();
-        let added = 0;
-        let merged = 0;
         let skippedProb = 0;
-        const totalImport = Math.max(1, view.filter((rv) => rv.include && rv.problems.length === 0).length);
-        let importDone = 0;
-        patchQueued({
-          phase: 'import',
-          percent: 0,
-          current: 0,
-          total: totalImport,
-          message: 'A importar contatos — pode continuar a usar o sistema.',
-        });
-        const FIRE_BATCH = 80;
-        const pendingCreates: Contact[] = [];
-        const pendingUpdates: Array<{ id: string; updates: Partial<Contact> }> = [];
-        const pendingCreateKeys = new Set<string>();
-
-        const yieldImportUi = () =>
-          new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
-
-        const withImportRetry = async <T,>(label: string, fn: () => Promise<T>): Promise<T> => {
-          let last: unknown;
-          for (let attempt = 0; attempt < 3; attempt++) {
-            try {
-              return await fn();
-            } catch (e) {
-              last = e;
-              const msg = e instanceof Error ? e.message : String(e);
-              const retryable =
-                /Sem conexão|Tempo esgotado|Failed to fetch|Erro HTTP 502|Erro HTTP 503|Erro HTTP 504/i.test(
-                  msg
-                );
-              if (!retryable || attempt === 2) throw e;
-              patchQueued({
-                phase: (getFileImportProgress().job?.phase as FileImportJobState['phase']) || 'import',
-                percent: Math.min(99, Math.round((100 * importDone) / totalImport)),
-                current: importDone,
-                total: totalImport,
-                message: `${label} — nova tentativa (${attempt + 2}/3)…`,
-              });
-              await new Promise<void>((r) => setTimeout(r, 800 * (attempt + 1)));
-            }
-          }
-          throw last instanceof Error ? last : new Error(String(last));
-        };
-
-        const flushCreates = async () => {
-          if (pendingCreates.length === 0) return;
-          const slice = pendingCreates.splice(0, pendingCreates.length);
-          for (const c of slice) {
-            const kk = normPhoneKey(c.phone);
-            if (kk) pendingCreateKeys.delete(kk);
-          }
-          const ids = await withImportRetry('Gravar lote', () =>
-            bulkAddContacts(slice, { silent: true, skipReload: true })
-          );
-          await yieldImportUi();
-          for (let idx = 0; idx < ids.length; idx++) {
-            const incoming = slice[idx];
-            const kk = normPhoneKey(incoming.phone);
-            if (!kk) continue;
-            localByKey.set(kk, { ...incoming, id: ids[idx] });
-            touchedIds.add(ids[idx]);
-            added++;
-          }
-          await new Promise<void>((r) => setTimeout(r, 40));
-        };
-
-        const flushUpdates = async () => {
-          if (pendingUpdates.length === 0) return;
-          const slice = pendingUpdates.splice(0, pendingUpdates.length);
-          await withImportRetry('Atualizar lote', () =>
-            bulkUpdateContacts(slice, { silent: true, skipReload: true })
-          );
-          await yieldImportUi();
-          await new Promise<void>((r) => setTimeout(r, 40));
-        };
-
+        const serverRows: ContactImportJobRowDto[] = [];
         for (const rv of view) {
-          if (!rv.include) {
-            // Já na base: mesmo sem checkbox, se o destino é uma lista, vincula o id.
-            if (
-              job.targetMode !== 'none' &&
-              rv.duplicateAgainstBase &&
-              rv.problems.length === 0
-            ) {
-              const phone = normalizeBRPhone(rv.contact.phone);
-              const k = normPhoneKey(phone);
-              const existing = k ? localByKey.get(k) : undefined;
-              const id =
-                existing?.id ||
-                (k ? fileImportDupBasisRef.current?.idByKey.get(k) : undefined);
-              if (id) touchedIds.add(id);
-            }
-            continue;
-          }
           if (rv.problems.length > 0) {
             skippedProb++;
             continue;
           }
           const phone = normalizeBRPhone(rv.contact.phone);
-          const k = normPhoneKey(phone);
-          if (!k) {
+          if (!normPhoneKey(phone)) {
             skippedProb++;
             continue;
           }
-          const incoming: Contact = {
-            ...rv.contact,
-            id: `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
-            name: rv.contact.name.trim() || 'Sem Nome',
-            phone,
-            status: phone.replace(/\D/g, '').length >= 10 ? 'VALID' : 'INVALID',
-            tags: (rv.contact.tags || []).length > 0 ? rv.contact.tags : ['Importado'],
-          };
-
-          let existing = localByKey.get(k);
-          if (!existing && pendingCreateKeys.has(k)) {
-            await flushCreates();
-            existing = localByKey.get(k);
-          }
-
-          if (existing) {
-            const mergedPayload = mergeContactData(existing, incoming, ['Importado']);
-            const nextExisting: Contact = { ...existing, ...mergedPayload };
-            localByKey.set(k, nextExisting);
-            touchedIds.add(existing.id);
-            merged++;
-            pendingUpdates.push({ id: existing.id, updates: mergedPayload });
-            importDone++;
-            if (pendingUpdates.length >= FIRE_BATCH) await flushUpdates();
-          } else {
-            pendingCreates.push(incoming);
-            pendingCreateKeys.add(k);
-            importDone++;
-            if (pendingCreates.length >= FIRE_BATCH) await flushCreates();
-          }
-
-          if (importDone % 40 === 0 || importDone === totalImport) {
-            patchQueued({
-              phase: 'import',
-              percent: Math.min(99, Math.round((100 * importDone) / totalImport)),
-              current: importDone,
-              total: totalImport,
-              message: `A importar contatos (${importDone} de ${totalImport})…`,
+          if (rv.include) {
+            serverRows.push({
+              mode: 'upsert',
+              phone,
+              name: rv.contact.name.trim() || 'Sem Nome',
+              city: rv.contact.city,
+              state: rv.contact.state,
+              neighborhood: rv.contact.neighborhood,
+              street: rv.contact.street,
+              zipCode: rv.contact.zipCode,
+              number: rv.contact.number,
+              email: rv.contact.email,
+              notes: rv.contact.notes,
+              tags: (rv.contact.tags || []).length > 0 ? rv.contact.tags : ['Importado'],
             });
-            await new Promise<void>((r) => setTimeout(r, 0));
+            continue;
+          }
+          if (job.targetMode !== 'none' && rv.duplicateAgainstBase) {
+            serverRows.push({
+              mode: 'link',
+              phone,
+              name: rv.contact.name.trim() || undefined,
+            });
           }
         }
 
-        await flushCreates();
-        await flushUpdates();
-        void refreshContactsSavedTotal?.();
-        let attached = 0;
-        let listName = '';
-        const importIds = Array.from(touchedIds);
-        if (job.targetMode !== 'none' && (importIds.length > 0 || job.targetMode === 'new')) {
-          patchQueued({
-            phase: 'list',
-            percent: 99,
-            current: importIds.length,
-            total: Math.max(1, importIds.length),
-            message: `A gravar lista de destino (${importIds.length} contato(s))…`,
-          });
-          const result = await withImportRetry('Gravar lista', () =>
-            attachContactsToList(
-              importIds,
-              job.targetMode,
-              job.targetListId,
-              job.newListName,
-              'importação de arquivo'
-            )
-          );
-          attached = result.attached;
-          listName = result.listName || '';
-          if (result.listId) {
-            setActiveFilter(`list:${result.listId}`);
-            setCurrentPage(1);
-          }
+        if (serverRows.length === 0) {
+          throw new Error('Nenhuma linha válida para importar.');
         }
-        fileImportPipelineContactsMergeRef.current = localByKey;
+
+        patchQueued({
+          phase: 'import',
+          percent: 0,
+          current: 0,
+          total: serverRows.length,
+          message: 'A enviar ficheiro para o servidor (pode fechar a aba depois)…',
+        });
+
+        const created = await apiCreateContactImportJob({
+          label: job.label,
+          total: serverRows.length,
+          targetMode: job.targetMode,
+          targetListId: job.targetListId || undefined,
+          newListName: job.newListName || undefined,
+          originLabel: 'importação de arquivo',
+        });
+        try {
+          localStorage.setItem('zapmass.contactImportJobId', created.id);
+        } catch {
+          /* ignore */
+        }
+
+        const UPLOAD_CHUNK = 1500;
+        for (let i = 0; i < serverRows.length; i += UPLOAD_CHUNK) {
+          const chunk = serverRows.slice(i, i + UPLOAD_CHUNK);
+          const staged = await apiAppendContactImportJobRows(created.id, chunk);
+          patchQueued({
+            phase: 'import',
+            percent: Math.min(8, Math.round(((i + chunk.length) / serverRows.length) * 8)),
+            current: i + chunk.length,
+            total: serverRows.length,
+            message: `A enviar linhas (${Math.min(i + chunk.length, serverRows.length)} de ${serverRows.length})…`,
+            serverJobId: created.id,
+          });
+          if (staged.status === 'cancelled') throw new Error('Importação cancelada.');
+        }
+
+        await apiStartContactImportJob(created.id);
+        patchQueued({
+          phase: 'import',
+          percent: 10,
+          current: 0,
+          total: serverRows.length,
+          message: 'A importar no servidor — pode fechar esta aba.',
+          serverJobId: created.id,
+        });
+
+        const mapServerJob = (sj: ContactImportJobDto): FileImportJobState => {
+          const phase: FileImportJobState['phase'] =
+            sj.phase === 'list'
+              ? 'list'
+              : sj.phase === 'done' || sj.status === 'done'
+                ? 'done'
+                : sj.phase === 'error' || sj.status === 'error' || sj.status === 'cancelled'
+                  ? 'error'
+                  : 'import';
+          return {
+            phase,
+            percent: Number(sj.percent) || 0,
+            current: Number(sj.processed) || 0,
+            total: Number(sj.total) || serverRows.length,
+            message: sj.message || 'A importar…',
+            error: sj.lastError,
+            serverJobId: sj.id,
+            queuedBehind,
+          };
+        };
+
+        let finalJob = await apiGetContactImportJob(created.id);
+        while (
+          finalJob.status === 'running' ||
+          finalJob.status === 'paused' ||
+          finalJob.status === 'staging'
+        ) {
+          patchQueued(mapServerJob(finalJob));
+          await new Promise<void>((r) => setTimeout(r, 900));
+          finalJob = await apiGetContactImportJob(created.id);
+        }
+
+        patchQueued(mapServerJob(finalJob));
+        void refreshContactsSavedTotal?.();
+        void refreshContacts?.();
+
+        if (finalJob.status === 'cancelled') {
+          throw new Error('Importação cancelada.');
+        }
+        if (finalJob.status === 'error') {
+          throw new Error(finalJob.lastError || 'Falha na importação no servidor.');
+        }
+
+        if (finalJob.listId) {
+          setActiveFilter(`list:${finalJob.listId}`);
+          setCurrentPage(1);
+        }
 
         toast.success(
-          `${added} contato(s) novo(s).` +
-            (merged ? ` ${merged} contato(s) unificado(s).` : '') +
-            (skippedProb ? ` ${skippedProb} com problema não importado(s).` : '') +
-            (attached > 0 ? ` ${attached} vinculado(s) em "${listName}".` : '')
+          `${finalJob.upserted} gravado(s)/atualizado(s).` +
+            (finalJob.linked ? ` ${finalJob.linked} já na base vinculados.` : '') +
+            (skippedProb ? ` ${skippedProb} com problema ignorado(s).` : '') +
+            (finalJob.listAttached > 0 && finalJob.listName
+              ? ` Lista "${finalJob.listName}": ${finalJob.listAttached}.`
+              : '')
         );
+
+        try {
+          localStorage.removeItem('zapmass.contactImportJobId');
+        } catch {
+          /* ignore */
+        }
 
         const stillQueued = fileImportQueueRef.current.length > 0;
         if (!stillQueued) {
           patchQueued({
             phase: 'done',
             percent: 100,
-            current: totalImport,
-            total: totalImport,
-            message: 'Importação concluída.',
+            current: finalJob.total,
+            total: finalJob.total,
+            message: finalJob.message || 'Importação concluída.',
+            serverJobId: finalJob.id,
           });
           await new Promise((r) => setTimeout(r, 900));
         } else {
@@ -3515,8 +3486,102 @@ export const ContactsTab: React.FC = () => {
         throw err;
       }
     },
-    [bulkAddContacts, bulkUpdateContacts, refreshContactsSavedTotal, attachContactsToList]
+    [refreshContactsSavedTotal, refreshContacts]
   );
+
+  const pollServerImportJobUntilSettled = useCallback(async (jobId: string) => {
+    fileImportPipelineBusy.current = true;
+    try {
+      let sj = await apiGetContactImportJob(jobId);
+      const apply = (job: ContactImportJobDto) => {
+        const phase: FileImportJobState['phase'] =
+          job.phase === 'list'
+            ? 'list'
+            : job.phase === 'done' || job.status === 'done'
+              ? 'done'
+              : job.phase === 'error' || job.status === 'error' || job.status === 'cancelled'
+                ? 'error'
+                : 'import';
+        patchFileImportJob(
+          {
+            phase,
+            percent: Number(job.percent) || 0,
+            current: Number(job.processed) || 0,
+            total: Number(job.total) || 0,
+            message: job.message || 'A importar no servidor…',
+            error: job.lastError,
+            serverJobId: job.id,
+          },
+          { docked: true, label: job.label || 'Importação' }
+        );
+      };
+      apply(sj);
+      while (sj.status === 'running' || sj.status === 'paused' || sj.status === 'staging') {
+        await new Promise<void>((r) => setTimeout(r, 900));
+        sj = await apiGetContactImportJob(jobId);
+        apply(sj);
+      }
+      void refreshContactsSavedTotal?.();
+      void refreshContacts?.();
+      if (sj.status === 'done') {
+        if (sj.listId) {
+          setActiveFilter(`list:${sj.listId}`);
+          setCurrentPage(1);
+        }
+        toast.success(sj.message || 'Importação concluída.');
+        try {
+          localStorage.removeItem('zapmass.contactImportJobId');
+        } catch {
+          /* ignore */
+        }
+      } else if (sj.status === 'error' || sj.status === 'cancelled') {
+        toast.error(sj.lastError || sj.message || 'Importação interrompida.');
+      }
+    } catch (e) {
+      console.warn('[pollServerImportJobUntilSettled]', e);
+    } finally {
+      fileImportPipelineBusy.current = false;
+    }
+  }, [refreshContacts, refreshContactsSavedTotal]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const active = await apiGetActiveContactImportJob();
+        if (cancelled || !active) return;
+        if (fileImportPipelineBusy.current) return;
+        // Upload incompleto: cancela para não bloquear novas importações.
+        if (active.status === 'staging') {
+          await apiCancelContactImportJob(active.id).catch(() => undefined);
+          return;
+        }
+        setFileImportProgress({
+          docked: true,
+          label: active.label || 'Importação',
+          job: {
+            phase: 'import',
+            percent: Number(active.percent) || 0,
+            current: Number(active.processed) || 0,
+            total: Number(active.total) || 0,
+            message: active.message || 'A retomar importação no servidor…',
+            serverJobId: active.id,
+          },
+        });
+        try {
+          localStorage.setItem('zapmass.contactImportJobId', active.id);
+        } catch {
+          /* ignore */
+        }
+        void pollServerImportJobUntilSettled(active.id);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pollServerImportJobUntilSettled]);
 
   const executeFileImportConfirm = useCallback(async () => {
     if (autoFixProgress !== null) {
@@ -6147,6 +6212,11 @@ export const ContactsTab: React.FC = () => {
                 {fileImportProgressLabel || fileImportLabel || 'Importação em curso'}
               </p>
               <p className="text-[12px] text-slate-600 dark:text-slate-400 leading-snug">{fileImportJob.message}</p>
+              {fileImportJob.serverJobId ? (
+                <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                  Roda no servidor — pode fechar a aba; ao voltar o progresso continua.
+                </p>
+              ) : null}
               {typeof fileImportJob.queuedBehind === 'number' && fileImportJob.queuedBehind > 0 ? (
                 <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
                   Mais {fileImportJob.queuedBehind} importação(ões) na fila após esta.
@@ -6192,6 +6262,21 @@ export const ContactsTab: React.FC = () => {
           {fileImportJob.phase === 'error' ? (
             <Button type="button" size="sm" variant="secondary" onClick={() => clearFileImportProgress()}>
               Fechar
+            </Button>
+          ) : fileImportJob.serverJobId &&
+            fileImportJob.phase !== 'done' ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                void apiCancelContactImportJob(fileImportJob.serverJobId!).then(() => {
+                  toast('Importação cancelada.');
+                  clearFileImportProgress();
+                });
+              }}
+            >
+              Cancelar
             </Button>
           ) : null}
         </div>

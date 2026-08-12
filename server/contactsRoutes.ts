@@ -39,6 +39,18 @@ import {
   resumeChipBaseSyncJob,
   startChipBaseSyncJob
 } from './contactSaveToChipJob.js';
+import {
+  appendContactImportJobRows,
+  cancelContactImportJob,
+  createContactImportJob,
+  getContactImportJob,
+  listActiveContactImportJobs,
+  pauseContactImportJob,
+  resumeContactImportJob,
+  startContactImportJob,
+  type ContactImportJobRow,
+  type ContactImportTargetMode
+} from './contactImportJob.js';
 import * as evolutionService from './evolutionService.js';
 import { normalizeTenantContactAddresses, normalizeTenantContactsFull } from './contactsNormalizeService.js';
 import { geocodeSingleContactIfNeeded } from './leadsGeoService.js';
@@ -442,6 +454,103 @@ export function registerContactsDataRoutes(app: Express): void {
     if (!ctx) return;
     const job = cancelChipBaseSyncJob(String(req.params.jobId || ''), ctx.tenantId);
     if (!job) return res.status(404).json({ ok: false, error: 'Job não encontrado.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/import-jobs', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body || {}) as {
+      label?: string;
+      total?: number;
+      targetMode?: ContactImportTargetMode;
+      targetListId?: string;
+      newListName?: string;
+      originLabel?: string;
+    };
+    try {
+      const job = createContactImportJob({
+        tenantId: ctx.tenantId,
+        label: String(body.label || 'Importação'),
+        total: Number(body.total) || 0,
+        targetMode: body.targetMode === 'new' || body.targetMode === 'existing' ? body.targetMode : 'none',
+        targetListId: body.targetListId,
+        newListName: body.newListName,
+        originLabel: body.originLabel
+      });
+      return res.json({ ok: true, job });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao criar importação.';
+      return res.status(400).json({ ok: false, error: msg });
+    }
+  });
+
+  app.get('/api/contacts/import-jobs/active', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const active = listActiveContactImportJobs(ctx.tenantId);
+    return res.json({ ok: true, jobs: active, job: active[0] || null });
+  });
+
+  app.get('/api/contacts/import-jobs/:jobId', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = getContactImportJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Importação não encontrada.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/import-jobs/:jobId/rows', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const rows = (req.body as { rows?: ContactImportJobRow[] })?.rows;
+    if (!Array.isArray(rows)) {
+      return res.status(400).json({ ok: false, error: 'Envie { rows: [...] }.' });
+    }
+    try {
+      const job = appendContactImportJobRows(String(req.params.jobId || ''), ctx.tenantId, rows);
+      if (!job) return res.status(404).json({ ok: false, error: 'Importação não encontrada.' });
+      return res.json({ ok: true, job });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao receber linhas.';
+      return res.status(400).json({ ok: false, error: msg });
+    }
+  });
+
+  app.post('/api/contacts/import-jobs/:jobId/start', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    try {
+      const job = startContactImportJob(String(req.params.jobId || ''), ctx.tenantId);
+      if (!job) return res.status(404).json({ ok: false, error: 'Importação não encontrada.' });
+      return res.json({ ok: true, job });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao iniciar.';
+      return res.status(400).json({ ok: false, error: msg });
+    }
+  });
+
+  app.post('/api/contacts/import-jobs/:jobId/pause', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = pauseContactImportJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Importação não encontrada.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/import-jobs/:jobId/resume', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = resumeContactImportJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Importação não encontrada.' });
+    return res.json({ ok: true, job });
+  });
+
+  app.post('/api/contacts/import-jobs/:jobId/cancel', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const job = cancelContactImportJob(String(req.params.jobId || ''), ctx.tenantId);
+    if (!job) return res.status(404).json({ ok: false, error: 'Importação não encontrada.' });
     return res.json({ ok: true, job });
   });
 
