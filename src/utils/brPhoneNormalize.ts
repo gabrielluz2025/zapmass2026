@@ -3,22 +3,33 @@ export function phoneDigitsOnly(raw: string): string {
   return (raw || '').replace(/\D/g, '');
 }
 
+/** Prefixo ANATEL do assinante (8 dígitos): 2–5 fixo, 6–9 celular. */
+const BR_LANDLINE_SUB_PREFIX = /^[2-5]/;
+const BR_MOBILE_SUB_PREFIX = /^[6-9]/;
+
 /**
  * Celular BR com DDI 55: unifica 12 dígitos (sem o 9 após DDD) e 13 (com o 9).
- * Ex.: 554799127001 ↔ 5547999127001
+ * Não inventa 9º dígito em telefone fixo (2–5) — isso gerava exists:false no WhatsApp.
+ * Ex. celular: 554799127001 ↔ 5547999127001
+ * Ex. fixo: 554732375383 permanece 12 dígitos; 5547932375383 (9 indevido) volta ao fixo.
  */
 export function canonicalBrazilMobileKey(digits: string): string {
   const d = phoneDigitsOnly(digits);
   if (!d.startsWith('55') || d.length < 12) return d;
+  const ddd = d.slice(2, 4);
   if (d.length === 13) {
     const afterDdd = d.slice(4);
-    if (afterDdd.length === 9 && afterDdd[0] === '9') return d;
+    if (afterDdd.length === 9 && afterDdd[0] === '9') {
+      const rest = afterDdd.slice(1);
+      if (BR_LANDLINE_SUB_PREFIX.test(rest)) return `55${ddd}${rest}`;
+      return d;
+    }
     return d;
   }
   if (d.length === 12) {
-    const ddd = d.slice(2, 4);
     const local = d.slice(4);
-    if (local.length === 8) return `55${ddd}9${local}`;
+    if (local.length === 8 && BR_MOBILE_SUB_PREFIX.test(local)) return `55${ddd}9${local}`;
+    return d;
   }
   return d;
 }

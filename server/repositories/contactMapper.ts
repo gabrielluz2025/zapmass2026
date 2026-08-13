@@ -66,7 +66,7 @@ export function rowToContact(row: ContactRow): Contact {
     ...(base as unknown as Contact),
     id: row.id,
     name: row.name || (base.name as string) || 'Sem Nome',
-    phone: row.phone || (base.phone as string) || '',
+    phone: normalizeBRPhone(row.phone || (base.phone as string) || '') || row.phone || (base.phone as string) || '',
     tags: Array.isArray(base.tags) ? (base.tags as string[]) : [],
     status: base.status === 'INVALID' ? 'INVALID' : 'VALID'
   };

@@ -30,7 +30,7 @@ function openDb(): Promise<IDBDatabase> {
 }
 
 function idbKey(uid: string, day: string): string {
-  return `${uid}:${day}`;
+  return `${uid}:${day}:phone-v2`;
 }
 
 export type ContactsIdbEntry = {

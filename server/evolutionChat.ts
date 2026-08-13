@@ -51,9 +51,10 @@ import {
     formatEvolutionHttpError,
     isRetryableExistsFalseError,
     postEvolutionSendTextWithBrVariants,
+    numbersToTryOnEvolution,
     resolveOutboundSendTarget
 } from './evolutionChatSend.js';
-import { buildOutboundPhoneVariants, normalizeOutboundNumber } from './evolutionOutboundPhone.js';
+import { normalizeOutboundNumber } from './evolutionOutboundPhone.js';
 import {
     hasResolvablePhone,
     isLidJid,
@@ -1525,8 +1526,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         }
 
         const normalized = normalizeOutboundNumber(number) || number;
-        const variants = buildOutboundPhoneVariants(normalized);
-        const list = variants.length > 0 ? variants : [normalized];
+        const list = await numbersToTryOnEvolution(api, evoInst(parsed.connectionId), normalized);
         let response: { data?: { key?: { id?: string; _serialized?: string } } } | null = null;
         let lastErr: Error | null = null;
 

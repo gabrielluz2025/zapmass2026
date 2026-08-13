@@ -68,12 +68,15 @@ describe('postEvolutionSendTextWithBrVariants', () => {
     const { postEvolutionSendTextWithBrVariants } = await import('./evolutionChatSend.js');
     const calls: string[] = [];
     const api = {
-      post: async (_url: string, body: { number?: string }) => {
+      post: async (url: string, body: { number?: string; numbers?: string[] }) => {
+        if (String(url).includes('whatsappNumbers')) {
+          return { data: [] };
+        }
         calls.push(String(body.number || ''));
-        if (body.number === '5547932091005') {
+        if (body.number === '5547991087007') {
           const err: any = new Error('Request failed with status code 400');
           err.response = {
-            data: { response: { message: [{ exists: false, jid: '5547932091005@s.whatsapp.net' }] } }
+            data: { response: { message: [{ exists: false, jid: '5547991087007@s.whatsapp.net' }] } }
           };
           throw err;
         }
@@ -83,11 +86,31 @@ describe('postEvolutionSendTextWithBrVariants', () => {
     const result = await postEvolutionSendTextWithBrVariants(
       api as never,
       'inst',
-      '5547932091005',
+      '5547991087007',
       'oi'
     );
-    expect(calls).toEqual(['5547932091005', '554732091005']);
-    expect(result.numberUsed).toBe('554732091005');
+    expect(calls).toEqual(['5547991087007', '554791087007']);
+    expect(result.numberUsed).toBe('554791087007');
     expect(result.messageId).toBe('ok1');
+  });
+
+  it('fixo com 9 indevido envia o número de 12 dígitos primeiro', async () => {
+    const { postEvolutionSendTextWithBrVariants } = await import('./evolutionChatSend.js');
+    const calls: string[] = [];
+    const api = {
+      post: async (url: string, body: { number?: string }) => {
+        if (String(url).includes('whatsappNumbers')) return { data: [] };
+        calls.push(String(body.number || ''));
+        return { data: { key: { id: 'ok-fixo' }, status: 'PENDING' } };
+      }
+    };
+    const result = await postEvolutionSendTextWithBrVariants(
+      api as never,
+      'inst',
+      '5547932375383',
+      'parabens'
+    );
+    expect(calls[0]).toBe('554732375383');
+    expect(result.numberUsed).toBe('554732375383');
   });
 });

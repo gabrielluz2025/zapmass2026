@@ -1,6 +1,11 @@
 import type { AxiosInstance } from 'axios';
 import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
-import { buildOutboundPhoneVariants, normalizeOutboundNumber } from './evolutionOutboundPhone.js';
+import {
+  buildOutboundPhoneVariants,
+  normalizeOutboundNumber,
+  parseWhatsAppNumberCheckRows,
+  pickWhatsAppCheckResult,
+} from './evolutionOutboundPhone.js';
 import {
   hasResolvablePhone,
   isLidJid,
@@ -119,8 +124,7 @@ export async function postEvolutionSendTextWithBrVariants(
 ): Promise<{ messageId?: string; numberUsed: string }> {
   const normalized = normalizeOutboundNumber(to) || normalizeOutboundDigits(to);
   if (!normalized) throw new Error(`Número inválido: ${to}`);
-  const variants = buildOutboundPhoneVariants(normalized);
-  const list = variants.length > 0 ? variants : [normalized];
+  const list = await numbersToTryOnEvolution(api, instanceName, normalized);
   let lastErr: Error | null = null;
 
   for (let i = 0; i < list.length; i++) {
@@ -135,6 +139,36 @@ export async function postEvolutionSendTextWithBrVariants(
   }
 
   throw lastErr || new Error('Falha ao enviar mensagem');
+}
+
+/** Consulta whatsappNumbers e coloca os confirmados na frente (fixo vs 9º dígito). */
+export async function numbersToTryOnEvolution(
+  api: AxiosInstance,
+  instanceName: string,
+  to: string
+): Promise<string[]> {
+  const normalized = normalizeOutboundNumber(to) || normalizeOutboundDigits(to);
+  const variants = buildOutboundPhoneVariants(normalized);
+  const list = variants.length > 0 ? variants : normalized ? [normalized] : [];
+  if (list.length === 0) return [];
+  try {
+    const response = await api.post(`/chat/whatsappNumbers/${instanceName}`, {
+      numbers: list.slice(0, 4),
+    });
+    const rows = parseWhatsAppNumberCheckRows(response.data);
+    const confirmed: string[] = [];
+    for (const v of list) {
+      const picked = pickWhatsAppCheckResult(rows, v);
+      if (!picked.exists || !picked.canonicalNumber) continue;
+      const n = normalizeOutboundNumber(picked.canonicalNumber);
+      if (n && !confirmed.includes(n)) confirmed.push(n);
+    }
+    if (confirmed.length === 0) return list;
+    const rest = list.filter((v) => !confirmed.includes(v));
+    return [...confirmed, ...rest];
+  } catch {
+    return list;
+  }
 }
 
 export type OutboundSendTarget = { number: string };

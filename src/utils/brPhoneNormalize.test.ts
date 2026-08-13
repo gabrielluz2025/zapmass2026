@@ -21,4 +21,9 @@ describe('canonicalBrazilMobileKey', () => {
     );
     expect(normPhoneKey(withoutNine)).toBe(normPhoneKey(withNine));
   });
+
+  it('não inventa 9º dígito em telefone fixo (prefixo 2–5)', () => {
+    expect(canonicalBrazilMobileKey('554732375383')).toBe('554732375383');
+    expect(canonicalBrazilMobileKey('5547932375383')).toBe('554732375383');
+  });
 });

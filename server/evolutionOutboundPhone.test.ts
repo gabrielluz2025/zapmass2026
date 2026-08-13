@@ -19,6 +19,12 @@ describe('buildOutboundPhoneVariants', () => {
     expect(variants).toContain('554791087007');
   });
 
+  it('fixo DDD 47 com 9 indevido: tenta o número real primeiro', () => {
+    const variants = buildOutboundPhoneVariants('5547932375383');
+    expect(variants[0]).toBe('554732375383');
+    expect(variants).toContain('5547932375383');
+  });
+
   it('não gera variantes corrompidas (547…) para DDD 47', () => {
     const variants = buildOutboundPhoneVariants('5547984556296');
     expect(variants).toEqual(['5547984556296', '554784556296']);
