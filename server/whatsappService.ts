@@ -7027,6 +7027,27 @@ export function evolutionTrackMessageSent(
 }
 
 /**
+ * Envio 1:1 pelo bate-papo / parabéns do painel — entra no funil e no histórico
+ * diário (sem campanha real). Usa bucket sintético para dedupe e ACKs.
+ */
+export function evolutionTrackManualMessageSent(
+    messageId: string | undefined,
+    connectionId: string,
+    phoneDigits: string,
+    ownerUid?: string
+): void {
+    const syntheticCampaignId = '__chat__';
+    if (ownerUid) evolutionRegisterCampaign(syntheticCampaignId, ownerUid);
+    const phoneNorm = toPhoneKey(phoneDigits);
+    if (!phoneNorm || phoneNorm.length < 8) return;
+    const convId = `${connectionId}:${phoneNorm}`;
+    const trackId =
+        messageId?.trim() ||
+        `chat-${connectionId}-${phoneNorm}-${Date.now()}`;
+    trackCampaignSend(trackId, convId, Date.now(), phoneNorm, syntheticCampaignId);
+}
+
+/**
  * Mapeia status Evolution/Baileys para niveis do funil (handleCampaignAck):
  * ack 2+ = entregue, ack 3 = lido.
  * Status 2 (SERVER_ACK) tambem conta como entregue — muitas instancias nao enviam DELIVERY_ACK separado.

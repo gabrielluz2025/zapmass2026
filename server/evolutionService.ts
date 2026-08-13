@@ -99,6 +99,7 @@ import {
     evolutionTrackIncomingReply,
     evolutionTrackMessageAck,
     evolutionTrackMessageSent,
+    evolutionTrackManualMessageSent,
     logCampaignContactReply,
     resolveLatestCampaignForReply,
     getCampaignGeoOwner,
@@ -6715,9 +6716,45 @@ export async function setConnectionProxy(id: string, proxy: ConnectionProxyConfi
 
 // startCampaign exportado acima com assinatura completa
 
+/** Conta envio 1:1 (parabéns / bate-papo) no teto do chip e no funil do painel. */
+function recordManualOutboundSend(conversationId: string): void {
+    const sep = String(conversationId || '').indexOf(':');
+    if (sep <= 0) return;
+    const connectionId = conversationId.slice(0, sep).trim();
+    const phoneDigits = normalizePhoneKey(conversationId.slice(sep + 1));
+    if (!connectionId) return;
+
+    const conn = connections.get(connectionId);
+    if (conn) {
+        checkAndResetDailyLimits(conn);
+        conn.messagesSentToday = (conn.messagesSentToday || 0) + 1;
+        recordConnectionDispatch(connectionId);
+        mergeConnectionSettingsCache(connectionId, {
+            dailyLimit: conn.dailyLimit,
+            growthRate: conn.growthRate,
+            growthType: conn.growthType,
+            limitAction: conn.limitAction,
+            messagesSentToday: conn.messagesSentToday,
+            limitExceededApproved: conn.limitExceededApproved,
+            lastLimitResetDate: conn.lastLimitResetDate,
+            ownerUid: conn.ownerUid,
+            friendlyName: conn.friendlyName,
+        });
+        saveConnectionsSettings();
+        const ownerUid = resolveOwnerUid(connectionId);
+        if (ownerUid) {
+            publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
+        }
+    }
+
+    const ownerUid = resolveOwnerUid(connectionId);
+    evolutionTrackManualMessageSent(undefined, connectionId, phoneDigits, ownerUid);
+}
+
 // sendMessage compatível com server.ts (conversationId, text)
 export async function sendMessage(conversationId: string, text: string): Promise<boolean> {
     await chatStore.sendMessage(conversationId, text);
+    recordManualOutboundSend(conversationId);
     return true;
 }
 
@@ -6732,6 +6769,7 @@ export async function sendMedia(
     }
 ): Promise<void> {
     await chatStore.sendMedia(conversationId, payload);
+    recordManualOutboundSend(conversationId);
 }
 
 /**
