@@ -9,6 +9,16 @@ export const CAMPAIGN_SENT_LOG_MESSAGE = 'Mensagem enviada';
 export const CAMPAIGN_REPLY_LOG_MESSAGE = 'Resposta recebida no fluxo por etapas';
 export const CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE = 'Resposta do contato';
 
+/** Log estável: contato pulado pelo teto de 24 h (não é falha). */
+export function isCampaignFrequencyCapSkipLog(
+  message: string,
+  skipReason?: string
+): boolean {
+  if (String(skipReason || '') === 'frequency_cap') return true;
+  const m = String(message || '');
+  return /ignorado: já recebeu mensagem/i.test(m);
+}
+
 const REPLY_LOG_MESSAGES = new Set([
   CAMPAIGN_REPLY_LOG_MESSAGE,
   CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE
@@ -50,6 +60,7 @@ export type CampaignLogPayloadLike = {
   replyFlowStep?: number;
   currentStep?: number;
   nonTextReply?: boolean;
+  skipReason?: string;
 };
 
 /** Log de resposta no fluxo (message na coluna ou só replyPreview/currentStep no payload). */

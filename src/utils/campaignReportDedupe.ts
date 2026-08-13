@@ -13,6 +13,7 @@ export const CAMPAIGN_REPORT_STATUS_RANK: Record<string, number> = {
   DELIVERED: 3,
   SENT: 2,
   PENDING: 1,
+  SKIPPED: 0.5,
   FAILED: 0
 };
 

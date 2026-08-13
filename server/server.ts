@@ -1637,6 +1637,14 @@ const registerSocketHandlers = () => {
           humanizedPauses?: boolean;
           dailySchedule?: {
             enabled: boolean;
+            allowedWeekdays?: number[];
+            timePeriodEnabled?: boolean;
+            periods?: Array<{
+              name: 'morning' | 'afternoon';
+              pct: number;
+              startHour: number;
+              endHour: number;
+            }>;
             days: Array<{
               dayIndex: number;
               limitPerChannel: number;

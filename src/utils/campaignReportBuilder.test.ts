@@ -91,4 +91,28 @@ describe('buildPrimaryReportRowsFromLogs', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe('REPLIED');
   });
+
+  it('marca PENDING quem está no snapshot e ainda não saiu', () => {
+    const rows = buildPrimaryReportRowsFromLogs([], 'c1', [], campaign, []);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe('PENDING');
+    expect(rows[0].phone).toContain('5547999127001');
+  });
+
+  it('marca SKIPPED no teto de 24 h', () => {
+    const logs = [
+      {
+        timestamp: '2026-06-04T20:05:14Z',
+        payload: {
+          campaignId: 'c1',
+          message: 'Contato 5547999127001 ignorado: já recebeu mensagem nas últimas 24 h',
+          to: '5547999127001',
+          skipReason: 'frequency_cap'
+        }
+      }
+    ];
+    const rows = buildPrimaryReportRowsFromLogs(logs, 'c1', [], campaign, []);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe('SKIPPED');
+  });
 });

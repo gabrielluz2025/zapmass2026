@@ -57,6 +57,7 @@ import {
 } from './replyFlowEngine.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
+import { pickOpenFailoverChannel } from './campaignChannelFailover.js';
 import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
 import { refreshRedispatchTargetPhones } from './campaignRedispatchPhoneRefresh.js';
 import {
@@ -1982,6 +1983,8 @@ interface MessageQueueItem {
     _progressAccounted?: boolean;
     /** Conta quantas vezes o job foi adiado por limite diário — falha definitiva após 3 dias. */
     _limitDelayCount?: number;
+    /** Adiado porque o grupo de chips estava offline. */
+    _offlineDelayCount?: number;
     /** Motor multi-etapas lazy: identifica contactId e stepIndex desta entrega. */
     multiStepContact?: {
         contactId: string;
@@ -2848,6 +2851,7 @@ interface CampaignRuntimeState {
     processed: number;
     successCount: number;
     failCount: number;
+    skipCount?: number;
     lastLoggedProcessed: number;
     isRunning: boolean;
     /** Janela deslizante dos últimos 20 resultados para auto-pausa por taxa de erro. */
@@ -3082,6 +3086,34 @@ function bumpCampaignProgress(campaignId: string | undefined, success: boolean) 
     }
 }
 
+function bumpCampaignSkip(campaignId: string | undefined) {
+    if (!campaignId) return;
+    const state = campaignsById.get(campaignId);
+    if (!state) return;
+    state.processed += 1;
+    state.skipCount = (state.skipCount || 0) + 1;
+    publishOwnerEvent(state.ownerUid, 'campaign-progress', {
+        total: state.total,
+        processed: state.processed,
+        successCount: state.successCount,
+        failCount: state.failCount,
+        skipCount: state.skipCount,
+        campaignId,
+    });
+    if (state.ownerUid) {
+        void persistCampaignProgressToFirestore(
+            state.ownerUid,
+            campaignId,
+            state.successCount,
+            state.failCount,
+            state.processed
+        );
+    }
+    if (state.processed >= state.total) {
+        void tryFinalizeOrHoldCampaign(campaignId);
+    }
+}
+
 async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
         const state = campaignsById.get(campaignId);
     if (!state?.isRunning) return;
@@ -3177,6 +3209,7 @@ async function skipCampaignJobOnce(
     item._progressAccounted = true;
     await job.updateData(item).catch(() => {});
     if (!item.campaignId) return;
+    bumpCampaignSkip(item.campaignId);
     const pending = Math.max(0, (campaignPendingJobs.get(item.campaignId) || 0) - 1);
     if (pending <= 0) {
         campaignPendingJobs.delete(item.campaignId);
@@ -4449,8 +4482,38 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     if (!(await isConnectionOpen(item.connectionId))) {
-    const state = await getConnectionState(item.connectionId);
-        throw new Error(`Canal ${item.connectionId} não conectado (${state})`);
+        const failoverId = pickOpenFailoverChannel(
+            item.connectionId,
+            item.alternateChannelIds,
+            (id) => connections.get(id)?.status === 'open'
+        );
+        if (failoverId && failoverId !== item.connectionId) {
+            emitCampaignLog(
+                'WARN',
+                `Chip ${item.connectionId} offline — alternando para ${failoverId} antes do envio`,
+                { campaignId: item.campaignId, de: item.connectionId, para: failoverId, to: item.to },
+                campaignState?.ownerUid
+            );
+            item.connectionId = failoverId;
+            await job.updateData(item).catch(() => {});
+        } else {
+            item._offlineDelayCount = (item._offlineDelayCount || 0) + 1;
+            if (item._offlineDelayCount > 180) {
+                const state = await getConnectionState(item.connectionId);
+                throw new Error(
+                    `Nenhum chip do grupo conectado após várias tentativas (${item.connectionId}, ${state})`
+                );
+            }
+            emitCampaignLog(
+                'WARN',
+                `Grupo sem chip conectado — reagenda em 2 min (tentativa ${item._offlineDelayCount})`,
+                { campaignId: item.campaignId, connectionId: item.connectionId, to: item.to },
+                campaignState?.ownerUid
+            );
+            await job.updateData(item).catch(() => {});
+            await job.moveToDelayed(Date.now() + 120_000, token);
+            throw new DelayedError();
+        }
     }
 
     const normalizedDest = normalizeOutboundNumber(item.to);
@@ -4477,7 +4540,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         emitCampaignLog(
             'WARN',
             `Contato ${normalizedDest} ignorado: já recebeu mensagem nas últimas 24 h`,
-            { campaignId: item.campaignId, to: normalizedDest },
+            { campaignId: item.campaignId, to: normalizedDest, skipReason: 'frequency_cap' },
             campaignState?.ownerUid
         );
         bumpQueueSize(item.connectionId, -1);
@@ -5390,6 +5453,13 @@ export async function startCampaign(
     const avgDelayMs = (dispatchSettings.minDelayMs + dispatchSettings.maxDelayMs) / 2;
 
     const dailyScheduleEnabled = dailySchedule?.enabled && Array.isArray(dailySchedule?.days) && dailySchedule.days.length > 0;
+    if (dailyScheduleEnabled) {
+        log('info', 'Campanha com cronograma diário — jobs espaçados pelos dias do plano', {
+            campaignId: cid,
+            days: dailySchedule?.days?.length,
+            chips: activeConnectionIds.length,
+        });
+    }
     const enqueuedCountPerDayPerChannel: Record<string, Record<number, number>> = {};
     const enqueuedIndexPerDayPerChannel: Record<string, Record<number, number>> = {};
 

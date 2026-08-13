@@ -92,6 +92,24 @@ export interface CampaignWeeklySchedule {
   slots: CampaignScheduleSlot[];
 }
 
+/** Cota por chip ao longo dos dias (wizard → servidor). */
+export interface CampaignDailySchedule {
+  enabled: boolean;
+  /** Dias da semana permitidos: 0=Dom … 6=Sáb. Ausente = todos. */
+  allowedWeekdays?: number[];
+  timePeriodEnabled?: boolean;
+  periods?: Array<{
+    name: 'morning' | 'afternoon';
+    pct: number;
+    startHour: number;
+    endHour: number;
+  }>;
+  days: Array<{
+    dayIndex: number;
+    limitPerChannel: number;
+  }>;
+}
+
 /** Snapshot usado pelo servidor para disparo agendado (espelha o payload de start-campaign). */
 export interface CampaignScheduleStartSnapshot {
   numbers: string[];
@@ -99,8 +117,12 @@ export interface CampaignScheduleStartSnapshot {
   messageStages?: string[];
   connectionIds?: string[];
   delaySeconds?: number;
+  delaySecondsMax?: number;
+  humanizedPauses?: boolean;
   recipients?: Array<{ phone: string; vars: Record<string, string> }>;
   replyFlow?: CampaignReplyFlow;
+  channelWeights?: Record<string, number>;
+  dailySchedule?: CampaignDailySchedule;
   /** Usuário confirmou envio mesmo com contatos no limite de 24 h. */
   skipFrequencyCap?: boolean;
 }
@@ -266,13 +288,7 @@ export interface Campaign {
    * Substitui messageStages para novas campanhas com fluxo condicional.
    */
   stageConfigs?: CampaignStageConfig[];
-  dailySchedule?: {
-    enabled: boolean;
-    days: Array<{
-      dayIndex: number;
-      limitPerChannel: number;
-    }>;
-  };
+  dailySchedule?: CampaignDailySchedule;
 }
 
 export interface DashboardMetrics {
@@ -720,6 +736,7 @@ export interface ZapMassContextType {
       };
       /** Ignora limite de 24 h — só após confirmação explícita na triagem. */
       skipFrequencyCap?: boolean;
+      dailySchedule?: CampaignDailySchedule;
     }
   ) => Promise<string>;
   /** Grava campanha como agendada (sem socket); o servidor dispara no horário. */
@@ -746,6 +763,7 @@ export interface ZapMassContextType {
       replyFlow?: CampaignReplyFlow;
       channelWeights?: Record<string, number>;
       skipFrequencyCap?: boolean;
+      dailySchedule?: CampaignDailySchedule;
     }
   ) => Promise<string>;
   funnelStats: FunnelStats;

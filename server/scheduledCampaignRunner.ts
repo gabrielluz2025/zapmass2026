@@ -208,10 +208,24 @@ async function processOneCampaign(
           messageStages?: string[];
           connectionIds?: string[];
           delaySeconds?: number;
+          delaySecondsMax?: number;
+          humanizedPauses?: boolean;
           recipients?: Array<{ phone: string; vars: Record<string, string> }>;
           replyFlow?: { enabled?: boolean; steps?: unknown[] };
           channelWeights?: Record<string, number>;
           skipFrequencyCap?: boolean;
+          dailySchedule?: {
+            enabled: boolean;
+            days: Array<{ dayIndex: number; limitPerChannel: number }>;
+            allowedWeekdays?: number[];
+            timePeriodEnabled?: boolean;
+            periods?: Array<{
+              name: 'morning' | 'afternoon';
+              pct: number;
+              startHour: number;
+              endHour: number;
+            }>;
+          };
         }
       | undefined;
 
@@ -266,6 +280,13 @@ async function processOneCampaign(
 
     const cid = campaignId;
     const delaySeconds = Number(snap?.delaySeconds ?? data.delaySeconds);
+    const delaySecondsMax = Number(snap?.delaySecondsMax);
+    const dailySchedule =
+      snap?.dailySchedule && typeof snap.dailySchedule === 'object'
+        ? (snap.dailySchedule as Parameters<typeof evolutionService.startCampaign>[15])
+        : data.dailySchedule && typeof data.dailySchedule === 'object'
+          ? (data.dailySchedule as Parameters<typeof evolutionService.startCampaign>[15])
+          : undefined;
 
     const scheduledWeights =
       snap?.channelWeights && typeof snap.channelWeights === 'object' && snap.channelWeights !== null
@@ -286,7 +307,10 @@ async function processOneCampaign(
         undefined,
         Number.isFinite(delaySeconds) && delaySeconds > 0 ? delaySeconds : undefined,
         undefined,
-        snap?.skipFrequencyCap === true
+        snap?.skipFrequencyCap === true,
+        Number.isFinite(delaySecondsMax) && delaySecondsMax > 0 ? delaySecondsMax : undefined,
+        snap?.humanizedPauses !== false,
+        dailySchedule
       );
       if (!started) {
         console.warn('[ScheduledCampaign] startCampaign não iniciou (canais indisponíveis ou fila vazia). Reagendando.');

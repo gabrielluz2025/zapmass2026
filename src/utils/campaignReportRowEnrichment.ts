@@ -12,7 +12,7 @@ import {
 } from './campaignReportFromLogs';
 import { firstReplyAfterCampaignSend, latestCampaignSendTimestampMs } from './campaignReplyScope';
 
-export type ReportStatusLike = 'PENDING' | 'FAILED' | 'SENT' | 'DELIVERED' | 'READ' | 'REPLIED';
+export type ReportStatusLike = 'PENDING' | 'FAILED' | 'SENT' | 'DELIVERED' | 'READ' | 'REPLIED' | 'SKIPPED';
 
 function statusRank(status: string): number {
   return CAMPAIGN_REPORT_STATUS_RANK[status] ?? -1;

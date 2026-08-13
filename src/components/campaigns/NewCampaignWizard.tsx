@@ -32,6 +32,9 @@ import {
   CampaignReplyFlow,
   CampaignScheduleSlot,
   CampaignStageConfig,
+  CampaignDailySchedule,
+  Campaign,
+  CampaignStatus,
   Contact,
   ContactList,
   ConnectionStatus,
@@ -172,12 +175,15 @@ interface NewCampaignWizardProps {
       fileName: string;
       sendMediaAsDocument?: boolean;
     };
+    dailySchedule?: CampaignDailySchedule;
   }) => Promise<void>;
   /** Reidrata o assistente (clone / modelo). */
   initialDraft?: CampaignWizardDraft | null;
   onDraftConsumed?: () => void;
   /** Autosave para retomar ao trocar de aba (sidebar / F5). */
   onAutosave?: (draft: CampaignWizardDraft) => void;
+  /** Campanhas ativas — aviso de cota compartilhada no mesmo chip. */
+  campaigns?: Campaign[];
 }
 
 const STEPS = [
@@ -195,7 +201,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   onSubmit,
   initialDraft,
   onDraftConsumed,
-  onAutosave
+  onAutosave,
+  campaigns = []
 }) => {
   /** Conversas globais (socket) — usadas só para calcular temperatura. Tomadas via contexto isolado para evitar prop-drilling pesado e caching deferred. */
   const conversations = useZapMassConversations();
@@ -1443,6 +1450,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         recipients: buildRecipients(),
         contactListMeta,
         delaySeconds,
+        delaySecondsMax: delaySecondsMax > delaySeconds ? delaySecondsMax : undefined,
+        humanizedPauses,
         ...(cw ? { channelWeights: cw } : {}),
         ...(mediaPayload ? { mediaAttachment: mediaPayload } : {}),
         ...(followUpMediaPayload ? { followUpMediaAttachment: followUpMediaPayload } : {}),
@@ -2570,6 +2579,47 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                           {insufficient
                             ? 'O excedente fica em fila e sai amanhã, quando os limites zerarem. Adicione outro chip ou aumente o limite para enviar tudo hoje.'
                             : 'Cabe dentro do limite diário dos chips selecionados.'}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })()}
+
+              {(() => {
+                const selected = new Set(selectedConnectionIds);
+                const overlapping = campaigns.filter((c) => {
+                  const st = c.status;
+                  if (st !== CampaignStatus.RUNNING && st !== CampaignStatus.PAUSED && st !== CampaignStatus.WAITING_REPLY) {
+                    return false;
+                  }
+                  return (c.selectedConnectionIds || []).some((id) => selected.has(id));
+                });
+                if (overlapping.length === 0) return null;
+                const chipNames = overlapping
+                  .flatMap((c) =>
+                    (c.selectedConnectionIds || [])
+                      .filter((id) => selected.has(id))
+                      .map((id) => connections.find((x) => x.id === id)?.name || id)
+                  );
+                const uniqueChips = Array.from(new Set(chipNames));
+                return (
+                  <Card>
+                    <div className="flex items-start gap-2.5">
+                      <div
+                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                        style={{ background: 'rgba(245,158,11,0.12)' }}
+                      >
+                        <AlertTriangle className="w-4 h-4" style={{ color: '#f59e0b' }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-bold" style={{ color: 'var(--text-1)' }}>
+                          Estes chips já estão em outra campanha
+                        </p>
+                        <p className="text-[11.5px] mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>
+                          {overlapping.map((c) => c.name).join(', ')} {overlapping.length === 1 ? 'usa' : 'usam'}{' '}
+                          {uniqueChips.join(', ') || 'os mesmos canais'}. O limite diário do chip é compartilhado —
+                          o que sair hoje nesta lista desconta da cota da outra.
                         </p>
                       </div>
                     </div>

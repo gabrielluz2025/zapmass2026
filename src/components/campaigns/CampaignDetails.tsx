@@ -19,6 +19,7 @@ import {
   Reply,
   Search,
   Share2,
+  SkipForward,
   Smartphone,
   Terminal,
   TrendingUp,
@@ -120,8 +121,8 @@ interface CampaignDetailsProps {
   onTogglePause: (id: string) => void;
 }
 
-type ReportStatus = 'PENDING' | 'FAILED' | 'SENT' | 'DELIVERED' | 'READ' | 'REPLIED';
-type ReportFilter = 'ALL' | 'SENT_GROUP' | 'FAILED' | 'PENDING' | 'REPLIED';
+type ReportStatus = 'PENDING' | 'FAILED' | 'SENT' | 'DELIVERED' | 'READ' | 'REPLIED' | 'SKIPPED';
+type ReportFilter = 'ALL' | 'SENT_GROUP' | 'FAILED' | 'PENDING' | 'REPLIED' | 'SKIPPED';
 type LogFilter = 'ALL' | 'FAILED' | 'SENT';
 
 interface ReportRow {
@@ -151,7 +152,8 @@ const STATUS_META: Record<ReportStatus, { label: string; color: string; variant:
   SENT:      { label: 'Enviada',    color: '#94a3b8',       variant: 'neutral', icon: <Check className="w-3 h-3" /> },
   DELIVERED: { label: 'Entregue',   color: '#3b82f6',       variant: 'info',    icon: <CheckCheck className="w-3 h-3" /> },
   READ:      { label: 'Lida',       color: '#8b5cf6',       variant: 'info',    icon: <CheckCheck className="w-3 h-3" /> },
-  REPLIED:   { label: 'Respondeu',  color: '#10b981',       variant: 'success', icon: <Reply className="w-3 h-3" /> }
+  REPLIED:   { label: 'Respondeu',  color: '#10b981',       variant: 'success', icon: <Reply className="w-3 h-3" /> },
+  SKIPPED:   { label: 'Pulado',     color: '#f59e0b',       variant: 'warning', icon: <SkipForward className="w-3 h-3" /> }
 };
 
 const cleanPhone = (raw: string): string => (raw || '').replace(/\D/g, '');
@@ -292,13 +294,15 @@ const formatDuration = (seconds: number): string => {
 
 // Etapas da timeline por status
 const timelineStepsFor = (status: ReportStatus) => {
-  if (status === 'FAILED') return { sent: false, delivered: false, read: false, replied: false, failed: true };
+  if (status === 'FAILED') return { sent: false, delivered: false, read: false, replied: false, failed: true, skipped: false };
+  if (status === 'SKIPPED') return { sent: false, delivered: false, read: false, replied: false, failed: false, skipped: true };
   return {
     sent: ['SENT', 'DELIVERED', 'READ', 'REPLIED'].includes(status),
     delivered: ['DELIVERED', 'READ', 'REPLIED'].includes(status),
     read: ['READ', 'REPLIED'].includes(status),
     replied: status === 'REPLIED',
-    failed: false
+    failed: false,
+    skipped: false
   };
 };
 
@@ -329,6 +333,13 @@ const RowTimeline: React.FC<{ status: ReportStatus }> = ({ status }) => {
     return (
       <span className="inline-flex items-center gap-1" title="Falha">
         <XCircle className="w-3.5 h-3.5" style={{ color: '#ef4444' }} />
+      </span>
+    );
+  }
+  if (s.skipped) {
+    return (
+      <span className="inline-flex items-center gap-1" title="Pulado (já recebeu em 24 h)">
+        <SkipForward className="w-3.5 h-3.5" style={{ color: '#f59e0b' }} />
       </span>
     );
   }
@@ -880,7 +891,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const performance = useMemo(() => {
     const total = detailedReport.length;
     const counts: Record<ReportStatus, number> = {
-      PENDING: 0, FAILED: 0, SENT: 0, DELIVERED: 0, READ: 0, REPLIED: 0
+      PENDING: 0, FAILED: 0, SENT: 0, DELIVERED: 0, READ: 0, REPLIED: 0, SKIPPED: 0
     };
     let sumResponseMs = 0;
     let countResponses = 0;
@@ -992,7 +1003,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               SENT: Math.max(0, total - failCount - delivered),
               DELIVERED: delivered,
               READ: 0,
-              REPLIED: 0
+              REPLIED: 0,
+              SKIPPED: 0
             };
             return {
               ...performance,
@@ -1644,7 +1656,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           <div>
             <div className="flex justify-between items-center mb-1.5">
               <span className="text-[11.5px] font-medium" style={{ color: 'var(--text-3)' }}>
-                {metrics.effectiveProcessed.toLocaleString('pt-BR')} / {metrics.plannedSendTotal.toLocaleString('pt-BR')} enviados
+                {metrics.effectiveProcessed.toLocaleString('pt-BR')} / {metrics.plannedSendTotal.toLocaleString('pt-BR')} desta lista
               </span>
               <span className="text-[13px] font-black tabular-nums" style={{ color: accentHex }}>
                 {progress}%
@@ -1673,6 +1685,117 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               )}
             </div>
           </div>
+
+          {(() => {
+            const listSent =
+              performance.counts.SENT +
+              performance.counts.DELIVERED +
+              performance.counts.READ +
+              performance.counts.REPLIED;
+            const listPending = performance.counts.PENDING;
+            const listFailed = performance.counts.FAILED;
+            const listSkipped = performance.counts.SKIPPED;
+            const listName = campaign.contactListName?.trim() || 'esta campanha';
+            const roster = [
+              { label: 'Enviados', value: listSent, filter: 'SENT_GROUP' as ReportFilter, color: '#10b981', hint: 'já saíram' },
+              { label: 'Faltam', value: listPending, filter: 'PENDING' as ReportFilter, color: '#f59e0b', hint: 'ainda na fila' },
+              { label: 'Falhou', value: listFailed, filter: 'FAILED' as ReportFilter, color: '#ef4444', hint: 'erro real' },
+              { label: 'Pulados', value: listSkipped, filter: 'SKIPPED' as ReportFilter, color: '#fb923c', hint: 'já receberam em 24 h' }
+            ];
+            const selectedIds = campaign.selectedConnectionIds || [];
+            const chipRows = selectedIds.map((id) => {
+              const conn = connections.find((c) => c.id === id);
+              const limit = Number(conn?.dailyLimit) || 0;
+              const sentToday = Number(conn?.messagesSentToday) || 0;
+              const online = conn?.status === ConnectionStatus.CONNECTED;
+              return {
+                id,
+                name: conn?.name || id.slice(0, 12),
+                limit,
+                sentToday,
+                remaining: limit > 0 ? Math.max(0, limit - sentToday) : null,
+                online
+              };
+            });
+            return (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--text-3)' }}>
+                    Desta lista: {listName}
+                    <span className="font-medium normal-case tracking-normal ml-1.5" style={{ color: 'var(--text-3)' }}>
+                      — clique para ver os nomes no relatório
+                    </span>
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {roster.map((item) => (
+                      <button
+                        key={item.label}
+                        type="button"
+                        onClick={() => handleFilterClick(item.filter)}
+                        className="rounded-xl px-3 py-2.5 text-left transition-colors"
+                        style={{
+                          background: 'var(--surface-1)',
+                          border: detailFilter === item.filter ? `1px solid ${item.color}` : '1px solid var(--border-subtle)'
+                        }}
+                      >
+                        <div className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'var(--text-3)' }}>
+                          {item.label}
+                        </div>
+                        <div className="text-[18px] font-black tabular-nums leading-tight mt-0.5" style={{ color: item.color }}>
+                          {item.value.toLocaleString('pt-BR')}
+                        </div>
+                        <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-3)' }}>{item.hint}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {chipRows.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--text-3)' }}>
+                      Cota dos chips hoje
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {chipRows.map((chip) => {
+                        const pct = chip.limit > 0 ? Math.min(100, Math.round((chip.sentToday / chip.limit) * 100)) : 0;
+                        const barColor = !chip.online ? '#64748b' : chip.remaining === 0 ? '#ef4444' : '#10b981';
+                        return (
+                          <div
+                            key={chip.id}
+                            className="rounded-xl px-3 py-2"
+                            style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[12px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                                {chip.name}
+                              </span>
+                              <span className="text-[10px] font-bold shrink-0" style={{ color: chip.online ? '#10b981' : '#ef4444' }}>
+                                {chip.online ? 'online' : 'offline'}
+                              </span>
+                            </div>
+                            {chip.limit > 0 ? (
+                              <>
+                                <div className="text-[11px] tabular-nums mt-1" style={{ color: 'var(--text-2)' }}>
+                                  {chip.sentToday}/{chip.limit} hoje
+                                  {!chip.online ? ' · fora da cota do dia' : ''}
+                                </div>
+                                <div className="h-1 rounded-full overflow-hidden mt-1" style={{ background: 'var(--surface-2)' }}>
+                                  <div className="h-full rounded-full" style={{ width: `${pct}%`, background: barColor }} />
+                                </div>
+                              </>
+                            ) : (
+                              <div className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
+                                {chip.online ? 'sem teto diário neste chip' : 'reconecte para voltar a enviar'}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Row 4: Mini stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -2169,9 +2292,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 onChange={(v) => setDetailFilter(v as ReportFilter)}
                 items={[
                   { id: 'ALL', label: 'Todos' },
-                  { id: 'SENT_GROUP', label: 'Entregues' },
-                  { id: 'REPLIED', label: 'Responderam' },
-                  { id: 'FAILED', label: 'Falhas' }
+                  { id: 'SENT_GROUP', label: 'Enviados' },
+                  { id: 'PENDING', label: 'Faltam' },
+                  { id: 'FAILED', label: 'Falhas' },
+                  { id: 'SKIPPED', label: 'Pulados' },
+                  { id: 'REPLIED', label: 'Responderam' }
                 ]}
               />
               {performance.counts.FAILED > 0 && (
@@ -2255,7 +2380,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                       item,
                       replyPhonesFromLogs
                     ) as ReportStatus;
-                    const meta = STATUS_META[displayStatus];
+                    const meta = STATUS_META[displayStatus] ?? STATUS_META.PENDING;
                     const nameForInitials = (item.contactName || '').trim();
                     const initials =
                       nameForInitials &&

@@ -3,6 +3,7 @@ import { recipientKeyForCampaignReport } from './campaignReportDedupe';
 import {
   buildReplyHintsFromLogs,
   CAMPAIGN_SENT_LOG_MESSAGE,
+  isCampaignFrequencyCapSkipLog,
   isCampaignReplyLogPayload,
   campaignLogPayloadMatchesCampaign,
   logPayloadPhoneKey,
@@ -16,7 +17,7 @@ export type BuiltReportRow = {
   id: string;
   phone: string;
   contactName: string;
-  status: 'PENDING' | 'FAILED' | 'SENT' | 'DELIVERED' | 'READ' | 'REPLIED';
+  status: 'PENDING' | 'FAILED' | 'SENT' | 'DELIVERED' | 'READ' | 'REPLIED' | 'SKIPPED';
   sentTime: string;
   sentTimestampMs: number;
   replyText?: string;
@@ -81,7 +82,7 @@ export function buildPrimaryReportRowsFromLogs(
         firstSentMs: Number.MAX_SAFE_INTEGER,
         lastSentMs: 0,
         sentTime: '—',
-        status: 'SENT',
+        status: 'PENDING',
         id: `log-${phone}`
       };
       byPhone.set(phone, acc);
@@ -112,7 +113,15 @@ export function buildPrimaryReportRowsFromLogs(
       }
       if (ts > acc.lastSentMs) acc.lastSentMs = ts;
       if (p.connectionId) acc.connectionId = p.connectionId;
-      if (acc.status !== 'FAILED') acc.status = 'SENT';
+      if (acc.status !== 'FAILED' && acc.status !== 'REPLIED') acc.status = 'SENT';
+      continue;
+    }
+
+    if (isCampaignFrequencyCapSkipLog(msg, p.skipReason)) {
+      if (acc.status === 'PENDING') {
+        acc.status = 'SKIPPED';
+        acc.errorMessage = 'Já recebeu mensagem nas últimas 24 h';
+      }
       continue;
     }
 

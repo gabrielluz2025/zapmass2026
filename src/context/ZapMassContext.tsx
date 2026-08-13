@@ -15,11 +15,12 @@ import {
   WhatsAppConnection, 
   ConnectionStatus, 
   CampaignStatus,
-  Campaign, 
+  Campaign,
   CampaignReplyFlow,
   CampaignStageConfig,
   CampaignScheduleSlot,
-  DashboardMetrics, 
+  CampaignDailySchedule,
+  DashboardMetrics,
   ZapMassContextType,
   BirthdayContact,
   ChatMessage,
@@ -3803,6 +3804,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         sendMediaAsDocument?: boolean;
       };
       skipFrequencyCap?: boolean;
+      dailySchedule?: CampaignDailySchedule;
     }
   ) => {
     const uid = currentUidRef.current;
@@ -3871,6 +3873,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
         ? { channelWeights: options.channelWeights }
         : {}),
+      ...(options?.dailySchedule?.enabled ? { dailySchedule: options.dailySchedule } : {}),
       createdAt: new Date().toISOString(),
       scheduleStartSnapshot: {
         numbers: cleanNumbers,
@@ -3878,11 +3881,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         messageStages: stagesForDoc,
         connectionIds: targetConnections,
         delaySeconds: options?.delaySeconds,
+        delaySecondsMax: options?.delaySecondsMax,
+        humanizedPauses: options?.humanizedPauses !== false,
         ...(cleanRecipients && cleanRecipients.length > 0 ? { recipients: cleanRecipients } : {}),
         ...(options?.replyFlow?.enabled ? { replyFlow: options.replyFlow } : {}),
         ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
           ? { channelWeights: options.channelWeights }
           : {}),
+        ...(options?.dailySchedule?.enabled ? { dailySchedule: options.dailySchedule } : {}),
         ...(options?.skipFrequencyCap ? { skipFrequencyCap: true } : {})
       }
     };
@@ -3955,7 +3961,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             stageConfigs: options?.stageConfigs,
             mediaAttachment: options?.mediaAttachment,
             followUpMediaAttachment: options?.followUpMediaAttachment,
-            skipFrequencyCap: options?.skipFrequencyCap === true
+            skipFrequencyCap: options?.skipFrequencyCap === true,
+            dailySchedule: options?.dailySchedule?.enabled ? options.dailySchedule : undefined
           },
           (result?: { ok?: boolean; error?: string }) => {
             if (result?.ok === true) {
@@ -4038,6 +4045,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       replyFlow?: CampaignReplyFlow;
       channelWeights?: Record<string, number>;
       skipFrequencyCap?: boolean;
+      dailySchedule?: CampaignDailySchedule;
+      delaySecondsMax?: number;
+      humanizedPauses?: boolean;
     }
   ) => {
     const uid = currentUidRef.current;
@@ -4109,6 +4119,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactListId: contactListMeta?.id || '',
       contactListName: contactListMeta?.name || '',
       delaySeconds: options?.delaySeconds,
+      ...(options?.dailySchedule?.enabled ? { dailySchedule: options.dailySchedule } : {}),
       createdAt: new Date().toISOString(),
       scheduleTimeZone: schedule.timeZone,
       weeklySchedule: { slots: schedule.slots },
@@ -4126,11 +4137,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         messageStages: stagesForDoc,
         connectionIds: targetConnections,
         delaySeconds: options?.delaySeconds,
+        delaySecondsMax: options?.delaySecondsMax,
+        humanizedPauses: options?.humanizedPauses !== false,
         ...(cleanRecipients && cleanRecipients.length > 0 ? { recipients: cleanRecipients } : {}),
         ...(options?.replyFlow?.enabled ? { replyFlow: options.replyFlow } : {}),
         ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
           ? { channelWeights: options.channelWeights }
           : {}),
+        ...(options?.dailySchedule?.enabled ? { dailySchedule: options.dailySchedule } : {}),
         ...(options?.skipFrequencyCap ? { skipFrequencyCap: true } : {})
       }
     };

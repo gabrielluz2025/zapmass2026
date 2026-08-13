@@ -311,6 +311,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       sendMediaAsDocument?: boolean;
     };
     skipFrequencyCap?: boolean;
+    dailySchedule?: import('../types').CampaignDailySchedule;
   }) => {
     if (payload.connectedIds.length === 0) {
       toast.error('Selecione pelo menos um chip conectado para disparar.');
@@ -340,7 +341,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 messageStages: payload.messageStages,
                 replyFlow: payload.replyFlow,
                 channelWeights: payload.channelWeights,
-                skipFrequencyCap: payload.skipFrequencyCap
+                skipFrequencyCap: payload.skipFrequencyCap,
+                dailySchedule: payload.dailySchedule
               }
             )
           : await startCampaign(
@@ -361,7 +363,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 stageConfigs: payload.stageConfigs,
                 mediaAttachment: payload.mediaAttachment,
                 followUpMediaAttachment: payload.followUpMediaAttachment,
-                skipFrequencyCap: payload.skipFrequencyCap
+                skipFrequencyCap: payload.skipFrequencyCap,
+                dailySchedule: payload.dailySchedule
               }
             );
       appendAudit({
@@ -613,6 +616,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
             });
           }}
           onSubmit={handleSubmitCampaign}
+          campaigns={campaigns}
         />
       ) : viewState === 'details' && activeCampaign ? (
         <CampaignDetails
