@@ -7,12 +7,15 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
+import http from 'node:http';
+import https from 'node:https';
 import { Queue, Worker, Job, DelayedError, UnrecoverableError } from 'bullmq';
 import IORedis from 'ioredis';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { evolutionConfig } from './evolutionConfig.js';
+import { attachEvolutionAxiosRetry } from './evolutionAxiosRetry.js';
 import { notifyTenant } from './tenantNotifyService.js';
 import { getEffectiveRedisUrl } from './redisConfig.js';
 import {
@@ -2868,14 +2871,20 @@ export async function applySettings(ownerUid: string, settings: Partial<TenantSe
 }
 
 // Cliente HTTP configurado
+const evolutionHttpAgent = new http.Agent({ family: 4, keepAlive: true });
+const evolutionHttpsAgent = new https.Agent({ family: 4, keepAlive: true });
+
 const api: AxiosInstance = axios.create({
     baseURL: evolutionConfig.apiUrl,
     timeout: evolutionConfig.timeout,
+    httpAgent: evolutionHttpAgent,
+    httpsAgent: evolutionHttpsAgent,
     headers: {
         'apikey': evolutionConfig.apiKey,
         'Content-Type': 'application/json',
     },
 });
+attachEvolutionAxiosRetry(api);
 
 const chatStore: EvolutionChatStore = createEvolutionChat(api, {
     resolveConnectionOwnerUid,

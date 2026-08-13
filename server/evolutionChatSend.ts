@@ -10,6 +10,7 @@ import {
   pickSendableWaJidAlt,
   plausiblePhoneDigits
 } from './evolutionLidResolve.js';
+import { evolutionNetworkUserMessage, isTransientEvolutionNetworkError } from './evolutionAxiosRetry.js';
 
 function formatPhoneForError(raw: string): string {
   const key = normPhoneKey(raw) || raw.replace(/\D/g, '');
@@ -177,6 +178,9 @@ export function resolveOutboundSendTarget(
 }
 
 export function formatEvolutionHttpError(err: unknown, originalPhone?: string): string {
+  if (isTransientEvolutionNetworkError(err)) {
+    return evolutionNetworkUserMessage();
+  }
   const ax = err as { response?: { data?: unknown }; message?: string };
   const data = ax?.response?.data;
   if (data && typeof data === 'object') {
