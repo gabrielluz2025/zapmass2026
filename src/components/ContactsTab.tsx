@@ -127,6 +127,7 @@ import {
 import {
   clearWaNameSyncProgress,
   getWaNameSyncProgress,
+  markWaNameSyncAutoStartedToday,
   setWaNameSyncProgress,
   subscribeWaNameSyncProgress,
 } from '../utils/waNameSyncProgressStore';
@@ -4252,8 +4253,15 @@ export const ContactsTab: React.FC = () => {
         }
         void refreshContactsSavedTotal?.();
         void refreshContacts?.();
+        const silent = getWaNameSyncProgress().autoCloseOnDone;
         if (sj.status === 'done') {
-          toast.success(sj.message || 'Nomes do WhatsApp sincronizados.');
+          if (!silent) toast.success(sj.message || 'Nomes do WhatsApp sincronizados.');
+          window.setTimeout(() => {
+            const cur = getWaNameSyncProgress();
+            if (cur.job?.id === jobId && cur.job.status !== 'running') {
+              clearWaNameSyncProgress();
+            }
+          }, silent ? 1200 : 2200);
         } else if (sj.status === 'error' || sj.status === 'cancelled') {
           toast.error(sj.lastError || sj.message || 'Sincronização de nomes interrompida.');
         }
@@ -4276,6 +4284,7 @@ export const ContactsTab: React.FC = () => {
           ids: opts.ids,
         });
         applyWaNameSyncJobToStore(job);
+        setWaNameSyncProgress({ autoCloseOnDone: opts.silent === true });
         if (!opts.silent) {
           toast.success(
             opts.mode === 'ids'
@@ -4455,7 +4464,8 @@ export const ContactsTab: React.FC = () => {
       .filter((c) => isSuspiciousContactName(c.name || ''));
     if (suspiciousVisible.length < 3) return;
     const t = window.setTimeout(() => {
-      setWaNameSyncProgress({ autoStartedOnce: true });
+      setWaNameSyncProgress({ autoStartedOnce: true, autoCloseOnDone: true });
+      markWaNameSyncAutoStartedToday();
       void startWaNameSync({
         mode: 'ids',
         ids: suspiciousVisible.slice(0, 40).map((c) => c.id),
