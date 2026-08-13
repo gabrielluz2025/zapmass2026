@@ -6296,9 +6296,22 @@ export const sendMessage = async (conversationId: string, text: string) => {
         });
     }
     emitConversationsUpdate();
-};
 
-const inferChatMessageTypeFromMime = (mimeType: string): ChatMessage['type'] => {
+    // Conta envio 1:1 (parabéns / chat) no chip e no funil — mesmo critério da Evolution.
+    const connInfo = connectionsInfo.find((c) => c.id === connectionId);
+    if (connInfo) {
+        connInfo.messagesSentToday = (connInfo.messagesSentToday || 0) + 1;
+        connInfo.totalMessagesSent = (connInfo.totalMessagesSent || 0) + 1;
+        emitConnectionsUpdate();
+    }
+    recordConnectionDispatch(connectionId);
+    evolutionTrackManualMessageSent(
+        typeof msgId === 'string' ? msgId : undefined,
+        connectionId,
+        toPhoneKey(jid),
+        connInfo?.ownerUid
+    );
+};
     const mime = String(mimeType || '').toLowerCase();
     if (mime.startsWith('image/')) return 'image';
     if (mime.startsWith('video/')) return 'video';
@@ -6373,6 +6386,20 @@ export const sendMedia = async (
         });
     }
     emitConversationsUpdate();
+
+    const connInfo = connectionsInfo.find((c) => c.id === connectionId);
+    if (connInfo) {
+        connInfo.messagesSentToday = (connInfo.messagesSentToday || 0) + 1;
+        connInfo.totalMessagesSent = (connInfo.totalMessagesSent || 0) + 1;
+        emitConnectionsUpdate();
+    }
+    recordConnectionDispatch(connectionId);
+    evolutionTrackManualMessageSent(
+        typeof msgId === 'string' ? msgId : undefined,
+        connectionId,
+        toPhoneKey(jid),
+        connInfo?.ownerUid
+    );
 };
 
 // Função de envio registrada externamente (usada quando SESSION_PROCESS_MODE=api, sem Baileys local)

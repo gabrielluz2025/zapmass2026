@@ -75,7 +75,8 @@ import { useWorkspace } from './WorkspaceContext';
 import { filterConnectionsForViewer, ownsConnectionForUid } from '../utils/connectionScope';
 import {
   mergeConnectionStatus,
-  mergeWhatsAppConnectionLists
+  mergeWhatsAppConnectionLists,
+  connectionListLooksUnchanged
 } from '../utils/connectionStateMerge';
 import { apiUrl, getSocketIoOrigin, isLikelySplitStaticFrontend } from '../utils/apiBase';
 import { MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
@@ -1641,21 +1642,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           }
         }
         /** Ignorar update sem mudanças relevantes — evita rerender em cascata pela referência nova. */
-        if (
-          prev.length === result.length &&
-          prev.every((p, i) => {
-            const r = result[i];
-            return (
-              p.id === r.id &&
-              p.status === r.status &&
-              p.qrCode === r.qrCode &&
-              p.name === r.name &&
-              p.phoneNumber === r.phoneNumber &&
-              (p.ownerUid ?? '') === (r.ownerUid ?? '') &&
-              (p.healthScore ?? 100) === (r.healthScore ?? 100)
-            );
-          })
-        ) {
+        if (connectionListLooksUnchanged(scopedPrev, result)) {
           return prev;
         }
         // ── Detecta chip offline (open → não-open) e notifica com toast ──────
@@ -3383,6 +3370,18 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         'send-message',
         { conversationId: canonicalId, text: trimmed },
         (resp: { ok?: boolean; error?: string }) => {
+          if (resp?.ok) {
+            const connId = canonicalId.split(':')[0] || '';
+            if (connId) {
+              setConnections((prev) =>
+                prev.map((c) =>
+                  c.id === connId
+                    ? { ...c, messagesSentToday: (Number(c.messagesSentToday) || 0) + 1 }
+                    : c
+                )
+              );
+            }
+          }
           finish({ ok: !!resp?.ok, error: resp?.error });
         }
       );
@@ -3439,6 +3438,19 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         });
       }, TIMEOUT_MS);
       socket.emit('send-media', { conversationId, ...payload }, (resp?: { ok: boolean; error?: string }) => {
+        if (resp?.ok) {
+          const canonical = normalizeConversationId(conversationId);
+          const connId = canonical.split(':')[0] || '';
+          if (connId) {
+            setConnections((prev) =>
+              prev.map((c) =>
+                c.id === connId
+                  ? { ...c, messagesSentToday: (Number(c.messagesSentToday) || 0) + 1 }
+                  : c
+              )
+            );
+          }
+        }
         finish(resp || { ok: false, error: 'Sem resposta do servidor.' });
       });
     });

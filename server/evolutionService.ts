@@ -6719,36 +6719,63 @@ export async function setConnectionProxy(id: string, proxy: ConnectionProxyConfi
 /** Conta envio 1:1 (parabéns / bate-papo) no teto do chip e no funil do painel. */
 function recordManualOutboundSend(conversationId: string): void {
     const sep = String(conversationId || '').indexOf(':');
-    if (sep <= 0) return;
+    if (sep <= 0) {
+        log('warn', 'recordManualOutboundSend: conversationId sem connectionId', { conversationId });
+        return;
+    }
     const connectionId = conversationId.slice(0, sep).trim();
     const phoneDigits = normalizePhoneKey(conversationId.slice(sep + 1));
     if (!connectionId) return;
 
-    const conn = connections.get(connectionId);
-    if (conn) {
-        checkAndResetDailyLimits(conn);
-        conn.messagesSentToday = (conn.messagesSentToday || 0) + 1;
-        recordConnectionDispatch(connectionId);
-        mergeConnectionSettingsCache(connectionId, {
-            dailyLimit: conn.dailyLimit,
-            growthRate: conn.growthRate,
-            growthType: conn.growthType,
-            limitAction: conn.limitAction,
-            messagesSentToday: conn.messagesSentToday,
-            limitExceededApproved: conn.limitExceededApproved,
-            lastLimitResetDate: conn.lastLimitResetDate,
-            ownerUid: conn.ownerUid,
-            friendlyName: conn.friendlyName,
+    let mapKey = connectionId;
+    let conn = connections.get(connectionId);
+    if (!conn) {
+        // Fallback: alguns boots usam chave com capitalização/alias diferente.
+        for (const [id, c] of connections.entries()) {
+            if (id.toLowerCase() === connectionId.toLowerCase()) {
+                conn = c;
+                mapKey = id;
+                break;
+            }
+        }
+    }
+    if (!conn) {
+        log('warn', 'recordManualOutboundSend: chip não encontrado no mapa', {
+            connectionId,
+            known: Array.from(connections.keys()).slice(0, 20),
         });
-        saveConnectionsSettings();
-        const ownerUid = resolveOwnerUid(connectionId);
-        if (ownerUid) {
-            publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
+        return;
+    }
+
+    checkAndResetDailyLimits(conn);
+    conn.messagesSentToday = (conn.messagesSentToday || 0) + 1;
+    recordConnectionDispatch(mapKey);
+    mergeConnectionSettingsCache(mapKey, {
+        dailyLimit: conn.dailyLimit,
+        growthRate: conn.growthRate,
+        growthType: conn.growthType,
+        limitAction: conn.limitAction,
+        messagesSentToday: conn.messagesSentToday,
+        limitExceededApproved: conn.limitExceededApproved,
+        lastLimitResetDate: conn.lastLimitResetDate,
+        ownerUid: conn.ownerUid,
+        friendlyName: conn.friendlyName,
+    });
+    saveConnectionsSettings();
+    const ownerUid = resolveOwnerUid(mapKey);
+    if (ownerUid) {
+        publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
+    } else {
+        warnUnscopedConnectionEvent(mapKey, 'connections-update');
+        // Ainda emite no socket global se existir — melhor UI desatualizada do que zero eterno.
+        try {
+            io?.emit('connections-update', getConnections());
+        } catch {
+            /* ignore */
         }
     }
 
-    const ownerUid = resolveOwnerUid(connectionId);
-    evolutionTrackManualMessageSent(undefined, connectionId, phoneDigits, ownerUid);
+    evolutionTrackManualMessageSent(undefined, mapKey, phoneDigits, ownerUid);
 }
 
 // sendMessage compatível com server.ts (conversationId, text)

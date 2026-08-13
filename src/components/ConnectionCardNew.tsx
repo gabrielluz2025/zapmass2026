@@ -596,7 +596,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                 </div>
                 <div className="flex items-baseline gap-1">
                   <span className="text-xl font-black text-slate-900 dark:text-white tabular-nums">
-                    {connection.messagesSentToday.toLocaleString()}
+                    {dispatchInsights.sentToday.toLocaleString()}
                   </span>
                   {connection.dailyLimit && connection.dailyLimit > 0 ? (
                     <span className="text-xs text-slate-400 tabular-nums">/ {connection.dailyLimit}</span>
@@ -622,7 +622,9 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                   </span>
                 ) : null}
                 <Zap className="w-3 h-3 text-purple-500 mx-auto mb-1" />
-                <span className="text-xs font-black text-slate-900 dark:text-white tabular-nums block">{(connection.totalMessagesSent || 0).toLocaleString()}</span>
+                <span className="text-xs font-black text-slate-900 dark:text-white tabular-nums block">
+                  {(chipStats?.totalSent ?? connection.totalMessagesSent ?? 0).toLocaleString()}
+                </span>
                 <span className="text-[8px] font-black text-slate-400 uppercase">Total</span>
               </div>
               <div className="p-2.5 rounded-xl text-center" style={{ background: 'var(--surface-2)' }}>
@@ -651,30 +653,30 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
           </div>
         )}
 
-        {/* Footer actions */}
-        <div className="flex items-center justify-between pt-3 border-t pr-1" style={{ borderColor: 'var(--border)' }}>
+        {/* Footer actions — wrap evita ícones cortados pelo overflow do card */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
           {/* Battery */}
           {connection.batteryLevel !== undefined ? (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 shrink-0">
               <div className={`w-6 h-3 rounded-sm border p-px ${connection.batteryLevel < 20 ? 'border-red-400' : 'border-slate-300 dark:border-slate-600'}`}>
                 <div className={`h-full rounded-[1px] ${connection.batteryLevel < 20 ? 'bg-red-500' : 'bg-emerald-500'}`}
                   style={{ width: `${connection.batteryLevel}%` }} />
               </div>
               <span className="text-[10px] font-black text-slate-400 tabular-nums">{connection.batteryLevel}%</span>
             </div>
-          ) : <div />}
+          ) : <div className="shrink-0" />}
 
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center justify-end gap-1.5 min-w-0">
             {!isConnected && !isConnecting && (
               <>
                 <button onClick={() => onReconnect(connection.id)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95 hover:shadow-lg"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95 hover:shadow-lg shrink-0"
                   style={{ background: 'linear-gradient(135deg, #10b981, #059669)', boxShadow: '0 2px 12px rgba(16,185,129,0.3)' }}>
                   <Power className="w-3.5 h-3.5" />
                   Conectar
                 </button>
                 <button onClick={() => onForceQr(connection.id)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95 shrink-0"
                   style={{ background: 'rgba(245,158,11,0.1)', color: '#d97706', border: '1px solid rgba(245,158,11,0.2)' }}>
                   <QrCode className="w-3.5 h-3.5" />
                   QR
@@ -687,7 +689,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                   type="button"
                   onClick={() => onReconnect(connection.id)}
                   title="Reinicia a sessão WhatsApp deste canal"
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95 hover:opacity-90"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95 hover:opacity-90 shrink-0"
                   style={{
                     background: 'rgba(16,185,129,0.12)',
                     color: '#059669',
@@ -706,7 +708,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                     )) return;
                     onLogoutConnection(connection.id);
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95 shrink-0"
                   style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }}>
                   <LogOut className="w-3.5 h-3.5" />
                   Desconectar
@@ -715,7 +717,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
             )}
             {isConnecting && (
               <button onClick={() => onForceQr(connection.id)}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
+                className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95 shrink-0"
                 style={{ background: 'rgba(245,158,11,0.08)', color: '#d97706' }}>
                 <QrCode className="w-3.5 h-3.5" />
                 Forçar QR
@@ -725,8 +727,13 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
               type="button"
               onClick={runDiagnosis}
               disabled={isDiagnosing}
-              className={`p-2 transition-all rounded-xl active:scale-90 ${isDiagnosing ? 'text-amber-500 animate-pulse bg-amber-500/10' : 'text-slate-400 hover:text-amber-500 hover:bg-amber-500/10 dark:hover:bg-amber-500/10'}`}
+              className={`p-2 shrink-0 transition-all rounded-xl active:scale-90 border ${
+                isDiagnosing
+                  ? 'text-amber-500 animate-pulse bg-amber-500/15 border-amber-500/30'
+                  : 'text-slate-600 dark:text-slate-200 bg-slate-100 dark:bg-slate-700/80 border-slate-200 dark:border-slate-600 hover:text-amber-500 hover:bg-amber-500/10 hover:border-amber-500/30'
+              }`}
               title="Executar Auto-Diagnóstico de Integridade"
+              aria-label="Diagnóstico"
             >
               <Activity className={`w-4 h-4 ${isDiagnosing ? 'animate-spin' : ''}`} />
             </button>
@@ -734,14 +741,24 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
               <button
                 type="button"
                 onClick={() => setSettingsOpen(!settingsOpen)}
-                className={`p-2 transition-all rounded-xl active:scale-90 ${settingsOpen ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10'}`}
+                className={`p-2 shrink-0 transition-all rounded-xl active:scale-90 border ${
+                  settingsOpen
+                    ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/15 border-emerald-500/40'
+                    : 'text-slate-600 dark:text-slate-200 bg-slate-100 dark:bg-slate-700/80 border-slate-200 dark:border-slate-600 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10'
+                }`}
                 title="Configurações de Limite & Crescimento"
+                aria-label="Configurações"
               >
                 <Settings className="w-4 h-4" />
               </button>
             )}
-            <button onClick={() => onDisconnect(connection.id)}
-              className="p-2 text-slate-400 hover:text-red-500 transition-all rounded-xl hover:bg-red-50 dark:hover:bg-red-500/10 active:scale-90">
+            <button
+              type="button"
+              onClick={() => onDisconnect(connection.id)}
+              className="p-2 shrink-0 text-slate-600 dark:text-slate-200 bg-slate-100 dark:bg-slate-700/80 border border-slate-200 dark:border-slate-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 hover:border-red-500/30 transition-all rounded-xl active:scale-90"
+              title="Remover canal"
+              aria-label="Remover canal"
+            >
               <Trash2 className="w-4 h-4" />
             </button>
           </div>

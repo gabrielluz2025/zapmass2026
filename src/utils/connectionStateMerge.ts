@@ -63,3 +63,28 @@ export function mergeWhatsAppConnectionLists(
   }
   return merged;
 }
+
+/** Campos que, se mudarem, devem forçar re-render da lista de conexões. */
+export function connectionListLooksUnchanged(
+  prev: WhatsAppConnection[],
+  next: WhatsAppConnection[]
+): boolean {
+  if (prev.length !== next.length) return false;
+  return prev.every((p, i) => {
+    const r = next[i];
+    if (!r || p.id !== r.id) return false;
+    return (
+      p.status === r.status &&
+      p.qrCode === r.qrCode &&
+      p.name === r.name &&
+      p.phoneNumber === r.phoneNumber &&
+      (p.ownerUid ?? '') === (r.ownerUid ?? '') &&
+      (p.healthScore ?? 100) === (r.healthScore ?? 100) &&
+      (Number(p.messagesSentToday) || 0) === (Number(r.messagesSentToday) || 0) &&
+      (Number(p.queueSize) || 0) === (Number(r.queueSize) || 0) &&
+      (Number(p.dailyLimit) || 0) === (Number(r.dailyLimit) || 0) &&
+      (p.connectedSince ?? 0) === (r.connectedSince ?? 0) &&
+      (Number(p.batteryLevel) || 0) === (Number(r.batteryLevel) || 0)
+    );
+  });
+}
