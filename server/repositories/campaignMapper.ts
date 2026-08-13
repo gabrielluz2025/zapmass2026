@@ -70,7 +70,8 @@ export function rowToCampaign(row: CampaignRow): Campaign {
         : undefined,
     lastRunAt: typeof raw.lastRunAt === 'string' ? raw.lastRunAt : undefined,
     scheduleStartSnapshot: raw.scheduleStartSnapshot as Campaign['scheduleStartSnapshot'],
-    channelWeights: raw.channelWeights as Campaign['channelWeights']
+    channelWeights: raw.channelWeights as Campaign['channelWeights'],
+    dailySchedule: raw.dailySchedule as Campaign['dailySchedule']
   };
 }
 

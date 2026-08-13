@@ -18,7 +18,8 @@ describe('campaignMapper', () => {
         successCount: 2,
         failedCount: 1,
         selectedConnectionIds: ['c1'],
-        createdAt: '2026-01-01T00:00:00.000Z'
+        createdAt: '2026-01-01T00:00:00.000Z',
+        dailySchedule: { enabled: true, days: [{ dayIndex: 0, limitPerChannel: 80 }] }
       },
       created_at: new Date('2026-01-01'),
       updated_at: new Date('2026-01-01')
@@ -26,6 +27,8 @@ describe('campaignMapper', () => {
     expect(c.status).toBe(CampaignStatus.RUNNING);
     expect(c.totalContacts).toBe(10);
     expect(c.selectedConnectionIds).toEqual(['c1']);
+    expect(c.dailySchedule?.enabled).toBe(true);
+    expect(c.dailySchedule?.days?.[0]?.limitPerChannel).toBe(80);
   });
 
   it('campaignDocPayload inclui ownerUid', () => {

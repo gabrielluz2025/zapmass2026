@@ -902,7 +902,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     for (const r of detailedReport) {
       const rk = recipientKeyForCampaignReport(r.phone);
       const effectiveStatus = effectiveCampaignReportStatus(r, replyPhonesFromLogs);
-      counts[effectiveStatus]++;
+      if (effectiveStatus in counts) {
+        counts[effectiveStatus as ReportStatus]++;
+      }
       if (r.connectionId) {
         const cur = perChip.get(r.connectionId) || { sent: 0, replied: 0 };
         cur.sent++;

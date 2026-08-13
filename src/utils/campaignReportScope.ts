@@ -39,11 +39,14 @@ export function collectPlannedRecipientPhones(
       const rk = recipientKeyForCampaignReport(r.phone);
       if (rk) out.add(rk);
     }
-  } else if (snap?.numbers?.length) {
+    return out;
+  }
+  if (snap?.numbers?.length) {
     for (const n of snap.numbers) {
       const rk = recipientKeyForCampaignReport(n);
       if (rk) out.add(rk);
     }
+    return out;
   }
   const listId = campaign.contactListId?.trim();
   if (listId) {

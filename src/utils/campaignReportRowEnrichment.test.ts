@@ -35,4 +35,28 @@ describe('enrichCampaignReportRow', () => {
     expect(row.status).toBe('REPLIED');
     expect(row.replyText).toBe('Oi, tudo bem?');
   });
+
+  it('não marca PENDING como enviado só porque o contato já tem conversa', () => {
+    const row = enrichCampaignReportRow(
+      {
+        phone: '5511991227881',
+        status: 'PENDING',
+        sentTimestampMs: 0
+      },
+      {
+        campaignId: 'c1',
+        scopedLogs: [],
+        conversations: [
+          {
+            id: 'chip:5511991227881',
+            connectionId: 'chip',
+            contactPhone: '5511991227881',
+            messages: [{ sender: 'them', text: 'oi', timestampMs: 1 }]
+          } as never
+        ],
+        allowedConnectionIds: ['chip']
+      }
+    );
+    expect(row.status).toBe('PENDING');
+  });
 });

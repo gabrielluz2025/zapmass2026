@@ -58,6 +58,7 @@ import {
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
 import { pickOpenFailoverChannel } from './campaignChannelFailover.js';
+import { computeDailyScheduleDelayMs } from './campaignDailyScheduleDelay.js';
 import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
 import { refreshRedispatchTargetPhones } from './campaignRedispatchPhoneRefresh.js';
 import {
@@ -4387,6 +4388,28 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         throw new DelayedError();
     }
 
+    const chipUsable = (id: string) =>
+        connections.get(id)?.status === 'open' && !getConnectionBanInfo(id).inQuarantine;
+    if (!chipUsable(item.connectionId)) {
+        const failoverId = pickOpenFailoverChannel(
+            item.connectionId,
+            item.alternateChannelIds,
+            chipUsable
+        );
+        if (failoverId && failoverId !== item.connectionId) {
+            emitCampaignLog(
+                'WARN',
+                `Chip ${item.connectionId} indisponível — alternando para ${failoverId} antes do envio`,
+                { campaignId: item.campaignId, de: item.connectionId, para: failoverId, to: item.to },
+                campaignState?.ownerUid
+            );
+            item.connectionId = failoverId;
+            await job.updateData(item).catch(() => {});
+            await job.moveToDelayed(Date.now() + 2000, token);
+            throw new DelayedError();
+        }
+    }
+
     // Bloqueia chips em quarentena (recuperados de ban) para proteger contra novo bloqueio
     const banInfoForJob = getConnectionBanInfo(item.connectionId);
     if (banInfoForJob.inQuarantine) {
@@ -4485,7 +4508,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         const failoverId = pickOpenFailoverChannel(
             item.connectionId,
             item.alternateChannelIds,
-            (id) => connections.get(id)?.status === 'open'
+            (id) => connections.get(id)?.status === 'open' && !getConnectionBanInfo(id).inQuarantine
         );
         if (failoverId && failoverId !== item.connectionId) {
             emitCampaignLog(
@@ -4496,24 +4519,25 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             );
             item.connectionId = failoverId;
             await job.updateData(item).catch(() => {});
-        } else {
-            item._offlineDelayCount = (item._offlineDelayCount || 0) + 1;
-            if (item._offlineDelayCount > 180) {
-                const state = await getConnectionState(item.connectionId);
-                throw new Error(
-                    `Nenhum chip do grupo conectado após várias tentativas (${item.connectionId}, ${state})`
-                );
-            }
-            emitCampaignLog(
-                'WARN',
-                `Grupo sem chip conectado — reagenda em 2 min (tentativa ${item._offlineDelayCount})`,
-                { campaignId: item.campaignId, connectionId: item.connectionId, to: item.to },
-                campaignState?.ownerUid
-            );
-            await job.updateData(item).catch(() => {});
-            await job.moveToDelayed(Date.now() + 120_000, token);
+            await job.moveToDelayed(Date.now() + 2000, token);
             throw new DelayedError();
         }
+        item._offlineDelayCount = (item._offlineDelayCount || 0) + 1;
+        if (item._offlineDelayCount > 180) {
+            const state = await getConnectionState(item.connectionId);
+            throw new Error(
+                `Nenhum chip do grupo conectado após várias tentativas (${item.connectionId}, ${state})`
+            );
+        }
+        emitCampaignLog(
+            'WARN',
+            `Grupo sem chip conectado — reagenda em 2 min (tentativa ${item._offlineDelayCount})`,
+            { campaignId: item.campaignId, connectionId: item.connectionId, to: item.to },
+            campaignState?.ownerUid
+        );
+        await job.updateData(item).catch(() => {});
+        await job.moveToDelayed(Date.now() + 120_000, token);
+        throw new DelayedError();
     }
 
     const normalizedDest = normalizeOutboundNumber(item.to);
@@ -5509,44 +5533,17 @@ export async function startCampaign(
                         ? Math.round((120_000 + Math.random() * 180_000))
                         : 0);
 
-                // Calcula offset de dias considerando skip weekends
-                let dayOffsetMs = 0;
-                const allowed = dailySchedule?.allowedWeekdays;
-                if (allowed && allowed.length > 0 && allowed.length < 7) {
-                    // Mapeia workDayIndex → dias de calendário pulando dias não permitidos
-                    const startOfToday = new Date();
-                    startOfToday.setHours(0, 0, 0, 0);
-                    let calDay = 0;
-                    let wDay = 0;
-                    while (wDay < chosenDayIndex) {
-                        calDay++;
-                        const d = new Date(startOfToday.getTime() + calDay * 86_400_000);
-                        if (allowed.includes(d.getDay())) wDay++;
-                    }
-                    dayOffsetMs = calDay * 86_400_000;
-                } else {
-                    dayOffsetMs = chosenDayIndex * 86_400_000;
-                }
-
-                // Ajusta intra-day offset para período (manhã/tarde)
-                let periodOffsetMs = 0;
-                if (dailySchedule?.timePeriodEnabled && Array.isArray(dailySchedule.periods) && dailySchedule.periods.length >= 2) {
-                    const [morning, afternoon] = dailySchedule.periods;
-                    const dayLimit = dailySchedule.days.find(d => d.dayIndex === chosenDayIndex)?.limitPerChannel ?? 100;
-                    const morningCount = Math.round(dayLimit * (morning?.pct ?? 50) / 100);
-                    const posInDay = enqueuedIndexPerDayPerChannel[assignedConnectionId]?.[chosenDayIndex] ?? 0;
-                    const inMorning = posInDay < morningCount;
-                    const period = inMorning ? morning : afternoon;
-                    const periodPos = inMorning ? posInDay : (posInDay - morningCount);
-                    const periodCount = inMorning ? morningCount : (dayLimit - morningCount);
-                    const periodDurMs = (period.endHour - period.startHour) * 3_600_000;
-                    periodOffsetMs = period.startHour * 3_600_000
-                        + Math.round((periodDurMs * periodPos) / Math.max(1, periodCount));
-                    // Sobrescreve intraDayStagger com o offset calculado por período
-                    intraDayStagger = 0;
-                }
-
-                staggerDelay = dayOffsetMs + periodOffsetMs + intraDayStagger;
+                const dayLimit = dailySchedule.days.find(d => d.dayIndex === chosenDayIndex)?.limitPerChannel ?? 100;
+                staggerDelay = computeDailyScheduleDelayMs({
+                    nowMs: Date.now(),
+                    dayIndex: chosenDayIndex,
+                    contactIndexInDay,
+                    intraDayStaggerMs: intraDayStagger,
+                    allowedWeekdays: dailySchedule.allowedWeekdays,
+                    timePeriodEnabled: dailySchedule.timePeriodEnabled,
+                    periods: dailySchedule.periods,
+                    dayLimit,
+                });
             } else {
                 const jitterFactor = 0.75 + Math.random() * 0.5;
                 staggerDelay = Math.round(i * avgDelayMs * jitterFactor)

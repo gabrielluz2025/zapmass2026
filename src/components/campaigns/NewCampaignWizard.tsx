@@ -1455,7 +1455,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         ...(cw ? { channelWeights: cw } : {}),
         ...(mediaPayload ? { mediaAttachment: mediaPayload } : {}),
         ...(followUpMediaPayload ? { followUpMediaAttachment: followUpMediaPayload } : {}),
-        ...(dailyScheduleEnabled ? {
+        ...(dailyScheduleEnabled && dailyScheduleDays.length > 0 ? {
           dailySchedule: {
             enabled: true,
             allowedWeekdays,

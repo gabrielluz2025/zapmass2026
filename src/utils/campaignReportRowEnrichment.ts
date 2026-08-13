@@ -26,15 +26,16 @@ function maxStatus(a: string, b: string): string {
 export function bestCampaignMessageStatus(
   messages: ChatMessage[] | undefined,
   campaignId: string
-): ReportStatusLike {
+): ReportStatusLike | null {
   const cid = String(campaignId || '').trim();
-  if (!cid) return 'SENT';
-  let best: ReportStatusLike = 'SENT';
+  if (!cid) return null;
+  let best: ReportStatusLike | null = null;
   for (const m of messages || []) {
     if (m.sender !== 'me' || !m.fromCampaign || m.campaignId !== cid) continue;
     if (m.status === 'read') return 'READ';
-    if (m.status === 'delivered' && statusRank(best) < statusRank('DELIVERED')) best = 'DELIVERED';
-    if (m.status === 'sent' && statusRank(best) < statusRank('SENT')) best = 'SENT';
+    if (m.status === 'delivered' && statusRank(best || '') < statusRank('DELIVERED')) best = 'DELIVERED';
+    if (m.status === 'sent' && statusRank(best || '') < statusRank('SENT')) best = 'SENT';
+    if (!best) best = 'SENT';
   }
   return best;
 }
@@ -149,7 +150,9 @@ export function enrichCampaignReportRow<T extends EnrichReportRowInput>(
     if (convKey !== target && jidKey !== target) continue;
 
     const ackStatus = bestCampaignMessageStatus(conv.messages, opts.campaignId);
-    out = { ...out, status: maxStatus(out.status, ackStatus) as ReportStatusLike };
+    if (ackStatus) {
+      out = { ...out, status: maxStatus(out.status, ackStatus) as ReportStatusLike };
+    }
 
     const reply = latestReplyAfterAnyCampaignSend(conv.messages, opts.campaignId);
     if (reply) {

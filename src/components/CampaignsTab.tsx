@@ -116,6 +116,9 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
     followUpMediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
     skipFrequencyCap?: boolean;
+    dailySchedule?: import('../types').CampaignDailySchedule;
+    delaySecondsMax?: number;
+    humanizedPauses?: boolean;
   }>(null);
   const [previewConfirmLoading, setPreviewConfirmLoading] = useState(false);
 
