@@ -1858,6 +1858,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setInboxTotal(Number(data?.total) || 0);
         setConversations((prev) => {
           if (data?.reset) {
+            /** Página inicial é um recorte: não apagar conversas já recebidas no sync completo. */
+            if (data.hasMore && prev.length > list.length) {
+              return mergeConversationsFromSocketUpdate(prev, list, ownsConnectionId);
+            }
             const merged = mergeConversationsFromSocketUpdate([], list, ownsConnectionId);
             if (merged.length === 0 && list.length === 0) {
               if (prev.length > 0) return prev;

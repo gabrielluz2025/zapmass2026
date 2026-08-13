@@ -1,5 +1,8 @@
 import IORedis from 'ioredis';
-import { fullSyncIntervalMs, isFullSyncDue } from '../shared/dailyFullSync.js';
+import { fullSyncIntervalMs, isFullSyncDueAfterRestart } from '../shared/dailyFullSync.js';
+
+/** Instante em que este processo subiu — cooldown Redis de outro boot não vale. */
+export const processStartedAtMs = Date.now();
 
 const memory = new Map<string, number>();
 let redis: IORedis | null = null;
@@ -61,5 +64,5 @@ export async function markOwnerFullSyncDone(ownerUid: string, atMs = Date.now())
 export async function ownerFullSyncIsDue(ownerUid: string, force?: boolean): Promise<boolean> {
   if (force) return true;
   const last = await getOwnerLastFullSyncMs(ownerUid);
-  return isFullSyncDue(last);
+  return isFullSyncDueAfterRestart(last, processStartedAtMs);
 }

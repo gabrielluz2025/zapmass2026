@@ -12,6 +12,19 @@ export function isFullSyncDue(lastAtMs: number, now = Date.now()): boolean {
   return now - lastAtMs >= fullSyncIntervalMs();
 }
 
+/**
+ * Redis guarda o cooldown; a inbox em RAM some no restart/deploy.
+ * Se o último findChats foi noutro processo, precisa puxar de novo.
+ */
+export function isFullSyncDueAfterRestart(
+  lastAtMs: number,
+  processStartedAt: number,
+  now = Date.now()
+): boolean {
+  if (processStartedAt > 0 && lastAtMs > 0 && lastAtMs < processStartedAt) return true;
+  return isFullSyncDue(lastAtMs, now);
+}
+
 /** Chave YYYY-MM-DD no fuso local do browser/servidor. */
 export function calendarDayKey(d = new Date()): string {
   const y = d.getFullYear();

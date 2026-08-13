@@ -2,6 +2,7 @@ import type { AxiosInstance } from 'axios';
 import { looksLikeLongLidDigits, normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
 import type { ChatMessage } from './types.js';
 import { chatRemoteJidFromFindChatsRow, normalizeChatRemoteJid } from './evolutionChatJid.js';
+import { EVO_FIND_MAX_PAGES, EVO_FIND_PAGE_SIZE, evolutionFindPageQuery, extractEvolutionList } from './evolutionFindQuery.js';
 
 export const LID_SEND_BLOCKED_MSG =
   'Não foi possível obter o número deste contato. Peça para ele enviar uma mensagem, abra o chat no WhatsApp do celular e clique em Atualizar na lista.';
@@ -186,14 +187,7 @@ export function peerFromStoredMessages(messages: ChatMessage[] | undefined): Lid
 }
 
 function extractFindChatsList(raw: unknown): Record<string, unknown>[] {
-  if (Array.isArray(raw)) return raw as Record<string, unknown>[];
-  if (!raw || typeof raw !== 'object') return [];
-  const row = raw as Record<string, unknown>;
-  for (const key of ['chats', 'records', 'data', 'response'] as const) {
-    const v = row[key];
-    if (Array.isArray(v)) return v as Record<string, unknown>[];
-  }
-  return [];
+  return extractEvolutionList(raw) as Record<string, unknown>[];
 }
 
 export async function resolveLidPeerFromFindChats(
@@ -206,9 +200,11 @@ export async function resolveLidPeerFromFindChats(
   const lid = String(lidJid || '').trim();
   if (!isLidJid(lid)) return null;
 
-  for (let page = 1; page <= 30; page++) {
+  for (let page = 1; page <= EVO_FIND_MAX_PAGES; page++) {
     try {
-      const res = await api.post(`/chat/findChats/${inst}`, { page, limit: 500 });
+      const res = await api.post(`/chat/findChats/${inst}`, evolutionFindPageQuery(page, EVO_FIND_PAGE_SIZE), {
+        timeout: 60_000,
+      });
       const list = extractFindChatsList(res.data);
       if (list.length === 0) break;
       for (const chat of list) {
@@ -222,7 +218,7 @@ export async function resolveLidPeerFromFindChats(
           if (contactPhone) return { contactPhone, waJidAlt: scanned };
         }
       }
-      if (list.length < 500) break;
+      if (list.length < EVO_FIND_PAGE_SIZE) break;
     } catch {
       break;
     }

@@ -42,6 +42,12 @@ import {
 } from './evolutionContactName.js';
 import { chatRemoteJidFromFindChatsRow, formatChatListTime, isGarbagePersonChatJid, resolveChatRowTimestampMs } from './evolutionChatJid.js';
 import {
+    EVO_FIND_MAX_PAGES,
+    EVO_FIND_PAGE_SIZE,
+    evolutionFindPageQuery,
+    extractEvolutionList,
+} from './evolutionFindQuery.js';
+import {
     formatEvolutionHttpError,
     isRetryableExistsFalseError,
     postEvolutionSendTextWithBrVariants,
@@ -623,19 +629,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     }
 
     function extractFindChatsList(raw: unknown): any[] {
-        if (Array.isArray(raw)) return raw;
-        if (!raw || typeof raw !== 'object') return [];
-        const row = raw as Record<string, unknown>;
-        for (const key of ['chats', 'records', 'data', 'result', 'response'] as const) {
-            const v = row[key];
-            if (Array.isArray(v)) return v;
-            if (v && typeof v === 'object') {
-                const nested = v as Record<string, unknown>;
-                if (Array.isArray(nested.chats)) return nested.chats as any[];
-                if (Array.isArray(nested.records)) return nested.records as any[];
-            }
-        }
-        return [];
+        return extractEvolutionList(raw) as any[];
     }
 
     function pruneGarbageConversations(forConnectionId?: string): number {
@@ -741,15 +735,18 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             }
         };
 
-        for (let page = 1; page <= 30; page++) {
+        const pageSize = EVO_FIND_PAGE_SIZE;
+        for (let page = 1; page <= EVO_FIND_MAX_PAGES; page++) {
+            const query = evolutionFindPageQuery(page, pageSize);
             let list: any[] = [];
             try {
-                const response = await api.post(`/chat/findChats/${inst}`, { page, limit: 500 });
+                const response = await api.post(`/chat/findChats/${inst}`, query, { timeout: 60_000 });
                 list = extractFindChatsList(response.data);
             } catch {
                 try {
                     const response = await api.get(`/chat/findChats/${inst}`, {
-                        params: { page, limit: 500 },
+                        params: query,
+                        timeout: 60_000,
                     });
                     list = extractFindChatsList(response.data);
                 } catch {
@@ -757,47 +754,52 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 }
             }
             if (list.length === 0) break;
+            const before = seen.size;
             ingest(list);
-            if (list.length < 500) break;
+            if (seen.size === before) break;
+            if (list.length < pageSize) break;
         }
 
         const contactRows = await fetchContactsSupplement(connectionId, seen);
         all.push(...contactRows);
+        if (all.length > 0) {
+            console.info(
+                `[EvolutionChat] findChats ${connectionId}: ${all.length} item(ns) (${all.length - contactRows.length} chats + ${contactRows.length} agenda)`
+            );
+        }
         return all;
     }
 
     async function fetchContactsSupplement(connectionId: string, seen: Set<string>): Promise<any[]> {
         const inst = evoInst(connectionId);
         const out: any[] = [];
-        const tryExtract = (raw: unknown): any[] => {
-            if (Array.isArray(raw)) return raw;
-            if (!raw || typeof raw !== 'object') return [];
-            const row = raw as Record<string, unknown>;
-            for (const key of ['contacts', 'records', 'data', 'response'] as const) {
-                const v = row[key];
-                if (Array.isArray(v)) return v;
-            }
-            return [];
-        };
+        const pageSize = EVO_FIND_PAGE_SIZE;
         try {
-            const response = await api.post(`/chat/findContacts/${inst}`, {
-                where: {},
-                page: 1,
-                limit: 5000,
-            });
-            const list = tryExtract(response.data);
-            for (const ct of list) {
-                const row = ct as Record<string, unknown>;
-                const jid = chatRemoteJidFromFindChatsRow(row);
-                if (!jid || seen.has(jid) || jid.endsWith('@g.us') || isGarbagePersonChatJid(jid)) continue;
-                seen.add(jid);
-                const bookName = evolutionContactDisplayName(row);
-                out.push({
-                    ...row,
-                    remoteJid: jid,
-                    name: bookName || row.pushName || row.name || row.verifiedName,
-                    notify: row.notify,
-                });
+            for (let page = 1; page <= EVO_FIND_MAX_PAGES; page++) {
+                const response = await api.post(
+                    `/chat/findContacts/${inst}`,
+                    evolutionFindPageQuery(page, pageSize),
+                    { timeout: 60_000 }
+                );
+                const list = extractEvolutionList(response.data);
+                if (list.length === 0) break;
+                let added = 0;
+                for (const ct of list) {
+                    const row = ct as Record<string, unknown>;
+                    const jid = chatRemoteJidFromFindChatsRow(row);
+                    if (!jid || seen.has(jid) || jid.endsWith('@g.us') || isGarbagePersonChatJid(jid)) continue;
+                    seen.add(jid);
+                    added++;
+                    const bookName = evolutionContactDisplayName(row);
+                    out.push({
+                        ...row,
+                        remoteJid: jid,
+                        name: bookName || row.pushName || row.name || row.verifiedName,
+                        notify: row.notify,
+                    });
+                }
+                if (list.length < pageSize) break;
+                if (added === 0 && page > 1) break;
             }
         } catch (err: any) {
             console.warn(`[EvolutionChat] findContacts ${connectionId}:`, err?.message || err);
@@ -882,30 +884,19 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         const inst = evoInst(connectionId);
         const index = createPhonebookNameIndex();
-        const tryExtract = (raw: unknown): any[] => {
-            if (Array.isArray(raw)) return raw;
-            if (!raw || typeof raw !== 'object') return [];
-            const row = raw as Record<string, unknown>;
-            for (const key of ['contacts', 'records', 'data', 'response'] as const) {
-                const v = row[key];
-                if (Array.isArray(v)) return v;
-            }
-            return [];
-        };
-        for (let page = 1; page <= 30; page++) {
+        for (let page = 1; page <= EVO_FIND_MAX_PAGES; page++) {
             try {
-                const response = await api.post(`/chat/findContacts/${inst}`, {
-                    where: {},
-                    page,
-                    offset: 500,
-                    limit: 500,
-                });
-                const list = tryExtract(response.data);
+                const response = await api.post(
+                    `/chat/findContacts/${inst}`,
+                    evolutionFindPageQuery(page, EVO_FIND_PAGE_SIZE),
+                    { timeout: 60_000 }
+                );
+                const list = extractEvolutionList(response.data);
                 if (list.length === 0) break;
                 for (const ct of list) {
                     indexPhonebookRow(index, ct as Record<string, unknown>);
                 }
-                if (list.length < 500) break;
+                if (list.length < EVO_FIND_PAGE_SIZE) break;
             } catch (err: any) {
                 console.warn(`[EvolutionChat] findContacts phonebook ${connectionId} p${page}:`, err?.message || err);
                 break;

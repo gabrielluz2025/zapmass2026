@@ -70,6 +70,12 @@ import {
     ownerFullSyncIsDue,
 } from './ownerFullSyncStore.js';
 import {
+    EVO_FIND_MAX_PAGES,
+    EVO_FIND_PAGE_SIZE,
+    evolutionFindPageQuery,
+    extractEvolutionList,
+} from './evolutionFindQuery.js';
+import {
     getTenantDispatchSettings,
     resolveCampaignDispatchSettings,
     saveTenantSettings,
@@ -841,11 +847,10 @@ export async function syncConnectionsForOwner(
         log('info', `syncConnectionsForOwner: canais restaurados do cache=${restored.join(',')}`);
     }
 
-    await markOwnerFullSyncDone(uid);
-
     const claimed: string[] = [];
 
     const syncedChats: string[] = [];
+    let mappedChats = 0;
     const syncTasks: Promise<void>[] = [];
 
     for (const [id] of connections.entries()) {
@@ -870,6 +875,7 @@ export async function syncConnectionsForOwner(
                 await ensureEvolutionFullHistorySync(id);
                 const n = await chatStore.syncChatsForConnection(id, { deferEmit: true });
                 syncedChats.push(id);
+                mappedChats += n;
                 if (n === 0) {
                     log('warn', `syncConnectionsForOwner: findChats retornou 0 conversas 1:1`, {
                         connectionId: id,
@@ -882,6 +888,15 @@ export async function syncConnectionsForOwner(
 
     if (syncTasks.length > 0) {
         await Promise.all(syncTasks);
+    }
+
+    if (syncedChats.length === 0 || mappedChats > 0) {
+        await markOwnerFullSyncDone(uid);
+    } else {
+        log('warn', 'syncConnectionsForOwner: findChats vazio com chip aberto — cooldown não marcado', {
+            ownerUid: uid,
+            syncedChats,
+        });
     }
 
     const { socketConversationsPayload } = await import('./conversationsEmit.js');
@@ -930,15 +945,24 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
     const uid = String(ownerUid || '').trim();
     if (!uid || uid === 'anonymous') return;
     const { isInboxPaginationEnabled } = await import('./inboxPagination.js');
+    const scopedForReemit = filterByConnectionScope(uid, getConnections());
+    const hasOpenChip = scopedForReemit.some((c) => String(c.status || '').toUpperCase() === 'CONNECTED');
     if (isInboxPaginationEnabled()) {
         const page = await getInboxPageForOwner(uid, uid, { reset: true });
-        const scoped = filterByConnectionScope(uid, getConnections());
-        const hasOpenChip = scoped.some((c) => String(c.status || '').toUpperCase() === 'CONNECTED');
         if (page.total === 0 && hasOpenChip) {
             log('info', 'reemitConversationsForOwner: RAM vazia com chips abertos — sync completo', {
                 ownerUid: uid,
             });
             await syncConnectionsForOwner(uid, { force: true }).catch(() => undefined);
+            return;
+        }
+        /** Pós-deploy: RAM só com webhooks recentes, cooldown Redis ainda ativo no processo antigo. */
+        if (hasOpenChip && (await ownerFullSyncIsDue(uid))) {
+            log('info', 'reemitConversationsForOwner: sync completo devido (restart)', {
+                ownerUid: uid,
+                ramTotal: page.total,
+            });
+            await syncConnectionsForOwner(uid).catch(() => undefined);
             return;
         }
         publishOwnerEvent(uid, 'inbox-page', page as unknown as Record<string, unknown>);
@@ -6205,24 +6229,14 @@ export async function loadPhonebookNameIndexForConnection(
     const index = createPhonebookNameIndex();
     if (!id) return index;
     const inst = evoInst(id);
-    const tryExtract = (raw: unknown): unknown[] => {
-        if (Array.isArray(raw)) return raw;
-        if (!raw || typeof raw !== 'object') return [];
-        const row = raw as Record<string, unknown>;
-        for (const key of ['contacts', 'records', 'data', 'response'] as const) {
-            const v = row[key];
-            if (Array.isArray(v)) return v;
-        }
-        return [];
-    };
-    for (let page = 1; page <= 30; page++) {
+    const tryExtract = (raw: unknown): unknown[] => extractEvolutionList(raw);
+    for (let page = 1; page <= EVO_FIND_MAX_PAGES; page++) {
         try {
-            const response = await api.post(`/chat/findContacts/${inst}`, {
-                where: {},
-                page,
-                offset: 500,
-                limit: 500,
-            });
+            const response = await api.post(
+                `/chat/findContacts/${inst}`,
+                evolutionFindPageQuery(page, EVO_FIND_PAGE_SIZE),
+                { timeout: 60_000 }
+            );
             const list = tryExtract(response.data);
             if (list.length === 0) break;
             for (const ct of list) {
@@ -6230,7 +6244,7 @@ export async function loadPhonebookNameIndexForConnection(
                     indexPhonebookRow(index, ct as Record<string, unknown>);
                 }
             }
-            if (list.length < 500) break;
+            if (list.length < EVO_FIND_PAGE_SIZE) break;
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
             console.warn(`[Evolution] findContacts phonebook ${id} p${page}:`, msg);
