@@ -6312,6 +6312,8 @@ export const sendMessage = async (conversationId: string, text: string) => {
         connInfo?.ownerUid
     );
 };
+
+const inferChatMessageTypeFromMime = (mimeType: string): ChatMessage['type'] => {
     const mime = String(mimeType || '').toLowerCase();
     if (mime.startsWith('image/')) return 'image';
     if (mime.startsWith('video/')) return 'video';
