@@ -4158,7 +4158,7 @@ async function attemptEvolutionSendText(
         }
 
         const statusOk = typeof responseData?.status === 'string' &&
-            ['PENDING', 'SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'sent', 'delivered'].includes(responseData.status);
+            ['SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'sent', 'delivered'].includes(responseData.status);
         if (statusOk) {
             log('info', `✅ Mensagem aceita (Evolution — status ${responseData.status})`, { toNormalized: number });
             return { ok: true };

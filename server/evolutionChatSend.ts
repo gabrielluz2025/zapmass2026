@@ -92,7 +92,7 @@ export async function postEvolutionSendText(
 
   const statusOk =
     typeof responseData?.status === 'string' &&
-    ['PENDING', 'SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'sent', 'delivered'].includes(
+    ['SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'sent', 'delivered'].includes(
       responseData.status
     );
   if (statusOk) return {};
