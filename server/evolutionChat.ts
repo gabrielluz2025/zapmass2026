@@ -1469,7 +1469,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const peer = await ensureSendablePeer(effectiveId, parsed);
         const { number } = resolveOutboundSendTarget(parsed.remoteJid, peer);
 
-        const { messageId } = await postEvolutionSendTextWithBrVariants(
+        const { messageId, isPending } = await postEvolutionSendTextWithBrVariants(
             api,
             evoInst(parsed.connectionId),
             number,
@@ -1482,7 +1482,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             text: trimmed,
             timestamp: formatTime(nowMs),
             sender: 'me',
-            status: 'sent',
+            status: isPending ? 'pending' : 'sent',
             type: 'text',
             timestampMs: nowMs,
         };

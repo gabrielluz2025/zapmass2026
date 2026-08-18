@@ -4124,7 +4124,7 @@ async function attemptEvolutionSendText(
     number: string,
     message: string,
     toOriginal: string
-): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
+): Promise<{ ok: boolean; messageId?: string; errorDetail?: string; isPending?: boolean }> {
     try {
         const response = await api.post(`/message/sendText/${evoInst(connectionId)}`, {
             number,
@@ -4158,10 +4158,10 @@ async function attemptEvolutionSendText(
         }
 
         const statusOk = typeof responseData?.status === 'string' &&
-            ['SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'sent', 'delivered'].includes(responseData.status);
+            ['PENDING', 'SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'sent', 'delivered'].includes(responseData.status);
         if (statusOk) {
             log('info', `✅ Mensagem aceita (Evolution — status ${responseData.status})`, { toNormalized: number });
-            return { ok: true };
+            return { ok: true, isPending: responseData.status === 'PENDING' };
         }
 
         const isExplicitError =
@@ -4205,7 +4205,7 @@ async function sendMessageInternal(
     connectionId: string,
     to: string,
     message: string
-): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
+): Promise<{ ok: boolean; messageId?: string; errorDetail?: string; isPending?: boolean }> {
     const number = normalizeOutboundNumber(to);
 
     if (!number) {
@@ -4214,7 +4214,7 @@ async function sendMessageInternal(
     }
 
     const variants = buildOutboundPhoneVariants(number);
-    let lastResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
+    let lastResult: { ok: boolean; messageId?: string; errorDetail?: string; isPending?: boolean } = { ok: false };
 
     for (let i = 0; i < variants.length; i++) {
         const tryNumber = variants[i];
@@ -4244,7 +4244,7 @@ export async function sendTextToPhoneDirect(
     connectionId: string,
     toPhone: string,
     message: string
-): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
+): Promise<{ ok: boolean; messageId?: string; errorDetail?: string; isPending?: boolean }> {
     return sendMessageInternal(connectionId, toPhone, message);
 }
 

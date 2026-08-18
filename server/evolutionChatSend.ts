@@ -55,7 +55,7 @@ export async function postEvolutionSendText(
   instanceName: string,
   number: string,
   text: string
-): Promise<{ messageId?: string }> {
+): Promise<{ messageId?: string; isPending?: boolean }> {
   const trimmed = String(text || '').trim();
   if (!trimmed) throw new Error('Mensagem vazia.');
   if (!number) throw new Error('Número inválido para envio.');
@@ -92,10 +92,10 @@ export async function postEvolutionSendText(
 
   const statusOk =
     typeof responseData?.status === 'string' &&
-    ['SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'sent', 'delivered'].includes(
+    ['PENDING', 'SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'sent', 'delivered'].includes(
       responseData.status
     );
-  if (statusOk) return {};
+  if (statusOk) return { isPending: responseData.status === 'PENDING' };
 
   const isExplicitError =
     responseData?.error ||
@@ -121,7 +121,7 @@ export async function postEvolutionSendTextWithBrVariants(
   instanceName: string,
   to: string,
   text: string
-): Promise<{ messageId?: string; numberUsed: string }> {
+): Promise<{ messageId?: string; numberUsed: string; isPending?: boolean }> {
   const normalized = normalizeOutboundNumber(to) || normalizeOutboundDigits(to);
   if (!normalized) throw new Error(`Número inválido: ${to}`);
   const list = await numbersToTryOnEvolution(api, instanceName, normalized);
