@@ -1,20 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# ZapMass — primeira instalação na VPS (Ubuntu): clona o Git e sobe Docker.
+# ZapMass — primeira instalação ou atualização na VPS (Ubuntu): clona o Git e sobe Docker.
 #
 # Uso:
 #   sudo bash deployment/bootstrap-docker-vps.sh https://github.com/USUARIO/REPO.git
 #
 # Pasta padrão: /opt/zapmass (sem espaços; melhor para Docker).
-#
-# Opcionais (mesmos de instalar-docker-servidor.sh):
-#   sudo PUBLIC_IP=203.0.113.10 \
-#        HOST_PORT=3001 \
-#        bash deployment/bootstrap-docker-vps.sh https://github.com/USUARIO/REPO.git /opt/zapmass
-#
-# Com HTTPS:
-#   sudo PUBLIC_URL=https://app.seudominio.com HOST_PORT=443 \
-#        bash deployment/bootstrap-docker-vps.sh https://github.com/USUARIO/REPO.git
 # =============================================================================
 set -euo pipefail
 
@@ -39,12 +30,18 @@ apt-get update -qq
 apt-get install -y -qq git ca-certificates curl
 
 if [ -d "$TARGET/.git" ]; then
-  echo "==> Já existe clone em $TARGET — atualizando..."
-  git -C "$TARGET" pull --ff-only
+  echo "==> Já existe clone em $TARGET — atualizando com segurança..."
+  git -C "$TARGET" remote set-url origin "$REPO"
+  git -C "$TARGET" fetch origin main
+  git -C "$TARGET" reset --hard origin/main
+  git -C "$TARGET" checkout -f main || git -C "$TARGET" checkout -B main origin/main
+  git -C "$TARGET" pull --ff-only origin main || true
 else
   echo "==> Clonando em $TARGET ..."
   mkdir -p "$(dirname "$TARGET")"
   git clone "$REPO" "$TARGET"
+  cd "$TARGET"
+  git checkout -f main || true
 fi
 
 cd "$TARGET"
