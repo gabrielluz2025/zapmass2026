@@ -1962,6 +1962,8 @@ interface MessageQueueItem {
     ownerUid?: string;
     /** Índice da etapa (0-based) dentro de messageStages — usado no jobId para evitar colisão. */
     stageIndex?: number;
+    /** Índice de rotação para SpinTrax — garante variação por mensagem */
+    rotationIndex?: number;
     media?: CampaignMediaPayload;
     sendAsMedia?: boolean;
     /** Chave em `campaignMediaById` (follow-up pode usar `id:reply-step:1`). */
@@ -4396,7 +4398,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     // integrações legadas podem ter entrado na fila com o template cru. Resolver
     // aqui garante que nenhum `{A|B}` chegue ao WhatsApp, mesmo após restart.
     const queueVars = item.replyFlowOpen?.vars ?? {};
-    const resolvedQueueMessage = applyMessageVars(item.message, item.to, queueVars);
+    const resolvedQueueMessage = applyMessageVars(item.message, item.to, queueVars, item.rotationIndex);
     if (resolvedQueueMessage !== item.message) {
         item.message = resolvedQueueMessage;
         await job.updateData(item).catch(() => {});
@@ -4862,6 +4864,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                                 campaignId: p.campaignId,
                                 ownerUid: p.ownerUid,
                                 stageIndex: p.stepIndex,
+                                rotationIndex: item.rotationIndex,
                                 sendAsMedia: campaignMediaById.has(p.campaignId),
                                 multiStepContact: { contactId: p.contactId, stepIndex: p.stepIndex },
                             },
@@ -5293,6 +5296,7 @@ export async function redispatchCampaign(
                         campaignId,
                         ownerUid: tenantId,
                         stageIndex: stepIndex,
+                        rotationIndex: i,
                         sendAsMedia: hasMedia && stepIndex === 0,
                         skipFrequencyCap,
                         multiStepContact: { contactId: cleanPhone, stepIndex },
@@ -5308,6 +5312,7 @@ export async function redispatchCampaign(
                         message: personalizedMessage,
                         campaignId,
                         ownerUid: tenantId,
+                        rotationIndex: i,
                         sendAsMedia: hasMedia,
                         skipFrequencyCap,
                         replyFlowOpen: {
@@ -5330,6 +5335,7 @@ export async function redispatchCampaign(
                         campaignId,
                         ownerUid: tenantId,
                         stageIndex: stepIndex,
+                        rotationIndex: i,
                         sendAsMedia: hasMedia && stepIndex === 0,
                         skipFrequencyCap,
                     },
@@ -5607,6 +5613,7 @@ export async function startCampaign(
                     campaignId: cid,
                         ownerUid,
                         stageIndex: 0,
+                        rotationIndex: i,
                     sendAsMedia: hasMedia,
                         multiStepContact: { contactId: cleanPhone, stepIndex: 0 },
                         skipFrequencyCap: skipFrequencyCap === true,
@@ -5623,6 +5630,7 @@ export async function startCampaign(
                         message: personalizedMessage,
                         campaignId: cid,
                         ownerUid,
+                        rotationIndex: i,
                         sendAsMedia: hasMedia,
                         skipFrequencyCap: skipFrequencyCap === true,
                         alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
@@ -5649,6 +5657,7 @@ export async function startCampaign(
                         campaignId: cid,
                             ownerUid,
                             stageIndex,
+                            rotationIndex: i,
                         sendAsMedia: hasMedia && stageIndex === 0,
                             skipFrequencyCap: skipFrequencyCap === true,
                             alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
@@ -6014,6 +6023,7 @@ export async function handleWebhook(event: any) {
                                             campaignId: p.campaignId,
                                             ownerUid: p.ownerUid,
                                             stageIndex: p.stepIndex,
+                                            rotationIndex: campaignRotationIndexFromPhone(phoneDigits),
                                             sendAsMedia: campaignMediaById.has(p.campaignId),
                                             multiStepContact: { contactId: p.contactId, stepIndex: p.stepIndex },
                                         },
