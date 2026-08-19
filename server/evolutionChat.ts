@@ -1540,6 +1540,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                     caption: payload.caption || '',
                     media: url,
                     fileName: payload.fileName,
+                }, {
+                    timeout: 120000, // 2 minutes for media uploads
                 });
                 lastErr = null;
                 break;

@@ -72,7 +72,9 @@ export function applyCampaignMessagePreviewVars(text: string, sample?: CampaignP
     .replace(/\{horario\}/g, horario)
     .replace(/\{saudacao\}/g, saudacao)
     .replace(/\{hora\}/g, hora);
-  return resolveCampaignSpintax(withVars, 0);
+  // For preview, use a random rotation index to show spintax variation
+  const previewRotationIndex = Math.floor(Math.random() * 100);
+  return resolveCampaignSpintax(withVars, previewRotationIndex);
 }
 
 export function insertCampaignTokenIntoTextarea(

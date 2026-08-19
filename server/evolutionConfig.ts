@@ -11,8 +11,9 @@ export const evolutionConfig = {
     // URL do webhook (Evolution POSTa eventos aqui). No Swarm use hostname interno alcançável pelo contentor evolution (ex.: http://api:3001/webhook/evolution), não o domínio público.
     webhookUrl: process.env.ZAPMASS_WEBHOOK_URL || (isWin ? 'http://localhost:3001/webhook/evolution' : 'http://api:3001/webhook/evolution'),
     
-    // Timeout para requests HTTP (30s)
+    // Timeout para requests HTTP (30s). Media uploads use extended timeout.
     timeout: 30000,
+    mediaUploadTimeout: 120000, // 2 minutes for media uploads
     
     // Retry automático
     maxRetries: 3,

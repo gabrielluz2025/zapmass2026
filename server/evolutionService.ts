@@ -4099,6 +4099,8 @@ async function attemptEvolutionSendMedia(
             caption: payload.caption,
             media: payload.media,
             fileName: payload.fileName,
+        }, {
+            timeout: evolutionConfig.mediaUploadTimeout,
         });
         const messageId = response.data?.key?.id || response.data?.key?._serialized;
         if (response.data?.key) {
