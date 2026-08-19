@@ -25,7 +25,12 @@ import {
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import { GEO_UNKNOWN_UF, phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
 import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
-import { campaignRotationIndexFromPhone, resolveCampaignSpintax } from '../shared/campaignSpintax.js';
+import {
+    campaignRotationIndexFromPhone,
+    hasUnresolvedCampaignTemplateTokens,
+    resolveCampaignSpintax,
+    sanitizeCampaignTemplateForOutbound,
+} from '../shared/campaignSpintax.js';
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import {
@@ -5367,11 +5372,17 @@ const processQueue = async () => {
         // da correção ou restaurado do arquivo queue.json sem passar pelo parser.
         // Reprocessa imediatamente antes de qualquer tentativa de envio, inclusive
         // quando o modo Evolution reutiliza a fila legada.
-        const resolvedLegacyQueueMessage = applyMessageVars(
+        const personalizedLegacyMessage = applyMessageVars(
             item.message,
             item.to,
             item.replyFlowOpen?.vars || {}
         );
+        const resolvedLegacyQueueMessage = hasUnresolvedCampaignTemplateTokens(personalizedLegacyMessage)
+            ? sanitizeCampaignTemplateForOutbound(
+                personalizedLegacyMessage,
+                campaignRotationIndexFromPhone(item.to)
+            )
+            : personalizedLegacyMessage;
         if (resolvedLegacyQueueMessage !== item.message) {
             item.message = resolvedLegacyQueueMessage;
             void persistQueue().catch(() => {});

@@ -73,6 +73,7 @@ import {
   mediaShouldSendAsDocument
 } from '../../utils/whatsappMediaLimits';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
+import { hasUnresolvedCampaignTemplateTokens } from '../../../shared/campaignSpintax';
 
 type MessageStageOptionDraft = {
   id: string;
@@ -1399,6 +1400,41 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         return;
     }
     const stagesBodies = messageStages.map((s) => s.body.trim()).filter((b) => b.length > 0);
+    const previewVars =
+      sendMode === 'manual'
+        ? {
+            nome: '',
+            nome_completo: '',
+            telefone: numbers[0] || '',
+            email: '',
+            cidade: '',
+            igreja: '',
+            cargo: '',
+            profissao: '',
+            aniversario: '',
+            conjuge: '',
+            data_bodas: '',
+            anos_casamento: ''
+          }
+        : previewSample;
+    const candidateTemplates = [
+      ...stagesBodies,
+      ...messageStages.flatMap((stage) => [
+        stage.invalidReplyBody,
+        stage.timeoutMessage || '',
+        ...(stage.options || []).map((option) => option.reply)
+      ])
+    ].filter((text) => String(text || '').trim().length > 0);
+    const unresolvedTemplates = candidateTemplates.filter((template) =>
+      hasUnresolvedCampaignTemplateTokens(applyCampaignMessagePreviewVars(template, previewVars))
+    );
+    if (unresolvedTemplates.length > 0) {
+      toast.error(
+        'A mensagem ainda contém uma variável ou SpinTrax não resolvido. Revise o preview antes de disparar.',
+        { duration: 8000 }
+      );
+      return;
+    }
     const useReplyFlow = campaignFlowMode === 'reply';
     const replyFlow: CampaignReplyFlow | undefined = useReplyFlow
         ? {

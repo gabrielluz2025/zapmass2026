@@ -98,6 +98,27 @@ export function hasCampaignSpintax(text: string): boolean {
   return extractCampaignSpintaxBlocks(text).some((block) => block.options.length > 1);
 }
 
+/**
+ * Detecta sintaxe de template que permaneceu depois da personalização.
+ * É mais seguro bloquear o envio do que entregar `{nome}` ou `{A|B}` literalmente.
+ */
+export function hasUnresolvedCampaignTemplateTokens(text: string): boolean {
+  return /\{\s*[^{}]*\|[^{}]*\s*\}|\{\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\}/.test(String(text || ''));
+}
+
+/**
+ * Fallback de segurança para gateways: resolve a variação por índice e remove
+ * placeholders simples sem valor, evitando que qualquer sintaxe chegue ao canal.
+ */
+export function sanitizeCampaignTemplateForOutbound(text: string, rotationIndex = 0): string {
+  const resolved = resolveCampaignSpintax(String(text || ''), rotationIndex);
+  return resolved
+    .replace(/\{\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\}/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+([,.;!?])/g, '$1')
+    .trim();
+}
+
 export function isCampaignSpintaxBlock(value: string): boolean {
   return /^\{[^{}]+(?:\|[^{}]+)+\}$/.test(value.trim());
 }

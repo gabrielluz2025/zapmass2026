@@ -25,35 +25,18 @@ import {
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { campaignRecipientNameVars } from '../../utils/contactNameNormalize';
-import { campaignClockVars } from '../../utils/campaignClockVars';
+import { applyCampaignMessagePreviewVars } from '../../utils/campaignMessageVariables';
+import { hasUnresolvedCampaignTemplateTokens } from '../../../shared/campaignSpintax';
 import { apiPreflightCheck, apiFrequencyCapCheck, ensureDispatchReady } from '../../services/campaignsApi';
 import { DispatchFixPanel } from './DispatchFixPanel';
 import { useAuth } from '../../context/AuthContext';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-function applyVars(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    const k = key.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    return vars[k] ?? vars[key] ?? `{{${key}}}`;
-  });
-}
-
-function resolveSpintax(text: string): string {
-  return text.replace(/\{([^{}]+)\}/g, (_, inner) => {
-    const options = inner.split('|');
-    return options[Math.floor(Math.random() * options.length)] ?? '';
-  });
-}
-
 function renderMessage(template: string, recipientVars: Record<string, string>): string {
-  const clockVars = campaignClockVars();
-  const merged: Record<string, string> = {};
-  Object.entries(clockVars).forEach(([k, v]) => { merged[k.toLowerCase()] = String(v); });
-  Object.entries(recipientVars).forEach(([k, v]) => { merged[k.toLowerCase()] = v; });
-  return resolveSpintax(applyVars(template, merged));
+  return applyCampaignMessagePreviewVars(template, recipientVars);
 }
+
 
 function formatDelay(s: number): string {
   if (s < 60) return `${s}s`;
@@ -162,7 +145,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   }, [allRecipients, allMessages]);
 
   const hasUnresolved = previewSamples.some((s) =>
-    s.preview.some((p) => p.includes('{{') && p.includes('}}'))
+    s.preview.some((p) => hasUnresolvedCampaignTemplateTokens(p))
   );
 
   const runFrequencyCapCheck = useCallback(async () => {
@@ -283,6 +266,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
 
   const chipsConfirmedOffline = chipStatus === 'error' && chipResults.some((r) => !r.isReady);
   const canDispatch =
+    !hasUnresolved &&
     repeatConfirmed &&
     !chipsConfirmedOffline &&
     motorStatus !== 'checking' &&

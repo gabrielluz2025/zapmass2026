@@ -12,6 +12,8 @@ import { fileURLToPath } from 'url';
 // Motor Híbrido ativado (whatsappService / evolutionService)
 import * as waService from './whatsappService.js';
 import * as evolutionService from './evolutionService.js';
+import { applyMessageVars } from './replyFlowEngine.js';
+import { hasUnresolvedCampaignTemplateTokens } from '../shared/campaignSpintax.js';
 import { getAppVersion } from './version.js';
 import { runBackup } from './backup.js';
 import { registerSubscriptionWebhooks } from './subscriptionWebhooks.js';
@@ -1734,6 +1736,33 @@ const registerSocketHandlers = () => {
           Array.isArray(messageStages) && messageStages.length > 0
             ? messageStages.map((s) => String(s ?? '').trim()).filter((s) => s.length > 0)
             : [String(message ?? '').trim()].filter((s) => s.length > 0);
+        const sampleRecipient = recipients?.find((recipient) => recipient?.phone) || {
+          phone: numbers[0] || '',
+          vars: {},
+        };
+        const inputPreviewTexts = [
+          ...stages,
+          ...(Array.isArray(replyFlow?.steps) ? replyFlow.steps.flatMap((step) => [
+            step?.body || '',
+            step?.invalidReplyBody || '',
+            ...(Array.isArray((step as any)?.options)
+              ? (step as any).options.map((option: { reply?: string }) => option?.reply || '')
+              : []),
+          ]) : []),
+        ].filter((text) => String(text || '').trim().length > 0);
+        const unresolvedInputPreview = inputPreviewTexts.some((template) =>
+          hasUnresolvedCampaignTemplateTokens(
+            applyMessageVars(String(template), sampleRecipient.phone, sampleRecipient.vars || {}, 0)
+          )
+        );
+        if (unresolvedInputPreview) {
+          const err =
+            'A campanha foi bloqueada porque a prévia ainda contém uma variável ou SpinTrax não resolvido. Revise o texto antes de disparar.';
+          callback?.({ ok: false, error: err });
+          socket.emit('campaign-error', { error: err, campaignId });
+          notifyCampaignSocketError(uid, err, campaignId);
+          return;
+        }
         const useReplyFlow = Boolean(
           replyFlow?.enabled && Array.isArray(replyFlow.steps) && replyFlow.steps.length > 0
         );

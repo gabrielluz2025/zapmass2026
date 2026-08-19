@@ -70,6 +70,11 @@ import {
 import { fullSyncIntervalMs } from '../shared/dailyFullSync.js';
 import { isEvolutionFullHistorySyncEnabled } from '../shared/chatSyncConfig.js';
 import {
+    campaignRotationIndexFromPhone,
+    hasUnresolvedCampaignTemplateTokens,
+    sanitizeCampaignTemplateForOutbound,
+} from '../shared/campaignSpintax.js';
+import {
     getOwnerLastFullSyncMs,
     markOwnerFullSyncDone,
     ownerFullSyncIsDue,
@@ -4206,6 +4211,30 @@ async function sendMessageInternal(
     to: string,
     message: string
 ): Promise<{ ok: boolean; messageId?: string; errorDetail?: string; isPending?: boolean }> {
+    const rawOutgoingText = String(message ?? '');
+    const hadUnresolvedTemplate = hasUnresolvedCampaignTemplateTokens(rawOutgoingText);
+    const outgoingText = hadUnresolvedTemplate
+        ? sanitizeCampaignTemplateForOutbound(rawOutgoingText, campaignRotationIndexFromPhone(to))
+        : rawOutgoingText;
+    if (hadUnresolvedTemplate && outgoingText !== rawOutgoingText) {
+        log('warn', 'Template normalizado no gateway antes do envio', {
+            connectionId,
+            to,
+            before: rawOutgoingText.slice(0, 240),
+            after: outgoingText.slice(0, 240),
+        });
+    }
+    if (hasUnresolvedCampaignTemplateTokens(outgoingText)) {
+        const errorDetail =
+            'Envio bloqueado: não foi possível transformar a mensagem em texto final. Revise o conteúdo da campanha.';
+        log('error', errorDetail, {
+            connectionId,
+            to,
+            messagePreview: rawOutgoingText.slice(0, 240),
+        });
+        return { ok: false, errorDetail };
+    }
+
     const number = normalizeOutboundNumber(to);
 
     if (!number) {
@@ -4229,7 +4258,7 @@ async function sendMessageInternal(
             });
         }
 
-        lastResult = await attemptEvolutionSendText(connectionId, tryNumber, message, to);
+        lastResult = await attemptEvolutionSendText(connectionId, tryNumber, outgoingText, to);
         if (lastResult.ok) return lastResult;
 
         const hasMoreVariants = i < variants.length - 1;

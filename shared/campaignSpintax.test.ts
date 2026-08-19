@@ -6,6 +6,8 @@ import {
   countCampaignSpintaxVariations,
   extractCampaignSpintaxBlocks,
   resolveCampaignSpintax,
+  hasUnresolvedCampaignTemplateTokens,
+  sanitizeCampaignTemplateForOutbound,
 } from './campaignSpintax';
 
 describe('campaignSpintax', () => {
@@ -57,6 +59,17 @@ describe('campaignSpintax', () => {
     expect(extractCampaignSpintaxBlocks('X {A|B} Y')).toEqual([
       { raw: '{A|B}', options: ['A', 'B'], start: 2, end: 7 },
     ]);
+  });
+
+  it('bloqueia SpinTrax ou variáveis que ainda ficaram literais', () => {
+    expect(hasUnresolvedCampaignTemplateTokens('{Olá|Oi} Marcos')).toBe(true);
+    expect(hasUnresolvedCampaignTemplateTokens('Olá {nome}')).toBe(true);
+    expect(hasUnresolvedCampaignTemplateTokens('Oi Marcos bom dia')).toBe(false);
+  });
+
+  it('sanitiza o template no fallback de saída', () => {
+    expect(sanitizeCampaignTemplateForOutbound('{Olá|Oi|Paz} {nome} {horario}', 1)).toBe('Oi');
+    expect(sanitizeCampaignTemplateForOutbound('Tudo certo!', 0)).toBe('Tudo certo!');
   });
 
   it('índice por telefone é estável', () => {
