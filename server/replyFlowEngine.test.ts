@@ -7,9 +7,22 @@ import {
   replyMatchesGate,
   simulateReplyFlowMatch,
 } from '../shared/replyFlowMatch.js';
+import { applyMessageVars } from './replyFlowEngine.js';
 
 const matched = (cleanTok: string, body: string, mode?: Parameters<typeof matchReplyTriggerToken>[2]) =>
   matchReplyTriggerToken(cleanTok, body, mode).matched;
+
+describe('applyMessageVars', () => {
+  it('resolve o SpinTrax observado sem consumir variáveis de personalização', () => {
+    const template = '{Olá|Oi|Paz|E aí|Bom dia} {nome} {horario}';
+    const result = applyMessageVars(template, '5548999999999', { nome: 'Marcos' }, 0);
+
+    expect(result).toBe('Olá Marcos ' + result.split(' ').slice(2).join(' '));
+    expect(result).not.toContain('{Olá|Oi|Paz|E aí|Bom dia}');
+    expect(result).not.toContain('{nome}');
+    expect(result).not.toContain('{horario}');
+  });
+});
 
 describe('matchReplyTriggerToken', () => {
   it('aceita resposta exata', () => {

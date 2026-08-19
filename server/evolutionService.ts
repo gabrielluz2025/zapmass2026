@@ -4360,6 +4360,17 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         const canonicalTo = normalizePhoneKey(item.to);
         if (canonicalTo) item.to = canonicalTo;
     }
+
+    // Última barreira antes do envio: jobs antigos persistidos no Redis, warmup e
+    // integrações legadas podem ter entrado na fila com o template cru. Resolver
+    // aqui garante que nenhum `{A|B}` chegue ao WhatsApp, mesmo após restart.
+    const queueVars = item.replyFlowOpen?.vars ?? {};
+    const resolvedQueueMessage = applyMessageVars(item.message, item.to, queueVars);
+    if (resolvedQueueMessage !== item.message) {
+        item.message = resolvedQueueMessage;
+        await job.updateData(item).catch(() => {});
+    }
+
     const dispatchSettings = getTenantDispatchSettings(campaignState?.ownerUid);
 
     if (dispatchSettings.sleepMode && isBrazilNightHour() && !hasSleepModeOverride(item.campaignId)) {

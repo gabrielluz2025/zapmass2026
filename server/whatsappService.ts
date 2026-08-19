@@ -6237,16 +6237,17 @@ export const sendMessage = async (conversationId: string, text: string) => {
         throw new Error(`Cliente nao encontrado para conexao ${connectionId}`);
     }
 
+    const resolvedText = applyMessageVars(text, chatId);
     let jid = await resolveBestUserJidForSend(client, chatId);
     let sentResult: any = null;
     try {
-        sentResult = await client.sendMessage(jid, text);
+        sentResult = await client.sendMessage(jid, resolvedText);
     } catch (firstErr: unknown) {
         const m = String((firstErr as Error)?.message || '');
         if (!chatId.includes('@g.us') && m.includes('No LID for user')) {
             await new Promise((r) => setTimeout(r, 400));
             jid = await resolveBestUserJidForSend(client, chatId);
-            sentResult = await client.sendMessage(jid, text);
+            sentResult = await client.sendMessage(jid, resolvedText);
         } else {
             throw firstErr;
         }
@@ -6264,7 +6265,7 @@ export const sendMessage = async (conversationId: string, text: string) => {
         `${nowMs}_${Math.random().toString(36).slice(2, 8)}`;
     const newMsg: ChatMessage = {
         id: msgId,
-        text,
+        text: resolvedText,
         timestamp: new Date(nowMs).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
         sender: 'me',
         status: 'sent',
