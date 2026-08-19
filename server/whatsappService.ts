@@ -5363,6 +5363,20 @@ const processQueue = async () => {
             break;
         }
 
+        // Última barreira para filas antigas: o item pode ter sido persistido antes
+        // da correção ou restaurado do arquivo queue.json sem passar pelo parser.
+        // Reprocessa imediatamente antes de qualquer tentativa de envio, inclusive
+        // quando o modo Evolution reutiliza a fila legada.
+        const resolvedLegacyQueueMessage = applyMessageVars(
+            item.message,
+            item.to,
+            item.replyFlowOpen?.vars || {}
+        );
+        if (resolvedLegacyQueueMessage !== item.message) {
+            item.message = resolvedLegacyQueueMessage;
+            void persistQueue().catch(() => {});
+        }
+
         // Incrementa tentativas totais
         item.totalAttempts = (item.totalAttempts || 0) + 1;
 
