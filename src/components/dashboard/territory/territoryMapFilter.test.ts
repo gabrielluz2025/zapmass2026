@@ -4,6 +4,7 @@ import { filterClustersForScope } from './buildNeighborhoodRows';
 import { clusterMatchesFilterCity, clusterMatchesFilterState } from './territoryMapUtils';
 
 const cluster = (partial: Partial<GeoCluster> & Pick<GeoCluster, 'label'>): GeoCluster => ({
+  key: partial.key ?? partial.label,
   count: 1,
   lat: -27.59,
   lng: -48.55,
@@ -11,6 +12,9 @@ const cluster = (partial: Partial<GeoCluster> & Pick<GeoCluster, 'label'>): GeoC
   city: 'Florianópolis',
   state: 'SC',
   neighborhood: partial.label,
+  ddd: '',
+  mapped: false,
+  sampleNames: [],
   ...partial,
 });
 

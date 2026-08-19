@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Check, FolderPlus, MousePointerClick, Plus, Trash2, X } from 'lucide-react';
+import { Check, FolderPlus, MousePointerClick, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { buildCampaignSpintax } from '../../../shared/campaignSpintax';
+import { buildCampaignSpintax, resolveCampaignSpintax } from '../../../shared/campaignSpintax';
 import {
   createCampaignGreetingKit,
   loadCampaignGreetingKits,
@@ -20,6 +20,7 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
   const [kitNameDraft, setKitNameDraft] = useState('');
   const [phraseDraft, setPhraseDraft] = useState('');
   const [builderItems, setBuilderItems] = useState<string[]>([]);
+  const [previewIndex, setPreviewIndex] = useState(0);
 
   const persistKits = useCallback((next: CampaignGreetingKit[]) => {
     saveCampaignGreetingKits(next);
@@ -98,6 +99,7 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
   };
 
   const insertPreview = activeKit ? buildCampaignSpintax(activeKit.items) : null;
+  const resolvedPreview = insertPreview ? resolveCampaignSpintax(insertPreview, previewIndex) : null;
 
   return (
     <div className="cw-greeting-picker campaign-message-variable-chips">
@@ -175,14 +177,11 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
       ) : (
         <>
           <div className="cw-greeting-help">
-            <p className="cw-greeting-help-title">Como usar</p>
+            <p className="cw-greeting-help-title">Como usar o SpinTrax</p>
             <ol className="cw-greeting-help-steps">
-              <li>Escolha o <strong>conjunto</strong> abaixo (cada um tem suas frases).</li>
-              <li>Clique em <strong>Inserir no texto</strong> — o trecho vai para a caixa da mensagem.</li>
-              <li>
-                No disparo, <strong>cada contato recebe só uma</strong> saudação (rodízio), para o WhatsApp não
-                tratar como spam.
-              </li>
+              <li>Escolha um conjunto com duas ou mais frases diferentes.</li>
+              <li>Clique em <strong>Inserir no texto</strong> para colocar o bloco na mensagem.</li>
+              <li>No envio, o sistema escolhe uma opção de forma automática e estável para cada contato.</li>
             </ol>
           </div>
 
@@ -244,9 +243,25 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
                 Inserir no texto
               </button>
               {insertPreview && activeKit.items.length > 1 && (
-                <p className="cw-greeting-insert-preview">
-                  No texto aparecerá: <code>{insertPreview}</code> — cada pessoa recebe uma opção.
-                </p>
+                <div className="cw-greeting-insert-preview space-y-2">
+                  <p>
+                    O texto inserido será: <code>{insertPreview}</code>
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-semibold" style={{ color: 'var(--text-3)' }}>
+                      Exemplo enviado agora: <strong style={{ color: 'var(--text-1)' }}>{resolvedPreview}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      className="cw-greeting-mini-btn"
+                      onClick={() => setPreviewIndex((index) => index + 1)}
+                      aria-label="Mostrar outra variação do SpinTrax"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Testar outra
+                    </button>
+                  </div>
+                </div>
               )}
               {activeKit.items.length > 1 && (
                 <div className="flex flex-wrap gap-1 mt-2">
