@@ -54,6 +54,7 @@ import {
     numbersToTryOnEvolution,
     resolveOutboundSendTarget
 } from './evolutionChatSend.js';
+import { resolveCampaignSpintax, campaignRotationIndexFromPhone } from '../shared/campaignSpintax.js';
 import { normalizeOutboundNumber } from './evolutionOutboundPhone.js';
 import {
     hasResolvablePhone,
@@ -1469,11 +1470,15 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const peer = await ensureSendablePeer(effectiveId, parsed);
         const { number } = resolveOutboundSendTarget(parsed.remoteJid, peer);
 
+        // Resolve SpinTrax para mensagens manuais (chat 1:1)
+        const rotationIndex = campaignRotationIndexFromPhone(number);
+        const resolvedText = resolveCampaignSpintax(trimmed, rotationIndex);
+
         const { messageId, isPending } = await postEvolutionSendTextWithBrVariants(
             api,
             evoInst(parsed.connectionId),
             number,
-            trimmed
+            resolvedText
         );
         const nowMs = Date.now();
 
@@ -1518,6 +1523,10 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const { number } = resolveOutboundSendTarget(parsed.remoteJid, peer);
         const { url } = await saveMediaFromBase64(payload.dataBase64, payload.mimeType, payload.fileName);
 
+        // Resolve SpinTrax no caption de mídia
+        const rotationIndex = campaignRotationIndexFromPhone(number);
+        const resolvedCaption = resolveCampaignSpintax(payload.caption || '', rotationIndex);
+
         let type = 'document';
         if (!payload.sendMediaAsDocument) {
             if (payload.mimeType.startsWith('image/')) type = 'image';
@@ -1537,7 +1546,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                     delay: 1200,
                     mediatype: type,
                     mimetype: payload.mimeType,
-                    caption: payload.caption || '',
+                    caption: resolvedCaption,
                     media: url,
                     fileName: payload.fileName,
                 }, {
