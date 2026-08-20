@@ -42,6 +42,8 @@ export type ReplyFlowStepDef = {
 export type ReplyFlowDefMeta = {
     globalOptOutEnabled?: boolean;
     globalOptOutKeywords?: string[];
+    /** Número máximo de tentativas de resposta inválida antes de encerrar o fluxo (padrão: 3) */
+    maxInvalidReplyAttempts?: number;
 };
 
 export type ReplyFlowSession = {
@@ -51,6 +53,8 @@ export type ReplyFlowSession = {
     vars: Record<string, string>;
     toRaw: string;
     registeredConvKey?: string;
+    /** Contador de respostas inválidas consecutivas */
+    invalidReplyCount?: number;
 };
 
 export type ReplyFlowOutboundItem = {
@@ -298,6 +302,7 @@ export class ReplyFlowEngine {
             vars: params.vars,
             toRaw: params.toRaw,
             registeredConvKey: params.convKey,
+            invalidReplyCount: 0,
         };
         this.sessions.set(sessKey, session);
         const aliasKeys = new Set<string>();
@@ -682,6 +687,9 @@ export class ReplyFlowEngine {
                     campaignId: session.campaignId,
                 });
 
+                // Reseta contador de respostas inválidas ao receber resposta válida
+                session.invalidReplyCount = 0;
+
                 const optMe = matchedOption.marketingEffect || 'none';
                 if (optMe === 'opt_in' || optMe === 'opt_out') {
                     this.callbacks.onMarketingConsent?.(
@@ -697,6 +705,22 @@ export class ReplyFlowEngine {
             }
 
             if (gateStep.invalidReplyBody) {
+                // Verifica limite de tentativas de resposta inválida
+                const maxAttempts = def.meta?.maxInvalidReplyAttempts ?? 3;
+                session.invalidReplyCount = (session.invalidReplyCount || 0) + 1;
+
+                if (session.invalidReplyCount >= maxAttempts) {
+                    this.callbacks.onLog?.('Limite de respostas inválidas atingido, encerrando fluxo', {
+                        campaignId: session.campaignId,
+                        connectionId,
+                        phoneDigits,
+                        invalidCount: session.invalidReplyCount,
+                        maxAttempts,
+                    });
+                    this.disposeSession(key, session);
+                    return;
+                }
+
                 const inv = applyMessageVars(gateStep.invalidReplyBody, phoneDigits, session.vars);
                 void this.callbacks.enqueue({
                     to: session.toRaw,
@@ -704,6 +728,7 @@ export class ReplyFlowEngine {
                     connectionId,
                     campaignId: session.campaignId,
                 });
+                this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
             }
             return;
         }
@@ -712,6 +737,22 @@ export class ReplyFlowEngine {
             const gate = steps[steps.length - 1];
             const gateOk = replyMatchesGate(gate, bodyText, { nonTextReply });
             if (!gateOk && gate.invalidReplyBody) {
+                // Verifica limite de tentativas de resposta inválida
+                const maxAttempts = def.meta?.maxInvalidReplyAttempts ?? 3;
+                session.invalidReplyCount = (session.invalidReplyCount || 0) + 1;
+
+                if (session.invalidReplyCount >= maxAttempts) {
+                    this.callbacks.onLog?.('Limite de respostas inválidas atingido, encerrando fluxo', {
+                        campaignId: session.campaignId,
+                        connectionId,
+                        phoneDigits,
+                        invalidCount: session.invalidReplyCount,
+                        maxAttempts,
+                    });
+                    this.disposeSession(key, session);
+                    return;
+                }
+
                 const inv = applyMessageVars(gate.invalidReplyBody, phoneDigits, session.vars);
                 void this.callbacks.enqueue({
                     to: session.toRaw,
@@ -719,6 +760,7 @@ export class ReplyFlowEngine {
                     connectionId,
                     campaignId: session.campaignId,
                 });
+                this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
                 return;
             }
             if (gateOk && gate.marketingEffect === 'opt_in') {
