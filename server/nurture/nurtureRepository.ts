@@ -8,6 +8,7 @@ import {
   type NurtureJourneyRow,
   type NurtureMetrics,
   type NurtureStep,
+  type NurtureStepMedia,
   type NurtureStepOption
 } from './nurtureTypes.js';
 
@@ -36,12 +37,29 @@ function sanitizeOption(raw: unknown, index: number): NurtureStepOption | null {
   };
 }
 
+function sanitizeStepMedia(raw: unknown): NurtureStepMedia | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const m = raw as Record<string, unknown>;
+  const url = String(m.url ?? '').trim().slice(0, 2048);
+  const mimeType = String(m.mimeType ?? '').trim().slice(0, 128);
+  const fileName = String(m.fileName ?? 'anexo').trim().slice(0, 200) || 'anexo';
+  if (!url || !mimeType) return undefined;
+  return {
+    url,
+    mimeType,
+    fileName,
+    ...(m.sendAsDocument === true ? { sendAsDocument: true } : {})
+  };
+}
+
 function sanitizeStep(raw: unknown, index: number): NurtureStep | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
   const id = String(o.id ?? `step-${index + 1}`).trim().slice(0, 32) || `step-${index + 1}`;
+  const media = sanitizeStepMedia(o.media);
   const body = String(o.body ?? '').trim().slice(0, 4000);
-  if (!body) return null;
+  const linkUrl = String(o.linkUrl ?? '').trim().slice(0, 2048) || undefined;
+  if (!body && !media && !linkUrl) return null;
   const kind: NurtureStep['kind'] = o.kind === 'wait_reply' ? 'wait_reply' : 'message';
   const optionsRaw = Array.isArray(o.options) ? o.options : [];
   const options = optionsRaw
@@ -64,7 +82,9 @@ function sanitizeStep(raw: unknown, index: number): NurtureStep | null {
     ...(calendar ? { calendar } : {}),
     ...(options.length > 0 ? { options } : {}),
     timeoutHours: o.timeoutHours != null ? Math.min(168, Math.max(1, Math.round(Number(o.timeoutHours)))) : undefined,
-    timeoutMessage: o.timeoutMessage ? String(o.timeoutMessage).trim().slice(0, 1500) : undefined
+    timeoutMessage: o.timeoutMessage ? String(o.timeoutMessage).trim().slice(0, 1500) : undefined,
+    ...(media ? { media } : {}),
+    ...(linkUrl ? { linkUrl } : {})
   };
 }
 
@@ -152,6 +172,7 @@ function mapEnrollmentRow(row: {
   enrolled_at: Date;
   completed_at: Date | null;
   pause_reason: string | null;
+  contact_name?: string | null;
 }): NurtureEnrollmentRow {
   return {
     id: row.id,
@@ -165,8 +186,135 @@ function mapEnrollmentRow(row: {
     nextRunAt: row.next_run_at?.toISOString() ?? null,
     enrolledAt: row.enrolled_at.toISOString(),
     completedAt: row.completed_at?.toISOString() ?? null,
-    pauseReason: row.pause_reason
+    pauseReason: row.pause_reason,
+    contactName: row.contact_name?.trim() || null
   };
+}
+
+const ACTIVE_ENROLLMENT_STATUSES = ['enrolled', 'active', 'waiting_reply', 'paused'];
+
+export async function listNurtureEnrollmentsPg(
+  tenantId: string,
+  journeyId: string,
+  limit = 50,
+  opts?: { status?: 'active' | 'waiting_reply' | 'all' | string; search?: string }
+): Promise<NurtureEnrollmentRow[]> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const tid = pgTenantId(tenantId);
+  if (!tid || !isUuid(tid)) return [];
+  const cap = Math.min(200, Math.max(1, Math.round(limit)));
+  const params: unknown[] = [tid, journeyId];
+  let whereExtra = '';
+  if (opts?.status === 'active') {
+    whereExtra += ` AND e.status = ANY($${params.length + 1}::text[])`;
+    params.push(ACTIVE_ENROLLMENT_STATUSES);
+  } else if (opts?.status === 'waiting_reply') {
+    whereExtra += ` AND e.status = 'waiting_reply'`;
+  } else if (opts?.status && opts.status !== 'all') {
+    whereExtra += ` AND e.status = $${params.length + 1}`;
+    params.push(String(opts.status).slice(0, 32));
+  }
+  const searchDigits = String(opts?.search ?? '').replace(/\D/g, '');
+  const searchText = String(opts?.search ?? '').trim().toLowerCase().slice(0, 80);
+  if (searchDigits.length >= 4) {
+    whereExtra += ` AND e.contact_phone LIKE $${params.length + 1}`;
+    params.push(`%${searchDigits}%`);
+  } else if (searchText.length >= 2) {
+    whereExtra += ` AND lower(coalesce(c.name, '')) LIKE $${params.length + 1}`;
+    params.push(`%${searchText}%`);
+  }
+  params.push(cap);
+  const r = await pool.query<{
+    id: string;
+    journey_id: string;
+    contact_phone: string;
+    connection_id: string;
+    conversation_id: string;
+    status: string;
+    current_step_index: number;
+    step_entered_at: Date;
+    next_run_at: Date | null;
+    enrolled_at: Date;
+    completed_at: Date | null;
+    pause_reason: string | null;
+    contact_name: string | null;
+  }>(
+    `SELECT e.id, e.journey_id, e.contact_phone, e.connection_id, e.conversation_id, e.status,
+            e.current_step_index, e.step_entered_at, e.next_run_at, e.enrolled_at, e.completed_at, e.pause_reason,
+            c.name AS contact_name
+     FROM zapmass.nurture_enrollments e
+     LEFT JOIN LATERAL (
+       SELECT name FROM zapmass.contacts ct
+       WHERE ct.tenant_id = e.tenant_id
+         AND regexp_replace(coalesce(ct.phone, ''), '\\D', '', 'g') = e.contact_phone
+       ORDER BY ct.updated_at DESC NULLS LAST
+       LIMIT 1
+     ) c ON true
+     WHERE e.tenant_id = $1::uuid AND e.journey_id = $2::uuid${whereExtra}
+     ORDER BY
+       CASE e.status WHEN 'waiting_reply' THEN 0 WHEN 'active' THEN 1 WHEN 'enrolled' THEN 2 WHEN 'paused' THEN 3 ELSE 4 END,
+       e.enrolled_at DESC
+     LIMIT $${params.length}`,
+    params
+  );
+  return r.rows.map(mapEnrollmentRow);
+}
+
+export async function loadNurtureEnrollmentDispatchRowsPg(
+  tenantId: string,
+  journeyId: string,
+  enrollmentIds: string[]
+): Promise<
+  Array<{
+    enrollment: NurtureEnrollmentRow;
+    journeyDoc: NurtureJourneyDoc;
+    lastSentDayKey: string | null;
+  }>
+> {
+  const pool = getZapmassPool();
+  if (!pool || enrollmentIds.length === 0) return [];
+  const tid = pgTenantId(tenantId);
+  if (!tid || !isUuid(tid)) return [];
+  const ids = enrollmentIds.filter((id) => isUuid(id)).slice(0, 100);
+  if (ids.length === 0) return [];
+  const r = await pool.query<{
+    id: string;
+    journey_id: string;
+    contact_phone: string;
+    connection_id: string;
+    conversation_id: string;
+    status: string;
+    current_step_index: number;
+    step_entered_at: Date;
+    next_run_at: Date | null;
+    enrolled_at: Date;
+    completed_at: Date | null;
+    pause_reason: string | null;
+    contact_name: string | null;
+    journey_doc: unknown;
+    last_sent_day_key: string | null;
+  }>(
+    `SELECT e.id, e.journey_id, e.contact_phone, e.connection_id, e.conversation_id, e.status,
+            e.current_step_index, e.step_entered_at, e.next_run_at, e.enrolled_at, e.completed_at, e.pause_reason,
+            c.name AS contact_name, j.doc AS journey_doc, e.last_sent_day_key
+     FROM zapmass.nurture_enrollments e
+     JOIN zapmass.nurture_journeys j ON j.id = e.journey_id
+     LEFT JOIN LATERAL (
+       SELECT name FROM zapmass.contacts ct
+       WHERE ct.tenant_id = e.tenant_id
+         AND regexp_replace(coalesce(ct.phone, ''), '\\D', '', 'g') = e.contact_phone
+       ORDER BY ct.updated_at DESC NULLS LAST
+       LIMIT 1
+     ) c ON true
+     WHERE e.tenant_id = $1::uuid AND e.journey_id = $2::uuid AND e.id = ANY($3::uuid[])`,
+    [tid, journeyId, ids]
+  );
+  return r.rows.map((row) => ({
+    enrollment: mapEnrollmentRow(row),
+    journeyDoc: normalizeNurtureJourneyDoc(row.journey_doc),
+    lastSentDayKey: row.last_sent_day_key
+  }));
 }
 
 export async function getOrCreatePrimaryJourneyPg(tenantId: string): Promise<NurtureJourneyRow> {
@@ -241,40 +389,6 @@ export async function saveNurtureJourneyPg(
     [journeyId, tid, name, enabled, JSON.stringify({ ...doc, enabled })]
   );
   return mapJourneyRow(r.rows[0]);
-}
-
-export async function listNurtureEnrollmentsPg(
-  tenantId: string,
-  journeyId: string,
-  limit = 50
-): Promise<NurtureEnrollmentRow[]> {
-  const pool = getZapmassPool();
-  if (!pool) return [];
-  const tid = pgTenantId(tenantId);
-  if (!tid || !isUuid(tid)) return [];
-  const cap = Math.min(200, Math.max(1, Math.round(limit)));
-  const r = await pool.query<{
-    id: string;
-    journey_id: string;
-    contact_phone: string;
-    connection_id: string;
-    conversation_id: string;
-    status: string;
-    current_step_index: number;
-    step_entered_at: Date;
-    next_run_at: Date | null;
-    enrolled_at: Date;
-    completed_at: Date | null;
-    pause_reason: string | null;
-  }>(
-    `SELECT id, journey_id, contact_phone, connection_id, conversation_id, status,
-            current_step_index, step_entered_at, next_run_at, enrolled_at, completed_at, pause_reason
-     FROM zapmass.nurture_enrollments
-     WHERE tenant_id = $1::uuid AND journey_id = $2::uuid
-     ORDER BY enrolled_at DESC LIMIT $3`,
-    [tid, journeyId, cap]
-  );
-  return r.rows.map(mapEnrollmentRow);
 }
 
 export async function findActiveEnrollmentPg(

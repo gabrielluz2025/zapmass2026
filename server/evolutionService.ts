@@ -3555,6 +3555,18 @@ function ensureNurtureEnqueue() {
                 nurtureEnrollmentId: params.enrollmentId,
                 nurtureJourneyId: params.journeyId,
                 nurtureStepIndex: params.stepIndex,
+                ...(params.media
+                    ? {
+                          media: {
+                              url: params.media.url,
+                              mimeType: params.media.mimeType,
+                              fileName: params.media.fileName,
+                              caption: params.media.caption || params.message,
+                              ...(params.media.sendAsDocument ? { sendMediaAsDocument: true } : {})
+                          },
+                          sendAsMedia: true
+                      }
+                    : {})
             },
             params.delayMs
         );

@@ -7,11 +7,21 @@ import {
   bumpNurtureMetricPg,
   findActiveEnrollmentPg,
   getOrCreatePrimaryJourneyPg,
+  loadNurtureEnrollmentDispatchRowsPg,
+  listNurtureEnrollmentsPg,
   refreshActiveEnrollmentCountPg,
   updateEnrollmentStatusPg,
   upsertEnrollmentPg
 } from './nurtureRepository.js';
 import type { NurtureEnrollmentStatus, NurtureJourneyDoc, NurtureStep } from './nurtureTypes.js';
+
+export type NurtureEnqueueMedia = {
+  url: string;
+  mimeType: string;
+  fileName: string;
+  caption?: string;
+  sendAsDocument?: boolean;
+};
 
 export type NurtureEnqueueFn = (params: {
   tenantId: string;
@@ -22,6 +32,7 @@ export type NurtureEnqueueFn = (params: {
   message: string;
   stepIndex: number;
   delayMs: number;
+  media?: NurtureEnqueueMedia;
 }) => Promise<void>;
 
 export type NurtureSendTextFn = (conversationId: string, text: string) => Promise<void>;
@@ -146,6 +157,27 @@ function matchStepOption(step: NurtureStep, text: string) {
   return null;
 }
 
+export function buildNurtureStepMessage(step: NurtureStep, phone: string): string {
+  let msg = applyMessageVars(step.body || '', phone);
+  const link = step.linkUrl?.trim();
+  if (link) {
+    msg = msg.trim() ? `${msg.trim()}\n\n${link}` : link;
+  }
+  return msg;
+}
+
+export function buildNurtureStepMedia(step: NurtureStep): NurtureEnqueueMedia | undefined {
+  const m = step.media;
+  if (!m?.url || !m.mimeType) return undefined;
+  return {
+    url: m.url,
+    mimeType: m.mimeType,
+    fileName: m.fileName || 'anexo',
+    caption: step.body?.trim() || undefined,
+    sendAsDocument: m.sendAsDocument
+  };
+}
+
 export async function enrollContactInNurture(params: {
   tenantId: string;
   contactPhone: string;
@@ -221,17 +253,20 @@ export async function tryAutoEnrollOnOptIn(params: {
   }
 }
 
-export async function processNurtureDueEnrollment(row: {
-  id: string;
-  tenantId: string;
-  journeyId: string;
-  contactPhone: string;
-  connectionId: string;
-  conversationId: string;
-  currentStepIndex: number;
-  journeyDoc: NurtureJourneyDoc;
-  lastSentDayKey: string | null;
-}): Promise<void> {
+export async function processNurtureDueEnrollment(
+  row: {
+    id: string;
+    tenantId: string;
+    journeyId: string;
+    contactPhone: string;
+    connectionId: string;
+    conversationId: string;
+    currentStepIndex: number;
+    journeyDoc: NurtureJourneyDoc;
+    lastSentDayKey: string | null;
+  },
+  opts?: { force?: boolean; delayMs?: number }
+): Promise<void> {
   if (!enqueueFn) return;
   const doc = row.journeyDoc;
   const step = doc.steps[row.currentStepIndex];
@@ -253,7 +288,11 @@ export async function processNurtureDueEnrollment(row: {
   }
 
   const todayKey = brazilDayKey();
-  if (row.lastSentDayKey === todayKey && doc.maxMessagesPerDayPerContact <= 1) {
+  if (
+    !opts?.force &&
+    row.lastSentDayKey === todayKey &&
+    doc.maxMessagesPerDayPerContact <= 1
+  ) {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(12, 0, 0, 0);
@@ -261,7 +300,7 @@ export async function processNurtureDueEnrollment(row: {
     return;
   }
 
-  if (!isWithinBusinessHours(doc)) {
+  if (!opts?.force && !isWithinBusinessHours(doc)) {
     const wait = nextBusinessWindowMs(doc);
     await updateEnrollmentStatusPg(row.tenantId, row.id, {
       nextRunAt: new Date(Date.now() + wait)
@@ -269,8 +308,18 @@ export async function processNurtureDueEnrollment(row: {
     return;
   }
 
-  const message = applyMessageVars(step.body, row.contactPhone);
-  const humanDelay = 45_000 + Math.floor(Math.random() * 75_000);
+  const message = buildNurtureStepMessage(step, row.contactPhone);
+  const media = buildNurtureStepMedia(step);
+  if (!message.trim() && !media) {
+    await updateEnrollmentStatusPg(row.tenantId, row.id, {
+      status: 'failed',
+      pauseReason: 'empty_step',
+      nextRunAt: null
+    });
+    return;
+  }
+  const humanDelay =
+    opts?.delayMs ?? (opts?.force ? 0 : 45_000 + Math.floor(Math.random() * 75_000));
 
   await enqueueFn({
     tenantId: row.tenantId,
@@ -280,7 +329,8 @@ export async function processNurtureDueEnrollment(row: {
     contactPhone: row.contactPhone,
     message,
     stepIndex: row.currentStepIndex,
-    delayMs: humanDelay
+    delayMs: humanDelay,
+    media
   });
 
   await updateEnrollmentStatusPg(row.tenantId, row.id, {
@@ -449,6 +499,50 @@ export async function handleNurtureIncoming(params: NurtureInboundParams): Promi
     nextRunAt: new Date(Date.now() + delayMs)
   });
   return true;
+}
+
+export async function forceDispatchNurtureEnrollments(params: {
+  tenantId: string;
+  journeyId: string;
+  enrollmentIds?: string[];
+  allActive?: boolean;
+}): Promise<{ ok: boolean; queued: number; error?: string }> {
+  if (!enqueueFn) return { ok: false, queued: 0, error: 'Motor de fila indisponível.' };
+  let ids = (params.enrollmentIds || []).filter(Boolean).slice(0, 100);
+  if (params.allActive) {
+    const active = await listNurtureEnrollmentsPg(params.tenantId, params.journeyId, 100, {
+      status: 'active'
+    });
+    ids = active.map((e) => e.id);
+  }
+  if (ids.length === 0) {
+    return { ok: false, queued: 0, error: 'Nenhum inscrito selecionado.' };
+  }
+  const rows = await loadNurtureEnrollmentDispatchRowsPg(params.tenantId, params.journeyId, ids);
+  let queued = 0;
+  for (const row of rows) {
+    if (!['enrolled', 'active', 'waiting_reply', 'paused'].includes(row.enrollment.status)) continue;
+    try {
+      await processNurtureDueEnrollment(
+        {
+          id: row.enrollment.id,
+          tenantId: params.tenantId,
+          journeyId: params.journeyId,
+          contactPhone: row.enrollment.contactPhone,
+          connectionId: row.enrollment.connectionId,
+          conversationId: row.enrollment.conversationId,
+          currentStepIndex: row.enrollment.currentStepIndex,
+          journeyDoc: row.journeyDoc,
+          lastSentDayKey: row.lastSentDayKey
+        },
+        { force: true, delayMs: 0 }
+      );
+      queued += 1;
+    } catch (e) {
+      console.warn('[nurture] force dispatch falhou', row.enrollment.id, (e as Error)?.message);
+    }
+  }
+  return { ok: queued > 0, queued, error: queued === 0 ? 'Nenhum envio enfileirado.' : undefined };
 }
 
 export async function cancelNurtureEnrollment(tenantId: string, enrollmentId: string): Promise<void> {

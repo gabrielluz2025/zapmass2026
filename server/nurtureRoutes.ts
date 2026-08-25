@@ -2,7 +2,12 @@ import type { Express, Request, Response } from 'express';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { requireTenant } from './httpTenant.js';
-import { cancelNurtureEnrollment, enrollContactInNurture } from './nurture/nurtureEngine.js';
+import { saveMediaFromBase64 } from './mediaStorage.js';
+import {
+  cancelNurtureEnrollment,
+  enrollContactInNurture,
+  forceDispatchNurtureEnrollments
+} from './nurture/nurtureEngine.js';
 import {
   findEnrollmentByPhonePg,
   getOrCreatePrimaryJourneyPg,
@@ -22,7 +27,12 @@ export function registerNurtureRoutes(app: Express): void {
     try {
       const journey = await getOrCreatePrimaryJourneyPg(ctx.tenantId);
       const metrics = await loadNurtureMetricsPg(ctx.tenantId, journey.id);
-      const enrollments = await listNurtureEnrollmentsPg(ctx.tenantId, journey.id, 50);
+      const status = String(req.query.status ?? 'all').trim();
+      const search = String(req.query.search ?? '').trim();
+      const enrollments = await listNurtureEnrollmentsPg(ctx.tenantId, journey.id, 100, {
+        status: status || 'all',
+        search
+      });
       return res.json({ ok: true, journey, metrics, enrollments });
     } catch (e) {
       console.error('[nurture GET]', e);
@@ -102,6 +112,53 @@ export function registerNurtureRoutes(app: Express): void {
     const enrollment = await findEnrollmentByPhonePg(ctx.tenantId, phone);
     const enrollments = await listNurtureEnrollmentsPg(ctx.tenantId, journey.id, 50);
     return res.json({ ok: true, enrollment, enrollments });
+  });
+
+  app.post('/api/nurture/media', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = req.body as { dataBase64?: string; mimeType?: string; fileName?: string };
+    const dataBase64 = String(body.dataBase64 ?? '').trim();
+    const mimeType = String(body.mimeType ?? '').trim();
+    const fileName = String(body.fileName ?? 'anexo').trim().slice(0, 200) || 'anexo';
+    if (!dataBase64 || !mimeType) {
+      return res.status(400).json({ ok: false, error: 'Envie dataBase64 e mimeType.' });
+    }
+    try {
+      const saved = await saveMediaFromBase64(dataBase64, mimeType, fileName);
+      return res.json({ ok: true, url: saved.url });
+    } catch (e) {
+      console.error('[nurture media]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível salvar a mídia.' });
+    }
+  });
+
+  app.post('/api/nurture/dispatch', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = req.body as {
+      journeyId?: string;
+      enrollmentIds?: string[];
+      allActive?: boolean;
+    };
+    try {
+      const journey = await getOrCreatePrimaryJourneyPg(ctx.tenantId);
+      const journeyId = body.journeyId || journey.id;
+      const result = await forceDispatchNurtureEnrollments({
+        tenantId: ctx.tenantId,
+        journeyId,
+        enrollmentIds: Array.isArray(body.enrollmentIds) ? body.enrollmentIds : undefined,
+        allActive: body.allActive === true
+      });
+      if (!result.ok) {
+        return res.status(400).json(result);
+      }
+      const enrollments = await listNurtureEnrollmentsPg(ctx.tenantId, journeyId, 100);
+      return res.json({ ok: true, queued: result.queued, enrollments });
+    } catch (e) {
+      console.error('[nurture dispatch]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível disparar a jornada.' });
+    }
   });
 
   app.post('/api/nurture/enrollments/cancel', async (req: Request, res: Response) => {

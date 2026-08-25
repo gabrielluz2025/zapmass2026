@@ -1,5 +1,12 @@
 export type NurtureStepKind = 'message' | 'wait_reply';
 
+export type NurtureStepMedia = {
+  url: string;
+  mimeType: string;
+  fileName: string;
+  sendAsDocument?: boolean;
+};
+
 export type NurtureStepOption = {
   id: string;
   tokens: string[];
@@ -19,6 +26,10 @@ export type NurtureStep = {
   options?: NurtureStepOption[];
   timeoutHours?: number;
   timeoutMessage?: string;
+  /** Imagem/vídeo/arquivo enviado com legenda = body. */
+  media?: NurtureStepMedia;
+  /** Link extra no final da mensagem (preview no WhatsApp). */
+  linkUrl?: string;
 };
 
 export type NurtureBusinessHours = {
@@ -76,6 +87,7 @@ export type NurtureEnrollmentRow = {
   enrolledAt: string;
   completedAt: string | null;
   pauseReason: string | null;
+  contactName?: string | null;
 };
 
 export type NurtureMetrics = {

@@ -4,22 +4,31 @@ import {
   Calendar,
   Clock,
   Flame,
+  MessageSquare,
   Plus,
   RefreshCw,
+  Rocket,
   Save,
-  Trash2,
+  Search,
+  Send,
+  Settings2,
+  UserPlus,
   Users,
   Zap
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useZapMassConnectionsSlice } from '../../context/ZapMassContext';
 import { Button, Card, Input, SectionHeader } from '../ui';
+import { NurtureStepEditor, type PendingStepMedia } from './NurtureStepEditor';
 import {
   cancelNurtureEnrollment,
+  dispatchNurtureNow,
+  ENROLLMENT_STATUS_COLOR,
   ENROLLMENT_STATUS_LABEL,
+  enrollContactInNurture,
   fetchNurtureJourney,
   saveNurtureJourney,
-  WEEKDAY_LABELS,
+  uploadNurtureMedia,
   type NurtureEnrollment,
   type NurtureJourneyDoc,
   type NurtureMetrics,
@@ -27,30 +36,7 @@ import {
   type NurtureStepOption
 } from '../../services/nurtureApi';
 
-function defaultWaitReplyOptions(): NurtureStepOption[] {
-  return [
-    {
-      id: '1',
-      tokens: ['1', 'sim'],
-      reply: 'Perfeito! Em breve alguém da equipe fala com você.',
-      handoff: true
-    },
-    {
-      id: '2',
-      tokens: ['2', 'depois', 'nao', 'não'],
-      reply: 'Sem problemas! Continuamos por aqui quando quiser.'
-    }
-  ];
-}
-
-function newWaitReplyOption(index: number): NurtureStepOption {
-  return {
-    id: String(index + 1),
-    tokens: [String(index + 1)],
-    reply: '',
-    handoff: false
-  };
-}
+type TabId = 'sequencia' | 'inscritos' | 'enviar';
 
 const DEFAULT_DOC: NurtureJourneyDoc = {
   enabled: false,
@@ -103,8 +89,16 @@ function newStep(index: number): NurtureStep {
   };
 }
 
+function defaultWaitReplyOptions(): NurtureStepOption[] {
+  return [
+    { id: '1', tokens: ['1', 'sim'], reply: 'Perfeito! Em breve alguém fala com você.', handoff: true },
+    { id: '2', tokens: ['2', 'depois', 'nao', 'não'], reply: 'Sem problemas! Continuamos por aqui.' }
+  ];
+}
+
 export const NurtureJourneyPanel: React.FC = () => {
   const connections = useZapMassConnectionsSlice();
+  const [tab, setTab] = useState<TabId>('sequencia');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [journeyId, setJourneyId] = useState('');
@@ -120,33 +114,57 @@ export const NurtureJourneyPanel: React.FC = () => {
     activeEnrollments: 0
   });
   const [enrollments, setEnrollments] = useState<NurtureEnrollment[]>([]);
+  const [selectedStep, setSelectedStep] = useState(0);
+  const [pendingMediaByStep, setPendingMediaByStep] = useState<Record<string, PendingStepMedia>>({});
+  const [enrollFilter, setEnrollFilter] = useState('all');
+  const [enrollSearch, setEnrollSearch] = useState('');
+  const [selectedEnrollmentIds, setSelectedEnrollmentIds] = useState<Set<string>>(new Set());
+  const [dispatchBusy, setDispatchBusy] = useState(false);
+  const [enrollPhone, setEnrollPhone] = useState('');
+  const [enrollConnectionId, setEnrollConnectionId] = useState('');
+  const [enrollBusy, setEnrollBusy] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  const connectedChips = useMemo(
+    () => connections.filter((c) => c.status === 'CONNECTED'),
+    [connections]
+  );
+
+  const chipName = useMemo(() => {
+    const id = doc.connectionIds[0] || connectedChips[0]?.id;
+    return connections.find((c) => c.id === id)?.name;
+  }, [connections, connectedChips, doc.connectionIds]);
 
   const load = useCallback(async () => {
     try {
-      const data = await fetchNurtureJourney();
+      const data = await fetchNurtureJourney({
+        status: enrollFilter,
+        search: enrollSearch
+      });
       setJourneyId(data.journey.id);
       setName(data.journey.name);
       setEnabled(data.journey.enabled);
       setDoc(data.journey.doc);
       setMetrics(data.metrics);
       setEnrollments(data.enrollments);
+      setSelectedStep((i) => Math.min(i, Math.max(0, data.journey.doc.steps.length - 1)));
     } catch (e) {
       console.error(e);
-      toast.error('Não foi possível carregar a jornada de nutrição.');
+      toast.error('Não foi possível carregar a jornada.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [enrollFilter, enrollSearch]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const connectedIds = useMemo(
-    () => connections.filter((c) => c.status === 'CONNECTED').map((c) => c.id),
-    [connections]
-  );
+  useEffect(() => {
+    if (!enrollConnectionId && connectedChips[0]?.id) {
+      setEnrollConnectionId(connectedChips[0].id);
+    }
+  }, [connectedChips, enrollConnectionId]);
 
   const toggleChip = (id: string) => {
     setDoc((prev) => {
@@ -165,10 +183,6 @@ export const NurtureJourneyPanel: React.FC = () => {
     });
   };
 
-  const updateStepOptions = (index: number, options: NurtureStepOption[]) => {
-    updateStep(index, { options });
-  };
-
   const setStepKind = (index: number, kind: NurtureStep['kind']) => {
     const step = doc.steps[index];
     if (kind === 'wait_reply' && (!step.options || step.options.length === 0)) {
@@ -178,56 +192,104 @@ export const NurtureJourneyPanel: React.FC = () => {
     }
   };
 
-  const addStep = () => {
-    setDoc((prev) => ({
-      ...prev,
-      steps: [...prev.steps, newStep(prev.steps.length)]
-    }));
-  };
-
-  const removeStep = (index: number) => {
-    setDoc((prev) => ({
-      ...prev,
-      steps: prev.steps.filter((_, i) => i !== index)
-    }));
+  const uploadPendingMedia = async (steps: NurtureStep[]): Promise<NurtureStep[]> => {
+    const out = [...steps];
+    for (let i = 0; i < out.length; i++) {
+      const pending = pendingMediaByStep[out[i].id];
+      if (!pending?.dataBase64) continue;
+      const url = await uploadNurtureMedia({
+        dataBase64: pending.dataBase64,
+        mimeType: pending.mimeType,
+        fileName: pending.fileName
+      });
+      out[i] = {
+        ...out[i],
+        media: {
+          url,
+          mimeType: pending.mimeType,
+          fileName: pending.fileName,
+          sendAsDocument: pending.sendMediaAsDocument
+        }
+      };
+    }
+    return out;
   };
 
   const handleSave = async () => {
     if (!journeyId) return;
     if (doc.steps.length === 0) {
-      toast.error('Adicione pelo menos um passo na jornada.');
+      toast.error('Adicione pelo menos um passo.');
       return;
     }
     setSaving(true);
     try {
+      const steps = await uploadPendingMedia(doc.steps);
       const result = await saveNurtureJourney({
         journeyId,
         name,
         enabled,
-        doc: { ...doc, enabled, name }
+        doc: { ...doc, steps, enabled, name }
       });
+      setDoc(result.journey.doc);
       setMetrics(result.metrics);
-      toast.success('Jornada de nutrição salva.');
+      setPendingMediaByStep({});
+      toast.success('Jornada salva.');
     } catch (e) {
       console.error(e);
-      toast.error('Erro ao salvar a jornada.');
+      toast.error('Erro ao salvar.');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleCancelEnrollment = async (id: string) => {
-    setCancellingId(id);
+  const handleDispatch = async (allActive: boolean) => {
+    if (!journeyId) return;
+    setDispatchBusy(true);
     try {
-      const list = await cancelNurtureEnrollment(id);
-      setEnrollments(list);
-      toast.success('Inscrição cancelada.');
-    } catch {
-      toast.error('Não foi possível cancelar.');
+      const ids = allActive ? undefined : [...selectedEnrollmentIds];
+      const result = await dispatchNurtureNow({
+        journeyId,
+        allActive,
+        enrollmentIds: ids
+      });
+      setEnrollments(result.enrollments);
+      toast.success(`${result.queued} envio(s) enfileirado(s).`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao disparar.');
     } finally {
-      setCancellingId(null);
+      setDispatchBusy(false);
     }
   };
+
+  const handleManualEnroll = async () => {
+    const phone = enrollPhone.replace(/\D/g, '');
+    if (!phone || !enrollConnectionId) {
+      toast.error('Informe telefone e chip.');
+      return;
+    }
+    setEnrollBusy(true);
+    try {
+      await enrollContactInNurture({ contactPhone: phone, connectionId: enrollConnectionId, journeyId });
+      await load();
+      setEnrollPhone('');
+      toast.success('Contato inscrito na jornada.');
+    } catch {
+      toast.error('Não foi possível inscrever.');
+    } finally {
+      setEnrollBusy(false);
+    }
+  };
+
+  const toggleEnrollmentSelect = (id: string) => {
+    setSelectedEnrollmentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const interactingCount = enrollments.filter((e) => e.status === 'waiting_reply').length;
 
   if (loading) {
     return (
@@ -238,429 +300,381 @@ export const NurtureJourneyPanel: React.FC = () => {
     );
   }
 
+  const tabs: { id: TabId; label: string; icon: React.ReactNode; badge?: number }[] = [
+    { id: 'sequencia', label: 'Sequência', icon: <BookOpen className="w-4 h-4" /> },
+    {
+      id: 'inscritos',
+      label: 'Inscritos',
+      icon: <Users className="w-4 h-4" />,
+      badge: interactingCount || metrics.activeEnrollments || undefined
+    },
+    { id: 'enviar', label: 'Enviar / Inscrever', icon: <Rocket className="w-4 h-4" /> }
+  ];
+
+  const currentStep = doc.steps[selectedStep];
+
   return (
-    <div className="space-y-6 pb-10">
-      <SectionHeader
-        icon={<BookOpen className="w-5 h-5" style={{ color: 'var(--brand-500)' }} />}
-        title="Jornada de nutrição"
-        description="Sequência programada de materiais para leads quentes — não consome cota de disparo de campanha"
-      />
+    <div className="space-y-5 pb-12 max-w-6xl mx-auto">
+      <div
+        className="rounded-2xl p-5 border overflow-hidden"
+        style={{
+          background: 'linear-gradient(135deg, rgba(20,184,166,0.12) 0%, rgba(16,185,129,0.04) 50%, transparent 100%)',
+          borderColor: 'var(--border-subtle)'
+        }}
+      >
+        <SectionHeader
+          icon={<BookOpen className="w-5 h-5 text-teal-600" />}
+          title="Jornada de nutrição"
+          description="Sequência profissional para leads quentes — fora da cota de campanha, com mídia, links e acompanhamento em tempo real"
+        />
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border bg-white/80 dark:bg-slate-900/80 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+              className="accent-teal-500"
+            />
+            <span className="text-sm font-bold">Jornada ativa</span>
+          </label>
+          <Button type="button" onClick={() => void handleSave()} disabled={saving} size="sm">
+            <Save className="w-4 h-4 mr-1" />
+            {saving ? 'Salvando…' : 'Salvar'}
+          </Button>
+        </div>
+      </div>
 
-      <Card className="p-4">
-        <label className="flex items-center gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(e) => setEnabled(e.target.checked)}
-            className="w-4 h-4 rounded accent-emerald-500"
-          />
-          <span className="font-bold text-slate-800 dark:text-white">Ativar jornada de nutrição</span>
-        </label>
-        <p className="text-xs text-slate-500 mt-2 ml-7">
-          Mensagens da jornada são enviadas em conversa 1:1 e <strong>não entram</strong> no limite diário de
-          campanhas.
-        </p>
-      </Card>
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         {[
-          { label: 'Ativos', value: metrics.activeEnrollments, icon: Users, color: 'text-emerald-500' },
-          { label: 'Materiais', value: metrics.materialsSent, icon: Zap, color: 'text-sky-500' },
-          { label: 'Respostas', value: metrics.repliesReceived, icon: Flame, color: 'text-orange-500' },
-          { label: 'Handoffs', value: metrics.handoffs, icon: Users, color: 'text-violet-500' },
-          { label: 'Concluídos', value: metrics.completed, icon: BookOpen, color: 'text-emerald-600' },
-          { label: 'Opt-outs', value: metrics.optOuts, icon: Trash2, color: 'text-red-400' }
+          { label: 'Ativos', value: metrics.activeEnrollments, icon: Users, tone: 'text-teal-600' },
+          { label: 'Interagindo', value: interactingCount, icon: MessageSquare, tone: 'text-amber-600' },
+          { label: 'Materiais', value: metrics.materialsSent, icon: Zap, tone: 'text-sky-600' },
+          { label: 'Respostas', value: metrics.repliesReceived, icon: Flame, tone: 'text-orange-500' },
+          { label: 'Handoffs', value: metrics.handoffs, icon: UserPlus, tone: 'text-violet-600' },
+          { label: 'Concluídos', value: metrics.completed, icon: BookOpen, tone: 'text-emerald-700' }
         ].map((k) => (
-          <Card key={k.label} className="p-3 text-center">
-            <k.icon className={`w-4 h-4 mx-auto mb-1 ${k.color}`} />
-            <p className="text-lg font-black tabular-nums">{k.value.toLocaleString('pt-BR')}</p>
-            <p className="text-[10px] font-bold uppercase text-slate-400">{k.label}</p>
+          <Card key={k.label} className="p-3 border-0 shadow-sm">
+            <k.icon className={`w-4 h-4 mb-1 ${k.tone}`} />
+            <p className="text-xl font-black tabular-nums">{k.value.toLocaleString('pt-BR')}</p>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{k.label}</p>
           </Card>
         ))}
       </div>
 
-      <Card className="p-4 space-y-4">
-        <h3 className="text-sm font-black uppercase text-slate-500">Configuração geral</h3>
-        <label className="block space-y-1">
-          <span className="text-xs font-bold text-slate-500">Nome da jornada</span>
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <div className="grid sm:grid-cols-2 gap-4">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={doc.entryRules.autoEnrollOnOptIn}
-              onChange={(e) =>
-                setDoc((p) => ({
-                  ...p,
-                  entryRules: { ...p.entryRules, autoEnrollOnOptIn: e.target.checked }
-                }))
-              }
-              className="accent-emerald-500"
-            />
-            Inscrever automaticamente quando virar lead quente (opt-in)
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={doc.stopOnHumanClaim}
-              onChange={(e) => setDoc((p) => ({ ...p, stopOnHumanClaim: e.target.checked }))}
-              className="accent-emerald-500"
-            />
-            Pausar quando humano assumir no Bate-papo
-          </label>
-        </div>
-        <div>
-          <p className="text-xs font-bold text-slate-500 mb-2">Modo de agenda</p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setDoc((p) => ({ ...p, scheduleMode: 'relative' }))}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
-                doc.scheduleMode === 'relative'
-                  ? 'bg-emerald-500 text-white'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600'
-              }`}
-            >
-              <Clock className="w-3 h-3 inline mr-1" />
-              Relativo (+horas)
-            </button>
-            <button
-              type="button"
-              onClick={() => setDoc((p) => ({ ...p, scheduleMode: 'calendar' }))}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
-                doc.scheduleMode === 'calendar'
-                  ? 'bg-emerald-500 text-white'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600'
-              }`}
-            >
-              <Calendar className="w-3 h-3 inline mr-1" />
-              Calendário (dia/hora)
-            </button>
-          </div>
-        </div>
-        <div>
-          <p className="text-xs font-bold text-slate-500 mb-2">Chips (vazio = todos conectados)</p>
-          <div className="flex flex-wrap gap-2">
-            {connectedIds.length === 0 ? (
-              <span className="text-xs text-amber-600">Nenhum chip conectado no momento</span>
-            ) : (
-              connectedIds.map((id) => {
-                const conn = connections.find((c) => c.id === id);
-                const on = doc.connectionIds.length === 0 || doc.connectionIds.includes(id);
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => toggleChip(id)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
-                      on
-                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                        : 'border-slate-200 dark:border-slate-700 text-slate-500'
-                    }`}
-                  >
-                    {conn?.name || id}
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </Card>
-
-      <Card className="p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-black uppercase text-slate-500">Passos da sequência</h3>
-          <Button type="button" variant="secondary" size="sm" onClick={addStep}>
-            <Plus className="w-4 h-4 mr-1" />
-            Passo
-          </Button>
-        </div>
-        <p className="text-xs text-slate-500">
-          Use variáveis como {'{nome}'}, {'{saudacao}'} e spintax {'{Olá|Oi}'} . Palavra PARAR encerra a jornada.
-        </p>
-        {doc.steps.map((step, index) => (
-          <div
-            key={step.id}
-            className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3"
-            style={{ background: 'var(--surface-2)' }}
+      <div
+        className="flex gap-1 p-1 rounded-xl overflow-x-auto"
+        style={{ background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}
+      >
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition ${
+              tab === t.id
+                ? 'bg-white dark:bg-slate-800 shadow text-teal-700 dark:text-teal-300'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
           >
-            <div className="flex items-end justify-between gap-2">
-              <label className="flex-1 block space-y-1">
-                <span className="text-xs font-bold text-slate-500">Passo {index + 1}</span>
-                <Input
-                  value={step.label || ''}
-                  onChange={(e) => updateStep(index, { label: e.target.value })}
-                  placeholder={`Passo ${index + 1}`}
-                />
-              </label>
+            {t.icon}
+            {t.label}
+            {t.badge != null && t.badge > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500 text-white">{t.badge}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'sequencia' && (
+        <div className="space-y-4">
+          <Card className="p-4 space-y-4">
+            <div className="flex items-center gap-2 text-sm font-bold text-slate-500">
+              <Settings2 className="w-4 h-4" />
+              Configuração
+            </div>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome da jornada" />
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => removeStep(index)}
-                className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg shrink-0 mt-5"
-                title="Remover passo"
+                onClick={() => setDoc((p) => ({ ...p, scheduleMode: 'relative' }))}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold ${doc.scheduleMode === 'relative' ? 'bg-teal-500 text-white' : 'bg-slate-100 dark:bg-slate-800'}`}
               >
-                <Trash2 className="w-4 h-4" />
+                <Clock className="w-3 h-3 inline mr-1" />
+                Relativo
+              </button>
+              <button
+                type="button"
+                onClick={() => setDoc((p) => ({ ...p, scheduleMode: 'calendar' }))}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold ${doc.scheduleMode === 'calendar' ? 'bg-teal-500 text-white' : 'bg-slate-100 dark:bg-slate-800'}`}
+              >
+                <Calendar className="w-3 h-3 inline mr-1" />
+                Calendário
               </button>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <label className="text-xs font-bold text-slate-500">
-                Tipo{' '}
-                <select
-                  value={step.kind}
-                  onChange={(e) => setStepKind(index, e.target.value as NurtureStep['kind'])}
-                  className="ml-1 rounded border px-2 py-1 text-slate-800 dark:text-white dark:bg-slate-900"
-                >
-                  <option value="message">Mensagem automática</option>
-                  <option value="wait_reply">Aguardar resposta</option>
-                </select>
-              </label>
-              {doc.scheduleMode === 'relative' ? (
-                <label className="text-xs font-bold text-slate-500">
-                  +Horas após anterior{' '}
-                  <input
-                    type="number"
-                    min={0}
-                    max={336}
-                    value={step.delayHours ?? 0}
-                    onChange={(e) =>
-                      updateStep(index, { delayHours: Number(e.target.value) || 0 })
-                    }
-                    className="w-16 ml-1 rounded border px-2 py-1 dark:bg-slate-900"
-                  />
-                </label>
-              ) : (
-                <>
-                  <label className="text-xs font-bold text-slate-500">
-                    Dia{' '}
-                    <select
-                      value={step.calendar?.weekday ?? 1}
-                      onChange={(e) =>
-                        updateStep(index, {
-                          calendar: {
-                            weekday: Number(e.target.value),
-                            time: step.calendar?.time || '09:00'
-                          }
-                        })
-                      }
-                      className="ml-1 rounded border px-2 py-1 dark:bg-slate-900"
-                    >
-                      {WEEKDAY_LABELS.map((l, i) => (
-                        <option key={l} value={i}>
-                          {l}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-xs font-bold text-slate-500">
-                    Hora{' '}
-                    <input
-                      type="time"
-                      value={step.calendar?.time || '09:00'}
-                      onChange={(e) =>
-                        updateStep(index, {
-                          calendar: {
-                            weekday: step.calendar?.weekday ?? 1,
-                            time: e.target.value
-                          }
-                        })
-                      }
-                      className="ml-1 rounded border px-2 py-1 dark:bg-slate-900"
-                    />
-                  </label>
-                </>
-              )}
+            <div className="flex flex-wrap gap-2">
+              {connectedChips.map((c) => {
+                const on = doc.connectionIds.length === 0 || doc.connectionIds.includes(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => toggleChip(c.id)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${on ? 'border-teal-500 bg-teal-500/10 text-teal-800' : 'border-slate-200 text-slate-500'}`}
+                  >
+                    {c.name || c.id}
+                  </button>
+                );
+              })}
             </div>
-            <textarea
-              value={step.body}
-              onChange={(e) => updateStep(index, { body: e.target.value })}
-              rows={4}
-              placeholder="Texto do material ou pergunta com opções 1 / 2…"
-              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-sm dark:bg-slate-900"
-            />
-            {step.kind === 'wait_reply' && (
-              <div className="space-y-3 pt-1 border-t border-slate-200 dark:border-slate-700">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-bold text-slate-500">Opções de resposta (1 / 2 / 3…)</p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateStepOptions(index, [
-                        ...(step.options || []),
-                        newWaitReplyOption((step.options || []).length)
-                      ])
-                    }
-                    className="text-xs font-bold text-emerald-600 hover:underline flex items-center gap-1"
-                  >
-                    <Plus className="w-3 h-3" />
-                    Opção
-                  </button>
-                </div>
-                {(step.options || []).length === 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => updateStepOptions(index, defaultWaitReplyOptions())}
-                    className="text-xs text-slate-500 hover:text-emerald-600 underline"
-                  >
-                    Adicionar opções padrão (1 — Sim, 2 — Depois)
-                  </button>
-                ) : (
-                  (step.options || []).map((opt, optIndex) => (
-                    <div
-                      key={opt.id || `opt-${optIndex}`}
-                      className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2"
-                      style={{ background: 'var(--surface-1, var(--surface-2))' }}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-black text-slate-500">Opção {optIndex + 1}</span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateStepOptions(
-                              index,
-                              (step.options || []).filter((_, i) => i !== optIndex)
-                            )
-                          }
-                          className="text-xs text-red-500 hover:underline"
-                        >
-                          Remover
-                        </button>
-                      </div>
-                      <label className="block space-y-1">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">
-                          Palavras aceitas (vírgula)
-                        </span>
-                        <Input
-                          value={(opt.tokens || []).join(', ')}
-                          onChange={(e) => {
-                            const tokens = e.target.value
-                              .split(/[,;]+/)
-                              .map((t) => t.trim())
-                              .filter(Boolean);
-                            const next = [...(step.options || [])];
-                            next[optIndex] = { ...opt, tokens };
-                            updateStepOptions(index, next);
-                          }}
-                          placeholder="1, sim, quero"
-                        />
-                      </label>
-                      <label className="block space-y-1">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">
-                          Resposta automática
-                        </span>
-                        <textarea
-                          value={opt.reply || ''}
-                          onChange={(e) => {
-                            const next = [...(step.options || [])];
-                            next[optIndex] = { ...opt, reply: e.target.value };
-                            updateStepOptions(index, next);
-                          }}
-                          rows={2}
-                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 p-2 text-sm dark:bg-slate-900"
-                        />
-                      </label>
-                      <label className="flex items-center gap-2 text-xs">
-                        <input
-                          type="checkbox"
-                          checked={!!opt.handoff}
-                          onChange={(e) => {
-                            const next = [...(step.options || [])];
-                            next[optIndex] = { ...opt, handoff: e.target.checked };
-                            updateStepOptions(index, next);
-                          }}
-                          className="accent-violet-500"
-                        />
-                        Encaminhar para humano (handoff)
-                      </label>
-                    </div>
-                  ))
-                )}
-                <div className="grid sm:grid-cols-2 gap-3">
-                  <label className="text-xs font-bold text-slate-500">
-                    Timeout (horas, opcional){' '}
-                    <input
-                      type="number"
-                      min={0}
-                      max={336}
-                      value={step.timeoutHours ?? ''}
-                      onChange={(e) =>
-                        updateStep(index, {
-                          timeoutHours: e.target.value ? Number(e.target.value) || undefined : undefined
-                        })
-                      }
-                      className="w-full mt-1 rounded border px-2 py-1 dark:bg-slate-900 font-normal"
-                      placeholder="72"
-                    />
-                  </label>
-                  <label className="text-xs font-bold text-slate-500 sm:col-span-1">
-                    Mensagem se não responder
-                    <textarea
-                      value={step.timeoutMessage || ''}
-                      onChange={(e) => updateStep(index, { timeoutMessage: e.target.value })}
-                      rows={2}
-                      className="w-full mt-1 rounded border px-2 py-1 text-sm dark:bg-slate-900 font-normal"
-                      placeholder="Quando quiser, é só responder aqui."
-                    />
-                  </label>
-                </div>
-                <p className="text-[10px] text-slate-400">
-                  Se não houver opções, qualquer resposta avança. Com opções, só tokens listados contam.
-                </p>
-              </div>
-            )}
-          </div>
-        ))}
-      </Card>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={doc.entryRules.autoEnrollOnOptIn}
+                onChange={(e) =>
+                  setDoc((p) => ({ ...p, entryRules: { ...p.entryRules, autoEnrollOnOptIn: e.target.checked } }))
+                }
+              />
+              Auto-inscrever leads quentes (opt-in)
+            </label>
+          </Card>
 
-      <Card className="p-4">
-        <h3 className="text-sm font-black uppercase text-slate-500 mb-3">Inscritos recentes</h3>
-        {enrollments.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            Ninguém inscrito ainda. Leads quentes entram automaticamente se opt-in estiver ativo, ou inscreva pelo
-            fluxo de campanha / bot.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[10px] uppercase text-slate-400">
-                  <th className="pb-2 pr-2">Telefone</th>
-                  <th className="pb-2 pr-2">Passo</th>
-                  <th className="pb-2 pr-2">Status</th>
-                  <th className="pb-2 pr-2">Próximo envio</th>
-                  <th className="pb-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {enrollments.map((row) => (
-                  <tr key={row.id} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="py-2 pr-2 font-mono text-xs">{formatPhone(row.contactPhone)}</td>
-                    <td className="py-2 pr-2 tabular-nums">{row.currentStepIndex + 1}</td>
-                    <td className="py-2 pr-2">
-                      {ENROLLMENT_STATUS_LABEL[row.status] || row.status}
-                    </td>
-                    <td className="py-2 pr-2 text-xs">{formatWhen(row.nextRunAt)}</td>
-                    <td className="py-2 text-right">
-                      {['enrolled', 'active', 'waiting_reply', 'paused'].includes(row.status) && (
-                        <button
-                          type="button"
-                          disabled={cancellingId === row.id}
-                          onClick={() => void handleCancelEnrollment(row.id)}
-                          className="text-xs text-red-500 hover:underline"
-                        >
-                          Cancelar
-                        </button>
-                      )}
-                    </td>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {doc.steps.map((s, i) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSelectedStep(i)}
+                className={`shrink-0 px-3 py-2 rounded-xl border text-left min-w-[120px] transition ${
+                  selectedStep === i
+                    ? 'border-teal-500 bg-teal-500/10 ring-2 ring-teal-500/30'
+                    : 'border-slate-200 dark:border-slate-700 hover:border-teal-300'
+                }`}
+              >
+                <span className="text-[10px] font-black text-teal-600">PASSO {i + 1}</span>
+                <p className="text-xs font-bold truncate">{s.label || `Passo ${i + 1}`}</p>
+                <p className="text-[10px] text-slate-400">{s.kind === 'wait_reply' ? 'Resposta' : 'Mensagem'}</p>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                setDoc((p) => ({ ...p, steps: [...p.steps, newStep(p.steps.length)] }));
+                setSelectedStep(doc.steps.length);
+              }}
+              className="shrink-0 px-3 py-2 rounded-xl border border-dashed border-teal-400 text-teal-600 text-xs font-bold flex items-center gap-1"
+            >
+              <Plus className="w-4 h-4" /> Passo
+            </button>
+          </div>
+
+          {currentStep && (
+            <Card className="p-4 md:p-5">
+              <NurtureStepEditor
+                step={currentStep}
+                index={selectedStep}
+                doc={doc}
+                chipName={chipName}
+                pendingMedia={pendingMediaByStep[currentStep.id] || null}
+                onChange={(patch) => updateStep(selectedStep, patch)}
+                onOptionsChange={(options) => updateStep(selectedStep, { options })}
+                onSetKind={(kind) => setStepKind(selectedStep, kind)}
+                onPendingMedia={(payload) =>
+                  setPendingMediaByStep((prev) => {
+                    const next = { ...prev };
+                    if (payload) next[currentStep.id] = payload;
+                    else delete next[currentStep.id];
+                    return next;
+                  })
+                }
+                onRemove={() => {
+                  setDoc((p) => ({ ...p, steps: p.steps.filter((_, i) => i !== selectedStep) }));
+                  setSelectedStep(Math.max(0, selectedStep - 1));
+                }}
+              />
+            </Card>
+          )}
+        </div>
+      )}
+
+      {tab === 'inscritos' && (
+        <Card className="p-4 space-y-4">
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={enrollSearch}
+                onChange={(e) => setEnrollSearch(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && void load()}
+                placeholder="Buscar nome ou telefone…"
+                className="pl-9"
+              />
+            </div>
+            <select
+              value={enrollFilter}
+              onChange={(e) => setEnrollFilter(e.target.value)}
+              className="rounded-lg border px-3 py-2 text-sm dark:bg-slate-900"
+            >
+              <option value="all">Todos</option>
+              <option value="active">Ativos</option>
+              <option value="waiting_reply">Interagindo agora</option>
+              <option value="paused">Pausados</option>
+              <option value="completed">Concluídos</option>
+            </select>
+            <Button type="button" variant="secondary" size="sm" onClick={() => void load()}>
+              <RefreshCw className="w-4 h-4" />
+            </Button>
+          </div>
+
+          {enrollments.length === 0 ? (
+            <p className="text-sm text-slate-500 py-8 text-center">Nenhum inscrito encontrado.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-800/80">
+                  <tr className="text-left text-[10px] uppercase text-slate-400">
+                    <th className="p-2 w-8" />
+                    <th className="p-2">Contato</th>
+                    <th className="p-2">Passo</th>
+                    <th className="p-2">Status</th>
+                    <th className="p-2">Próximo</th>
+                    <th className="p-2" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+                </thead>
+                <tbody>
+                  {enrollments.map((row) => {
+                    const statusClass = ENROLLMENT_STATUS_COLOR[row.status] || ENROLLMENT_STATUS_COLOR.active;
+                    const active = ['enrolled', 'active', 'waiting_reply', 'paused'].includes(row.status);
+                    return (
+                      <tr key={row.id} className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                        <td className="p-2">
+                          {active && (
+                            <input
+                              type="checkbox"
+                              checked={selectedEnrollmentIds.has(row.id)}
+                              onChange={() => toggleEnrollmentSelect(row.id)}
+                            />
+                          )}
+                        </td>
+                        <td className="p-2">
+                          <p className="font-semibold text-slate-800 dark:text-white">
+                            {row.contactName?.trim() || 'Sem nome no CRM'}
+                          </p>
+                          <p className="text-xs font-mono text-slate-500">{formatPhone(row.contactPhone)}</p>
+                        </td>
+                        <td className="p-2 tabular-nums font-bold">{row.currentStepIndex + 1}</td>
+                        <td className="p-2">
+                          <span className={`inline-flex px-2 py-0.5 rounded-md border text-[11px] font-bold ${statusClass}`}>
+                            {ENROLLMENT_STATUS_LABEL[row.status] || row.status}
+                          </span>
+                          {row.pauseReason && (
+                            <p className="text-[10px] text-slate-400 mt-0.5">{row.pauseReason}</p>
+                          )}
+                        </td>
+                        <td className="p-2 text-xs">{formatWhen(row.nextRunAt)}</td>
+                        <td className="p-2 text-right">
+                          {active && (
+                            <button
+                              type="button"
+                              disabled={cancellingId === row.id}
+                              onClick={async () => {
+                                setCancellingId(row.id);
+                                try {
+                                  const list = await cancelNurtureEnrollment(row.id);
+                                  setEnrollments(list);
+                                  toast.success('Inscrição cancelada.');
+                                } catch {
+                                  toast.error('Erro ao cancelar.');
+                                } finally {
+                                  setCancellingId(null);
+                                }
+                              }}
+                              className="text-xs text-red-500 hover:underline"
+                            >
+                              Cancelar
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {selectedEnrollmentIds.size > 0 && (
+            <div className="flex justify-end">
+              <Button type="button" size="sm" disabled={dispatchBusy} onClick={() => void handleDispatch(false)}>
+                <Send className="w-4 h-4 mr-1" />
+                Enviar passo atual para {selectedEnrollmentIds.size} selecionado(s)
+              </Button>
+            </div>
+          )}
+        </Card>
+      )}
 
-      <div className="flex justify-end">
+      {tab === 'enviar' && (
+        <div className="grid md:grid-cols-2 gap-4">
+          <Card className="p-5 space-y-4">
+            <h3 className="font-black text-slate-700 dark:text-white flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-teal-600" />
+              Inscrever contato
+            </h3>
+            <p className="text-xs text-slate-500">Uma pessoa entra na sequência a partir do passo 1.</p>
+            <Input
+              value={enrollPhone}
+              onChange={(e) => setEnrollPhone(e.target.value)}
+              placeholder="Telefone (WhatsApp)"
+            />
+            <select
+              value={enrollConnectionId}
+              onChange={(e) => setEnrollConnectionId(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:bg-slate-900"
+            >
+              {connectedChips.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name || c.id}
+                </option>
+              ))}
+            </select>
+            <Button type="button" disabled={enrollBusy} onClick={() => void handleManualEnroll()} className="w-full">
+              Inscrever na jornada
+            </Button>
+          </Card>
+
+          <Card className="p-5 space-y-4">
+            <h3 className="font-black text-slate-700 dark:text-white flex items-center gap-2">
+              <Send className="w-5 h-5 text-teal-600" />
+              Disparar agora
+            </h3>
+            <p className="text-xs text-slate-500">
+              Força o envio imediato do passo atual (teste ou reenvio). Não consome cota de campanha.
+            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={dispatchBusy || metrics.activeEnrollments === 0}
+              onClick={() => void handleDispatch(true)}
+              className="w-full"
+            >
+              <Users className="w-4 h-4 mr-1" />
+              Enviar para todos os ativos ({metrics.activeEnrollments})
+            </Button>
+            <Button
+              type="button"
+              disabled={dispatchBusy || selectedEnrollmentIds.size === 0}
+              onClick={() => void handleDispatch(false)}
+              className="w-full"
+            >
+              Enviar só para selecionados ({selectedEnrollmentIds.size})
+            </Button>
+            <p className="text-[10px] text-slate-400">
+              Selecione contatos na aba Inscritos antes de usar &quot;só selecionados&quot;.
+            </p>
+          </Card>
+        </div>
+      )}
+
+      <div className="flex justify-end pt-2">
         <Button type="button" onClick={() => void handleSave()} disabled={saving}>
           <Save className="w-4 h-4 mr-2" />
           {saving ? 'Salvando…' : 'Salvar jornada'}
