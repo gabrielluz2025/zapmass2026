@@ -3,10 +3,20 @@ import { refreshAllKnownTenantProtections } from './chipProtectionService.js';
 const TICK_MS = 60_000;
 let timer: ReturnType<typeof setInterval> | null = null;
 
+async function tick(): Promise<void> {
+  await refreshAllKnownTenantProtections();
+  try {
+    const evo = await import('./evolutionService.js');
+    await evo.tickAutoResumeProtectedCampaigns();
+  } catch (e) {
+    console.warn('[ChipProtection] tick campanhas falhou:', (e as Error)?.message);
+  }
+}
+
 export function startChipProtectionScheduler(): void {
   if (timer) return;
-  void refreshAllKnownTenantProtections();
-  timer = setInterval(() => void refreshAllKnownTenantProtections(), TICK_MS);
+  void tick();
+  timer = setInterval(() => void tick(), TICK_MS);
   console.log('[ChipProtection] Scheduler automático iniciado (60s).');
 }
 

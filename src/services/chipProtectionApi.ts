@@ -12,6 +12,15 @@ export type ChipProtectionSnapshot = {
   nurture: { journeyEnabled: boolean; dueEnrollments: number; pausedByQuiet: boolean };
   autoWarmup: { active: boolean; connectionIds: string[]; pausedByQuiet: boolean };
   campaigns: { activeCount: number; queueHint: string };
+  campaignProtection?: {
+    runningCount: number;
+    pausedByProtection: Array<{
+      campaignId: string;
+      reason?: string;
+      message?: string;
+      autoResumeAt?: number;
+    }>;
+  };
   sync: {
     fullHistory: boolean;
     fullInboxSync: boolean;

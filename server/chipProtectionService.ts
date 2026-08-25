@@ -32,6 +32,15 @@ export type ChipActivitySnapshot = {
   nurture: { journeyEnabled: boolean; dueEnrollments: number; pausedByQuiet: boolean };
   autoWarmup: { active: boolean; connectionIds: string[]; pausedByQuiet: boolean };
   campaigns: { activeCount: number; queueHint: string };
+  campaignProtection: {
+    runningCount: number;
+    pausedByProtection: Array<{
+      campaignId: string;
+      reason?: string;
+      message?: string;
+      autoResumeAt?: number;
+    }>;
+  };
   sync: ChipSyncProfile;
   risks: Array<{ level: 'warn' | 'info'; message: string }>;
   recommendations: string[];
@@ -255,6 +264,7 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
   const evo = await import('./evolutionService.js');
   const activeCampaigns = evo.countActiveCampaignsForOwner(uid);
   const blockingIds = evo.listActiveBlockingCampaignIdsForOwner(uid);
+  const campaignProt = evo.getCampaignProtectionSnapshot(uid);
 
   const risks: ChipActivitySnapshot['risks'] = [];
   const recommendations: string[] = [];
@@ -287,6 +297,15 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
       level: 'warn',
       message: `Auto-aquecimento ativo em ${warmup.connectionIds.length} chip(s).`,
     });
+  }
+
+  if (campaignProt.protectionPaused.length > 0) {
+    for (const p of campaignProt.protectionPaused) {
+      risks.push({
+        level: 'warn',
+        message: `Campanha ${p.campaignId} pausada pela proteção: ${p.message || p.reason || 'risco detectado'}`,
+      });
+    }
   }
 
   if (activeCampaigns > 0) {
@@ -346,8 +365,12 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
       activeCount: activeCampaigns,
       queueHint:
         activeCampaigns > 0
-          ? 'Campanha ativa — proteção automática pausada para permitir envios.'
+          ? 'Campanha ativa — proteção monitora risco e pode pausar automaticamente.'
           : 'Sem campanha — proteção automática mantém chips quietos.',
+    },
+    campaignProtection: {
+      runningCount: campaignProt.running,
+      pausedByProtection: campaignProt.protectionPaused,
     },
     sync,
     risks,

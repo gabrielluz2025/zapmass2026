@@ -23,42 +23,35 @@ Ban confirmado no sistema: webhook `CONNECTION_UPDATE` com `401` / `loggedOut` �
 
 ## 2. Solução: proteção automática (padrão)
 
-**Você não precisa ligar nada manualmente.** Todo workspace novo usa a política **`auto`** (automático).
+### Camadas de proteção
 
-### Como funciona o modo `auto`
+| Camada | Quando | Efeito |
+|--------|--------|--------|
+| **Idle (sem campanha)** | Automático | Chips quietos: sync leve, sem jornada/aquecimento |
+| **Campanha ativa** | Durante disparo | Monitora risco e **pode pausar/desacelerar** a campanha |
+| **Por chip** | Ban/quarentena | Failover para outro chip; se todos caírem, pausa campanha |
+| **Retomada** | A cada 60s | Retoma campanha quando chips/locks permitem |
 
-```
-                    ┌─────────────────────┐
-                    │  Há campanha ativa? │
-                    └──────────┬──────────┘
-                          SIM  │  NÃO
-                    ┌──────────┴──────────┐
-                    ▼                     ▼
-           Proteção PAUSADA      Proteção ATIVA
-           (permite envios)      (chips quietos)
-                    │                     │
-                    └──────────┬──────────┘
-                               ▼
-              Campanha termina → proteção volta sozinha
-```
+### Proteção durante campanhas (novo)
 
-**Quando a proteção está ATIVA (sem campanha):**
+O sistema **não ignora** campanhas em risco. Ações automáticas:
 
-- Jornada de nutrição **não envia**
-- Auto-aquecimento **não roda** (e é parado se estiver ativo)
-- Auto-inscrição de leads quentes **bloqueada**
-- Sync da inbox **leve** (12 conv × 25 msgs, sem histórico completo)
-- Sync de múltiplos chips **escalonado** (2,5s entre cada um)
-- Auto-reconnect **mais lento** (menos tentativas, delays maiores)
+| Situação | Ação | Retomada |
+|----------|------|----------|
+| **Ban recente** (lock 48h) | Pausa campanha | Automática após cooldown |
+| **Instabilidade** (3 quedas/30 min) + chips OK | Desacelera +90s/msg | Contínua |
+| **Instabilidade** + nenhum chip OK | Pausa campanha | Quando lock expirar |
+| **Todos chips offline/quarentena** | Pausa campanha | ~30 min ou horário agendado |
+| **1 chip banido no pool** | Failover nos outros | Campanha continua |
+| **≥60% falhas** (20 envios) | Pausa campanha | Manual ou automática* |
 
-**Quando você inicia uma campanha:**
+\*Jobs agendados para **outro dia** mantêm o horário original no BullMQ — pausar não recria a fila.
 
-- Proteção **pausa automaticamente**
-- Envios da campanha funcionam normalmente
+### Horários ao retomar
 
-**Quando a campanha termina:**
-
-- Proteção **reativa sozinha** em até 60 segundos
+- Contatos agendados para **futuro** → disparam no horário planejado
+- Contatos **prontos** na pausa → disparam logo ao retomar (pode haver pequeno pico)
+- Cronograma diário (manhã/tarde/dias) → **preservado**
 
 ---
 

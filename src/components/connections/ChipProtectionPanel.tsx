@@ -179,8 +179,25 @@ export const ChipProtectionPanel: React.FC = () => {
               <div className="zm-panel p-3">
                 <p className="ui-overline mb-1">Campanhas</p>
                 <p className="text-sm">{data.campaigns.queueHint}</p>
+                {data.campaignProtection && data.campaignProtection.pausedByProtection.length > 0 && (
+                  <Badge variant="warning" className="mt-2">
+                    {data.campaignProtection.pausedByProtection.length} pausada(s) pela proteção
+                  </Badge>
+                )}
               </div>
             </div>
+
+            {data.campaignProtection?.pausedByProtection.map((p) => (
+              <div key={p.campaignId} className="zm-panel p-3 border-l-2 border-amber-500">
+                <p className="text-sm font-medium">Campanha {p.campaignId}</p>
+                <p className="ui-caption mt-1">{p.message || p.reason}</p>
+                {p.autoResumeAt && (
+                  <p className="ui-caption text-amber-600 dark:text-amber-400 mt-1">
+                    Retomada automática: {new Date(p.autoResumeAt).toLocaleString('pt-BR')}
+                  </p>
+                )}
+              </div>
+            ))}
 
             <div className="zm-panel p-3">
               <p className="ui-overline mb-2">Sync da inbox (automático)</p>

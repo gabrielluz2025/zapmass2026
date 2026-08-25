@@ -58,6 +58,11 @@ import {
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
 import { pickOpenFailoverChannel } from './campaignChannelFailover.js';
+import {
+    collectCampaignChannelIds,
+    evaluateCampaignDispatchGuard,
+    type CampaignDispatchGuardResult
+} from './campaignChipGuard.js';
 import { computeDailyScheduleDelayMs } from './campaignDailyScheduleDelay.js';
 import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
 import { refreshRedispatchTargetPhones } from './campaignRedispatchPhoneRefresh.js';
@@ -1553,6 +1558,7 @@ function applyConnectionStateUpdate(
                 void import('./chipProtectionService.js').then((m) =>
                     m.onConnectionClosed(instance, true)
                 );
+                void reviewRunningCampaignsForChipProtection(instance);
             } else {
                 void import('./chipProtectionService.js').then((m) =>
                     m.onConnectionClosed(instance, false)
@@ -2936,6 +2942,13 @@ interface CampaignRuntimeState {
     skipCount?: number;
     lastLoggedProcessed: number;
     isRunning: boolean;
+    /** Chips usados no disparo (pool ou seleção manual). */
+    connectionIds?: string[];
+    /** Pausa automática pela proteção anti-ban (distinta de pausa manual). */
+    protectionPaused?: boolean;
+    protectionPauseReason?: string;
+    protectionPauseUntil?: number;
+    protectionPauseMessage?: string;
     /** Janela deslizante dos últimos 20 resultados para auto-pausa por taxa de erro. */
     recentOutcomes: boolean[];
     /** Evita emitir múltiplos alertas de auto-pausa seguidos. */
@@ -3459,6 +3472,11 @@ async function loadCampaignRuntimeFromRedis(campaignId: string): Promise<Campaig
             failCount: parsed.failCount || 0,
             lastLoggedProcessed: parsed.lastLoggedProcessed || 0,
             isRunning: parsed.isRunning !== false,
+            connectionIds: Array.isArray(parsed.connectionIds) ? parsed.connectionIds : undefined,
+            protectionPaused: parsed.protectionPaused,
+            protectionPauseReason: parsed.protectionPauseReason,
+            protectionPauseUntil: parsed.protectionPauseUntil,
+            protectionPauseMessage: parsed.protectionPauseMessage,
             recentOutcomes: [],
         };
     } catch {
@@ -4490,6 +4508,214 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
     }
 }
 
+function isCampaignChannelUsable(connectionId: string): boolean {
+    const id = String(connectionId || '').trim();
+    if (!id) return false;
+    const conn = connections.get(id);
+    if (conn?.status !== 'open') return false;
+    return !getConnectionBanInfo(id).inQuarantine;
+}
+
+async function buildCampaignGuardContext(
+    item: MessageQueueItem,
+    state: CampaignRuntimeState
+): Promise<{
+    ownerUid: string;
+    channelIds: string[];
+    chipProtectionPolicy?: import('../shared/chipProtection.js').ChipProtectionPolicy;
+    chipProtectionLockUntil?: string;
+    chipProtectionLockReason?: string;
+}> {
+    const { loadTenantSettings } = await import('./tenantSettings.js');
+    const ownerUid = state.ownerUid || item.ownerUid || '';
+    const settings = await loadTenantSettings(ownerUid);
+    const channelIds = collectCampaignChannelIds(
+        item.connectionId,
+        item.alternateChannelIds,
+        state.connectionIds
+    );
+    return {
+        ownerUid,
+        channelIds,
+        chipProtectionPolicy: settings.chipProtectionPolicy,
+        chipProtectionLockUntil: settings.chipProtectionLockUntil,
+        chipProtectionLockReason: settings.chipProtectionLockReason,
+    };
+}
+
+async function runCampaignDispatchGuard(
+    item: MessageQueueItem,
+    state: CampaignRuntimeState
+): Promise<CampaignDispatchGuardResult | null> {
+    if (!item.campaignId || !state.ownerUid) return null;
+    const ctx = await buildCampaignGuardContext(item, state);
+    const guard = await evaluateCampaignDispatchGuard({
+        ...ctx,
+        isChannelUsable: isCampaignChannelUsable,
+    });
+    if (guard.action === 'pause' && !state.protectionPaused) {
+        pauseCampaignForProtection(item.campaignId, {
+            reason: guard.reason,
+            ownerUid: state.ownerUid,
+            autoResumeAt: guard.autoResumeAt,
+            message: guard.message,
+        });
+    }
+    return guard;
+}
+
+function pauseCampaignForProtection(
+    campaignId: string,
+    meta: {
+        reason: string;
+        ownerUid?: string;
+        autoResumeAt?: number;
+        message: string;
+    }
+): void {
+    const state = campaignsById.get(campaignId);
+    if (!state?.isRunning || state.protectionPaused) return;
+
+    state.protectionPaused = true;
+    state.protectionPauseReason = meta.reason;
+    state.protectionPauseUntil = meta.autoResumeAt;
+    state.protectionPauseMessage = meta.message;
+
+    pausedCampaigns.add(campaignId);
+    const ou = resolveCampaignOwnerUid(campaignId, meta.ownerUid);
+    log('warn', `[CampaignProtection] Campanha pausada: ${campaignId}`, {
+        reason: meta.reason,
+        autoResumeAt: meta.autoResumeAt,
+    });
+    emitCampaignLog('WARN', `🛡️ ${meta.message}`, { campaignId, reason: meta.reason }, ou);
+    if (ou) {
+        publishOwnerEvent(ou, 'campaign-protection-paused', {
+            campaignId,
+            reason: meta.reason,
+            message: meta.message,
+            autoResumeAt: meta.autoResumeAt,
+        });
+        publishOwnerEvent(ou, 'campaign-paused', { campaignId, protection: true });
+        void persistCampaignProgressToFirestore(
+            ou,
+            campaignId,
+            state.successCount,
+            state.failCount,
+            state.processed,
+            'PAUSED'
+        );
+    }
+    void saveCampaignRuntimeToRedis(campaignId);
+}
+
+function resumeCampaignFromProtection(campaignId: string, ownerUid?: string): void {
+    const state = campaignsById.get(campaignId);
+    if (state) {
+        state.protectionPaused = false;
+        state.protectionPauseReason = undefined;
+        state.protectionPauseUntil = undefined;
+        state.protectionPauseMessage = undefined;
+    }
+    resumeCampaign(campaignId, ownerUid);
+    const ou = resolveCampaignOwnerUid(campaignId, ownerUid);
+    emitCampaignLog(
+        'INFO',
+        '🛡️ Campanha retomada automaticamente pela proteção de chips. Horários agendados foram preservados.',
+        { campaignId },
+        ou
+    );
+    if (ou) {
+        publishOwnerEvent(ou, 'campaign-protection-resumed', { campaignId });
+    }
+    void saveCampaignRuntimeToRedis(campaignId);
+}
+
+/** Reavalia campanhas ativas após ban/queda de um chip. */
+export async function reviewRunningCampaignsForChipProtection(connectionId: string): Promise<void> {
+    const chipId = String(connectionId || '').trim();
+    if (!chipId) return;
+
+    for (const [campaignId, state] of campaignsById.entries()) {
+        if (!state.isRunning) continue;
+        const ids = state.connectionIds || [];
+        if (!ids.includes(chipId)) continue;
+
+        const item: MessageQueueItem = {
+            connectionId: chipId,
+            to: '',
+            message: '',
+            campaignId,
+            ownerUid: state.ownerUid,
+            alternateChannelIds: ids.length > 1 ? ids : undefined,
+        };
+        await runCampaignDispatchGuard(item, state);
+    }
+}
+
+/** Snapshot de campanhas sob proteção anti-ban (UI / diagnóstico). */
+export function getCampaignProtectionSnapshot(ownerUid: string): {
+    running: number;
+    protectionPaused: Array<{
+        campaignId: string;
+        reason?: string;
+        message?: string;
+        autoResumeAt?: number;
+    }>;
+} {
+    const uid = String(ownerUid || '').trim();
+    const protectionPaused: Array<{
+        campaignId: string;
+        reason?: string;
+        message?: string;
+        autoResumeAt?: number;
+    }> = [];
+    let running = 0;
+    for (const [campaignId, state] of campaignsById.entries()) {
+        if (!state.isRunning || state.ownerUid !== uid) continue;
+        running++;
+        if (state.protectionPaused) {
+            protectionPaused.push({
+                campaignId,
+                reason: state.protectionPauseReason,
+                message: state.protectionPauseMessage,
+                autoResumeAt: state.protectionPauseUntil,
+            });
+        }
+    }
+    return { running, protectionPaused };
+}
+
+/** Retoma campanhas pausadas pela proteção quando chips/locks permitem. */
+export async function tickAutoResumeProtectedCampaigns(): Promise<void> {
+    const now = Date.now();
+    for (const [campaignId, state] of campaignsById.entries()) {
+        if (!state.isRunning || !state.protectionPaused) continue;
+        if (state.protectionPauseUntil && state.protectionPauseUntil > now) continue;
+
+        const ids = state.connectionIds || [];
+        if (ids.length === 0) continue;
+
+        const ctx = await buildCampaignGuardContext(
+            {
+                connectionId: ids[0],
+                to: '',
+                message: '',
+                campaignId,
+                ownerUid: state.ownerUid,
+                alternateChannelIds: ids.length > 1 ? ids : undefined,
+            },
+            state
+        );
+        const guard = await evaluateCampaignDispatchGuard({
+            ...ctx,
+            isChannelUsable: isCampaignChannelUsable,
+        });
+        if (guard.action === 'proceed') {
+            resumeCampaignFromProtection(campaignId, state.ownerUid);
+        }
+    }
+}
+
 async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const item = job.data;
 
@@ -4502,6 +4728,20 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     // BullMQ v5: para readiar um job ATIVO é obrigatório passar o `token` e lançar
     // DelayedError — caso contrário o moveToDelayed falha (lock) e o job vai para "failed".
+    if (item.campaignId && !campaignsById.has(item.campaignId)) {
+        const fallback = item.ownerUid || item.replyFlowOpen?.ownerUid;
+        await ensureCampaignRuntimeInMemory(item.campaignId, fallback);
+    }
+    const campaignStateEarly = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
+
+    if (item.campaignId && campaignStateEarly?.ownerUid && campaignStateEarly.isRunning) {
+        const guard = await runCampaignDispatchGuard(item, campaignStateEarly);
+        if (guard?.action === 'slow' && guard.extraDelayMs) {
+            await job.moveToDelayed(Date.now() + guard.extraDelayMs, token);
+            throw new DelayedError();
+        }
+    }
+
     if (item.campaignId && pausedCampaigns.has(item.campaignId)) {
         await job.moveToDelayed(Date.now() + 3000, token);
         throw new DelayedError();
@@ -4510,12 +4750,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     // Marca início do processamento no PG (estado 'sending' — protege contra reaper precoce)
     void markJobSending(job.id ?? '', process.env.WORKER_ID || `worker-${process.pid}`).catch(() => undefined);
 
-    // Garante estado em RAM para esta campanha — restaura do Redis se necessário (ex: após restart).
-    if (item.campaignId && !campaignsById.has(item.campaignId)) {
-        const fallback = item.ownerUid || item.replyFlowOpen?.ownerUid;
-        await ensureCampaignRuntimeInMemory(item.campaignId, fallback);
-    }
-    const campaignState = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
+    const campaignState = campaignStateEarly;
     if (item.to) {
         const canonicalTo = normalizePhoneKey(item.to);
         if (canonicalTo) item.to = canonicalTo;
@@ -4816,8 +5051,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             for (let step = 1; step < alternates.length; step++) {
                 const altId = alternates[(curIdx + step) % alternates.length];
                 if (altId === originalId) continue;
-                const altConn = connections.get(altId);
-                if (altConn?.status === 'open') {
+                if (isCampaignChannelUsable(altId)) {
                     emitCampaignLog(
                         'WARN',
                         `Chip ${originalId} falhou — alternando para ${altId} (failover automático)`,
@@ -4837,6 +5071,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 }
             }
             if (!switched) {
+                if (campaignState && item.campaignId) {
+                    await runCampaignDispatchGuard(item, campaignState);
+                }
                 const errDetail = sendResult.errorDetail || 'Todos os chips do pool falharam';
                 return await failCampaignSend(
                     job,
@@ -5661,6 +5898,7 @@ export async function startCampaign(
         failCount: 0,
         lastLoggedProcessed: 0,
         isRunning: true,
+        connectionIds: [...activeConnectionIds],
         recentOutcomes: [],
         // Guarda variáveis dos destinatários para uso em etapas posteriores (multi-step/reply-flow)
         _recipientVars: recipientVars,
@@ -7083,19 +7321,26 @@ export function pauseCampaign(campaignId: string, ownerUid?: string) {
 export function resumeCampaign(campaignId: string, ownerUid?: string) {
     pausedCampaigns.delete(campaignId);
     const ou = resolveCampaignOwnerUid(campaignId, ownerUid) || ownerUid;
+    const state = campaignsById.get(campaignId);
+    if (state) {
+        state.protectionPaused = false;
+        state.protectionPauseReason = undefined;
+        state.protectionPauseUntil = undefined;
+        state.protectionPauseMessage = undefined;
+    }
     log('info', `▶️ Campanha retomada: ${campaignId}`, { ownerUid: ou });
     // Se o estado não estiver em RAM (ex: após restart), tenta restaurar do Redis.
     if (!campaignsById.has(campaignId)) {
         void ensureCampaignRuntimeInMemory(campaignId, ou);
     }
     // Garante status RUNNING no Firestore ao retomar (corrige campanhas presas em DRAFT/PENDENTE).
-    const state = campaignsById.get(campaignId);
+    const stateAfter = campaignsById.get(campaignId);
     if (ou) {
         void persistCampaignProgressToFirestore(
             ou, campaignId,
-            state?.successCount ?? 0,
-            state?.failCount ?? 0,
-            state?.processed ?? 0,
+            stateAfter?.successCount ?? 0,
+            stateAfter?.failCount ?? 0,
+            stateAfter?.processed ?? 0,
             'RUNNING'
         );
     }
