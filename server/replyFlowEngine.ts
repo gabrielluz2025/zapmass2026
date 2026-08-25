@@ -46,6 +46,14 @@ export type ReplyFlowDefMeta = {
     maxInvalidReplyAttempts?: number;
 };
 
+export type ReplyFlowPendingOutbound = {
+    message: string;
+    mediaStorageKey?: string;
+    /** Encerra sessão após envio OK (resposta terminal de menu). */
+    disposeAfterSend: boolean;
+    enqueuedAt: number;
+};
+
 export type ReplyFlowSession = {
     campaignId: string;
     ownerUid?: string;
@@ -55,6 +63,8 @@ export type ReplyFlowSession = {
     registeredConvKey?: string;
     /** Contador de respostas inválidas consecutivas */
     invalidReplyCount?: number;
+    /** Resposta enfileirada aguardando confirmação de envio — sobrevive queda/restart. */
+    pendingOutbound?: ReplyFlowPendingOutbound;
 };
 
 export type ReplyFlowOutboundItem = {
@@ -66,6 +76,8 @@ export type ReplyFlowOutboundItem = {
     /** Chave em `campaignMediaById` (ex.: `campaignId:reply-step:1`). */
     mediaStorageKey?: string;
     replyFlowAfterSend?: { phoneDigits: string; newAwaitingAfterStep: number };
+    /** Encerra sessão após envio OK (menu terminal / opt-out de fluxo). */
+    replyFlowDisposeAfterSend?: boolean;
 };
 
 export type CampaignRecipient = { phone: string; vars: Record<string, string> };
@@ -366,13 +378,53 @@ export class ReplyFlowEngine {
     }
 
     updateSessionAfterSend(connectionId: string, phoneDigits: string, newAwaitingAfterStep: number) {
-        const sessKey = `${connectionId}:${phoneDigits}`;
-        const sess = this.sessions.get(sessKey);
-        if (sess) {
-            sess.awaitingAfterStep = newAwaitingAfterStep;
-            this.callbacks.onSessionSave?.(connectionId, phoneDigits, sess);
-            this.scheduleStepTimeout(connectionId, phoneDigits, sess);
+        const found = this.findSession(connectionId, phoneDigits);
+        if (!found) return;
+        const { key, session } = found;
+        session.awaitingAfterStep = newAwaitingAfterStep;
+        delete session.pendingOutbound;
+        const colonIdx = key.indexOf(':');
+        const connId = colonIdx > 0 ? key.slice(0, colonIdx) : connectionId;
+        const phoneKey = colonIdx > 0 ? key.slice(colonIdx + 1) : phoneDigits;
+        this.callbacks.onSessionSave?.(connId, phoneKey, session);
+        this.scheduleStepTimeout(connId, phoneKey, session);
+    }
+
+    /** Confirma entrega de resposta pendente; descarta sessão se for resposta terminal. */
+    confirmReplyFlowOutboundDelivered(
+        connectionId: string,
+        phoneDigits: string,
+        disposeAfterSend: boolean
+    ): void {
+        const found = this.findSession(connectionId, phoneDigits);
+        if (!found) return;
+        const { key, session } = found;
+        delete session.pendingOutbound;
+        const colonIdx = key.indexOf(':');
+        const connId = colonIdx > 0 ? key.slice(0, colonIdx) : connectionId;
+        const phoneKey = colonIdx > 0 ? key.slice(colonIdx + 1) : phoneDigits;
+        if (disposeAfterSend) {
+            this.disposeSession(key, session);
+            return;
         }
+        this.callbacks.onSessionSave?.(connId, phoneKey, session);
+    }
+
+    /** Falha no envio — libera sessão para nova tentativa (contato pode responder de novo). */
+    rollbackPendingOutbound(connectionId: string, phoneDigits: string): void {
+        const found = this.findSession(connectionId, phoneDigits);
+        if (!found?.session.pendingOutbound) return;
+        const { key, session } = found;
+        delete session.pendingOutbound;
+        const colonIdx = key.indexOf(':');
+        const connId = colonIdx > 0 ? key.slice(0, colonIdx) : connectionId;
+        const phoneKey = colonIdx > 0 ? key.slice(colonIdx + 1) : phoneDigits;
+        this.callbacks.onSessionSave?.(connId, phoneKey, session);
+        this.callbacks.onLog?.('Envio pendente do fluxo por resposta revertido — sessão mantida', {
+            campaignId: session.campaignId,
+            connectionId: connId,
+            phoneDigits: phoneKey,
+        });
     }
 
     /** Retorna o número de sessões de reply flow abertas para a campanha. */
@@ -579,6 +631,25 @@ export class ReplyFlowEngine {
         }
 
         const { key, session } = found;
+
+        if (session.pendingOutbound) {
+            const ageMs = Date.now() - (session.pendingOutbound.enqueuedAt || 0);
+            if (ageMs < 90_000) {
+                this.callbacks.onLog?.('Resposta recebida mas envio anterior ainda pendente', {
+                    campaignId: session.campaignId,
+                    connectionId,
+                    phoneDigits,
+                    pendingAgeSec: Math.round(ageMs / 1000),
+                });
+                return;
+            }
+            delete session.pendingOutbound;
+            const colonIdx = key.indexOf(':');
+            const connId = colonIdx > 0 ? key.slice(0, colonIdx) : connectionId;
+            const phoneKey = colonIdx > 0 ? key.slice(colonIdx + 1) : phoneDigits;
+            this.callbacks.onSessionSave?.(connId, phoneKey, session);
+        }
+
         let def = this.defs.get(session.campaignId);
         if (!def?.steps?.length) {
             def = (await this.loadDefFromFirestore(session.campaignId, session.ownerUid)) ?? undefined;
@@ -682,15 +753,24 @@ export class ReplyFlowEngine {
                     replyPreview: preview,
                 });
                 const replyBody = applyMessageVars(matchedOption.reply, phoneDigits, session.vars);
+                session.invalidReplyCount = 0;
+                session.pendingOutbound = {
+                    message: replyBody,
+                    disposeAfterSend: true,
+                    enqueuedAt: Date.now(),
+                };
+                const sessionPhoneKey = key.startsWith(`${connectionId}:`)
+                    ? key.slice(connectionId.length + 1)
+                    : phoneDigits;
+                this.callbacks.onSessionSave?.(connectionId, sessionPhoneKey, session);
+
                 void this.callbacks.enqueue({
                     to: session.toRaw,
                     message: replyBody,
                     connectionId,
                     campaignId: session.campaignId,
+                    replyFlowDisposeAfterSend: true,
                 });
-
-                // Reseta contador de respostas inválidas ao receber resposta válida
-                session.invalidReplyCount = 0;
 
                 const optMe = matchedOption.marketingEffect || 'none';
                 if (optMe === 'opt_in' || optMe === 'opt_out') {
@@ -703,7 +783,6 @@ export class ReplyFlowEngine {
                         connectionId
                     );
                 }
-                this.disposeSession(key, session);
                 return;
             }
 
@@ -844,6 +923,14 @@ export class ReplyFlowEngine {
         const stepMediaKey = session.campaignId
             ? campaignMediaStorageKey(session.campaignId, nextIdx)
             : '';
+        session.pendingOutbound = {
+            message: nextBody,
+            mediaStorageKey: stepMediaKey || undefined,
+            disposeAfterSend: false,
+            enqueuedAt: Date.now(),
+        };
+        this.callbacks.onSessionSave?.(connectionId, sessionPhoneKey, session);
+
         void this.callbacks.enqueue({
             to: session.toRaw,
             message: nextBody,

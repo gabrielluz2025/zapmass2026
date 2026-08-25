@@ -7,7 +7,7 @@ import {
   replyMatchesGate,
   simulateReplyFlowMatch,
 } from '../shared/replyFlowMatch.js';
-import { applyMessageVars } from './replyFlowEngine.js';
+import { applyMessageVars, ReplyFlowEngine } from './replyFlowEngine.js';
 
 const matched = (cleanTok: string, body: string, mode?: Parameters<typeof matchReplyTriggerToken>[2]) =>
   matchReplyTriggerToken(cleanTok, body, mode).matched;
@@ -131,5 +131,86 @@ describe('simulateReplyFlowMatch', () => {
     });
     expect(r.kind).toBe('invalid');
     expect(r.message).toContain('Tente de novo');
+  });
+});
+
+describe('ReplyFlowEngine resume', () => {
+  it('mantém sessão após match de menu até envio confirmado', async () => {
+    const enqueued: Array<{ message: string; replyFlowDisposeAfterSend?: boolean }> = [];
+    const engine = new ReplyFlowEngine({
+      enqueue: (item) => {
+        enqueued.push(item);
+      },
+    });
+    engine.registerDef('camp1', [
+      {
+        body: 'Escolha',
+        acceptAnyReply: false,
+        validTokens: [],
+        invalidReplyBody: '',
+        options: [{ tokens: ['quero'], reply: 'Ótimo!' }],
+      },
+    ]);
+    engine.openSession({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      campaignId: 'camp1',
+      vars: {},
+      toRaw: '5548999999999',
+    });
+
+    await engine.handleIncoming({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      bodyText: 'quero',
+    });
+
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0].replyFlowDisposeAfterSend).toBe(true);
+    expect(engine.hasSession('conn1', '5548999999999')).toBe(true);
+
+    engine.confirmReplyFlowOutboundDelivered('conn1', '5548999999999', true);
+    expect(engine.hasSession('conn1', '5548999999999')).toBe(false);
+  });
+
+  it('rollback libera nova tentativa após falha de envio', async () => {
+    const enqueued: string[] = [];
+    const engine = new ReplyFlowEngine({
+      enqueue: (item) => {
+        enqueued.push(item.message);
+      },
+    });
+    engine.registerDef('camp1', [
+      {
+        body: 'Escolha',
+        acceptAnyReply: false,
+        validTokens: [],
+        invalidReplyBody: '',
+        options: [{ tokens: ['1'], reply: 'Opção A' }],
+      },
+    ]);
+    engine.openSession({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      campaignId: 'camp1',
+      vars: {},
+      toRaw: '5548999999999',
+    });
+
+    await engine.handleIncoming({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      bodyText: '1',
+    });
+    expect(enqueued).toHaveLength(1);
+
+    engine.rollbackPendingOutbound('conn1', '5548999999999');
+
+    await engine.handleIncoming({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      bodyText: '1',
+    });
+    expect(enqueued).toHaveLength(2);
   });
 });

@@ -2079,6 +2079,8 @@ interface MessageQueueItem {
         phoneDigits: string;
         newAwaitingAfterStep: number;
     };
+    /** Resposta terminal de menu — encerra sessão após envio OK. */
+    replyFlowDisposeAfterSend?: boolean;
     /** Resposta automática do fluxo por etapas (menu, fallback, follow-up). */
     replyFlowResponse?: boolean;
     /**
@@ -2264,6 +2266,19 @@ function getCampaignQueue(): Queue<MessageQueueItem> | null {
 }
 const connectionQueueSizes = new Map<string, number>();
 let campaignWorker: Worker<MessageQueueItem> | null = null;
+let replyFlowRecoveryScheduled = false;
+
+function scheduleReplyFlowRecovery(): void {
+    if (replyFlowRecoveryScheduled) return;
+    replyFlowRecoveryScheduled = true;
+    setTimeout(() => {
+        void recoverStuckReplyFlowSessions().then((recovered) => {
+            if (recovered > 0) {
+                log('info', `[ReplyFlow] ${recovered} sessão(ões) retomada(s) após queda/restart`, { recovered });
+            }
+        });
+    }, 15_000);
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -3469,6 +3484,77 @@ async function deleteReplyFlowSessionFromRedis(connectionId: string, phoneDigits
     } catch { /* ignora */ }
 }
 
+const REPLYFLOW_SESSION_KEY_PREFIX = 'zapmass:rf:sess:';
+
+/** Re-enfileira respostas pendentes após queda, ban temporário ou restart. */
+export async function recoverStuckReplyFlowSessions(): Promise<number> {
+    const conn = getRedisConnection();
+    if (!conn) return 0;
+    ensureReplyFlowEngine();
+
+    let recovered = 0;
+    let cursor = '0';
+    do {
+        const [next, keys] = await conn.scan(cursor, 'MATCH', `${REPLYFLOW_SESSION_KEY_PREFIX}*`, 'COUNT', 100);
+        cursor = next;
+        for (const key of keys) {
+            let sess: ReplyFlowSession | null = null;
+            try {
+                const raw = await conn.get(key);
+                if (!raw) continue;
+                sess = JSON.parse(raw) as ReplyFlowSession;
+            } catch {
+                continue;
+            }
+            const pending = sess?.pendingOutbound;
+            if (!pending?.message?.trim() || !sess?.campaignId) continue;
+
+            const keyBody = key.slice(REPLYFLOW_SESSION_KEY_PREFIX.length);
+            const colonIdx = keyBody.indexOf(':');
+            if (colonIdx <= 0) continue;
+            const connectionId = keyBody.slice(0, colonIdx);
+            const phoneDigits = keyBody.slice(colonIdx + 1);
+
+            replyFlowEngine.restoreSession(connectionId, phoneDigits, sess);
+            pending.enqueuedAt = Date.now();
+            void saveReplyFlowSessionToRedis(connectionId, phoneDigits, sess);
+
+            const mediaKey = pending.mediaStorageKey || '';
+            const sendAsMedia = Boolean(mediaKey && campaignMediaById.has(mediaKey));
+            const ownerFromState = campaignsById.get(sess.campaignId)?.ownerUid ?? sess.ownerUid;
+
+            void enqueueCampaignItem(
+                {
+                    connectionId,
+                    to: sess.toRaw,
+                    message: pending.message,
+                    campaignId: sess.campaignId,
+                    ownerUid: ownerFromState,
+                    sendAsMedia,
+                    mediaLookupKey: mediaKey || undefined,
+                    replyFlowResponse: true,
+                    replyFlowDisposeAfterSend: pending.disposeAfterSend,
+                    replyFlowAfterSend: pending.disposeAfterSend
+                        ? undefined
+                        : { phoneDigits, newAwaitingAfterStep: sess.awaitingAfterStep + 1 },
+                    skipFrequencyCap: true,
+                },
+                5000 + Math.random() * 5000
+            );
+            recovered++;
+            log('info', 'Sessão reply flow retomada após queda', {
+                connectionId,
+                phoneDigits,
+                campaignId: sess.campaignId,
+                awaitingAfterStep: sess.awaitingAfterStep,
+                disposeAfterSend: pending.disposeAfterSend,
+            });
+        }
+    } while (cursor !== '0');
+
+    return recovered;
+}
+
 // ──── Persistência de Runtime de Campanha no Redis ────────────────────────────
 const CAMPAIGN_RUNTIME_TTL_SECS = 24 * 3600; // 24h
 
@@ -3610,6 +3696,7 @@ function ensureReplyFlowEngine() {
                 sendAsMedia,
                 mediaLookupKey: mediaKey || undefined,
                 replyFlowAfterSend: item.replyFlowAfterSend,
+                replyFlowDisposeAfterSend: item.replyFlowDisposeAfterSend,
                 replyFlowResponse: true,
                 skipFrequencyCap: true,
             }, replyDelay);
@@ -5485,6 +5572,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             item.replyFlowAfterSend.phoneDigits,
             item.replyFlowAfterSend.newAwaitingAfterStep
         );
+    } else if (item.replyFlowDisposeAfterSend) {
+        replyFlowEngine.confirmReplyFlowOutboundDelivered(
+            item.connectionId,
+            phoneDigits,
+            true
+        );
     }
 
     bumpQueueSize(item.connectionId, -1);
@@ -5613,6 +5706,15 @@ async function failCampaignSend(
     );
 
     bumpQueueSize(item.connectionId, -1);
+    const unrecoverable = isUnrecoverableOutboundError(errDetail);
+    if (
+        unrecoverable &&
+        item.replyFlowResponse &&
+        (item.replyFlowDisposeAfterSend || item.replyFlowAfterSend)
+    ) {
+        ensureReplyFlowEngine();
+        replyFlowEngine.rollbackPendingOutbound(item.connectionId, normalizePhoneKey(item.to));
+    }
     await accountCampaignJobOnce(job, item, false);
     publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {
         campaignId: item.campaignId,
@@ -5669,6 +5771,10 @@ function ensureCampaignWorker() {
 
         if (item && job && job.attemptsMade >= (job.opts.attempts || 1)) {
             bumpQueueSize(item.connectionId, -1);
+            if (item.replyFlowResponse && (item.replyFlowDisposeAfterSend || item.replyFlowAfterSend)) {
+                ensureReplyFlowEngine();
+                replyFlowEngine.rollbackPendingOutbound(item.connectionId, normalizePhoneKey(item.to));
+            }
             if (item._sentOk || item._progressAccounted) {
                 return;
             }
@@ -5735,6 +5841,7 @@ function ensureCampaignWorker() {
     });
 
     log('info', 'Worker BullMQ de campanhas iniciado');
+    scheduleReplyFlowRecovery();
 }
 
 /**
