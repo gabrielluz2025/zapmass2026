@@ -75,6 +75,16 @@ import {
     resolveChipTier,
 } from './chipTrustScore.js';
 import { checkInboundAutomationAllowed } from './inboundAutomationGuard.js';
+import { trackContentHashLock } from './campaignContentHashLock.js';
+import {
+    cancelCampaignJobsForPhone,
+    handleInboundOptOut,
+    isContactOptedOut,
+} from './contactOptOutService.js';
+import {
+    emitAntiBanAlert,
+    registerAntiBanPublishFn,
+} from './antiBanProactiveNotifications.js';
 import { computeDailyScheduleDelayMs } from './campaignDailyScheduleDelay.js';
 import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
 import { refreshRedispatchTargetPhones } from './campaignRedispatchPhoneRefresh.js';
@@ -128,6 +138,10 @@ import {
     publishOwnerEvent,
     recordConnectionDispatch,
 } from './whatsappService.js';
+
+registerAntiBanPublishFn((tenantId, event, payload) => {
+    publishOwnerEvent(tenantId, event, payload);
+});
 import { createEvolutionChat, type EvolutionChatStore } from './evolutionChat.js';
 import {
     buildEvolutionIncomingConvId,
@@ -2082,6 +2096,8 @@ interface MessageQueueItem {
     _offlineDelayCount?: number;
     /** Trust score: tier delay já aplicado neste job. */
     _tierDelayApplied?: boolean;
+    /** Penalidades por content hash lock repetido. */
+    _contentHashStrike?: number;
     /** Motor multi-etapas lazy: identifica contactId e stepIndex desta entrega. */
     multiStepContact?: {
         contactId: string;
@@ -4572,6 +4588,19 @@ async function isCampaignChannelHealthy(connectionId: string): Promise<boolean> 
     return getChipCircuitBreaker().isUsable(score);
 }
 
+async function maybeNotifyCircuitBreakerOpen(connectionId: string, ownerUid?: string): Promise<void> {
+    const ou = String(ownerUid || '').trim();
+    const chipId = String(connectionId || '').trim();
+    if (!ou || !chipId) return;
+    const score = await getChipCircuitBreaker().getHealthScore(chipId);
+    if (score.state !== 'OPEN') return;
+    const label = connections.get(chipId)?.friendlyName || chipId;
+    await emitAntiBanAlert(ou, 'chip-circuit-breaker-open', {
+        connectionId: chipId,
+        connectionLabel: label,
+    });
+}
+
 async function pickHealthyFailoverChannel(
     currentId: string,
     alternateIds: string[] | undefined,
@@ -4662,6 +4691,12 @@ function pauseCampaignForProtection(
     emitCampaignLog('WARN', `🛡️ ${meta.message}`, { campaignId, reason: meta.reason }, ou);
     if (ou) {
         publishOwnerEvent(ou, 'campaign-protection-paused', {
+            campaignId,
+            reason: meta.reason,
+            message: meta.message,
+            autoResumeAt: meta.autoResumeAt,
+        });
+        void emitAntiBanAlert(ou, 'campaign-protection-paused', {
             campaignId,
             reason: meta.reason,
             message: meta.message,
@@ -4857,6 +4892,42 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         await job.updateData(item).catch(() => {});
     }
 
+    const ownerUidForJob = campaignState?.ownerUid || item.ownerUid;
+    const textForHashLock = String(item.message || '').trim();
+    if (ownerUidForJob && textForHashLock.length >= 8 && !item.nurtureFollowUp) {
+        const skipHashForMediaOnly =
+            Boolean(item.sendAsMedia) &&
+            Boolean(item.campaignId || item.mediaLookupKey) &&
+            campaignMediaById.has(item.mediaLookupKey || item.campaignId || '');
+        if (!skipHashForMediaOnly) {
+        const hashLock = await trackContentHashLock(ownerUidForJob, textForHashLock);
+        if (hashLock?.overLimit) {
+            log('warn', '[ContentHashLock] Conteúdo idêntico repetido no tenant — penalidade anti-spam', {
+                tenantId: ownerUidForJob,
+                hash: hashLock.hash,
+                count: hashLock.count,
+                threshold: hashLock.threshold,
+                campaignId: item.campaignId,
+            });
+            emitCampaignLog(
+                'WARN',
+                `Conteúdo idêntico enviado ${hashLock.count}× em 5 min — adicionando ${Math.round(hashLock.penaltyMs / 1000)}s de delay. Use Spintax para variar o texto.`,
+                { campaignId: item.campaignId, contentHash: hashLock.hash, count: hashLock.count },
+                ownerUidForJob
+            );
+            item._contentHashStrike = (item._contentHashStrike || 0) + 1;
+            await job.updateData(item).catch(() => {});
+            if (item._contentHashStrike >= 4) {
+                throw new UnrecoverableError(
+                    'Conteúdo idêntico repetido demais — adicione Spintax ({A|B}) ou varie o texto da campanha.'
+                );
+            }
+            await job.moveToDelayed(Date.now() + hashLock.penaltyMs, token);
+            throw new DelayedError();
+        }
+        }
+    }
+
     const dispatchSettings = getTenantDispatchSettings(campaignState?.ownerUid);
 
     // Trust score: chips novos recebem delay extra antes do envio (ramp-up).
@@ -4920,6 +4991,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     if (!(await isCampaignChannelHealthy(item.connectionId))) {
+        void maybeNotifyCircuitBreakerOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
         const failoverId = await pickHealthyFailoverChannel(
             item.connectionId,
             item.alternateChannelIds,
@@ -5104,6 +5176,20 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
     // ──────────────────────────────────────────────────────────────────────────
 
+    if (ownerUidForJob && item.to && !item.nurtureFollowUp) {
+        if (await isContactOptedOut(ownerUidForJob, item.to)) {
+            emitCampaignLog(
+                'WARN',
+                `Contato ${item.to} está na lista negra (opt-out) — envio cancelado.`,
+                { campaignId: item.campaignId, to: item.to, skipReason: 'opt_out' },
+                campaignState?.ownerUid
+            );
+            bumpQueueSize(item.connectionId, -1);
+            await skipCampaignJobOnce(job, item);
+            return;
+        }
+    }
+
     log('info', 'Tentando envio', {
         toNormalized: sendTo,
         toOriginal: item.to,
@@ -5174,6 +5260,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         const detail = String(sendResult.errorDetail || '');
         if (/\b4\d{2}\b/.test(detail) || /401|403|429/.test(detail)) {
             await cb.recordFail4xx(item.connectionId);
+            void maybeNotifyCircuitBreakerOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
         }
         // Failover silencioso: tenta chips alternativos do pool antes de lançar erro.
         const alternates = Array.isArray(item.alternateChannelIds) ? item.alternateChannelIds : [];
@@ -6536,6 +6623,40 @@ export async function handleWebhook(event: any) {
                     const payload = (msg.message || msg.messageContent || {}) as Record<string, unknown>;
                     const { bodyText, nonTextReply } = extractEvolutionMessageBody(payload);
                     const incomingConvId = buildEvolutionIncomingConvId(instance, remoteJid, phoneDigits);
+
+                    if (bodyText && messageOwnerUid) {
+                        const optedOut = await handleInboundOptOut({
+                            tenantId: messageOwnerUid,
+                            connectionId: instance,
+                            phoneDigits,
+                            bodyText,
+                            incomingConvId,
+                            sendText: async (convId, text) => {
+                                await sendMessage(convId, text);
+                            },
+                            cancelJobs: async (tenantId, phone) => {
+                                const queue = getCampaignQueue();
+                                if (!queue) return 0;
+                                return cancelCampaignJobsForPhone(
+                                    queue,
+                                    tenantId,
+                                    phone,
+                                    (campaignId) => campaignsById.get(campaignId)?.ownerUid
+                                );
+                            },
+                            onComplete: (payload) => {
+                                log('info', '[OptOut] Contato descadastrado via inbound', payload);
+                                publishOwnerEvent(payload.tenantId, 'contact-marketing-consent', {
+                                    phoneDigits: payload.phoneDigits,
+                                    effect: 'opt_out',
+                                    replyText: payload.keyword,
+                                    at: new Date().toISOString(),
+                                    jobsCancelled: payload.jobsCancelled,
+                                });
+                            },
+                        });
+                        if (optedOut) continue;
+                    }
 
                         ensureReplyFlowEngine();
                     // Restaura sessão do Redis se foi perdida (restart do servidor)

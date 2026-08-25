@@ -160,6 +160,10 @@ export async function activateTenantProtectionLock(
   } as Parameters<typeof saveTenantSettings>[1]);
   invalidateChipQuietCache(uid);
   await enforceChipProtectionSideEffects(uid);
+  if (reason === 'ban_cooldown') {
+    const { emitAntiBanAlert } = await import('./antiBanProactiveNotifications.js');
+    await emitAntiBanAlert(uid, 'tenant-ban-cooldown-started', { hours });
+  }
   console.log(`[ChipProtection] Lock ${reason} até ${until} tenant=${uid}`);
 }
 

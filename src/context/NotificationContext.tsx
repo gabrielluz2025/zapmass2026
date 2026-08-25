@@ -75,9 +75,12 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     };
     setLoading(true);
     void load();
+    const onPush = () => void load();
+    window.addEventListener('zapmass:tenant-notification', onPush);
     const t = setInterval(() => void load(), 45_000);
     return () => {
       cancelled = true;
+      window.removeEventListener('zapmass:tenant-notification', onPush);
       clearInterval(t);
     };
   }, [user?.uid, dataUid, wsLoading]);

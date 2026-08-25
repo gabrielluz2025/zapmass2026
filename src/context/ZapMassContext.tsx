@@ -2712,6 +2712,41 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
     });
 
+    socket.on(
+      'tenant-notification',
+      (p: { title?: string; body?: string; kind?: string }) => {
+        const title = String(p?.title || 'Alerta de proteção').trim();
+        const body = String(p?.body || '').trim();
+        toast(body ? `${title}\n${body}` : title, { icon: '🛡️', duration: 14_000 });
+        window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
+      }
+    );
+
+    socket.on(
+      'campaign-protection-paused',
+      (p: { message?: string; campaignId?: string; reason?: string }) => {
+        const msg =
+          String(p?.message || '').trim() ||
+          'Campanha pausada pela proteção anti-ban. Verifique Conexões → Proteção de chips.';
+        toast(msg, { icon: '🛡️', duration: 16_000 });
+        window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
+      }
+    );
+
+    socket.on('chip-circuit-breaker-open', (p: { connectionId?: string; body?: string; title?: string }) => {
+      const id = String(p?.connectionId || '');
+      if (id) setCircuitBreakerOpenIds((prev) => new Set(prev).add(id));
+      const msg = String(p?.body || p?.title || 'Chip isolado temporariamente pelo circuit breaker.').trim();
+      toast(msg, { icon: '⚠️', duration: 12_000 });
+      window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
+    });
+
+    socket.on('tenant-ban-cooldown-started', (p: { body?: string; title?: string }) => {
+      const msg = String(p?.body || p?.title || 'Proteção ativada após incidente — aguarde o cooldown.').trim();
+      toast(msg, { icon: '🚨', duration: 16_000 });
+      window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
+    });
+
     socket.on('campaign-paused', ({ campaignId }: { campaignId: string }) => {
       flushCampaignProgressToFirestore(campaignId, true);
       const uid = currentUidRef.current;
