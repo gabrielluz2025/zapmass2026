@@ -6,6 +6,7 @@ import {
 import {
   INBOUND_OPT_OUT_REGEX,
   matchesInboundOptOutTrigger,
+  normalizeOptOutPhoneSuffix,
   phoneMatchesJobTarget,
 } from '../server/contactOptOutService.js';
 
@@ -35,5 +36,10 @@ describe('contactOptOutService', () => {
     expect(phoneMatchesJobTarget('5547999127001', '554799127001')).toBe(true);
     expect(phoneMatchesJobTarget('554799127001', '5547999127001')).toBe(true);
     expect(phoneMatchesJobTarget('554732375383', '5547999127001')).toBe(false);
+  });
+
+  it('normaliza sufixo de 8 dígitos para opt-out', () => {
+    expect(normalizeOptOutPhoneSuffix('5547999127001')).toBe('99127001');
+    expect(normalizeOptOutPhoneSuffix('554799127001')).toBe('99127001');
   });
 });

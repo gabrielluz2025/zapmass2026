@@ -18,6 +18,7 @@ import { evolutionConfig } from './evolutionConfig.js';
 import { attachEvolutionAxiosRetry } from './evolutionAxiosRetry.js';
 import { notifyTenant } from './tenantNotifyService.js';
 import { getEffectiveRedisUrl } from './redisConfig.js';
+import { getSharedRedis } from './redisShared.js';
 import {
     attachRedisStressGuard,
     attachWorkerStressGuard,
@@ -75,7 +76,7 @@ import {
     resolveChipTier,
 } from './chipTrustScore.js';
 import { checkInboundAutomationAllowed } from './inboundAutomationGuard.js';
-import { trackContentHashLock } from './campaignContentHashLock.js';
+import { validateCampaignContentHash } from './campaignContentHashLock.js';
 import {
     cancelCampaignJobsForPhone,
     handleInboundOptOut,
@@ -4900,29 +4901,45 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             Boolean(item.campaignId || item.mediaLookupKey) &&
             campaignMediaById.has(item.mediaLookupKey || item.campaignId || '');
         if (!skipHashForMediaOnly) {
-        const hashLock = await trackContentHashLock(ownerUidForJob, textForHashLock);
-        if (hashLock?.overLimit) {
-            log('warn', '[ContentHashLock] Conteúdo idêntico repetido no tenant — penalidade anti-spam', {
+        const hashLock = await validateCampaignContentHash(
+            getSharedRedis(),
+            ownerUidForJob,
+            item.campaignId,
+            textForHashLock
+        );
+        if (hashLock.action === 'PAUSE_CAMPAIGN') {
+            if (item.campaignId) {
+                pauseCampaignForProtection(item.campaignId, {
+                    reason: 'PAUSED_BY_HIGH_DUPLICATION',
+                    ownerUid: ownerUidForJob,
+                    message:
+                        'Campanha pausada: conteúdo idêntico repetido em excesso. Adicione Spintax ({A|B}) ou varie o texto.',
+                });
+            }
+            emitCampaignLog(
+                'WARN',
+                'Campanha pausada por duplicação de texto idêntico (circuit breaker de hash).',
+                { campaignId: item.campaignId, contentHash: hashLock.hash, violations: hashLock.campaignViolations },
+                ownerUidForJob
+            );
+            throw new UnrecoverableError('Campanha pausada por duplicação de texto');
+        }
+        if (hashLock.action === 'DELAY_JOB') {
+            const delayMs = hashLock.delayMs ?? 45_000;
+            log('warn', '[ContentHashLock] Conteúdo idêntico repetido — reagendando job', {
                 tenantId: ownerUidForJob,
                 hash: hashLock.hash,
                 count: hashLock.count,
-                threshold: hashLock.threshold,
+                delayMs,
                 campaignId: item.campaignId,
             });
             emitCampaignLog(
                 'WARN',
-                `Conteúdo idêntico enviado ${hashLock.count}× em 5 min — adicionando ${Math.round(hashLock.penaltyMs / 1000)}s de delay. Use Spintax para variar o texto.`,
+                `Conteúdo idêntico repetido — adicionando ${Math.round(delayMs / 1000)}s de delay. Use Spintax para variar o texto.`,
                 { campaignId: item.campaignId, contentHash: hashLock.hash, count: hashLock.count },
                 ownerUidForJob
             );
-            item._contentHashStrike = (item._contentHashStrike || 0) + 1;
-            await job.updateData(item).catch(() => {});
-            if (item._contentHashStrike >= 4) {
-                throw new UnrecoverableError(
-                    'Conteúdo idêntico repetido demais — adicione Spintax ({A|B}) ou varie o texto da campanha.'
-                );
-            }
-            await job.moveToDelayed(Date.now() + hashLock.penaltyMs, token);
+            await job.moveToDelayed(Date.now() + delayMs, token);
             throw new DelayedError();
         }
         }
@@ -5176,8 +5193,8 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
     // ──────────────────────────────────────────────────────────────────────────
 
-    if (ownerUidForJob && item.to && !item.nurtureFollowUp) {
-        if (await isContactOptedOut(ownerUidForJob, item.to)) {
+    if (ownerUidForJob && item.to) {
+        if (await isContactOptedOut(ownerUidForJob, item.to, getSharedRedis())) {
             emitCampaignLog(
                 'WARN',
                 `Contato ${item.to} está na lista negra (opt-out) — envio cancelado.`,
@@ -6646,13 +6663,6 @@ export async function handleWebhook(event: any) {
                             },
                             onComplete: (payload) => {
                                 log('info', '[OptOut] Contato descadastrado via inbound', payload);
-                                publishOwnerEvent(payload.tenantId, 'contact-marketing-consent', {
-                                    phoneDigits: payload.phoneDigits,
-                                    effect: 'opt_out',
-                                    replyText: payload.keyword,
-                                    at: new Date().toISOString(),
-                                    jobsCancelled: payload.jobsCancelled,
-                                });
                             },
                         });
                         if (optedOut) continue;

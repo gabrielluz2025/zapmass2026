@@ -4,7 +4,8 @@ import { persistUserNotification } from './notificationStore.js';
 export type AntiBanAlertType =
   | 'campaign-protection-paused'
   | 'chip-circuit-breaker-open'
-  | 'tenant-ban-cooldown-started';
+  | 'tenant-ban-cooldown-started'
+  | 'contact-marketing-consent';
 
 export type AntiBanAlertPayload = {
   title: string;
@@ -80,6 +81,25 @@ function buildBanCooldownStarted(payload: { hours?: number }): AntiBanAlertPaylo
   };
 }
 
+function buildContactMarketingConsent(payload: {
+  phoneDigits?: string;
+  effect?: string;
+  replyText?: string;
+  jobsCancelled?: number;
+}): AntiBanAlertPayload {
+  const phone = payload.phoneDigits ? ` (${payload.phoneDigits})` : '';
+  const jobs =
+    typeof payload.jobsCancelled === 'number' && payload.jobsCancelled > 0
+      ? ` ${payload.jobsCancelled} envio(s) pendente(s) cancelado(s).`
+      : '';
+  return {
+    title: 'Contato descadastrado (opt-out)',
+    body: `O contato${phone} solicitou parar mensagens promocionais.${jobs} Jornadas de nurture ativas foram canceladas.`,
+    kind: 'info',
+    message: payload.replyText,
+  };
+}
+
 /**
  * Centraliza alertas proativos: persiste notificação + emite socket para o tenant.
  */
@@ -127,6 +147,18 @@ export async function emitAntiBanAlert(
       });
       break;
     }
+    case 'contact-marketing-consent': {
+      const phoneDigits = String(raw.phoneDigits || raw.phoneSuffix || '').trim();
+      dedupeKey = phoneDigits || String(raw.replyText || 'opt_out');
+      if (await shouldDedupe(tid, type, dedupeKey)) return;
+      alert = buildContactMarketingConsent({
+        phoneDigits: phoneDigits || undefined,
+        effect: typeof raw.effect === 'string' ? raw.effect : undefined,
+        replyText: typeof raw.replyText === 'string' ? raw.replyText : undefined,
+        jobsCancelled: typeof raw.jobsCancelled === 'number' ? raw.jobsCancelled : undefined,
+      });
+      break;
+    }
     default:
       return;
   }
@@ -149,11 +181,26 @@ export async function emitAntiBanAlert(
     title: alert.title,
     body: alert.body,
     kind: alert.kind,
-    category: type === 'campaign-protection-paused' ? 'campaign' : 'system',
+    category:
+      type === 'campaign-protection-paused'
+        ? 'campaign'
+        : type === 'contact-marketing-consent'
+          ? 'contacts'
+          : 'system',
     campaignId: alert.campaignId,
     type,
     at: new Date().toISOString(),
   });
+
+  if (type === 'contact-marketing-consent') {
+    publishFn?.(tid, 'contact-marketing-consent', {
+      ...raw,
+      title: alert.title,
+      body: alert.body,
+      kind: alert.kind,
+      at: new Date().toISOString(),
+    });
+  }
 
   if (type === 'chip-circuit-breaker-open' && alert.connectionId) {
     publishFn?.(tid, 'circuit-breaker-open', { connectionId: alert.connectionId });

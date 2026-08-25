@@ -101,6 +101,7 @@ import { registerConnectionPoolsRoutes } from './connectionPoolsRoutes.js';
 import { registerLeadsGeoRoutes } from './leadsGeoRoutes.js';
 import { registerOperatingLocationRoutes } from './operatingLocationRoutes.js';
 import { warmupLeadsGeoCache } from './leadsGeoService.js';
+import { warmupOptOutCacheAllTenants } from './contactOptOutService.js';
 import { ensureIbgeMunicipiosIndex } from './ibgeMunicipios.js';
 import { registerCampaignsDataRoutes } from './campaignsRoutes.js';
 import { registerCampaignLibraryRoutes } from './campaignLibraryRoutes.js';
@@ -2570,6 +2571,11 @@ const bootstrap = async () => {
   evolutionService.clearFalsePositiveQuarantines();
 
   setTimeout(() => { void warmupLeadsGeoCache(); }, 45_000);
+  setTimeout(() => {
+    void warmupOptOutCacheAllTenants()
+      .then((s) => console.log(`[OptOut] Cache Redis aquecido: ${s.tenants} tenant(s), ${s.members} membro(s)`))
+      .catch((e) => console.warn('[OptOut] Falha ao aquecer cache:', (e as Error)?.message));
+  }, 20_000);
   await startSessionControlPlane();
   if (isSessionBusRemote()) {
     const w = getWhatsappProcessWorkerCount();
