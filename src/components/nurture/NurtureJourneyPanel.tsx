@@ -23,8 +23,34 @@ import {
   type NurtureEnrollment,
   type NurtureJourneyDoc,
   type NurtureMetrics,
-  type NurtureStep
+  type NurtureStep,
+  type NurtureStepOption
 } from '../../services/nurtureApi';
+
+function defaultWaitReplyOptions(): NurtureStepOption[] {
+  return [
+    {
+      id: '1',
+      tokens: ['1', 'sim'],
+      reply: 'Perfeito! Em breve alguém da equipe fala com você.',
+      handoff: true
+    },
+    {
+      id: '2',
+      tokens: ['2', 'depois', 'nao', 'não'],
+      reply: 'Sem problemas! Continuamos por aqui quando quiser.'
+    }
+  ];
+}
+
+function newWaitReplyOption(index: number): NurtureStepOption {
+  return {
+    id: String(index + 1),
+    tokens: [String(index + 1)],
+    reply: '',
+    handoff: false
+  };
+}
 
 const DEFAULT_DOC: NurtureJourneyDoc = {
   enabled: false,
@@ -137,6 +163,19 @@ export const NurtureJourneyPanel: React.FC = () => {
       steps[index] = { ...steps[index], ...patch };
       return { ...prev, steps };
     });
+  };
+
+  const updateStepOptions = (index: number, options: NurtureStepOption[]) => {
+    updateStep(index, { options });
+  };
+
+  const setStepKind = (index: number, kind: NurtureStep['kind']) => {
+    const step = doc.steps[index];
+    if (kind === 'wait_reply' && (!step.options || step.options.length === 0)) {
+      updateStep(index, { kind, options: defaultWaitReplyOptions() });
+    } else {
+      updateStep(index, { kind });
+    }
   };
 
   const addStep = () => {
@@ -369,9 +408,7 @@ export const NurtureJourneyPanel: React.FC = () => {
                 Tipo{' '}
                 <select
                   value={step.kind}
-                  onChange={(e) =>
-                    updateStep(index, { kind: e.target.value as NurtureStep['kind'] })
-                  }
+                  onChange={(e) => setStepKind(index, e.target.value as NurtureStep['kind'])}
                   className="ml-1 rounded border px-2 py-1 text-slate-800 dark:text-white dark:bg-slate-900"
                 >
                   <option value="message">Mensagem automática</option>
@@ -442,9 +479,134 @@ export const NurtureJourneyPanel: React.FC = () => {
               className="w-full rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-sm dark:bg-slate-900"
             />
             {step.kind === 'wait_reply' && (
-              <p className="text-[10px] text-slate-400">
-                Inclua opções numeradas no texto (ex.: 1 — Sim, 2 — Depois). Respostas avançam a jornada.
-              </p>
+              <div className="space-y-3 pt-1 border-t border-slate-200 dark:border-slate-700">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-slate-500">Opções de resposta (1 / 2 / 3…)</p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateStepOptions(index, [
+                        ...(step.options || []),
+                        newWaitReplyOption((step.options || []).length)
+                      ])
+                    }
+                    className="text-xs font-bold text-emerald-600 hover:underline flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Opção
+                  </button>
+                </div>
+                {(step.options || []).length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => updateStepOptions(index, defaultWaitReplyOptions())}
+                    className="text-xs text-slate-500 hover:text-emerald-600 underline"
+                  >
+                    Adicionar opções padrão (1 — Sim, 2 — Depois)
+                  </button>
+                ) : (
+                  (step.options || []).map((opt, optIndex) => (
+                    <div
+                      key={opt.id || `opt-${optIndex}`}
+                      className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2"
+                      style={{ background: 'var(--surface-1, var(--surface-2))' }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-black text-slate-500">Opção {optIndex + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateStepOptions(
+                              index,
+                              (step.options || []).filter((_, i) => i !== optIndex)
+                            )
+                          }
+                          className="text-xs text-red-500 hover:underline"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                      <label className="block space-y-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">
+                          Palavras aceitas (vírgula)
+                        </span>
+                        <Input
+                          value={(opt.tokens || []).join(', ')}
+                          onChange={(e) => {
+                            const tokens = e.target.value
+                              .split(/[,;]+/)
+                              .map((t) => t.trim())
+                              .filter(Boolean);
+                            const next = [...(step.options || [])];
+                            next[optIndex] = { ...opt, tokens };
+                            updateStepOptions(index, next);
+                          }}
+                          placeholder="1, sim, quero"
+                        />
+                      </label>
+                      <label className="block space-y-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">
+                          Resposta automática
+                        </span>
+                        <textarea
+                          value={opt.reply || ''}
+                          onChange={(e) => {
+                            const next = [...(step.options || [])];
+                            next[optIndex] = { ...opt, reply: e.target.value };
+                            updateStepOptions(index, next);
+                          }}
+                          rows={2}
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 p-2 text-sm dark:bg-slate-900"
+                        />
+                      </label>
+                      <label className="flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={!!opt.handoff}
+                          onChange={(e) => {
+                            const next = [...(step.options || [])];
+                            next[optIndex] = { ...opt, handoff: e.target.checked };
+                            updateStepOptions(index, next);
+                          }}
+                          className="accent-violet-500"
+                        />
+                        Encaminhar para humano (handoff)
+                      </label>
+                    </div>
+                  ))
+                )}
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <label className="text-xs font-bold text-slate-500">
+                    Timeout (horas, opcional){' '}
+                    <input
+                      type="number"
+                      min={0}
+                      max={336}
+                      value={step.timeoutHours ?? ''}
+                      onChange={(e) =>
+                        updateStep(index, {
+                          timeoutHours: e.target.value ? Number(e.target.value) || undefined : undefined
+                        })
+                      }
+                      className="w-full mt-1 rounded border px-2 py-1 dark:bg-slate-900 font-normal"
+                      placeholder="72"
+                    />
+                  </label>
+                  <label className="text-xs font-bold text-slate-500 sm:col-span-1">
+                    Mensagem se não responder
+                    <textarea
+                      value={step.timeoutMessage || ''}
+                      onChange={(e) => updateStep(index, { timeoutMessage: e.target.value })}
+                      rows={2}
+                      className="w-full mt-1 rounded border px-2 py-1 text-sm dark:bg-slate-900 font-normal"
+                      placeholder="Quando quiser, é só responder aqui."
+                    />
+                  </label>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  Se não houver opções, qualquer resposta avança. Com opções, só tokens listados contam.
+                </p>
+              </div>
             )}
           </div>
         ))}

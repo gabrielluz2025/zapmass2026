@@ -122,6 +122,15 @@ export async function saveNurtureJourney(payload: {
   };
 }
 
+export async function fetchEnrollmentByPhone(phone: string): Promise<NurtureEnrollment | null> {
+  const digits = phone.replace(/\D/g, '');
+  if (!digits) return null;
+  const j = await apiFetchJson<{ enrollment?: NurtureEnrollment | null }>(
+    `/api/nurture/enrollment?phone=${encodeURIComponent(digits)}`
+  );
+  return j.enrollment ?? null;
+}
+
 export async function cancelNurtureEnrollment(enrollmentId: string): Promise<NurtureEnrollment[]> {
   const j = await apiFetchJson<{ enrollments?: NurtureEnrollment[] }>('/api/nurture/enrollments/cancel', {
     method: 'POST',
@@ -136,13 +145,13 @@ export async function enrollContactInNurture(payload: {
   connectionId: string;
   conversationId?: string;
   journeyId?: string;
-}): Promise<NurtureEnrollment[]> {
-  const j = await apiFetchJson<{ enrollments?: NurtureEnrollment[] }>('/api/nurture/enroll', {
+}): Promise<NurtureEnrollment | null> {
+  const j = await apiFetchJson<{ enrollment?: NurtureEnrollment | null }>('/api/nurture/enroll', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-  return Array.isArray(j.enrollments) ? j.enrollments : [];
+  return j.enrollment ?? null;
 }
 
 export const WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];

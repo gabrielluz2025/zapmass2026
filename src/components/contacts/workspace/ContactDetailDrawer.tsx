@@ -2,15 +2,22 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   X, Phone, Mail, MapPin, Church, Briefcase, Cake, Tag, Edit3, Trash2,
   MessageCircle, Rocket, Copy, Flame, Snowflake, Clock, User as UserIcon,
-  Sparkles, ListPlus, CalendarClock, Printer, ScrollText, Ban, ShieldCheck, Smartphone
+  Sparkles, ListPlus, CalendarClock, Printer, ScrollText, Ban, ShieldCheck, Smartphone, BookOpen
 } from 'lucide-react';
 import { formatFollowUpLabel, parseFollowUpMs, localStartOfTodayMs } from '../../../utils/followUp';
 import type { Contact, ContactCampaignDelivery, ReligiousMemberProfile } from '../../../types';
 import { useAppProfile } from '../../../context/AppProfileContext';
 import { parseWeddingDayMonth, yearsCelebratingAtNextAnniversary } from '../../../utils/weddingAnniversary';
-import { useZapMassCore } from '../../../context/ZapMassContext';
+import { useZapMassCore, useZapMassConnectionsSlice } from '../../../context/ZapMassContext';
 import toast from 'react-hot-toast';
 import { ContactAvatar } from './ContactAvatar';
+import {
+  cancelNurtureEnrollment,
+  enrollContactInNurture,
+  ENROLLMENT_STATUS_LABEL,
+  fetchEnrollmentByPhone,
+  type NurtureEnrollment
+} from '../../../services/nurtureApi';
 
 type Temperature = 'hot' | 'warm' | 'cold' | 'new';
 interface TempStats {
@@ -150,6 +157,12 @@ export const ContactDetailDrawer: React.FC<Props> = ({
 }) => {
   const { segment } = useAppProfile();
   const { updateContact, contactLists } = useZapMassCore();
+  const connections = useZapMassConnectionsSlice();
+
+  const connectedChips = useMemo(
+    () => connections.filter((c) => c.status === 'CONNECTED'),
+    [connections]
+  );
 
   const memberListNames = useMemo(() => {
     if (!contact) return [] as string[];
@@ -160,6 +173,14 @@ export const ContactDetailDrawer: React.FC<Props> = ({
   }, [contact, contactLists]);
   const [marketingBusy, setMarketingBusy] = useState(false);
   const [campaignDeliveries, setCampaignDeliveries] = useState<ContactCampaignDelivery[]>([]);
+  const [nurtureEnrollment, setNurtureEnrollment] = useState<NurtureEnrollment | null>(null);
+  const [nurtureLoading, setNurtureLoading] = useState(false);
+  const [nurtureBusy, setNurtureBusy] = useState(false);
+  const [nurtureConnectionId, setNurtureConnectionId] = useState('');
+
+  const nurtureActive = nurtureEnrollment
+    ? ['enrolled', 'active', 'waiting_reply', 'paused'].includes(nurtureEnrollment.status)
+    : false;
 
   const fichaRows = useMemo(() => religiousFichaRows(contact?.religiousMemberProfile), [contact?.religiousMemberProfile]);
 
@@ -283,6 +304,73 @@ export const ContactDetailDrawer: React.FC<Props> = ({
       }
     ]);
   }, [contact?.id, contact?.campaignTablePreview]);
+
+  useEffect(() => {
+    if (!contact?.phone) {
+      setNurtureEnrollment(null);
+      setNurtureConnectionId('');
+      return;
+    }
+    let cancelled = false;
+    setNurtureLoading(true);
+    void fetchEnrollmentByPhone(contact.phone)
+      .then((row) => {
+        if (!cancelled) setNurtureEnrollment(row);
+      })
+      .catch(() => {
+        if (!cancelled) setNurtureEnrollment(null);
+      })
+      .finally(() => {
+        if (!cancelled) setNurtureLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [contact?.id, contact?.phone]);
+
+  useEffect(() => {
+    if (nurtureConnectionId) return;
+    const preferred =
+      nurtureEnrollment?.connectionId ||
+      connectedChips[0]?.id ||
+      '';
+    if (preferred) setNurtureConnectionId(preferred);
+  }, [connectedChips, nurtureConnectionId, nurtureEnrollment?.connectionId]);
+
+  const handleEnrollNurture = useCallback(async () => {
+    if (!contact?.phone || !nurtureConnectionId) {
+      toast.error('Selecione um chip conectado para inscrever na jornada.');
+      return;
+    }
+    setNurtureBusy(true);
+    try {
+      const row = await enrollContactInNurture({
+        contactPhone: contact.phone,
+        connectionId: nurtureConnectionId
+      });
+      setNurtureEnrollment(row);
+      toast.success('Contato inscrito na jornada de nutrição.');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Não foi possível inscrever na jornada.';
+      toast.error(msg);
+    } finally {
+      setNurtureBusy(false);
+    }
+  }, [contact?.phone, nurtureConnectionId]);
+
+  const handleCancelNurture = useCallback(async () => {
+    if (!nurtureEnrollment?.id) return;
+    setNurtureBusy(true);
+    try {
+      await cancelNurtureEnrollment(nurtureEnrollment.id);
+      setNurtureEnrollment({ ...nurtureEnrollment, status: 'cancelled' });
+      toast.success('Inscrição na jornada cancelada.');
+    } catch {
+      toast.error('Não foi possível cancelar a inscrição.');
+    } finally {
+      setNurtureBusy(false);
+    }
+  }, [nurtureEnrollment]);
 
   if (!contact) return null;
 
@@ -659,6 +747,133 @@ export const ContactDetailDrawer: React.FC<Props> = ({
                 </button>
               )}
             </div>
+          </Section>
+
+          <Section title="Jornada de nutrição">
+            {nurtureLoading ? (
+              <p className="text-sm text-slate-500 px-1">Consultando inscrição…</p>
+            ) : nurtureEnrollment && nurtureActive ? (
+              <div className="space-y-2 px-1 text-[12.5px]">
+                <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs font-semibold bg-teal-500/10 text-teal-800 border-teal-500/25 dark:text-teal-200">
+                  <BookOpen className="w-3.5 h-3.5" />
+                  {ENROLLMENT_STATUS_LABEL[nurtureEnrollment.status] || nurtureEnrollment.status}
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-slate-600 dark:text-slate-300">
+                  <span className="text-slate-500 dark:text-slate-400">Passo atual</span>
+                  <span className="font-semibold tabular-nums text-right">
+                    {nurtureEnrollment.currentStepIndex + 1}
+                  </span>
+                  <span className="text-slate-500 dark:text-slate-400">Próximo envio</span>
+                  <span className="font-medium text-right text-xs">
+                    {nurtureEnrollment.nextRunAt
+                      ? new Date(nurtureEnrollment.nextRunAt).toLocaleString('pt-BR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })
+                      : '—'}
+                  </span>
+                  {nurtureEnrollment.pauseReason && (
+                    <>
+                      <span className="text-slate-500 dark:text-slate-400">Pausa</span>
+                      <span className="text-right text-xs">{nurtureEnrollment.pauseReason}</span>
+                    </>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={nurtureBusy}
+                  onClick={() => void handleCancelNurture()}
+                  className="w-full py-2 rounded-lg text-sm font-semibold border border-red-500/35 text-red-700 dark:text-red-300 hover:bg-red-500/10 transition disabled:opacity-50"
+                >
+                  Cancelar inscrição na jornada
+                </button>
+              </div>
+            ) : nurtureEnrollment && !nurtureActive ? (
+              <div className="space-y-2 px-1">
+                <p className="text-sm text-slate-500">
+                  Última inscrição:{' '}
+                  <span className="font-semibold">
+                    {ENROLLMENT_STATUS_LABEL[nurtureEnrollment.status] || nurtureEnrollment.status}
+                  </span>
+                </p>
+                {connectedChips.length === 0 ? (
+                  <p className="text-xs text-amber-600">Conecte um chip para inscrever novamente.</p>
+                ) : (
+                  <>
+                    <label className="block text-xs font-bold text-slate-500">
+                      Chip para envio
+                      <select
+                        value={nurtureConnectionId}
+                        onChange={(e) => setNurtureConnectionId(e.target.value)}
+                        className="w-full mt-1 rounded-lg border border-slate-200 dark:border-slate-700 px-2 py-2 text-sm dark:bg-slate-900"
+                      >
+                        {connectedChips.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name || c.id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      disabled={nurtureBusy || !contact.marketingOptIn || contact.marketingOptOut}
+                      onClick={() => void handleEnrollNurture()}
+                      className="w-full py-2 rounded-lg text-sm font-semibold border border-teal-600/35 bg-teal-500/10 text-teal-800 dark:text-teal-200 hover:bg-teal-500/15 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      <BookOpen className="w-4 h-4" />
+                      Inscrever na jornada
+                    </button>
+                    {!contact.marketingOptIn && !contact.marketingOptOut && (
+                      <p className="text-[10.5px] text-slate-500">
+                        Registre autorização de marketing (lead quente) antes de inscrever.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            ) : connectedChips.length === 0 ? (
+              <p className="text-sm text-slate-500 px-1">Nenhum chip conectado para inscrever na jornada.</p>
+            ) : (
+              <div className="space-y-2 px-1">
+                <p className="text-sm text-slate-500">Contato ainda não está na jornada de nutrição.</p>
+                <label className="block text-xs font-bold text-slate-500">
+                  Chip para envio
+                  <select
+                    value={nurtureConnectionId}
+                    onChange={(e) => setNurtureConnectionId(e.target.value)}
+                    className="w-full mt-1 rounded-lg border border-slate-200 dark:border-slate-700 px-2 py-2 text-sm dark:bg-slate-900"
+                  >
+                    {connectedChips.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name || c.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  disabled={nurtureBusy || !contact.marketingOptIn || contact.marketingOptOut}
+                  onClick={() => void handleEnrollNurture()}
+                  className="w-full py-2 rounded-lg text-sm font-semibold border border-teal-600/35 bg-teal-500/10 text-teal-800 dark:text-teal-200 hover:bg-teal-500/15 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  Inscrever na jornada
+                </button>
+                {!contact.marketingOptIn && !contact.marketingOptOut && (
+                  <p className="text-[10.5px] text-slate-500">
+                    Registre autorização de marketing (lead quente) antes de inscrever.
+                  </p>
+                )}
+                {contact.marketingOptOut && (
+                  <p className="text-[10.5px] text-amber-600">Contato na lista negra — não é possível inscrever.</p>
+                )}
+              </div>
+            )}
+            <p className="text-[10.5px] text-slate-500 px-1 pt-1 leading-snug">
+              Materiais da jornada não consomem cota de campanha. Configure a sequência em Operações → Jornada.
+            </p>
           </Section>
 
           {/* Notas */}

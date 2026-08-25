@@ -577,6 +577,46 @@ export async function refreshActiveEnrollmentCountPg(tenantId: string, journeyId
   );
 }
 
+export async function findEnrollmentByPhonePg(
+  tenantId: string,
+  contactPhone: string
+): Promise<NurtureEnrollmentRow | null> {
+  const pool = getZapmassPool();
+  if (!pool) return null;
+  const tid = pgTenantId(tenantId);
+  if (!tid || !isUuid(tid)) return null;
+  const digits = contactPhone.replace(/\D/g, '');
+  if (!digits) return null;
+  const variants = new Set<string>([digits]);
+  if (digits.length === 13 && digits.startsWith('55') && digits.charAt(4) === '9') {
+    variants.add(digits.slice(0, 4) + digits.slice(5));
+  } else if (digits.length === 12 && digits.startsWith('55')) {
+    variants.add(digits.slice(0, 4) + '9' + digits.slice(4));
+  }
+  const r = await pool.query<{
+    id: string;
+    journey_id: string;
+    contact_phone: string;
+    connection_id: string;
+    conversation_id: string;
+    status: string;
+    current_step_index: number;
+    step_entered_at: Date;
+    next_run_at: Date | null;
+    enrolled_at: Date;
+    completed_at: Date | null;
+    pause_reason: string | null;
+  }>(
+    `SELECT id, journey_id, contact_phone, connection_id, conversation_id, status,
+            current_step_index, step_entered_at, next_run_at, enrolled_at, completed_at, pause_reason
+     FROM zapmass.nurture_enrollments
+     WHERE tenant_id = $1::uuid AND contact_phone = ANY($2::text[])
+     ORDER BY enrolled_at DESC LIMIT 1`,
+    [tid, [...variants]]
+  );
+  return r.rows[0] ? mapEnrollmentRow(r.rows[0]) : null;
+}
+
 export async function loadJourneyByIdPg(tenantId: string, journeyId: string): Promise<NurtureJourneyRow | null> {
   const pool = getZapmassPool();
   if (!pool) return null;

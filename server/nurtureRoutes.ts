@@ -4,6 +4,7 @@ import { getZapmassPool } from './db/postgres.js';
 import { requireTenant } from './httpTenant.js';
 import { cancelNurtureEnrollment, enrollContactInNurture } from './nurture/nurtureEngine.js';
 import {
+  findEnrollmentByPhonePg,
   getOrCreatePrimaryJourneyPg,
   listNurtureEnrollmentsPg,
   loadNurtureMetricsPg,
@@ -57,6 +58,22 @@ export function registerNurtureRoutes(app: Express): void {
     }
   });
 
+  app.get('/api/nurture/enrollment', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const phone = String(req.query.phone ?? '').replace(/\D/g, '');
+    if (!phone) {
+      return res.status(400).json({ ok: false, error: 'Informe ?phone= com dígitos do contato.' });
+    }
+    try {
+      const enrollment = await findEnrollmentByPhonePg(ctx.tenantId, phone);
+      return res.json({ ok: true, enrollment });
+    } catch (e) {
+      console.error('[nurture enrollment GET]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível consultar a inscrição.' });
+    }
+  });
+
   app.post('/api/nurture/enroll', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
@@ -82,8 +99,9 @@ export function registerNurtureRoutes(app: Express): void {
       return res.status(400).json(result);
     }
     const journey = await getOrCreatePrimaryJourneyPg(ctx.tenantId);
+    const enrollment = await findEnrollmentByPhonePg(ctx.tenantId, phone);
     const enrollments = await listNurtureEnrollmentsPg(ctx.tenantId, journey.id, 50);
-    return res.json({ ok: true, enrollments });
+    return res.json({ ok: true, enrollment, enrollments });
   });
 
   app.post('/api/nurture/enrollments/cancel', async (req: Request, res: Response) => {

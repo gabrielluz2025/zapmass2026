@@ -945,7 +945,7 @@ const BatePapoPage = () => (
     <Li icon="🔍" bold="Busca:" text="Encontre rapidamente qualquer conversa pelo nome do contato ou conteúdo." />
     <Li icon="🏷️" bold="Filtros:" text="Veja apenas conversas não lidas, de um canal específico ou atribuídas a você." />
     <Li icon="🤖" bold="Atendimento automático:" text="Configure um robô para responder enquanto você não está online." />
-    <Li icon="📚" bold="Jornada de nutrição:" text="Sequência de materiais para leads quentes — não consome cota de campanha." />
+    <Li icon="📚" bold="Jornada de nutrição:" text="Sequência de materiais para leads quentes — editor de opções 1/2/3 e inscrição manual no contato; não consome cota de campanha." />
     <Li icon="📎" bold="Envio de mídia:" text="Imagens, áudios, vídeos e documentos diretamente pela interface." />
     <Li icon="✨" bold="Sugestões de IA:" text="A inteligência artificial sugere respostas baseadas no contexto da conversa." />
     <Li icon="👥" bold="Atribuição de equipe:" text="Transfira o atendimento para um funcionário específico." />

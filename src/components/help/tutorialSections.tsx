@@ -478,8 +478,9 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         items: [
           { icon: '🔥', text: 'Lead vira quente (opt-in) → entra na jornada automaticamente, se ativado' },
           { icon: '📅', text: 'Modo relativo (+24h, +48h…) ou calendário (Seg 9h, Qua 10h…)' },
-          { icon: '💬', text: 'Passos “aguardar resposta” avançam quando a pessoa responde' },
+          { icon: '💬', text: 'Passos “aguardar resposta” com editor de opções 1/2/3 (tokens, resposta e handoff)' },
           { icon: '🙋', text: 'Se alguém assumir no Bate-papo, a jornada pausa' },
+          { icon: '👤', text: 'Inscrição manual no cartão do contato (Contatos → abrir ficha)' },
           { icon: '🛑', text: 'Contato digita PARAR para sair da sequência' },
         ],
       },
@@ -488,10 +489,10 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         title: 'Passo a passo',
         items: [
           'Operações → Jornada → Ativar jornada de nutrição',
-          'Ajuste os passos (texto, delay ou dia/hora)',
+          'Ajuste os passos (texto, delay ou dia/hora); em “aguardar resposta”, configure opções 1/2/3',
           'Marque “Inscrever automaticamente quando virar lead quente”',
           'Salvar jornada',
-          'Teste: marque um contato como lead quente ou responda opt-in no fluxo de campanha',
+          'Teste: marque um contato como lead quente ou inscreva manualmente no cartão do contato',
           'Acompanhe inscritos e métricas na mesma tela',
         ],
       },
