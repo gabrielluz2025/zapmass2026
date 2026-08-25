@@ -75,6 +75,7 @@ import {
 } from './contactDedupeJob.js';
 import * as evolutionService from './evolutionService.js';
 import { normalizeTenantContactAddresses, normalizeTenantContactsFull } from './contactsNormalizeService.js';
+import { validateTenantContactsWhatsApp } from './contactWhatsAppValidateService.js';
 import { geocodeSingleContactIfNeeded } from './leadsGeoService.js';
 import { normalizeContactAddressFields } from '../src/utils/contactAddressNormalize.js';
 import { ensureIbgeMunicipiosIndex, getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
@@ -814,6 +815,35 @@ export function registerContactsDataRoutes(app: Express): void {
     } catch (e) {
       console.error('[api/contacts/normalize-all]', e);
       return res.status(500).json({ ok: false, error: 'Falha ao corrigir cadastro dos contatos.' });
+    }
+  });
+
+  app.post('/api/contacts/validate-whatsapp', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body || {}) as {
+      offset?: number;
+      limit?: number;
+      dryRun?: boolean;
+      connectionId?: string;
+      markMissingInvalid?: boolean;
+    };
+    const offset = Math.max(Number(body.offset) || 0, 0);
+    const limit = Math.min(Math.max(Number(body.limit) || 50, 1), 50);
+    const dryRun = body.dryRun !== false;
+    try {
+      const result = await validateTenantContactsWhatsApp(ctx.tenantId, {
+        offset,
+        limit,
+        dryRun,
+        connectionId: body.connectionId,
+        markMissingInvalid: body.markMissingInvalid !== false,
+      });
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao validar WhatsApp.';
+      console.error('[api/contacts/validate-whatsapp]', e);
+      return res.status(500).json({ ok: false, error: msg });
     }
   });
 

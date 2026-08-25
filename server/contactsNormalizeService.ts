@@ -1,4 +1,5 @@
 import type { Contact } from '../src/types.js';
+import { isPlausibleBrazilWhatsAppPhone, normalizeBRPhone } from '../src/utils/brPhoneNormalize.js';
 import {
   buildNeighborhoodToCityMap,
   contactAddressChanged,
@@ -18,6 +19,8 @@ export type NormalizeContactsFullResult = {
   changed: number;
   fieldTotals: Partial<Record<NormalizeContactsFullField, number>>;
   samples: Array<{ field: NormalizeContactsFullField; before: string; after: string }>;
+  invalidPhoneCount: number;
+  phoneIssueSamples: Array<{ before: string; after: string }>;
   hasMore: boolean;
   nextOffset: number;
   applied: boolean;
@@ -74,10 +77,20 @@ export async function normalizeTenantContactsFull(
   const page = await listContacts(tenantId, { limit, offset });
   const fieldTotals: Partial<Record<NormalizeContactsFullField, number>> = {};
   const samples: NormalizeContactsFullResult['samples'] = [];
+  const phoneIssueSamples: NormalizeContactsFullResult['phoneIssueSamples'] = [];
   const items: Array<{ id: string; updates: Partial<Contact> }> = [];
   let changed = 0;
+  let invalidPhoneCount = 0;
 
   for (const c of page) {
+    const normalizedAfter = normalizeBRPhone(c.phone || '');
+    if (c.phone && normalizedAfter && !isPlausibleBrazilWhatsAppPhone(normalizedAfter)) {
+      invalidPhoneCount++;
+      if (phoneIssueSamples.length < 8) {
+        phoneIssueSamples.push({ before: clean(c.phone), after: normalizedAfter });
+      }
+    }
+
     const { updates, changes } = diffContactForFullNormalize(c);
     if (changes.length === 0) continue;
     changed++;
@@ -105,6 +118,8 @@ export async function normalizeTenantContactsFull(
     changed,
     fieldTotals,
     samples,
+    invalidPhoneCount,
+    phoneIssueSamples,
     hasMore,
     nextOffset: offset + page.length,
     applied: !dryRun && items.length > 0,

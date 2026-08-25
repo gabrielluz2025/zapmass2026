@@ -5107,6 +5107,7 @@ export const ContactsTab: React.FC = () => {
         onClose={() => setBaseFixModalOpen(false)}
         totalContacts={contactsSavedTotal ?? contacts.length}
         duplicateCount={duplicateContactsCount}
+        connections={connections}
         onApplied={() => void refreshContacts()}
         onStartDedupe={startContactDedupe}
         dedupeBusy={contactDedupeProgress.job?.status === 'running'}

@@ -3,6 +3,13 @@ export function phoneDigitsOnly(raw: string): string {
   return (raw || '').replace(/\D/g, '');
 }
 
+/** Remove DDI 55 duplicado (ex.: 555547999912345 → 5547999912345). */
+export function stripDuplicateBrazilDdi(digits: string): string {
+  let d = phoneDigitsOnly(digits);
+  while (d.startsWith('5555') && d.length > 13) d = d.slice(2);
+  return d;
+}
+
 /** Prefixo ANATEL do assinante (8 dígitos): 2–5 fixo, 6–9 celular. */
 const BR_LANDLINE_SUB_PREFIX = /^[2-5]/;
 const BR_MOBILE_SUB_PREFIX = /^[6-9]/;
@@ -56,9 +63,21 @@ export function repairCorruptedBrJidDigits(digits: string): string {
   return d;
 }
 
+/** E.164 BR plausível para WhatsApp (12 fixo ou 13 celular). */
+export function isPlausibleBrazilWhatsAppPhone(digits: string): boolean {
+  const d = phoneDigitsOnly(digits);
+  if (!d.startsWith('55') || (d.length !== 12 && d.length !== 13)) return false;
+  const ddd = d.slice(2, 4);
+  if (!/^[1-9]\d$/.test(ddd)) return false;
+  if (d.length === 13) return d[4] === '9';
+  return /^[2-5]/.test(d.slice(4));
+}
+
 /** Chave única por telefone (BR: 0 tronco + DDI 55 quando faltar). */
 export function normPhoneKey(p: string): string {
-  let d = repairCorruptedBrJidDigits(stripBrazilNationalTrunkZero(phoneDigitsOnly(p)));
+  let d = stripDuplicateBrazilDdi(
+    repairCorruptedBrJidDigits(stripBrazilNationalTrunkZero(phoneDigitsOnly(p)))
+  );
   if (!d) return '';
   if ((d.length === 10 || d.length === 11) && !d.startsWith('55')) d = `55${d}`;
   return canonicalBrazilMobileKey(d);
@@ -66,7 +85,7 @@ export function normPhoneKey(p: string): string {
 
 /** Normaliza telefone BR para armazenamento (DDI 55, remove 0 tronco nacional). */
 export function normalizeBRPhone(raw: string): string {
-  let d = stripBrazilNationalTrunkZero(phoneDigitsOnly(raw));
+  let d = stripDuplicateBrazilDdi(stripBrazilNationalTrunkZero(phoneDigitsOnly(raw)));
   if (!d) return '';
   if (d.length === 10 || d.length === 11) d = `55${d}`;
   if (d.startsWith('55') && (d.length === 12 || d.length === 13)) return canonicalBrazilMobileKey(d);

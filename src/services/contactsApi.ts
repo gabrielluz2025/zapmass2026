@@ -209,6 +209,8 @@ export async function apiNormalizeContactsAll(opts?: {
   changed: number;
   fieldTotals: Record<string, number>;
   samples: Array<{ field: string; before: string; after: string }>;
+  invalidPhoneCount: number;
+  phoneIssueSamples: Array<{ before: string; after: string }>;
   hasMore: boolean;
   nextOffset: number;
   applied: boolean;
@@ -218,6 +220,8 @@ export async function apiNormalizeContactsAll(opts?: {
     changed?: number;
     fieldTotals?: Record<string, number>;
     samples?: Array<{ field: string; before: string; after: string }>;
+    invalidPhoneCount?: number;
+    phoneIssueSamples?: Array<{ before: string; after: string }>;
     hasMore?: boolean;
     nextOffset?: number;
     applied?: boolean;
@@ -234,6 +238,63 @@ export async function apiNormalizeContactsAll(opts?: {
     scanned: Number(j.scanned) || 0,
     changed: Number(j.changed) || 0,
     fieldTotals: j.fieldTotals && typeof j.fieldTotals === 'object' ? j.fieldTotals : {},
+    samples: Array.isArray(j.samples) ? j.samples : [],
+    invalidPhoneCount: Number(j.invalidPhoneCount) || 0,
+    phoneIssueSamples: Array.isArray(j.phoneIssueSamples) ? j.phoneIssueSamples : [],
+    hasMore: !!j.hasMore,
+    nextOffset: Number(j.nextOffset) || 0,
+    applied: !!j.applied,
+  };
+}
+
+export async function apiValidateContactsWhatsApp(opts?: {
+  offset?: number;
+  limit?: number;
+  dryRun?: boolean;
+  connectionId?: string;
+  markMissingInvalid?: boolean;
+}): Promise<{
+  scanned: number;
+  onWhatsApp: number;
+  phoneCorrected: number;
+  notOnWhatsApp: number;
+  invalidFormat: number;
+  uncertain: number;
+  samples: Array<{ name: string; before: string; after?: string; result: string }>;
+  hasMore: boolean;
+  nextOffset: number;
+  applied: boolean;
+}> {
+  const j = await apiFetchJson<{
+    scanned?: number;
+    onWhatsApp?: number;
+    phoneCorrected?: number;
+    notOnWhatsApp?: number;
+    invalidFormat?: number;
+    uncertain?: number;
+    samples?: Array<{ name: string; before: string; after?: string; result: string }>;
+    hasMore?: boolean;
+    nextOffset?: number;
+    applied?: boolean;
+    error?: string;
+  }>('/api/contacts/validate-whatsapp', {
+    method: 'POST',
+    body: JSON.stringify({
+      offset: opts?.offset ?? 0,
+      limit: opts?.limit ?? 50,
+      dryRun: opts?.dryRun !== false,
+      connectionId: opts?.connectionId,
+      markMissingInvalid: opts?.markMissingInvalid !== false,
+    }),
+    timeoutMs: CONTACTS_API_TIMEOUT_MS,
+  });
+  return {
+    scanned: Number(j.scanned) || 0,
+    onWhatsApp: Number(j.onWhatsApp) || 0,
+    phoneCorrected: Number(j.phoneCorrected) || 0,
+    notOnWhatsApp: Number(j.notOnWhatsApp) || 0,
+    invalidFormat: Number(j.invalidFormat) || 0,
+    uncertain: Number(j.uncertain) || 0,
     samples: Array.isArray(j.samples) ? j.samples : [],
     hasMore: !!j.hasMore,
     nextOffset: Number(j.nextOffset) || 0,
