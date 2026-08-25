@@ -251,33 +251,46 @@ jobs:
         if: >-
           always() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
+          steps.prod_already.outputs.already != 'true' &&
           (steps.deploy_vps.outcome == 'failure' || steps.deploy_vps.outcome == 'skipped')
         run: |
           set -euo pipefail
           EXPECTED="${GITHUB_SHA::7}"
           SSH_SKIPPED="${{ steps.ssh_precheck.outputs.reachable != 'true' }}"
+          check_version() {
+            resp=$(curl -sf --max-time 12 https://zap-mass.com/api/health 2>/dev/null || echo "")
+            if [ -n "${resp}" ] && echo "${resp}" | grep -q '"status":"ok"'; then
+              ver=$(echo "${resp}" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
+              if [ -n "${ver}" ] && { [ "${ver}" = "${EXPECTED}" ] || [ "${ver}" = "${GITHUB_SHA}" ]; }; then
+                echo "${ver}"
+                return 0
+              fi
+            fi
+            return 1
+          }
+          if ver=$(check_version); then
+            echo "verified=true" >> "$GITHUB_OUTPUT"
+            echo "## Deploy confirmado em producao (version=${ver}) — ja estava no ar" >> "$GITHUB_STEP_SUMMARY"
+            echo "==> Producao ja em ${ver} — sem espera."
+            exit 0
+          fi
           if [ "${SSH_SKIPPED}" = "true" ]; then
             echo "==> SSH indisponivel; aguardando deploy na VPS (cron/manual) ate ${EXPECTED}..."
-            MAX_TRIES=90
+            MAX_TRIES=15
             SLEEP_SEC=30
           else
             echo "==> SSH reportou falha; conferindo se producao ja esta em ${EXPECTED}..."
-            MAX_TRIES=30
+            MAX_TRIES=12
             SLEEP_SEC=10
           fi
           verified=0
           for i in $(seq 1 "${MAX_TRIES}"); do
-            resp=$(curl -sf --max-time 12 https://zap-mass.com/api/health 2>/dev/null || echo "")
-            if [ -n "${resp}" ] && echo "${resp}" | grep -q '"status":"ok"'; then
-              ver=$(echo "${resp}" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
-              echo "tentativa ${i}/${MAX_TRIES}: version=${ver:-?} esperado=${EXPECTED}"
-              if [ -n "${ver}" ] && { [ "${ver}" = "${EXPECTED}" ] || [ "${ver}" = "${GITHUB_SHA}" ]; }; then
-                verified=1
-                break
-              fi
-            else
-              echo "tentativa ${i}/${MAX_TRIES}: health indisponivel"
+            if ver=$(check_version); then
+              echo "tentativa ${i}/${MAX_TRIES}: version=${ver} OK"
+              verified=1
+              break
             fi
+            echo "tentativa ${i}/${MAX_TRIES}: versao ainda nao confere"
             sleep "${SLEEP_SEC}"
           done
           if [ "${verified}" = "1" ]; then
@@ -291,7 +304,7 @@ jobs:
           else
             echo "verified=false" >> "$GITHUB_OUTPUT"
             if [ "${SSH_SKIPPED}" = "true" ]; then
-              echo "==> Versao ainda nao confere apos aguardar cron/manual."
+              echo "==> Versao ainda nao confere apos aguardar cron/manual (~7 min)."
             else
               echo "==> Versao em producao ainda nao confere; aguardando 60s antes do retry SSH..."
               sleep 60
@@ -427,6 +440,7 @@ jobs:
         if: >-
           always() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
+          steps.prod_already.outputs.already != 'true' &&
           steps.verify_prod.outputs.verified != 'true' &&
           (steps.deploy_vps.outcome == 'failure' || steps.deploy_vps.outcome == 'skipped') &&
           !(steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success')
@@ -434,11 +448,11 @@ jobs:
           set -euo pipefail
           EXPECTED="${GITHUB_SHA::7}"
           echo "==> Ultima conferencia de versao em producao (${EXPECTED})..."
-          for i in $(seq 1 24); do
+          for i in $(seq 1 8); do
             resp=$(curl -sf --max-time 12 https://zap-mass.com/api/health 2>/dev/null || echo "")
             if [ -n "${resp}" ] && echo "${resp}" | grep -q '"status":"ok"'; then
               ver=$(echo "${resp}" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
-              echo "tentativa ${i}/24: version=${ver:-?}"
+              echo "tentativa ${i}/8: version=${ver:-?}"
               if [ -n "${ver}" ] && { [ "${ver}" = "${EXPECTED}" ] || [ "${ver}" = "${GITHUB_SHA}" ]; }; then
                 echo "verified=true" >> "$GITHUB_OUTPUT"
                 echo "## Deploy confirmado em producao apos retries (version=${ver})" >> "$GITHUB_STEP_SUMMARY"
