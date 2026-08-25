@@ -57,12 +57,15 @@ import {
 } from './replyFlowEngine.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
-import { pickOpenFailoverChannel } from './campaignChannelFailover.js';
 import {
     collectCampaignChannelIds,
     evaluateCampaignDispatchGuard,
     type CampaignDispatchGuardResult
 } from './campaignChipGuard.js';
+import { spreadCampaignJobsOnResume } from './campaignGradualResume.js';
+import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
+import { computeTierExtraDelayMs, resolveChipTier } from './chipTrustScore.js';
+import { checkInboundAutomationAllowed } from './inboundAutomationGuard.js';
 import { computeDailyScheduleDelayMs } from './campaignDailyScheduleDelay.js';
 import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
 import { refreshRedispatchTargetPhones } from './campaignRedispatchPhoneRefresh.js';
@@ -2068,6 +2071,8 @@ interface MessageQueueItem {
     _limitDelayCount?: number;
     /** Adiado porque o grupo de chips estava offline. */
     _offlineDelayCount?: number;
+    /** Trust score: tier delay já aplicado neste job. */
+    _tierDelayApplied?: boolean;
     /** Motor multi-etapas lazy: identifica contactId e stepIndex desta entrega. */
     multiStepContact?: {
         contactId: string;
@@ -2451,6 +2456,13 @@ export function saveConnectionsSettings() {
 /** Cópia superficial para diagnóstico admin (reconciliação de donos). */
 export function getConnectionsSettingsSnapshot(): Record<string, ConnectionSettingsPayload> {
     return { ...connectionsSettingsCache };
+}
+
+/** Epoch ms em que o chip ficou open (trust score / tier). */
+export function getConnectionConnectedSince(connectionId: string): number | undefined {
+    const row = connectionsSettingsCache[String(connectionId || '').trim()];
+    const since = row?.connectedSince;
+    return typeof since === 'number' && since > 0 ? since : undefined;
 }
 
 /** Converte ownerUid legado (Firebase) para users.id Postgres — evita vazamento entre tenants. */
@@ -4516,6 +4528,31 @@ function isCampaignChannelUsable(connectionId: string): boolean {
     return !getConnectionBanInfo(id).inQuarantine;
 }
 
+async function isCampaignChannelHealthy(connectionId: string): Promise<boolean> {
+    if (!isCampaignChannelUsable(connectionId)) return false;
+    const score = await getChipCircuitBreaker().getHealthScore(connectionId);
+    return getChipCircuitBreaker().isUsable(score);
+}
+
+async function pickHealthyFailoverChannel(
+    currentId: string,
+    alternateIds: string[] | undefined
+): Promise<string | null> {
+    const current = String(currentId || '').trim();
+    if (current && (await isCampaignChannelHealthy(current))) return current;
+    const alts = Array.isArray(alternateIds)
+        ? alternateIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+    if (alts.length === 0) return null;
+    const curIdx = Math.max(0, alts.indexOf(current));
+    for (let step = 1; step <= alts.length; step++) {
+        const altId = alts[(curIdx + step) % alts.length];
+        if (!altId || altId === current) continue;
+        if (await isCampaignChannelHealthy(altId)) return altId;
+    }
+    return null;
+}
+
 async function buildCampaignGuardContext(
     item: MessageQueueItem,
     state: CampaignRuntimeState
@@ -4609,25 +4646,44 @@ function pauseCampaignForProtection(
 }
 
 function resumeCampaignFromProtection(campaignId: string, ownerUid?: string): void {
-    const state = campaignsById.get(campaignId);
-    if (state) {
-        state.protectionPaused = false;
-        state.protectionPauseReason = undefined;
-        state.protectionPauseUntil = undefined;
-        state.protectionPauseMessage = undefined;
-    }
-    resumeCampaign(campaignId, ownerUid);
-    const ou = resolveCampaignOwnerUid(campaignId, ownerUid);
-    emitCampaignLog(
-        'INFO',
-        '🛡️ Campanha retomada automaticamente pela proteção de chips. Horários agendados foram preservados.',
-        { campaignId },
-        ou
-    );
-    if (ou) {
-        publishOwnerEvent(ou, 'campaign-protection-resumed', { campaignId });
-    }
-    void saveCampaignRuntimeToRedis(campaignId);
+    void (async () => {
+        const queue = getCampaignQueue();
+        if (queue) {
+            try {
+                const spread = await spreadCampaignJobsOnResume(queue, campaignId, {
+                    spreadStepMs: Number(process.env.GRADUAL_RESUME_SPREAD_MS ?? 15_000),
+                    jitterMaxMs: Number(process.env.GRADUAL_RESUME_JITTER_MS ?? 5_000),
+                });
+                if (spread.rescheduled > 0) {
+                    log('info', `[GradualResume] Campanha ${campaignId}: ${spread.rescheduled} job(s) redistribuídos`, spread);
+                }
+            } catch (e) {
+                log('warn', `[GradualResume] Falha ao redistribuir jobs: ${campaignId}`, {
+                    error: (e as Error)?.message,
+                });
+            }
+        }
+
+        const state = campaignsById.get(campaignId);
+        if (state) {
+            state.protectionPaused = false;
+            state.protectionPauseReason = undefined;
+            state.protectionPauseUntil = undefined;
+            state.protectionPauseMessage = undefined;
+        }
+        resumeCampaign(campaignId, ownerUid);
+        const ou = resolveCampaignOwnerUid(campaignId, ownerUid);
+        emitCampaignLog(
+            'INFO',
+            '🛡️ Campanha retomada com distribuição gradual (anti-spike). Horários futuros preservados.',
+            { campaignId },
+            ou
+        );
+        if (ou) {
+            publishOwnerEvent(ou, 'campaign-protection-resumed', { campaignId, gradualSpread: true });
+        }
+        void saveCampaignRuntimeToRedis(campaignId);
+    })();
 }
 
 /** Reavalia campanhas ativas após ban/queda de um chip. */
@@ -4768,6 +4824,20 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     const dispatchSettings = getTenantDispatchSettings(campaignState?.ownerUid);
 
+    // Trust score: chips novos recebem delay extra antes do envio (ramp-up).
+    if (!item.nurtureFollowUp && !item._tierDelayApplied) {
+        const tierProfile = resolveChipTier(getConnectionConnectedSince(item.connectionId));
+        let extraDelay = computeTierExtraDelayMs(dispatchSettings.minDelayMs, tierProfile);
+        const cbScore = await getChipCircuitBreaker().getHealthScore(item.connectionId);
+        extraDelay = Math.floor(extraDelay * getChipCircuitBreaker().delayMultiplier(cbScore));
+        if (extraDelay > 0) {
+            item._tierDelayApplied = true;
+            await job.updateData(item).catch(() => {});
+            await job.moveToDelayed(Date.now() + extraDelay, token);
+            throw new DelayedError();
+        }
+    }
+
     if (dispatchSettings.sleepMode && isBrazilNightHour() && !hasSleepModeOverride(item.campaignId)) {
         const ownerUid = campaignState?.ownerUid;
         if (item.campaignId && ownerUid && markSleepModeNotified(item.campaignId)) {
@@ -4795,18 +4865,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         throw new DelayedError();
     }
 
-    const chipUsable = (id: string) =>
-        connections.get(id)?.status === 'open' && !getConnectionBanInfo(id).inQuarantine;
-    if (!chipUsable(item.connectionId)) {
-        const failoverId = pickOpenFailoverChannel(
-            item.connectionId,
-            item.alternateChannelIds,
-            chipUsable
-        );
+    if (!(await isCampaignChannelHealthy(item.connectionId))) {
+        const failoverId = await pickHealthyFailoverChannel(item.connectionId, item.alternateChannelIds);
         if (failoverId && failoverId !== item.connectionId) {
             emitCampaignLog(
                 'WARN',
-                `Chip ${item.connectionId} indisponível — alternando para ${failoverId} antes do envio`,
+                `Chip ${item.connectionId} indisponível/isolado — alternando para ${failoverId} antes do envio`,
                 { campaignId: item.campaignId, de: item.connectionId, para: failoverId, to: item.to },
                 campaignState?.ownerUid
             );
@@ -4912,11 +4976,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     if (!(await isConnectionOpen(item.connectionId))) {
-        const failoverId = pickOpenFailoverChannel(
-            item.connectionId,
-            item.alternateChannelIds,
-            (id) => connections.get(id)?.status === 'open' && !getConnectionBanInfo(id).inQuarantine
-        );
+        const failoverId = await pickHealthyFailoverChannel(item.connectionId, item.alternateChannelIds);
         if (failoverId && failoverId !== item.connectionId) {
             emitCampaignLog(
                 'WARN',
@@ -5041,7 +5101,14 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         sendResult = await sendMessageInternal(item.connectionId, sendTo, item.message);
     }
 
+    const cb = getChipCircuitBreaker();
+    await cb.recordSent(item.connectionId);
+
     if (!sendResult.ok) {
+        const detail = String(sendResult.errorDetail || '');
+        if (/\b4\d{2}\b/.test(detail) || /401|403|429/.test(detail)) {
+            await cb.recordFail4xx(item.connectionId);
+        }
         // Failover silencioso: tenta chips alternativos do pool antes de lançar erro.
         const alternates = Array.isArray(item.alternateChannelIds) ? item.alternateChannelIds : [];
         if (alternates.length > 1) {
@@ -5051,7 +5118,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             for (let step = 1; step < alternates.length; step++) {
                 const altId = alternates[(curIdx + step) % alternates.length];
                 if (altId === originalId) continue;
-                if (isCampaignChannelUsable(altId)) {
+                if (await isCampaignChannelHealthy(altId)) {
                     emitCampaignLog(
                         'WARN',
                         `Chip ${originalId} falhou — alternando para ${altId} (failover automático)`,
@@ -5093,6 +5160,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     // o retry do BullMQ detecta _sentOk=true e não reenvia (idempotência).
     item._sentOk = true;
     await job.updateData(item).catch(() => {});
+    await cb.recordDeliveredAck(item.connectionId);
 
     // Espelha sucesso no PG (auditoria + recovery)
     void finalizeCampaignJob(job.id ?? '', { status: 'sent' }).catch(() => undefined);
@@ -6382,6 +6450,14 @@ export async function handleWebhook(event: any) {
 
                     const ownerUidForBot = messageOwnerUid || resolveOwnerUid(instance);
                     if (ownerUidForBot && incomingConvId) {
+                        const inboundGuard = await checkInboundAutomationAllowed(ownerUidForBot, instance);
+                        if (!inboundGuard.allowed) {
+                            log('info', `[inboundGuard] Automação bloqueada tenant=${ownerUidForBot}`, {
+                                reason: 'reason' in inboundGuard ? inboundGuard.reason : undefined,
+                            });
+                            continue;
+                        }
+
                         ensureNurtureEnqueue();
                         const nurtureHandled = await handleNurtureIncoming({
                             tenantId: ownerUidForBot,
@@ -7319,6 +7395,9 @@ export function pauseCampaign(campaignId: string, ownerUid?: string) {
 }
 
 export function resumeCampaign(campaignId: string, ownerUid?: string) {
+    const stateBefore = campaignsById.get(campaignId);
+    const wasProtection = Boolean(stateBefore?.protectionPaused);
+
     pausedCampaigns.delete(campaignId);
     const ou = resolveCampaignOwnerUid(campaignId, ownerUid) || ownerUid;
     const state = campaignsById.get(campaignId);
@@ -7327,6 +7406,12 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
         state.protectionPauseReason = undefined;
         state.protectionPauseUntil = undefined;
         state.protectionPauseMessage = undefined;
+    }
+    if (wasProtection) {
+        const queue = getCampaignQueue();
+        if (queue) {
+            void spreadCampaignJobsOnResume(queue, campaignId).catch(() => undefined);
+        }
     }
     log('info', `▶️ Campanha retomada: ${campaignId}`, { ownerUid: ou });
     // Se o estado não estiver em RAM (ex: após restart), tenta restaurar do Redis.
