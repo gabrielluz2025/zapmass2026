@@ -20,6 +20,10 @@ describe('isCampaignFlowContinuation', () => {
     ).toBe(true);
   });
 
+  it('jornada de nutrição é continuação (fora do frequency cap)', () => {
+    expect(isCampaignFlowContinuation({ nurtureFollowUp: true })).toBe(true);
+  });
+
   it('multi-etapas 2+ é continuação', () => {
     expect(isCampaignFlowContinuation({ stageIndex: 1 })).toBe(true);
     expect(isCampaignFlowContinuation({ multiStepContact: { stepIndex: 1 } })).toBe(true);

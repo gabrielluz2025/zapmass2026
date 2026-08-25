@@ -119,6 +119,13 @@ import {
     resolvePhoneDigitsFromEvolutionMessage,
 } from './evolutionWebhookMessages.js';
 import { handleSupportBotIncoming } from './supportBot/supportBotEngine.js';
+import {
+  completeNurtureStepAfterSend,
+  handleNurtureIncoming,
+  registerNurtureEnqueue,
+  tryAutoEnrollOnOptIn
+} from './nurture/nurtureEngine.js';
+import { loadJourneyByIdPg } from './nurture/nurtureRepository.js';
 import { dispatchEvolutionWebhook, initEvolutionWebhookQueue } from './evolutionWebhookQueue.js';
 import {
     extractEvolutionMessageUpdates,
@@ -2001,6 +2008,11 @@ interface MessageQueueItem {
     };
     /** Reenvio manual: ignora limite de 24 h entre campanhas. */
     skipFrequencyCap?: boolean;
+    /** Jornada de nutrição (lead quente) — não consome cota diária de campanha. */
+    nurtureFollowUp?: boolean;
+    nurtureEnrollmentId?: string;
+    nurtureJourneyId?: string;
+    nurtureStepIndex?: number;
 }
 
 interface WarmupItem {
@@ -3485,7 +3497,7 @@ function ensureReplyFlowEngine() {
                 skipFrequencyCap: true,
             }, replyDelay);
         },
-        onMarketingConsent: (ownerUid, campaignId, effect, phoneDigits, replyText) => {
+        onMarketingConsent: (ownerUid, campaignId, effect, phoneDigits, replyText, connectionId) => {
             publishOwnerEvent(ownerUid, 'contact-marketing-consent', {
                 campaignId,
                 phoneDigits,
@@ -3493,6 +3505,14 @@ function ensureReplyFlowEngine() {
                 replyText: String(replyText || '').slice(0, 500),
                 at: new Date().toISOString(),
             });
+            if (effect === 'opt_in' && ownerUid && connectionId) {
+                void tryAutoEnrollOnOptIn({
+                    tenantId: ownerUid,
+                    phoneDigits,
+                    connectionId,
+                    conversationId: `${connectionId}:${phoneDigits}`,
+                });
+            }
         },
         onLog: (message, payload) =>
             emitCampaignLog('INFO', message, payload, payload?.ownerUid as string | undefined),
@@ -3513,6 +3533,31 @@ function ensureReplyFlowEngine() {
         onAllSessionsClosed: (campaignId) => {
             void tryFinalizeOrHoldCampaign(campaignId);
         },
+    });
+    ensureNurtureEnqueue();
+}
+
+let nurtureEnqueueRegistered = false;
+function ensureNurtureEnqueue() {
+    if (nurtureEnqueueRegistered) return;
+    nurtureEnqueueRegistered = true;
+    registerNurtureEnqueue(async (params) => {
+        await enqueueCampaignItem(
+            {
+                connectionId: params.connectionId,
+                to: params.contactPhone,
+                message: params.message,
+                campaignId: `nurture:${params.journeyId}`,
+                ownerUid: params.tenantId,
+                nurtureFollowUp: true,
+                skipFrequencyCap: true,
+                replyFlowResponse: true,
+                nurtureEnrollmentId: params.enrollmentId,
+                nurtureJourneyId: params.journeyId,
+                nurtureStepIndex: params.stepIndex,
+            },
+            params.delayMs
+        );
     });
 }
 
@@ -4472,7 +4517,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     const conn = connections.get(item.connectionId);
-    if (conn) {
+    if (conn && !item.nurtureFollowUp) {
         checkAndResetDailyLimits(conn);
 
         const dailyLimit = conn.dailyLimit || 0;
@@ -4734,9 +4779,11 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     void finalizeCampaignJob(job.id ?? '', { status: 'sent' }).catch(() => undefined);
 
     // Registra timestamp de envio para o limitador de frequência (24 h).
-    await recordFrequencyCap(campaignState?.ownerUid, item.to);
+    if (!item.nurtureFollowUp) {
+        await recordFrequencyCap(campaignState?.ownerUid, item.to);
+    }
 
-    if (conn) {
+    if (conn && !item.nurtureFollowUp) {
         conn.messagesSentToday = (conn.messagesSentToday || 0) + 1;
         recordConnectionDispatch(item.connectionId);
         mergeConnectionSettingsCache(item.connectionId, {
@@ -4796,6 +4843,33 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             const errMsg = trackErr instanceof Error ? trackErr.message : String(trackErr);
             log('warn', 'Nao foi possivel registrar mensagem de campanha no chat', { errMsg });
         }
+    }
+
+    if (
+        item.nurtureFollowUp &&
+        item.nurtureEnrollmentId &&
+        item.nurtureJourneyId &&
+        sendResult.ok &&
+        item.ownerUid
+    ) {
+        const journey = await loadJourneyByIdPg(item.ownerUid, item.nurtureJourneyId);
+        if (journey) {
+            void completeNurtureStepAfterSend({
+                tenantId: item.ownerUid,
+                enrollmentId: item.nurtureEnrollmentId,
+                journeyId: item.nurtureJourneyId,
+                sentStepIndex: item.nurtureStepIndex ?? 0,
+                journeyDoc: journey.doc
+            }).catch((e) =>
+                log('warn', 'completeNurtureStepAfterSend falhou', { error: (e as Error)?.message })
+            );
+        }
+        evolutionTrackManualMessageSent(
+            sendResult.messageId,
+            item.connectionId,
+            phoneDigits,
+            item.ownerUid
+        );
     }
 
     const replyFlowStep =
@@ -5985,6 +6059,19 @@ export async function handleWebhook(event: any) {
 
                     const ownerUidForBot = messageOwnerUid || resolveOwnerUid(instance);
                     if (ownerUidForBot && incomingConvId) {
+                        ensureNurtureEnqueue();
+                        const nurtureHandled = await handleNurtureIncoming({
+                            tenantId: ownerUidForBot,
+                            connectionId: instance,
+                            phoneDigits,
+                            bodyText,
+                            incomingConvId,
+                            hasReplyFlowSession: replyFlowEngine.hasSession(instance, phoneDigits),
+                            sendText: async (convId, text) => {
+                                await sendMessage(convId, text);
+                            }
+                        });
+                        if (!nurtureHandled) {
                         const hasRecentCampaign = chatStore.hasRecentCampaignActivity(phoneDigits);
                         if (!hasRecentCampaign) {
                             void handleSupportBotIncoming({
@@ -6000,6 +6087,7 @@ export async function handleWebhook(event: any) {
                             });
                         } else {
                             log('info', `[supportBot] Ignorando chatbot para ${phoneDigits} pois recebeu campanha recentemente (tolerância 15m).`);
+                        }
                         }
                     }
 

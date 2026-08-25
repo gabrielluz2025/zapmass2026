@@ -5,6 +5,10 @@ import { getZapmassPool } from './db/postgres.js';
 import { isUidMemberOfTenantPg, listInboxAssignmentsPg } from './repositories/inboxAssignmentsRepository.js';
 import * as inboxPg from './repositories/inboxAssignmentsRepository.js';
 import { resetSupportBotSessionByConversationPg } from './supportBot/supportBotRepository.js';
+import {
+  pauseEnrollmentsByConversationPg,
+  resumeEnrollmentsByConversationPg
+} from './nurture/nurtureRepository.js';
 import { getWorkspaceMemberUidSetVps } from './auth/staffRepository.js';
 import type { Conversation } from './types.js';
 
@@ -129,6 +133,7 @@ export async function inboxClaimConversation(
       conversation.connectionId
     );
     if (r.ok) rememberClaim(tenantUid, conversationId, staffAuthUid);
+    if (r.ok) void pauseEnrollmentsByConversationPg(tenantUid, conversationId, 'human_claim');
     return r;
   }
   const admin = getFirebaseAdmin();
@@ -168,6 +173,7 @@ export async function inboxClaimConversation(
       });
     });
     rememberClaim(tenantUid, conversationId, staffAuthUid);
+    void pauseEnrollmentsByConversationPg(tenantUid, conversationId, 'human_claim');
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -313,6 +319,7 @@ export async function inboxFinishConversation(
     );
     if (r.ok) rememberRelease(tenantUid, conversationId);
     if (r.ok) void resetSupportBotSessionByConversationPg(tenantUid, conversationId);
+    if (r.ok) void resumeEnrollmentsByConversationPg(tenantUid, conversationId);
     return r;
   }
   const admin = getFirebaseAdmin();
@@ -365,6 +372,7 @@ export async function inboxFinishConversation(
   await batch.commit();
   rememberRelease(tenantUid, conversationId);
   void resetSupportBotSessionByConversationPg(tenantUid, conversationId);
+  void resumeEnrollmentsByConversationPg(tenantUid, conversationId);
   return { ok: true };
 }
 
@@ -379,6 +387,7 @@ export async function inboxReleaseConversation(
     const r = await inboxPg.inboxReleaseConversationPg(tenantUid, authUid, conversationId, isOwner);
     if (r.ok) rememberRelease(tenantUid, conversationId);
     if (r.ok) void resetSupportBotSessionByConversationPg(tenantUid, conversationId);
+    if (r.ok) void resumeEnrollmentsByConversationPg(tenantUid, conversationId);
     return r;
   }
   const admin = getFirebaseAdmin();
@@ -404,6 +413,7 @@ export async function inboxReleaseConversation(
   await ref.delete();
   rememberRelease(tenantUid, conversationId);
   void resetSupportBotSessionByConversationPg(tenantUid, conversationId);
+  void resumeEnrollmentsByConversationPg(tenantUid, conversationId);
   return { ok: true };
 }
 

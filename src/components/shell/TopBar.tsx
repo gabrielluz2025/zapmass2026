@@ -33,7 +33,11 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'creator-studio': { title: 'Estúdio do criador', subtitle: 'Ferramentas internas e diagnóstico' },
   'religious-members': { title: 'Ficha de membro', subtitle: 'Cadastro eclesiástico (segmento religioso)' },
   'pastoral-visits': { title: 'Visitas pastorais', subtitle: 'Agenda, ceia e quem precisa de visita' },
-  'support-bot': { title: 'Atendimento automático', subtitle: 'Bot de triagem, menu interativo e handoff humano' }
+  'support-bot': { title: 'Atendimento automático', subtitle: 'Bot de triagem, menu interativo e handoff humano' },
+  'nurture-journey': {
+    title: 'Jornada de nutrição',
+    subtitle: 'Materiais programados para leads quentes — fora da cota de campanha'
+  }
 };
 
 export const TopBar: React.FC<TopBarProps> = ({

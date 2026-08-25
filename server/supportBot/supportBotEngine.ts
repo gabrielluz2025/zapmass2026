@@ -12,6 +12,7 @@ import {
 } from './supportBotRepository.js';
 import type { SupportBotConfig, SupportBotFaqItem, SupportBotMenuOption } from './supportBotTypes.js';
 import { publishOwnerEvent, applyMessageVars } from '../whatsappService.js';
+import { tryAutoEnrollOnOptIn } from '../nurture/nurtureEngine.js';
 
 const configCache = new Map<string, { config: SupportBotConfig; at: number }>();
 const CONFIG_TTL_MS = 45_000;
@@ -231,6 +232,14 @@ export async function handleSupportBotIncoming(params: SupportBotIncomingParams)
         replyText: bodyText.slice(0, 500),
         at: new Date().toISOString()
       });
+      if (faq.marketingEffect === 'opt_in') {
+        void tryAutoEnrollOnOptIn({
+          tenantId,
+          phoneDigits,
+          connectionId,
+          conversationId: incomingConvId
+        });
+      }
     }
     await sendText(incomingConvId, applyMessageVars(faq.reply, phoneDigits));
     await bumpSupportBotMetricPg(tenantId, 'botReplies');
@@ -248,6 +257,14 @@ export async function handleSupportBotIncoming(params: SupportBotIncomingParams)
         replyText: bodyText.slice(0, 500),
         at: new Date().toISOString()
       });
+      if (matched.marketingEffect === 'opt_in') {
+        void tryAutoEnrollOnOptIn({
+          tenantId,
+          phoneDigits,
+          connectionId,
+          conversationId: incomingConvId
+        });
+      }
     }
     if (matched.handoff) {
       await doHandoff(bodyText);

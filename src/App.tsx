@@ -6,6 +6,7 @@ import { ConnectionsTab } from './components/ConnectionsTab';
 import { ReportsTab } from './components/ReportsTab';
 import { SettingsTab } from './components/SettingsTab';
 import { SupportBotSettingsPanel } from './components/settings/SupportBotSettingsPanel';
+import { NurtureJourneyPanel } from './components/nurture/NurtureJourneyPanel';
 import { WarmupTab } from './components/WarmupTab';
 import { MySubscriptionTab } from './components/billing/MySubscriptionTab';
 import { TutorialPage } from './components/help/TutorialPage';
@@ -393,6 +394,12 @@ const MainLayout: React.FC = () => {
         return (
           <div className="p-4 sm:p-6 max-w-3xl mx-auto">
             <SupportBotSettingsPanel />
+          </div>
+        );
+      case 'nurture-journey':
+        return (
+          <div className="p-4 sm:p-6 max-w-3xl mx-auto">
+            <NurtureJourneyPanel />
           </div>
         );
       case 'team':

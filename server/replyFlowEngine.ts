@@ -77,7 +77,8 @@ export type ReplyFlowCallbacks = {
         campaignId: string,
         effect: 'opt_in' | 'opt_out',
         phoneDigits: string,
-        replyText: string
+        replyText: string,
+        connectionId?: string
     ) => void;
     onLog?: (message: string, payload?: Record<string, unknown>) => void;
     /** Telemetria de resposta (funil/geo) com campaignId da sessão ativa. */
@@ -616,7 +617,8 @@ export class ReplyFlowEngine {
                     session.campaignId,
                     'opt_out',
                     phoneDigits,
-                    bodyText
+                    bodyText,
+                    connectionId
                 );
                 this.disposeSession(key, session);
                 return;
@@ -697,7 +699,8 @@ export class ReplyFlowEngine {
                         session.campaignId,
                         optMe,
                         phoneDigits,
-                        bodyText
+                        bodyText,
+                        connectionId
                     );
                 }
                 this.disposeSession(key, session);
@@ -769,7 +772,8 @@ export class ReplyFlowEngine {
                     session.campaignId,
                     'opt_in',
                     phoneDigits,
-                    bodyText
+                    bodyText,
+                    connectionId
                 );
             } else if (gateOk && gate.marketingEffect === 'opt_out') {
                 this.callbacks.onMarketingConsent?.(
@@ -777,7 +781,8 @@ export class ReplyFlowEngine {
                     session.campaignId,
                     'opt_out',
                     phoneDigits,
-                    bodyText
+                    bodyText,
+                    connectionId
                 );
             }
             this.disposeSession(key, session);
@@ -803,7 +808,8 @@ export class ReplyFlowEngine {
                 session.campaignId,
                 'opt_in',
                 phoneDigits,
-                bodyText
+                bodyText,
+                connectionId
             );
         } else if (gateStep.marketingEffect === 'opt_out') {
             this.callbacks.onMarketingConsent?.(
@@ -811,7 +817,8 @@ export class ReplyFlowEngine {
                 session.campaignId,
                 'opt_out',
                 phoneDigits,
-                bodyText
+                bodyText,
+                connectionId
             );
         }
 

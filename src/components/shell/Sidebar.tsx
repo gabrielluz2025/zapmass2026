@@ -102,7 +102,8 @@ const navGroups: NavGroup[] = [
     label: 'Operações',
     items: [
       { id: 'warmup', label: 'Aquecimento', icon: Flame, description: 'Warmup seguro' },
-      { id: 'support-bot', label: 'Atendimento', icon: Bot, description: 'Bot automático e handoff humano' }
+      { id: 'support-bot', label: 'Atendimento', icon: Bot, description: 'Bot automático e handoff humano' },
+      { id: 'nurture-journey', label: 'Jornada', icon: BookOpen, description: 'Nutrição de leads quentes' }
     ]
   },
   {

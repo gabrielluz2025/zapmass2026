@@ -97,7 +97,7 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         items: [
           { icon: '📊', text: 'Principal → Painel, Funcionários, Conexões, Bate-papo' },
           { icon: '📣', text: 'Disparos → Campanhas, Contatos, Relatórios' },
-          { icon: '🔥', text: 'Operações → Aquecimento, Atendimento' },
+          { icon: '🔥', text: 'Operações → Aquecimento, Atendimento, Jornada' },
           { icon: '⚙️', text: 'Sistema → Como usar, Minha assinatura, Configurações' },
         ],
       },
@@ -457,6 +457,47 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
           'Não disparar lista fria com chip novo',
           'Não ultrapassar ~300 msgs/dia por chip, mesmo aquecido',
         ],
+      },
+    ],
+  },
+  {
+    id: 'jornada-nutricao',
+    icon: '📚',
+    title: 'Jornada de nutrição',
+    color: '#14b8a6',
+    viewId: 'nurture-journey',
+    content: [
+      { type: 'path', crumbs: ['Operações', 'Jornada'] },
+      {
+        type: 'text',
+        text: 'Monte uma sequência de materiais ao longo da semana para leads quentes. As mensagens são conversa 1:1 e não consomem a cota diária de disparos de campanha.',
+      },
+      {
+        type: 'list',
+        title: 'Como funciona',
+        items: [
+          { icon: '🔥', text: 'Lead vira quente (opt-in) → entra na jornada automaticamente, se ativado' },
+          { icon: '📅', text: 'Modo relativo (+24h, +48h…) ou calendário (Seg 9h, Qua 10h…)' },
+          { icon: '💬', text: 'Passos “aguardar resposta” avançam quando a pessoa responde' },
+          { icon: '🙋', text: 'Se alguém assumir no Bate-papo, a jornada pausa' },
+          { icon: '🛑', text: 'Contato digita PARAR para sair da sequência' },
+        ],
+      },
+      {
+        type: 'checklist',
+        title: 'Passo a passo',
+        items: [
+          'Operações → Jornada → Ativar jornada de nutrição',
+          'Ajuste os passos (texto, delay ou dia/hora)',
+          'Marque “Inscrever automaticamente quando virar lead quente”',
+          'Salvar jornada',
+          'Teste: marque um contato como lead quente ou responda opt-in no fluxo de campanha',
+          'Acompanhe inscritos e métricas na mesma tela',
+        ],
+      },
+      {
+        type: 'tip',
+        text: 'Use variáveis {nome}, {saudacao} e spintax {Olá|Oi} nos textos — igual às campanhas.',
       },
     ],
   },

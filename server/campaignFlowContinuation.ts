@@ -5,6 +5,8 @@ export type CampaignQueueFlowItem = {
   /** Resposta automática do fluxo (menu, fallback ou follow-up) — mesma conversa. */
   replyFlowResponse?: boolean;
   multiStepContact?: { stepIndex: number };
+  /** Jornada de nutrição — continuação conversacional, fora da cota de campanha. */
+  nurtureFollowUp?: boolean;
 };
 
 /**
@@ -12,6 +14,7 @@ export type CampaignQueueFlowItem = {
  * são continuação da mesma conversa, não novo disparo em massa.
  */
 export function isCampaignFlowContinuation(item: CampaignQueueFlowItem): boolean {
+  if (item.nurtureFollowUp) return true;
   if (item.replyFlowAfterSend) return true;
   if (item.replyFlowResponse) return true;
   if (item.multiStepContact && item.multiStepContact.stepIndex > 0) return true;

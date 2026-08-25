@@ -108,6 +108,8 @@ import { registerPlatformDataRoutes } from './platformRoutes.js';
 import { registerProductSuggestionRoutes } from './productSuggestionRoutes.js';
 import { registerConnectionsSyncRoutes } from './connectionsSyncRoutes.js';
 import { registerSupportBotRoutes } from './supportBotRoutes.js';
+import { registerNurtureRoutes } from './nurtureRoutes.js';
+import { startNurtureScheduler } from './nurture/nurtureScheduler.js';
 import { registerAiAssistantRoutes } from './aiAssistantRoutes.js';
 import { registerAssistantRoutes } from './assistantRoutes.js';
 import { structuredLog } from './structuredLog.js';
@@ -396,6 +398,7 @@ registerWorkspaceStaffPasswordRoutes(app);
 registerProductSuggestionRoutes(app);
 registerConnectionsSyncRoutes(app);
 registerSupportBotRoutes(app);
+registerNurtureRoutes(app);
 registerAiAssistantRoutes(app);
 registerAssistantRoutes(app);
 
@@ -2523,6 +2526,7 @@ const bootstrap = async () => {
 
   registerSocketHandlers();
   startScheduledCampaignRunner();
+  startNurtureScheduler();
   startCampaignJobsReaper();
 
   // Trim periódico BullMQ — Redis 1–2 GB com noeviction não é storage infinito.
