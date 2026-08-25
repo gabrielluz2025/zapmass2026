@@ -531,6 +531,16 @@ export function resolveConnectionOwnerUid(connectionId: string): string | undefi
     return resolveOwnerUid(connectionId);
 }
 
+/** UIDs distintos com pelo menos um canal na RAM (proteção automática por tenant). */
+export function listConnectionOwnerUids(): string[] {
+    const set = new Set<string>();
+    for (const [id] of connections.entries()) {
+        const ou = resolveOwnerUid(id);
+        if (ou) set.add(ou);
+    }
+    return [...set];
+}
+
 function tenantOwnsConnection(tenantUid: string, connectionId: string): boolean {
     return ownsConnectionForUid(tenantUid, connectionId, resolveOwnerUid(connectionId));
 }
@@ -870,12 +880,14 @@ export async function syncConnectionsForOwner(
 
     const syncedChats: string[] = [];
     let mappedChats = 0;
-    const syncTasks: Promise<void>[] = [];
+    const syncTasks: Array<() => Promise<void>> = [];
+    const { getSyncProfileForTenant } = await import('./chipProtectionService.js');
+    const ownerSyncProfile = await getSyncProfileForTenant(uid);
+    const staggerSync = !ownerSyncProfile.fullInboxSync;
 
     for (const [id] of connections.entries()) {
         if (!tenantOwnsConnection(uid, id)) continue;
-        syncTasks.push(
-            (async () => {
+        syncTasks.push(async () => {
                 const open = await isConnectionOpen(id);
                 if (!open) {
                     log('info', 'syncConnectionsForOwner: canal não aberto, sync ignorado', {
@@ -891,17 +903,15 @@ export async function syncConnectionsForOwner(
                         error: err?.message,
                     });
                 });
-                const { getSyncProfileForTenant } = await import('./chipProtectionService.js');
-                const syncProfile = await getSyncProfileForTenant(uid);
-                if (syncProfile.fullHistory) {
+                if (ownerSyncProfile.fullHistory) {
                     await ensureEvolutionFullHistorySync(id);
                 }
                 const n = await chatStore.syncChatsForConnection(id, {
                     deferEmit: true,
-                    sparseLimit: syncProfile.sparseConvLimit,
-                    msgPrefetch: syncProfile.msgPrefetch,
-                    prefetchBatchSize: syncProfile.prefetchBatchSize,
-                    fullInboxSync: syncProfile.fullInboxSync,
+                    sparseLimit: ownerSyncProfile.sparseConvLimit,
+                    msgPrefetch: ownerSyncProfile.msgPrefetch,
+                    prefetchBatchSize: ownerSyncProfile.prefetchBatchSize,
+                    fullInboxSync: ownerSyncProfile.fullInboxSync,
                 });
                 syncedChats.push(id);
                 mappedChats += n;
@@ -911,12 +921,18 @@ export async function syncConnectionsForOwner(
                         ownerUid: uid,
                     });
                 }
-            })()
-        );
+        });
     }
 
     if (syncTasks.length > 0) {
-        await Promise.all(syncTasks);
+        if (staggerSync) {
+            for (let i = 0; i < syncTasks.length; i++) {
+                if (i > 0) await sleep(2_500);
+                await syncTasks[i]();
+            }
+        } else {
+            await Promise.all(syncTasks.map((fn) => fn()));
+        }
     }
 
     if (syncedChats.length === 0 || mappedChats > 0) {
@@ -1302,24 +1318,33 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
     if (!conn || conn.status === 'open') return;
     if (connectionWatchTimers.has(connectionId) || qrWatchTimers.has(connectionId)) return;
 
+    const ownerUid = resolveOwnerUid(connectionId);
     const prev = autoReconnectState.get(connectionId) ?? { attempts: 0 };
     if (prev.inFlight) return;
-    if (prev.attempts >= 6) {
-        log('warn', `Auto-reconnect esgotado para ${connectionId}`);
-        emitConnectionInitFailure(
-            connectionId,
-            'Canal desconectou várias vezes. Use "Reconectar" ou "Forçar QR" se não voltar sozinho.'
-        );
-        return;
-    }
 
-    const attempt = prev.attempts + 1;
-    const delayMs = options?.immediate
-        ? 0
-        : Math.min(120_000, 5_000 * Math.pow(2, attempt - 1));
-    if (prev.timer) clearTimeout(prev.timer);
+    void (async () => {
+        const { getReconnectLimitsForOwner } = await import('./chipProtectionService.js');
+        const limits = ownerUid
+            ? await getReconnectLimitsForOwner(ownerUid)
+            : { maxAttempts: 6, baseDelayMs: 5_000, maxDelayMs: 120_000 };
 
-    const timer = setTimeout(() => {
+        const st0 = autoReconnectState.get(connectionId) ?? { attempts: 0 };
+        if (st0.attempts >= limits.maxAttempts) {
+            log('warn', `Auto-reconnect esgotado para ${connectionId}`);
+            emitConnectionInitFailure(
+                connectionId,
+                'Canal desconectou várias vezes. Use "Reconectar" ou "Forçar QR" se não voltar sozinho.'
+            );
+            return;
+        }
+
+        const attempt = st0.attempts + 1;
+        const delayMs = options?.immediate
+            ? 0
+            : Math.min(limits.maxDelayMs, limits.baseDelayMs * Math.pow(2, attempt - 1));
+        if (st0.timer) clearTimeout(st0.timer);
+
+        const timer = setTimeout(() => {
         void (async () => {
             const st = autoReconnectState.get(connectionId);
             if (!st || st.inFlight) return;
@@ -1366,9 +1391,10 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
                 }
             }
         })();
-    }, delayMs);
+        }, delayMs);
 
-    autoReconnectState.set(connectionId, { attempts: attempt, timer, inFlight: false });
+        autoReconnectState.set(connectionId, { attempts: st0.attempts, timer, inFlight: false });
+    })();
 }
 
 function stopQrWatch(connectionId: string) {
@@ -1524,6 +1550,13 @@ function applyConnectionStateUpdate(
             if (isBanStatusReason(statusReason)) {
                 recordChipBan(instance, statusReason);
                 log('warn', `[BanDetect] ${instance}: ban detectado via statusReason=${statusReason}`);
+                void import('./chipProtectionService.js').then((m) =>
+                    m.onConnectionClosed(instance, true)
+                );
+            } else {
+                void import('./chipProtectionService.js').then((m) =>
+                    m.onConnectionClosed(instance, false)
+                );
             }
         }
         connections.set(instance, conn);
@@ -5804,6 +5837,9 @@ export async function startCampaign(
             ownerUid
         );
         publishOwnerEvent(ownerUid, 'campaign-started', { total: totalJobs, campaignId: cid });
+        void import('./chipProtectionService.js').then((m) =>
+            m.refreshEffectiveProtection(ownerUid)
+        );
         // Garante status RUNNING no Firestore independente de o socket chegar ao frontend.
         void persistCampaignProgressToFirestore(ownerUid, cid, 0, 0, 0, 'RUNNING');
     } catch (err: any) {

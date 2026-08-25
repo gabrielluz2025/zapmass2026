@@ -1,8 +1,14 @@
 import { apiUrl } from '../utils/apiBase';
 import { getSessionIdToken } from '../utils/sessionAuth';
 
+export type ChipProtectionPolicy = 'auto' | 'always' | 'off';
+
 export type ChipProtectionSnapshot = {
   chipQuietMode: boolean;
+  chipProtectionPolicy: ChipProtectionPolicy;
+  protectionReason: string | null;
+  protectionReasonLabel: string;
+  protectionLockUntil: string | null;
   nurture: { journeyEnabled: boolean; dueEnrollments: number; pausedByQuiet: boolean };
   autoWarmup: { active: boolean; connectionIds: string[]; pausedByQuiet: boolean };
   campaigns: { activeCount: number; queueHint: string };
@@ -29,13 +35,15 @@ export async function fetchChipProtection(): Promise<ChipProtectionSnapshot> {
   return data as ChipProtectionSnapshot;
 }
 
-export async function setChipQuietMode(enabled: boolean): Promise<ChipProtectionSnapshot> {
+export async function setChipProtectionPolicy(
+  policy: ChipProtectionPolicy
+): Promise<ChipProtectionSnapshot> {
   const res = await fetch(apiUrl('/api/chip-protection'), {
     method: 'PATCH',
     headers: await authHeaders(),
-    body: JSON.stringify({ chipQuietMode: enabled }),
+    body: JSON.stringify({ chipProtectionPolicy: policy }),
   });
   const data = await res.json();
-  if (!data.ok) throw new Error(data.error || 'Erro ao salvar modo chip quieto.');
+  if (!data.ok) throw new Error(data.error || 'Erro ao salvar política de proteção.');
   return data as ChipProtectionSnapshot;
 }

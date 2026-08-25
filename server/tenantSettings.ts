@@ -3,6 +3,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { loadDispatchSettingsPg, saveDispatchSettingsPg } from './repositories/tenantSettingsRepository.js';
+import { defaultChipProtectionPolicy } from '../shared/chipProtection.js';
 
 export interface TenantDispatchSettings {
     minDelayMs: number;
@@ -11,8 +12,11 @@ export interface TenantDispatchSettings {
     sleepMode: boolean;
     webhookUrl: string;
     emailNotif: boolean;
-    /** Pausa jornada, auto-aquecimento e usa sync leve da inbox. */
+    /** @deprecated use chipProtectionPolicy */
     chipQuietMode?: boolean;
+    chipProtectionPolicy?: import('../shared/chipProtection.js').ChipProtectionPolicy;
+    chipProtectionLockUntil?: string;
+    chipProtectionLockReason?: string;
     updatedAt?: string;
 }
 
@@ -24,6 +28,9 @@ export interface TenantSettingsClientPayload {
     webhookUrl: string;
     emailNotif: boolean;
     chipQuietMode?: boolean;
+    chipProtectionPolicy?: import('../shared/chipProtection.js').ChipProtectionPolicy;
+    chipProtectionLockUntil?: string;
+    chipProtectionLockReason?: string;
 }
 
 // sleepMode default false: evita que campanhas iniciadas entre 20h–8h fiquem
@@ -60,6 +67,7 @@ export function settingsToClientPayload(settings: TenantDispatchSettings): Tenan
         webhookUrl: settings.webhookUrl,
         emailNotif: settings.emailNotif,
         chipQuietMode: Boolean(settings.chipQuietMode),
+        chipProtectionPolicy: settings.chipProtectionPolicy ?? defaultChipProtectionPolicy(),
     };
 }
 
@@ -84,6 +92,16 @@ function normalizeClientPayload(
     if (partial.webhookUrl !== undefined) next.webhookUrl = String(partial.webhookUrl || '').trim();
     if (partial.emailNotif !== undefined) next.emailNotif = Boolean(partial.emailNotif);
     if (partial.chipQuietMode !== undefined) next.chipQuietMode = Boolean(partial.chipQuietMode);
+    if (partial.chipProtectionPolicy !== undefined) {
+        const p = String(partial.chipProtectionPolicy);
+        if (p === 'auto' || p === 'always' || p === 'off') next.chipProtectionPolicy = p;
+    }
+    if (partial.chipProtectionLockUntil !== undefined) {
+        next.chipProtectionLockUntil = String(partial.chipProtectionLockUntil || '').trim() || undefined;
+    }
+    if (partial.chipProtectionLockReason !== undefined) {
+        next.chipProtectionLockReason = String(partial.chipProtectionLockReason || '').trim() || undefined;
+    }
     next.updatedAt = new Date().toISOString();
     return next;
 }
@@ -124,6 +142,22 @@ function normalizeStored(raw: Record<string, unknown> | undefined): TenantDispat
                     : DEFAULT_TENANT_DISPATCH_SETTINGS.emailNotif,
             chipQuietMode:
                 typeof raw.chipQuietMode === 'boolean' ? raw.chipQuietMode : false,
+            chipProtectionPolicy:
+                raw.chipProtectionPolicy === 'auto' ||
+                raw.chipProtectionPolicy === 'always' ||
+                raw.chipProtectionPolicy === 'off'
+                    ? raw.chipProtectionPolicy
+                    : raw.chipQuietMode === true
+                      ? 'always'
+                      : defaultChipProtectionPolicy(),
+            chipProtectionLockUntil:
+                typeof raw.chipProtectionLockUntil === 'string'
+                    ? raw.chipProtectionLockUntil
+                    : undefined,
+            chipProtectionLockReason:
+                typeof raw.chipProtectionLockReason === 'string'
+                    ? raw.chipProtectionLockReason
+                    : undefined,
         },
         DEFAULT_TENANT_DISPATCH_SETTINGS
     );
@@ -196,6 +230,9 @@ export async function saveTenantSettings(
                 webhookUrl: next.webhookUrl,
                 emailNotif: next.emailNotif,
                 chipQuietMode: Boolean(next.chipQuietMode),
+                chipProtectionPolicy: next.chipProtectionPolicy ?? defaultChipProtectionPolicy(),
+                chipProtectionLockUntil: next.chipProtectionLockUntil,
+                chipProtectionLockReason: next.chipProtectionLockReason,
                 updatedAt: next.updatedAt
             });
         } catch (error: unknown) {
@@ -214,6 +251,9 @@ export async function saveTenantSettings(
                         webhookUrl: next.webhookUrl,
                         emailNotif: next.emailNotif,
                         chipQuietMode: Boolean(next.chipQuietMode),
+                        chipProtectionPolicy: next.chipProtectionPolicy ?? defaultChipProtectionPolicy(),
+                        chipProtectionLockUntil: next.chipProtectionLockUntil,
+                        chipProtectionLockReason: next.chipProtectionLockReason,
                         updatedAt: next.updatedAt
                     },
                     { merge: true }

@@ -1,82 +1,119 @@
-# Tutorial: Proteção de chips (anti-banimento)
+# Tutorial: Proteção automática de chips (anti-banimento)
 
-Este guia explica **por que chips caem sem campanha**, o que o ZapMass faz para reduzir o risco e como usar o **Modo chip quieto**.
-
----
-
-## 1. Por que o WhatsApp derruba chips “do nada”?
-
-Mesmo sem disparo manual, o backend pode gerar **atividade intensa** que o WhatsApp interpreta como automação ou sessão suspeita:
-
-| Fonte | O que faz | Risco |
-|-------|-----------|-------|
-| **Sync da inbox** ao conectar/login/deploy | Baixa centenas de conversas + milhares de mensagens (`findChats` + `findMessages`) | **Alto** |
-| **syncFullHistory** na Evolution | Pede histórico completo do celular no servidor | **Alto** |
-| **Jornada de nutrição** (scheduler 30s) | Envia mensagens automáticas para inscritos | **Alto** |
-| **Auto-aquecimento** | Mensagens periódicas entre chips | **Alto** |
-| **Campanhas ativas** | Fila BullMQ de envios | **Alto** |
-| **Health check + reconnect** | Reabre sessão após queda | Médio |
-
-O banimento confirmado no código ocorre quando a Evolution envia `CONNECTION_UPDATE` com `loggedOut` / HTTP 401 — o chip entra em **quarentena 24h**.
+Guia completo sobre **como o ZapMass evita banimentos e suspensões automaticamente**, sem exigir ação manual do usuário.
 
 ---
 
-## 2. O que foi implementado
+## 1. O problema: chips caem “sem disparo”
 
-### Modo chip quieto (por workspace)
+O WhatsApp monitora padrões de automação. Mesmo sem campanha manual, o backend pode gerar stress:
 
-Configuração salva em `tenant_dispatch_settings` (`chipQuietMode: true`).
+| Fonte | Comportamento | Risco |
+|-------|---------------|-------|
+| Sync da inbox | Até 120 conversas × 200 mensagens ao conectar | **Alto** |
+| syncFullHistory | Baixa histórico completo do celular na Evolution | **Alto** |
+| Jornada de nutrição | Envios a cada 30 segundos | **Alto** |
+| Auto-aquecimento | Mensagens periódicas entre chips | **Alto** |
+| Auto-reconnect agressivo | Várias tentativas rápidas após queda | **Médio–Alto** |
+| Múltiplos chips sync juntos | Stress simultâneo na API | **Médio** |
 
-Quando **ativado**:
-
-1. **Jornada de nutrição** — scheduler ignora enrollments desse tenant; auto-inscrição de leads quentes bloqueada.
-2. **Auto-aquecimento** — não inicia/retoma; se já estiver ativo, é **parado** ao ativar o modo.
-3. **Sync leve** — ao conectar chip ou sync no login:
-   - Não chama `syncFullHistory` na Evolution
-   - Prefetch reduzido: ~12 conversas × 25 mensagens (em vez de 120 × 200)
-
-Quando **desativado**, volta ao perfil normal (respeitando variáveis de ambiente da VPS).
-
-### Painel na aba Conexões
-
-Em **Conexões → Proteção de chips** você vê:
-
-- Toggle do modo quieto
-- Alertas (jornada pendente, aquecimento, campanhas)
-- Perfil de sync atual
-- Recomendações
-
-### API
-
-- `GET /api/chip-protection` — snapshot de riscos e configuração
-- `PATCH /api/chip-protection` — `{ "chipQuietMode": true|false }`
+Ban confirmado no sistema: webhook `CONNECTION_UPDATE` com `401` / `loggedOut` → quarentena 24h no chip.
 
 ---
 
-## 3. Como usar (passo a passo)
+## 2. Solução: proteção automática (padrão)
 
-### Cenário A: Chips caindo sem disparo
+**Você não precisa ligar nada manualmente.** Todo workspace novo usa a política **`auto`** (automático).
 
-1. Abra **Conexões** no ZapMass.
-2. Expanda **Proteção de chips**.
-3. Clique em **Ativar** (Modo chip quieto).
-4. Confirme que:
-   - Jornada mostra “Pausada pelo modo quieto” (se havia pendências)
-   - Auto-aquecimento está parado
-5. Reconecte o chip se necessário — o sync será **leve**.
+### Como funciona o modo `auto`
 
-### Cenário B: Voltar a operar campanhas
+```
+                    ┌─────────────────────┐
+                    │  Há campanha ativa? │
+                    └──────────┬──────────┘
+                          SIM  │  NÃO
+                    ┌──────────┴──────────┐
+                    ▼                     ▼
+           Proteção PAUSADA      Proteção ATIVA
+           (permite envios)      (chips quietos)
+                    │                     │
+                    └──────────┬──────────┘
+                               ▼
+              Campanha termina → proteção volta sozinha
+```
 
-1. **Desative** o modo chip quieto.
-2. Verifique se não há campanha/jornada/aquecimento indesejados no painel.
-3. Ajuste delays e limites diários em **Configurações → Disparo**.
+**Quando a proteção está ATIVA (sem campanha):**
 
-### Cenário C: Proteção global na VPS (recomendado)
+- Jornada de nutrição **não envia**
+- Auto-aquecimento **não roda** (e é parado se estiver ativo)
+- Auto-inscrição de leads quentes **bloqueada**
+- Sync da inbox **leve** (12 conv × 25 msgs, sem histórico completo)
+- Sync de múltiplos chips **escalonado** (2,5s entre cada um)
+- Auto-reconnect **mais lento** (menos tentativas, delays maiores)
 
-Adicione no `.env` do backend (Docker/systemd):
+**Quando você inicia uma campanha:**
+
+- Proteção **pausa automaticamente**
+- Envios da campanha funcionam normalmente
+
+**Quando a campanha termina:**
+
+- Proteção **reativa sozinha** em até 60 segundos
+
+---
+
+## 3. Reforço automático após incidentes
+
+### Após banimento (401 / loggedOut)
+
+- Lock de **48 horas** no workspace
+- Sync **mínimo** (8 conv × 15 msgs)
+- Auto-reconnect: **2 tentativas**, intervalo até 10 minutos
+
+### Após 3 quedas em 30 minutos (“reconnect storm”)
+
+- Lock de **6 horas**
+- Sync mínimo + reconnect lento
+
+Esses locks são **automáticos** — não exigem configuração.
+
+---
+
+## 4. Políticas disponíveis
+
+| Política | Comportamento |
+|----------|---------------|
+| **Automático** (padrão) | Protege sem campanha; pausa com campanha |
+| **Sempre protegido** | Sempre quieto — campanhas podem não enviar |
+| **Desligado** | Sem proteção — só para uso avançado |
+
+Alterar em: **Conexões → Proteção automática de chips → Política**
+
+---
+
+## 5. O que você NÃO precisa fazer
+
+- Não precisa clicar “ativar” todo dia
+- Não precisa desligar jornada manualmente entre campanhas (a proteção bloqueia os envios)
+- Não precisa parar aquecimento manualmente (é parado automaticamente)
+
+---
+
+## 6. O que ainda depende de você
+
+- **Campanhas em execução** — a proteção pausa para permitir envios; pause campanhas que não deveriam estar rodando
+- **Respostas manuais e bot de suporte** — continuam (são respostas a mensagens recebidas, risco menor)
+- **Reconectar muitos chips de uma vez** após deploy — evite se possível
+
+---
+
+## 7. Variáveis de ambiente na VPS (opcional, camada extra)
 
 ```env
-# Sync conservador para todos os tenants (mesmo sem modo quieto)
+# Política padrão para novos tenants (auto | always | off)
+ZAPMASS_CHIP_PROTECTION_DEFAULT=auto
+
+# Sync global mais conservador (complementa a proteção automática)
 EVOLUTION_SYNC_FULL_HISTORY=0
 WA_FULL_INBOX_SYNC=0
 EVOLUTION_SYNC_MSG_PREFETCH=50
@@ -84,46 +121,51 @@ EVOLUTION_SYNC_SPARSE_CONV_LIMIT=15
 WA_FULL_SYNC_COOLDOWN_HOURS=168
 ```
 
-Reinicie o backend após alterar.
+---
+
+## 8. Boas práticas anti-banimento (conhecimento aprofundado)
+
+### Volume e ritmo
+- Delays entre mensagens: mínimo 15–45s em campanhas
+- Limite diário por chip: respeite aquecimento em chips novos
+- Evite mesmo texto para milhares de contatos (use spintax)
+
+### Qualidade da base
+- Valide WhatsApp antes de campanhar (`Corrigir base → Validar WhatsApp`)
+- Remova opt-outs e números inválidos
+- Leads frios + mensagem genérica = denúncia = ban
+
+### Sessão e infra
+- Um chip = um celular/sessão estável (evite conflito multi-device)
+- Proxy consistente por chip (não trocar IP toda hora)
+- Após deploy, não force sync completo em todos os chips
+
+### Comportamento suspeito para o WhatsApp
+- Envio em massa fora de horário comercial
+- Links encurtados suspeitos em massa
+- Mídia pesada para listas frias
+- Mensagens idênticas em rajada
+
+### O que o ZapMass faz por você
+- Idle = quieto automaticamente
+- Ban = cooldown 48h automático
+- Instabilidade = proteção reforçada 6h
+- Sync escalonado e leve quando protegido
 
 ---
 
-## 4. Checklist operacional
-
-- [ ] Modo chip quieto **ON** quando chips só precisam ficar conectados (inbox passivo)
-- [ ] Jornada de nutrição **desligada** se não estiver em uso
-- [ ] Auto-aquecimento **parado** fora de período de warmup planejado
-- [ ] Nenhuma campanha em execução acidental
-- [ ] Env vars de sync conservador na VPS
-- [ ] Evitar reconectar vários chips ao mesmo tempo após deploy
-
----
-
-## 5. Arquivos principais (referência técnica)
+## 9. Arquivos técnicos
 
 | Arquivo | Função |
 |---------|--------|
-| `shared/chipProtection.ts` | Perfis de sync normal vs quiet |
-| `server/chipProtectionService.ts` | Lógica, snapshot, toggle |
-| `server/chipProtectionRoutes.ts` | API REST |
-| `server/tenantSettings.ts` | Persistência `chipQuietMode` |
-| `server/evolutionService.ts` | Sync ao abrir conexão / login |
-| `server/evolutionChat.ts` | Limites de prefetch por perfil |
-| `server/nurture/nurtureScheduler.ts` | Pausa envios da jornada |
-| `server/whatsappService.ts` | Bloqueia auto-aquecimento |
-| `src/components/connections/ChipProtectionPanel.tsx` | UI |
+| `shared/chipProtection.ts` | Políticas e perfis de sync |
+| `server/chipProtectionService.ts` | Lógica automática, locks, snapshot |
+| `server/chipProtectionScheduler.ts` | Verificação a cada 60s |
+| `server/evolutionService.ts` | Reconnect, sync, detecção de ban |
+| `src/components/connections/ChipProtectionPanel.tsx` | UI de status |
 
 ---
 
-## 6. Limitações
+## 10. Resumo em uma frase
 
-- O modo quieto **não impede** campanhas já iniciadas manualmente — pause-as na UI.
-- Mensagens **inbound** (cliente escrevendo) e respostas manuais continuam normais.
-- Reply flow / bot de suporte, se configurados, podem continuar enviando — revise esses módulos separadamente.
-- A proteção reduz risco; **não garante** zero banimento (política do WhatsApp é opaca).
-
----
-
-## 7. Resumo em uma frase
-
-**Ative o Modo chip quieto** quando quiser manter números conectados sem stress: sync mínimo, zero automação de envio em background.
+**Deixe a política em “Automático”** — o ZapMass mantém chips quietos quando você não está disparando, reforça após ban/queda, e libera sozinho quando você inicia uma campanha.
