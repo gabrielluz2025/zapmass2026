@@ -153,8 +153,12 @@ WA_FULL_SYNC_COOLDOWN_HOURS=168
 |---------|--------|
 | `shared/chipProtection.ts` | Políticas e perfis de sync |
 | `server/chipProtectionService.ts` | Lógica automática, locks, snapshot |
+| `server/campaignGradualResume.ts` | Gradual resume anti-spike |
+| `server/chipCircuitBreaker.ts` | Circuit breaker Redis ZSET |
+| `server/chipTrustScore.ts` | Trust score tiers + delay dinâmico |
+| `server/inboundAutomationGuard.ts` | Throttle inbound pós-ban |
 | `server/chipProtectionScheduler.ts` | Verificação a cada 60s |
-| `server/evolutionService.ts` | Reconnect, sync, detecção de ban |
+| `server/evolutionService.ts` | Reconnect, sync, dispatch integrado |
 | `src/components/connections/ChipProtectionPanel.tsx` | UI de status |
 
 ---
