@@ -83,11 +83,12 @@ export async function normalizeTenantContactsFull(
   let invalidPhoneCount = 0;
 
   for (const c of page) {
+    const beforePhone = clean(c.phone);
     const normalizedAfter = normalizeBRPhone(c.phone || '');
-    if (c.phone && normalizedAfter && !isPlausibleBrazilWhatsAppPhone(normalizedAfter)) {
+    if (beforePhone && (!normalizedAfter || !isPlausibleBrazilWhatsAppPhone(normalizedAfter))) {
       invalidPhoneCount++;
       if (phoneIssueSamples.length < 8) {
-        phoneIssueSamples.push({ before: clean(c.phone), after: normalizedAfter });
+        phoneIssueSamples.push({ before: beforePhone, after: normalizedAfter || beforePhone });
       }
     }
 

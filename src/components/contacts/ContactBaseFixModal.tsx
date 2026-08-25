@@ -267,13 +267,38 @@ export const ContactBaseFixModal: React.FC<Props> = ({
   };
 
   const handleApplyFormat = () => {
-    if (formatProgress.changed === 0) {
-      toast('Rode a prévia primeiro ou não há alterações de formato pendentes.');
+    const pendingChanges = formatProgress.changed;
+    const suspicious = invalidPhoneCount;
+
+    if (!done) {
+      if (
+        !window.confirm(
+          `Corrigir formato de ${totalContacts.toLocaleString('pt-BR')} contato(s)? Padroniza telefone, nome e endereço.`
+        )
+      ) {
+        return;
+      }
+      void runFormatPaginated(false);
       return;
     }
+
+    if (pendingChanges === 0 && suspicious === 0) {
+      toast('Nenhuma alteração de formato detectada na prévia.', { icon: 'ℹ️' });
+      return;
+    }
+
+    if (pendingChanges === 0 && suspicious > 0) {
+      toast(
+        `${suspicious.toLocaleString('pt-BR')} telefone(s) ainda suspeitos após formato. Use a aba Validar WhatsApp.`,
+        { icon: 'ℹ️', duration: 7000 }
+      );
+      setMode('whatsapp');
+      return;
+    }
+
     if (
       !window.confirm(
-        `Corrigir ${formatProgress.changed.toLocaleString('pt-BR')} contato(s) na base? Atualiza nome, telefone e endereço.`
+        `Corrigir ${pendingChanges.toLocaleString('pt-BR')} contato(s) na base? Atualiza nome, telefone e endereço.`
       )
     ) {
       return;

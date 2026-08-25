@@ -42,13 +42,39 @@ export function canonicalBrazilMobileKey(digits: string): string {
 }
 
 /**
- * Discagem nacional BR com 0 antes do DDD (comum em planilhas): 11 ou 12 dígitos no total.
+ * Discagem nacional BR com 0 antes do DDD (comum em planilhas).
  * Ex.: 048996460175 → 48996460175 | 011999999999 → 11999999999
+ * Ex.: 0479996392111 (13 dígitos) → 479996392111 → reparo posterior
  */
 export function stripBrazilNationalTrunkZero(digits: string): string {
   if (!digits || digits.startsWith('55')) return digits;
-  const m = digits.match(/^0(\d{10}|\d{11})$/);
-  return m ? m[1] : digits;
+  const d = phoneDigitsOnly(digits);
+  if (d.startsWith('0')) {
+    const stripped = d.replace(/^0+/, '');
+    if (stripped.length >= 10 && stripped.length <= 12) return stripped;
+  }
+  const m = d.match(/^0(\d{10}|\d{11})$/);
+  return m ? m[1] : d;
+}
+
+/**
+ * Repara nacional BR com dígitos a mais após o DDD (planilhas/exportações).
+ * Ex.: 479996392111 (12) → 47996392111 (11) quando local começa com 99…
+ */
+export function repairBrazilNationalOversizedLocal(digits: string): string {
+  const d = phoneDigitsOnly(digits);
+  if (!d || d.startsWith('55')) return d;
+  if (d.length !== 11 && d.length !== 12) return d;
+  const ddd = d.slice(0, 2);
+  if (!/^[1-9]\d$/.test(ddd)) return d;
+  const local = d.slice(2);
+  if (local.length === 10 && local.startsWith('99')) {
+    return `${ddd}9${local.slice(2)}`;
+  }
+  if (local.length === 10 && local[0] === '9') {
+    return `${ddd}${local.slice(0, 9)}`;
+  }
+  return d;
 }
 
 /**
@@ -76,7 +102,9 @@ export function isPlausibleBrazilWhatsAppPhone(digits: string): boolean {
 /** Chave única por telefone (BR: 0 tronco + DDI 55 quando faltar). */
 export function normPhoneKey(p: string): string {
   let d = stripDuplicateBrazilDdi(
-    repairCorruptedBrJidDigits(stripBrazilNationalTrunkZero(phoneDigitsOnly(p)))
+    repairCorruptedBrJidDigits(
+      repairBrazilNationalOversizedLocal(stripBrazilNationalTrunkZero(phoneDigitsOnly(p)))
+    )
   );
   if (!d) return '';
   if ((d.length === 10 || d.length === 11) && !d.startsWith('55')) d = `55${d}`;
@@ -85,9 +113,21 @@ export function normPhoneKey(p: string): string {
 
 /** Normaliza telefone BR para armazenamento (DDI 55, remove 0 tronco nacional). */
 export function normalizeBRPhone(raw: string): string {
-  let d = stripDuplicateBrazilDdi(stripBrazilNationalTrunkZero(phoneDigitsOnly(raw)));
+  let d = stripDuplicateBrazilDdi(
+    repairCorruptedBrJidDigits(
+      repairBrazilNationalOversizedLocal(stripBrazilNationalTrunkZero(phoneDigitsOnly(raw)))
+    )
+  );
   if (!d) return '';
   if (d.length === 10 || d.length === 11) d = `55${d}`;
   if (d.startsWith('55') && (d.length === 12 || d.length === 13)) return canonicalBrazilMobileKey(d);
+  if (!d.startsWith('55') && d.length === 12 && /^[1-9]\d/.test(d)) {
+    d = `55${d}`;
+    if (d.length === 14) {
+      d = repairBrazilNationalOversizedLocal(d.slice(2));
+      if (d.length === 11) d = `55${d}`;
+    }
+    if (d.startsWith('55') && (d.length === 12 || d.length === 13)) return canonicalBrazilMobileKey(d);
+  }
   return d;
 }

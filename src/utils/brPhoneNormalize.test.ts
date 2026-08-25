@@ -1,6 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalBrazilMobileKey, normPhoneKey, repairCorruptedBrJidDigits } from './brPhoneNormalize';
+import {
+  canonicalBrazilMobileKey,
+  normPhoneKey,
+  normalizeBRPhone,
+  repairCorruptedBrJidDigits,
+} from './brPhoneNormalize.ts';
 import { recipientKeyForCampaignReport } from './campaignReportDedupe';
+
+describe('normalizeBRPhone planilhas', () => {
+  it('remove 0 tronco e DDI em número com 13 dígitos (0+DDD+local)', () => {
+    expect(normalizeBRPhone('0479996392111')).toBe('5547996392111');
+    expect(normalizeBRPhone('048996460175')).toBe('5548996460175');
+  });
+
+  it('repara local com 9 duplicado após DDD', () => {
+    expect(normalizeBRPhone('479996392111')).toBe('5547996392111');
+  });
+});
 
 describe('repairCorruptedBrJidDigits', () => {
   it('repara JID 547… para E.164 BR DDD 47', () => {
