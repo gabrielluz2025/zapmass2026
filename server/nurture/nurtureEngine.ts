@@ -3,9 +3,11 @@ import { getZapmassPool } from '../db/postgres.js';
 import { getClaimerSync } from '../inboxAssignments.js';
 import { insertNotificationPg } from '../repositories/notificationsRepository.js';
 import { applyMessageVars, publishOwnerEvent } from '../whatsappService.js';
+import { formatNurtureSocialLinks } from './nurtureSocialLinks.js';
 import {
   bumpNurtureMetricPg,
   findActiveEnrollmentPg,
+  findEnrollmentByPhonePg,
   getOrCreatePrimaryJourneyPg,
   loadNurtureEnrollmentDispatchRowsPg,
   listNurtureEnrollmentsPg,
@@ -157,13 +159,23 @@ function matchStepOption(step: NurtureStep, text: string) {
   return null;
 }
 
-export function buildNurtureStepMessage(step: NurtureStep, phone: string): string {
+export function buildNurtureStepMessage(
+  step: NurtureStep,
+  phone: string,
+  doc?: NurtureJourneyDoc
+): string {
   let msg = applyMessageVars(step.body || '', phone);
+  if (doc?.socialLinks) {
+    const block = formatNurtureSocialLinks(doc.socialLinks);
+    msg = msg.replace(/\{redes_sociais\}/gi, block);
+  } else {
+    msg = msg.replace(/\{redes_sociais\}/gi, '');
+  }
   const link = step.linkUrl?.trim();
   if (link) {
     msg = msg.trim() ? `${msg.trim()}\n\n${link}` : link;
   }
-  return msg;
+  return msg.trim();
 }
 
 export function buildNurtureStepMedia(step: NurtureStep): NurtureEnqueueMedia | undefined {
@@ -225,7 +237,7 @@ export async function enrollContactInNurture(params: {
 export async function tryAutoEnrollOnOptIn(params: {
   tenantId: string;
   phoneDigits: string;
-  connectionId: string;
+  connectionId?: string;
   conversationId?: string;
 }): Promise<void> {
   if (!vpsDataEnabled() || !getZapmassPool()) return;
@@ -234,18 +246,29 @@ export async function tryAutoEnrollOnOptIn(params: {
     if (!journey.enabled && !journey.doc.enabled) return;
     if (!journey.doc.entryRules.autoEnrollOnOptIn) return;
 
-    const existing = await findActiveEnrollmentPg(
-      params.tenantId,
-      params.connectionId,
-      params.phoneDigits.replace(/\D/g, '')
-    );
-    if (existing) return;
+    const phone = params.phoneDigits.replace(/\D/g, '');
+    if (phone.length < 8) return;
+
+    let connectionId = String(params.connectionId ?? '').trim();
+    if (!connectionId) {
+      connectionId = String(journey.doc.entryRules.defaultConnectionId ?? '').trim();
+    }
+    if (!connectionId && journey.doc.connectionIds.length > 0) {
+      connectionId = journey.doc.connectionIds[0];
+    }
+    if (!connectionId) {
+      console.warn('[nurture] auto-enroll: nenhum chip configurado para lead quente', phone);
+      return;
+    }
+
+    const existing = await findEnrollmentByPhonePg(params.tenantId, phone);
+    if (existing && ['enrolled', 'active', 'waiting_reply', 'paused'].includes(existing.status)) return;
 
     await enrollContactInNurture({
       tenantId: params.tenantId,
-      contactPhone: params.phoneDigits,
-      connectionId: params.connectionId,
-      conversationId: params.conversationId,
+      contactPhone: phone,
+      connectionId,
+      conversationId: params.conversationId || `${connectionId}:${phone}`,
       journeyId: journey.id
     });
   } catch (e) {
@@ -308,7 +331,7 @@ export async function processNurtureDueEnrollment(
     return;
   }
 
-  const message = buildNurtureStepMessage(step, row.contactPhone);
+  const message = buildNurtureStepMessage(step, row.contactPhone, doc);
   const media = buildNurtureStepMedia(step);
   if (!message.trim() && !media) {
     await updateEnrollmentStatusPg(row.tenantId, row.id, {

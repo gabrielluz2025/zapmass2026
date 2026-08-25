@@ -32,6 +32,15 @@ export type NurtureStep = {
   linkUrl?: string;
 };
 
+export type NurtureSocialLinks = {
+  instagram?: string;
+  facebook?: string;
+  youtube?: string;
+  tiktok?: string;
+  linkedin?: string;
+  website?: string;
+};
+
 export type NurtureBusinessHours = {
   enabled: boolean;
   timezone: string;
@@ -48,12 +57,15 @@ export type NurtureJourneyDoc = {
   entryRules: {
     autoEnrollOnOptIn: boolean;
     requireMarketingOptIn: boolean;
+    /** Chip usado na auto-inscrição (CRM) quando não veio de uma conversa. */
+    defaultConnectionId?: string;
   };
   steps: NurtureStep[];
   businessHours: NurtureBusinessHours;
   stopOnHumanClaim: boolean;
   globalOptOutKeywords: string[];
   maxMessagesPerDayPerContact: number;
+  socialLinks?: NurtureSocialLinks;
 };
 
 export type NurtureJourneyRow = {

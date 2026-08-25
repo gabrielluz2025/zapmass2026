@@ -3,6 +3,7 @@ import type { Contact, ContactList } from '../src/types.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { requireTenant } from './httpTenant.js';
+import { tryAutoEnrollOnOptIn } from './nurture/nurtureEngine.js';
 import {
   bulkCreateContacts,
   bulkUpdateContacts,
@@ -765,6 +766,12 @@ export function registerContactsDataRoutes(app: Express): void {
     }
     invalidateCrmContactIndexCache(ctx.tenantId);
     invalidateContactsCountCache(ctx.tenantId);
+    if (updates.marketingOptIn === true && updated.phone) {
+      void tryAutoEnrollOnOptIn({
+        tenantId: ctx.tenantId,
+        phoneDigits: updated.phone
+      });
+    }
     return res.json({ ok: true, contact: updated });
   });
 

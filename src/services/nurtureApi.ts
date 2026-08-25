@@ -36,6 +36,7 @@ export type NurtureJourneyDoc = {
   entryRules: {
     autoEnrollOnOptIn: boolean;
     requireMarketingOptIn: boolean;
+    defaultConnectionId?: string;
   };
   steps: NurtureStep[];
   businessHours: {
@@ -48,7 +49,17 @@ export type NurtureJourneyDoc = {
   stopOnHumanClaim: boolean;
   globalOptOutKeywords: string[];
   maxMessagesPerDayPerContact: number;
+  socialLinks?: {
+    instagram?: string;
+    facebook?: string;
+    youtube?: string;
+    tiktok?: string;
+    linkedin?: string;
+    website?: string;
+  };
 };
+
+export type NurtureSocialLinks = NonNullable<NurtureJourneyDoc['socialLinks']>;
 
 export type NurtureJourney = {
   id: string;

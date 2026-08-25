@@ -398,7 +398,7 @@ const MainLayout: React.FC = () => {
         );
       case 'nurture-journey':
         return (
-          <div className="p-4 sm:p-6 max-w-3xl mx-auto">
+          <div className="p-4 sm:p-6 lg:p-8 w-full min-w-0">
             <NurtureJourneyPanel />
           </div>
         );

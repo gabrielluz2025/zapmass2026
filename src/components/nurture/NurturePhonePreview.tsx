@@ -2,12 +2,14 @@ import React, { useMemo } from 'react';
 import { CheckCheck, Link2, Smartphone } from 'lucide-react';
 import { applyCampaignMessagePreviewVars } from '../../utils/campaignMessageVariables';
 import { resolveCampaignSpintax } from '../../../shared/campaignSpintax';
+import { formatNurtureSocialLinks, type NurtureSocialLinks } from '../../utils/nurtureSocialLinks';
 
 type Props = {
   body: string;
   mediaUrl?: string;
   mediaMimeType?: string;
   linkUrl?: string;
+  socialLinks?: NurtureSocialLinks;
   chipName?: string;
   stepLabel?: string;
   compact?: boolean;
@@ -26,6 +28,7 @@ export const NurturePhonePreview: React.FC<Props> = ({
   mediaUrl,
   mediaMimeType,
   linkUrl,
+  socialLinks,
   chipName,
   stepLabel,
   compact
@@ -33,10 +36,12 @@ export const NurturePhonePreview: React.FC<Props> = ({
   const previewText = useMemo(() => {
     let t = applyCampaignMessagePreviewVars(body || '');
     t = resolveCampaignSpintax(t, 0);
+    const socialBlock = formatNurtureSocialLinks(socialLinks);
+    t = t.replace(/\{redes_sociais\}/gi, socialBlock);
     const link = linkUrl?.trim();
     if (link) t = t.trim() ? `${t.trim()}\n\n${link}` : link;
     return t;
-  }, [body, linkUrl]);
+  }, [body, linkUrl, socialLinks]);
 
   const timeNow = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   const isImage = mediaMimeType?.startsWith('image/');

@@ -11,6 +11,7 @@ import {
   type NurtureStepMedia,
   type NurtureStepOption
 } from './nurtureTypes.js';
+import { sanitizeSocialLinks } from './nurtureSocialLinks.js';
 
 function pgTenantId(tenantId: string): string {
   return resolvePostgresTenantId(String(tenantId || '').trim());
@@ -119,7 +120,10 @@ export function normalizeNurtureJourneyDoc(raw: unknown): NurtureJourneyDoc {
     scheduleMode: o.scheduleMode === 'calendar' ? 'calendar' : 'relative',
     entryRules: {
       autoEnrollOnOptIn: er.autoEnrollOnOptIn !== false,
-      requireMarketingOptIn: er.requireMarketingOptIn !== false
+      requireMarketingOptIn: er.requireMarketingOptIn !== false,
+      defaultConnectionId: er.defaultConnectionId
+        ? String(er.defaultConnectionId).trim().slice(0, 64)
+        : undefined
     },
     steps: steps.length > 0 ? steps : [...base.steps],
     businessHours: {
@@ -136,7 +140,8 @@ export function normalizeNurtureJourneyDoc(raw: unknown): NurtureJourneyDoc {
     maxMessagesPerDayPerContact: Math.min(
       3,
       Math.max(1, Math.round(Number(o.maxMessagesPerDayPerContact) || base.maxMessagesPerDayPerContact))
-    )
+    ),
+    ...(sanitizeSocialLinks(o.socialLinks) ? { socialLinks: sanitizeSocialLinks(o.socialLinks) } : {})
   };
 }
 

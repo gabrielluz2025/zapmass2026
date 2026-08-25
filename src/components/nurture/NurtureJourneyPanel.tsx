@@ -12,6 +12,7 @@ import {
   Search,
   Send,
   Settings2,
+  Share2,
   UserPlus,
   Users,
   Zap
@@ -35,6 +36,7 @@ import {
   type NurtureStep,
   type NurtureStepOption
 } from '../../services/nurtureApi';
+import { formatNurtureSocialLinks } from '../../utils/nurtureSocialLinks';
 
 type TabId = 'sequencia' | 'inscritos' | 'enviar';
 
@@ -43,8 +45,9 @@ const DEFAULT_DOC: NurtureJourneyDoc = {
   name: 'Material para leads quentes',
   connectionIds: [],
   scheduleMode: 'relative',
-  entryRules: { autoEnrollOnOptIn: true, requireMarketingOptIn: true },
+  entryRules: { autoEnrollOnOptIn: true, requireMarketingOptIn: true, defaultConnectionId: '' },
   steps: [],
+  socialLinks: {},
   businessHours: {
     enabled: true,
     timezone: 'America/Sao_Paulo',
@@ -314,7 +317,7 @@ export const NurtureJourneyPanel: React.FC = () => {
   const currentStep = doc.steps[selectedStep];
 
   return (
-    <div className="space-y-5 pb-12 max-w-6xl mx-auto">
+    <div className="space-y-5 pb-12 w-full min-w-0">
       <div
         className="rounded-2xl p-5 border overflow-hidden"
         style={{
@@ -434,8 +437,94 @@ export const NurtureJourneyPanel: React.FC = () => {
                   setDoc((p) => ({ ...p, entryRules: { ...p.entryRules, autoEnrollOnOptIn: e.target.checked } }))
                 }
               />
-              Auto-inscrever leads quentes (opt-in)
+              Auto-inscrever quando virar lead quente (aceitou marketing)
             </label>
+            {doc.entryRules.autoEnrollOnOptIn && (
+              <div className="space-y-2 pl-1 border-l-2 border-teal-500/40 ml-1">
+                <p className="text-xs text-slate-500">
+                  Quem aceitar no fluxo de campanha, bot ou CRM entra automaticamente — desde que a jornada esteja{' '}
+                  <strong>ativa</strong> e salva.
+                </p>
+                <label className="block text-xs font-bold text-slate-500">
+                  Chip padrão (auto-inscrição pelo CRM)
+                  <select
+                    value={doc.entryRules.defaultConnectionId || ''}
+                    onChange={(e) =>
+                      setDoc((p) => ({
+                        ...p,
+                        entryRules: { ...p.entryRules, defaultConnectionId: e.target.value || undefined }
+                      }))
+                    }
+                    className="w-full mt-1 rounded-lg border px-2 py-2 text-sm dark:bg-slate-900 font-normal"
+                  >
+                    <option value="">Primeiro chip marcado acima</option>
+                    {connectedChips.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name || c.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
+
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-700 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-bold text-slate-600 dark:text-slate-300 flex items-center gap-2">
+                  <Share2 className="w-4 h-4 text-teal-600" />
+                  Redes sociais
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const block = formatNurtureSocialLinks(doc.socialLinks);
+                    if (!block) {
+                      toast.error('Preencha ao menos uma rede social.');
+                      return;
+                    }
+                    const cur = doc.steps[selectedStep]?.body || '';
+                    updateStep(selectedStep, {
+                      body: cur.trim() ? `${cur.trim()}\n\n{redes_sociais}` : '{redes_sociais}'
+                    });
+                    toast.success('Variável {redes_sociais} inserida no passo atual.');
+                  }}
+                  className="text-xs font-bold text-teal-600 hover:underline"
+                >
+                  Inserir no passo {selectedStep + 1}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Use a variável <code className="text-teal-600">{'{redes_sociais}'}</code> no texto — ela vira links
+                formatados na mensagem.
+              </p>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {(
+                  [
+                    ['instagram', 'Instagram'],
+                    ['facebook', 'Facebook'],
+                    ['youtube', 'YouTube'],
+                    ['tiktok', 'TikTok'],
+                    ['linkedin', 'LinkedIn'],
+                    ['website', 'Site']
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key} className="block text-[11px] font-bold text-slate-500">
+                    {label}
+                    <Input
+                      value={doc.socialLinks?.[key] || ''}
+                      onChange={(e) =>
+                        setDoc((p) => ({
+                          ...p,
+                          socialLinks: { ...p.socialLinks, [key]: e.target.value.trim() || undefined }
+                        }))
+                      }
+                      placeholder="https://…"
+                      className="mt-1 font-normal"
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
           </Card>
 
           <div className="flex gap-2 overflow-x-auto pb-1">
@@ -474,6 +563,7 @@ export const NurtureJourneyPanel: React.FC = () => {
                 index={selectedStep}
                 doc={doc}
                 chipName={chipName}
+                socialLinks={doc.socialLinks}
                 pendingMedia={pendingMediaByStep[currentStep.id] || null}
                 onChange={(patch) => updateStep(selectedStep, patch)}
                 onOptionsChange={(options) => updateStep(selectedStep, { options })}

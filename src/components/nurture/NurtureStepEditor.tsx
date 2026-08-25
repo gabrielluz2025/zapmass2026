@@ -7,6 +7,7 @@ import { prepareCampaignAttachmentPayload, type CampaignMediaPayload } from '../
 import {
   WEEKDAY_LABELS,
   type NurtureJourneyDoc,
+  type NurtureSocialLinks,
   type NurtureStep,
   type NurtureStepOption
 } from '../../services/nurtureApi';
@@ -18,6 +19,7 @@ type Props = {
   index: number;
   doc: NurtureJourneyDoc;
   chipName?: string;
+  socialLinks?: NurtureSocialLinks;
   pendingMedia?: PendingStepMedia | null;
   onChange: (patch: Partial<NurtureStep>) => void;
   onOptionsChange: (options: NurtureStepOption[]) => void;
@@ -51,6 +53,7 @@ export const NurtureStepEditor: React.FC<Props> = ({
   index,
   doc,
   chipName,
+  socialLinks,
   pendingMedia,
   onChange,
   onOptionsChange,
@@ -104,7 +107,7 @@ export const NurtureStepEditor: React.FC<Props> = ({
   };
 
   return (
-    <div className="grid lg:grid-cols-[1fr_280px] gap-4">
+    <div className="grid xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] gap-6">
       <div className="space-y-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 flex-1">
@@ -316,6 +319,7 @@ export const NurtureStepEditor: React.FC<Props> = ({
           mediaUrl={mediaPreviewUrl}
           mediaMimeType={step.media?.mimeType}
           linkUrl={step.linkUrl}
+          socialLinks={socialLinks}
           chipName={chipName}
           stepLabel={step.label || `Passo ${index + 1}`}
         />
