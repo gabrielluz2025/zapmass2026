@@ -109,6 +109,7 @@ import { registerProductSuggestionRoutes } from './productSuggestionRoutes.js';
 import { registerConnectionsSyncRoutes } from './connectionsSyncRoutes.js';
 import { registerSupportBotRoutes } from './supportBotRoutes.js';
 import { registerNurtureRoutes } from './nurtureRoutes.js';
+import { registerChipProtectionRoutes } from './chipProtectionRoutes.js';
 import { startNurtureScheduler } from './nurture/nurtureScheduler.js';
 import { registerAiAssistantRoutes } from './aiAssistantRoutes.js';
 import { registerAssistantRoutes } from './assistantRoutes.js';
@@ -399,6 +400,7 @@ registerProductSuggestionRoutes(app);
 registerConnectionsSyncRoutes(app);
 registerSupportBotRoutes(app);
 registerNurtureRoutes(app);
+registerChipProtectionRoutes(app);
 registerAiAssistantRoutes(app);
 registerAssistantRoutes(app);
 

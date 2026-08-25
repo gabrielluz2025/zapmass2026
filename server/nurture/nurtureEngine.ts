@@ -259,6 +259,8 @@ export async function processNurtureDueEnrollment(
   opts?: { force?: boolean; delayMs?: number }
 ): Promise<void> {
   if (!enqueueFn) return;
+  const { isChipQuietMode } = await import('../chipProtectionService.js');
+  if (!opts?.force && (await isChipQuietMode(row.tenantId))) return;
   const doc = row.journeyDoc;
   const step = doc.steps[row.currentStepIndex];
   if (!step) {

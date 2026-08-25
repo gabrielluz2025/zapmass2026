@@ -93,6 +93,9 @@ export async function tryAutoEnrollHotLead(params: {
   treatReplyAsHot?: boolean;
 }): Promise<void> {
   try {
+    const { isChipQuietMode } = await import('../chipProtectionService.js');
+    if (await isChipQuietMode(params.tenantId)) return;
+
     const journey = await getOrCreatePrimaryJourneyPg(params.tenantId);
     if (!journey.enabled && !journey.doc.enabled) return;
 

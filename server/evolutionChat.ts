@@ -1047,7 +1047,13 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
     async function syncChatsForConnection(
         connectionId: string,
-        opts?: { deferEmit?: boolean }
+        opts?: {
+            deferEmit?: boolean;
+            sparseLimit?: number;
+            msgPrefetch?: number;
+            prefetchBatchSize?: number;
+            fullInboxSync?: boolean;
+        }
     ): Promise<number> {
         return withStoreLock(async () => {
         const inst = evoInst(connectionId);
@@ -1082,19 +1088,21 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             }
 
             // Prefetch de histórico para conversas com pouco/no cache local (prioriza as mais recentes).
-            const sparseLimit = evolutionSyncSparseConvLimit();
-            const msgPrefetch = evolutionSyncMsgPrefetch();
+            const inboxSync =
+                opts?.fullInboxSync !== undefined ? opts.fullInboxSync : isFullInboxSyncEnabled();
+            const sparseLimit = opts?.sparseLimit ?? evolutionSyncSparseConvLimit();
+            const msgPrefetch = opts?.msgPrefetch ?? evolutionSyncMsgPrefetch();
             const sparseMaxMsgs = Math.min(msgPrefetch + 40, 250);
             const sparseConvs = conversations
                 .filter(
                     (c) =>
                         c.connectionId === connectionId &&
-                        (!c.messages || c.messages.length <= (isFullInboxSyncEnabled() ? 8 : 3))
+                        (!c.messages || c.messages.length <= (inboxSync ? 8 : 3))
                 )
                 .sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0))
                 .slice(0, sparseLimit);
             if (sparseConvs.length > 0) {
-                const batchSize = isFullInboxSyncEnabled() ? 8 : 4;
+                const batchSize = opts?.prefetchBatchSize ?? (inboxSync ? 8 : 4);
                 for (let i = 0; i < sparseConvs.length; i += batchSize) {
                     const slice = sparseConvs.slice(i, i + batchSize);
                     await Promise.all(

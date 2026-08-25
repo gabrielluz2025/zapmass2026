@@ -39,6 +39,7 @@ import { AddConnectionModal } from './AddConnectionModal';
 import { SessionLoadIndicator } from './SessionLoadIndicator';
 import { PageShell, StatTile, CollapsibleSection, Badge, Button, EmptyState, Modal, Input, Tabs } from './ui';
 import { ConnectionPoolsPanel } from './connections/ConnectionPoolsPanel';
+import { ChipProtectionPanel } from './connections/ChipProtectionPanel';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useMainLayoutNav } from '../context/MainLayoutNavContext';
@@ -651,6 +652,8 @@ export const ConnectionsTab: React.FC = () => {
         <StatTile label="Fila global" value={counts.totalQueue.toLocaleString('pt-BR')} warn={counts.totalQueue > 200} />
         <StatTile label="Saúde média" value={`${counts.avgHealth}%`} warn={counts.avgHealth < 50} />
       </div>
+
+      <ChipProtectionPanel />
 
       {connections.length > 0 && (
         <CollapsibleSection

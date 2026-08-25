@@ -1,5 +1,6 @@
 import { listDueEnrollmentsPg } from './nurtureRepository.js';
 import { processNurtureDueEnrollment } from './nurtureEngine.js';
+import { isChipQuietMode } from '../chipProtectionService.js';
 
 const TICK_MS = 30_000;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -12,6 +13,7 @@ async function tick(): Promise<void> {
     const due = await listDueEnrollmentsPg(80);
     for (const row of due) {
       try {
+        if (await isChipQuietMode(row.tenantId)) continue;
         await processNurtureDueEnrollment({
           id: row.id,
           tenantId: row.tenantId,

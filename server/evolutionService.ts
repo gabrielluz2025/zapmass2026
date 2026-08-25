@@ -891,8 +891,18 @@ export async function syncConnectionsForOwner(
                         error: err?.message,
                     });
                 });
-                await ensureEvolutionFullHistorySync(id);
-                const n = await chatStore.syncChatsForConnection(id, { deferEmit: true });
+                const { getSyncProfileForTenant } = await import('./chipProtectionService.js');
+                const syncProfile = await getSyncProfileForTenant(uid);
+                if (syncProfile.fullHistory) {
+                    await ensureEvolutionFullHistorySync(id);
+                }
+                const n = await chatStore.syncChatsForConnection(id, {
+                    deferEmit: true,
+                    sparseLimit: syncProfile.sparseConvLimit,
+                    msgPrefetch: syncProfile.msgPrefetch,
+                    prefetchBatchSize: syncProfile.prefetchBatchSize,
+                    fullInboxSync: syncProfile.fullInboxSync,
+                });
                 syncedChats.push(id);
                 mappedChats += n;
                 if (n === 0) {
@@ -1588,9 +1598,26 @@ function applyConnectionStateUpdate(
         });
         void (async () => {
             await enrichConnectionMeta(instance);
-            await ensureEvolutionFullHistorySync(instance);
-            await chatStore.syncChatsForConnection(instance);
             const ou = resolveOwnerUid(instance);
+            const { getSyncProfileForTenant } = await import('./chipProtectionService.js');
+            const syncProfile = ou
+                ? await getSyncProfileForTenant(ou)
+                : {
+                      fullHistory: true,
+                      fullInboxSync: true,
+                      msgPrefetch: 200,
+                      sparseConvLimit: 120,
+                      prefetchBatchSize: 8,
+                  };
+            if (syncProfile.fullHistory) {
+                await ensureEvolutionFullHistorySync(instance);
+            }
+            await chatStore.syncChatsForConnection(instance, {
+                sparseLimit: syncProfile.sparseConvLimit,
+                msgPrefetch: syncProfile.msgPrefetch,
+                prefetchBatchSize: syncProfile.prefetchBatchSize,
+                fullInboxSync: syncProfile.fullInboxSync,
+            });
             if (ou) {
                 publishOwnerEvent(
                     ou,

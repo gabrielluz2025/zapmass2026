@@ -11,6 +11,8 @@ export interface TenantDispatchSettings {
     sleepMode: boolean;
     webhookUrl: string;
     emailNotif: boolean;
+    /** Pausa jornada, auto-aquecimento e usa sync leve da inbox. */
+    chipQuietMode?: boolean;
     updatedAt?: string;
 }
 
@@ -21,6 +23,7 @@ export interface TenantSettingsClientPayload {
     sleepMode: boolean;
     webhookUrl: string;
     emailNotif: boolean;
+    chipQuietMode?: boolean;
 }
 
 // sleepMode default false: evita que campanhas iniciadas entre 20h–8h fiquem
@@ -56,6 +59,7 @@ export function settingsToClientPayload(settings: TenantDispatchSettings): Tenan
         sleepMode: settings.sleepMode,
         webhookUrl: settings.webhookUrl,
         emailNotif: settings.emailNotif,
+        chipQuietMode: Boolean(settings.chipQuietMode),
     };
 }
 
@@ -79,6 +83,7 @@ function normalizeClientPayload(
     if (partial.sleepMode !== undefined) next.sleepMode = Boolean(partial.sleepMode);
     if (partial.webhookUrl !== undefined) next.webhookUrl = String(partial.webhookUrl || '').trim();
     if (partial.emailNotif !== undefined) next.emailNotif = Boolean(partial.emailNotif);
+    if (partial.chipQuietMode !== undefined) next.chipQuietMode = Boolean(partial.chipQuietMode);
     next.updatedAt = new Date().toISOString();
     return next;
 }
@@ -117,6 +122,8 @@ function normalizeStored(raw: Record<string, unknown> | undefined): TenantDispat
                 typeof raw.emailNotif === 'boolean'
                     ? raw.emailNotif
                     : DEFAULT_TENANT_DISPATCH_SETTINGS.emailNotif,
+            chipQuietMode:
+                typeof raw.chipQuietMode === 'boolean' ? raw.chipQuietMode : false,
         },
         DEFAULT_TENANT_DISPATCH_SETTINGS
     );
@@ -188,6 +195,7 @@ export async function saveTenantSettings(
                 sleepMode: next.sleepMode,
                 webhookUrl: next.webhookUrl,
                 emailNotif: next.emailNotif,
+                chipQuietMode: Boolean(next.chipQuietMode),
                 updatedAt: next.updatedAt
             });
         } catch (error: unknown) {
@@ -205,6 +213,7 @@ export async function saveTenantSettings(
                         sleepMode: next.sleepMode,
                         webhookUrl: next.webhookUrl,
                         emailNotif: next.emailNotif,
+                        chipQuietMode: Boolean(next.chipQuietMode),
                         updatedAt: next.updatedAt
                     },
                     { merge: true }
