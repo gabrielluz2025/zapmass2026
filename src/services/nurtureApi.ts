@@ -35,6 +35,7 @@ export type NurtureJourneyDoc = {
   scheduleMode: 'relative' | 'calendar';
   entryRules: {
     autoEnrollOnOptIn: boolean;
+    autoEnrollOnHotLead: boolean;
     requireMarketingOptIn: boolean;
     defaultConnectionId?: string;
   };
@@ -206,13 +207,95 @@ export async function enrollContactInNurture(payload: {
   connectionId: string;
   conversationId?: string;
   journeyId?: string;
+  manual?: boolean;
 }): Promise<NurtureEnrollment | null> {
-  const j = await apiFetchJson<{ enrollment?: NurtureEnrollment | null }>('/api/nurture/enroll', {
+  const j = await apiFetchJson<{ enrollment?: NurtureEnrollment | null; error?: string }>(
+    '/api/nurture/enroll',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }
+  );
+  if (j.error) throw new Error(j.error);
+  return j.enrollment ?? null;
+}
+
+export type HotLeadCandidate = {
+  contactId: string;
+  name: string;
+  phone: string;
+  reason: 'opt_in' | 'engagement_hot';
+};
+
+export async function fetchHotLeadCandidates(opts?: {
+  limit?: number;
+  offset?: number;
+}): Promise<{ items: HotLeadCandidate[]; hasMore: boolean; nextOffset: number }> {
+  const qs = new URLSearchParams();
+  if (opts?.limit) qs.set('limit', String(opts.limit));
+  if (opts?.offset) qs.set('offset', String(opts.offset));
+  const j = await apiFetchJson<{
+    items?: HotLeadCandidate[];
+    hasMore?: boolean;
+    nextOffset?: number;
+  }>(`/api/nurture/hot-leads?${qs.toString()}`);
+  return {
+    items: Array.isArray(j.items) ? j.items : [],
+    hasMore: !!j.hasMore,
+    nextOffset: Number(j.nextOffset) || 0
+  };
+}
+
+export async function syncHotLeadEnrollments(opts?: {
+  offset?: number;
+  limit?: number;
+  dryRun?: boolean;
+  connectionId?: string;
+}): Promise<{
+  scanned: number;
+  enrolled: number;
+  alreadyEnrolled: number;
+  skipped: number;
+  hotFound: number;
+  samples: HotLeadCandidate[];
+  hasMore: boolean;
+  nextOffset: number;
+  applied: boolean;
+}> {
+  const j = await apiFetchJson<{
+    scanned?: number;
+    enrolled?: number;
+    alreadyEnrolled?: number;
+    skipped?: number;
+    hotFound?: number;
+    samples?: HotLeadCandidate[];
+    hasMore?: boolean;
+    nextOffset?: number;
+    applied?: boolean;
+    error?: string;
+  }>('/api/nurture/enroll-hot-leads', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      offset: opts?.offset ?? 0,
+      limit: opts?.limit ?? 400,
+      dryRun: opts?.dryRun !== false,
+      connectionId: opts?.connectionId
+    })
   });
-  return j.enrollment ?? null;
+  if (j.error) throw new Error(j.error);
+  return {
+    scanned: Number(j.scanned) || 0,
+    enrolled: Number(j.enrolled) || 0,
+    alreadyEnrolled: Number(j.alreadyEnrolled) || 0,
+    skipped: Number(j.skipped) || 0,
+    hotFound: Number(j.hotFound) || 0,
+    samples: Array.isArray(j.samples) ? j.samples : [],
+    hasMore: !!j.hasMore,
+    nextOffset: Number(j.nextOffset) || 0,
+    applied: !!j.applied
+  };
 }
 
 export const WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];

@@ -9,6 +9,10 @@ import {
   forceDispatchNurtureEnrollments
 } from './nurture/nurtureEngine.js';
 import {
+  listHotLeadCandidates,
+  syncHotLeadEnrollments
+} from './nurture/nurtureHotLeads.js';
+import {
   findEnrollmentByPhonePg,
   getOrCreatePrimaryJourneyPg,
   listNurtureEnrollmentsPg,
@@ -92,6 +96,7 @@ export function registerNurtureRoutes(app: Express): void {
       connectionId?: string;
       conversationId?: string;
       journeyId?: string;
+      manual?: boolean;
     };
     const phone = String(body.contactPhone ?? '').replace(/\D/g, '');
     const connectionId = String(body.connectionId ?? '').trim();
@@ -110,8 +115,46 @@ export function registerNurtureRoutes(app: Express): void {
     }
     const journey = await getOrCreatePrimaryJourneyPg(ctx.tenantId);
     const enrollment = await findEnrollmentByPhonePg(ctx.tenantId, phone);
-    const enrollments = await listNurtureEnrollmentsPg(ctx.tenantId, journey.id, 50);
+    const enrollments = await listNurtureEnrollmentsPg(ctx.tenantId, journey.id, 100);
     return res.json({ ok: true, enrollment, enrollments });
+  });
+
+  app.get('/api/nurture/hot-leads', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    try {
+      const limit = Math.min(Math.max(Number(req.query.limit) || 40, 1), 100);
+      const offset = Math.max(Number(req.query.offset) || 0, 0);
+      const result = await listHotLeadCandidates(ctx.tenantId, { limit, offset });
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      console.error('[nurture hot-leads GET]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível listar leads quentes.' });
+    }
+  });
+
+  app.post('/api/nurture/enroll-hot-leads', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body || {}) as {
+      offset?: number;
+      limit?: number;
+      dryRun?: boolean;
+      connectionId?: string;
+    };
+    try {
+      const result = await syncHotLeadEnrollments(ctx.tenantId, {
+        offset: body.offset,
+        limit: body.limit,
+        dryRun: body.dryRun !== false,
+        connectionId: body.connectionId
+      });
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao inscrever leads quentes.';
+      console.error('[nurture enroll-hot-leads]', e);
+      return res.status(400).json({ ok: false, error: msg });
+    }
   });
 
   app.post('/api/nurture/media', async (req: Request, res: Response) => {

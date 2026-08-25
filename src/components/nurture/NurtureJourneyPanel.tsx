@@ -27,9 +27,12 @@ import {
   ENROLLMENT_STATUS_COLOR,
   ENROLLMENT_STATUS_LABEL,
   enrollContactInNurture,
+  fetchHotLeadCandidates,
   fetchNurtureJourney,
   saveNurtureJourney,
+  syncHotLeadEnrollments,
   uploadNurtureMedia,
+  type HotLeadCandidate,
   type NurtureEnrollment,
   type NurtureJourneyDoc,
   type NurtureMetrics,
@@ -45,7 +48,7 @@ const DEFAULT_DOC: NurtureJourneyDoc = {
   name: 'Material para leads quentes',
   connectionIds: [],
   scheduleMode: 'relative',
-  entryRules: { autoEnrollOnOptIn: true, requireMarketingOptIn: true, defaultConnectionId: '' },
+  entryRules: { autoEnrollOnOptIn: true, autoEnrollOnHotLead: true, requireMarketingOptIn: true, defaultConnectionId: '' },
   steps: [],
   socialLinks: {},
   businessHours: {
@@ -127,6 +130,10 @@ export const NurtureJourneyPanel: React.FC = () => {
   const [enrollConnectionId, setEnrollConnectionId] = useState('');
   const [enrollBusy, setEnrollBusy] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [hotSyncBusy, setHotSyncBusy] = useState(false);
+  const [hotSyncProgress, setHotSyncProgress] = useState({ scanned: 0, enrolled: 0, hotFound: 0 });
+  const [hotCandidates, setHotCandidates] = useState<HotLeadCandidate[]>([]);
+  const [hotCandidatesLoading, setHotCandidatesLoading] = useState(false);
 
   const connectedChips = useMemo(
     () => connections.filter((c) => c.status === 'CONNECTED'),
@@ -168,6 +175,93 @@ export const NurtureJourneyPanel: React.FC = () => {
       setEnrollConnectionId(connectedChips[0].id);
     }
   }, [connectedChips, enrollConnectionId]);
+
+  useEffect(() => {
+    if (tab !== 'enviar') return;
+    setHotCandidatesLoading(true);
+    void fetchHotLeadCandidates({ limit: 30 })
+      .then((r) => setHotCandidates(r.items))
+      .catch(() => setHotCandidates([]))
+      .finally(() => setHotCandidatesLoading(false));
+  }, [tab, enrollments.length]);
+
+  const runHotLeadSync = useCallback(
+    async (dryRun: boolean) => {
+      if (!enrollConnectionId && connectedChips[0]?.id) {
+        setEnrollConnectionId(connectedChips[0].id);
+      }
+      const conn = enrollConnectionId || connectedChips[0]?.id;
+      if (!conn) {
+        toast.error('Conecte um chip WhatsApp.');
+        return;
+      }
+      if (!dryRun && !window.confirm('Inscrever todos os leads quentes da base que ainda não estão na jornada?')) {
+        return;
+      }
+      setHotSyncBusy(true);
+      setHotSyncProgress({ scanned: 0, enrolled: 0, hotFound: 0 });
+      let offset = 0;
+      let totalScanned = 0;
+      let totalEnrolled = 0;
+      let totalHot = 0;
+      try {
+        for (;;) {
+          const result = await syncHotLeadEnrollments({
+            offset,
+            limit: 400,
+            dryRun,
+            connectionId: conn
+          });
+          totalScanned += result.scanned;
+          totalEnrolled += result.enrolled;
+          totalHot += result.hotFound;
+          offset = result.nextOffset;
+          setHotSyncProgress({ scanned: totalScanned, enrolled: totalEnrolled, hotFound: totalHot });
+          if (!result.hasMore) break;
+        }
+        if (dryRun) {
+          toast.success(
+            `Prévia: ${totalEnrolled.toLocaleString('pt-BR')} lead(s) quente(s) seriam inscritos (${totalHot.toLocaleString('pt-BR')} encontrados).`
+          );
+        } else {
+          toast.success(`${totalEnrolled.toLocaleString('pt-BR')} lead(s) quente(s) inscritos!`);
+          await load();
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Falha ao inscrever leads quentes.');
+      } finally {
+        setHotSyncBusy(false);
+      }
+    },
+    [connectedChips, enrollConnectionId, load]
+  );
+
+  const enrollOneHotLead = useCallback(
+    async (phone: string) => {
+      const conn = enrollConnectionId || connectedChips[0]?.id;
+      if (!conn) {
+        toast.error('Selecione um chip.');
+        return;
+      }
+      setEnrollBusy(true);
+      try {
+        await enrollContactInNurture({
+          contactPhone: phone,
+          connectionId: conn,
+          journeyId,
+          manual: true
+        });
+        await load();
+        setHotCandidates((prev) => prev.filter((c) => c.phone !== phone));
+        toast.success('Inscrito na jornada.');
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Não foi possível inscrever.');
+      } finally {
+        setEnrollBusy(false);
+      }
+    },
+    [connectedChips, enrollConnectionId, journeyId, load]
+  );
 
   const toggleChip = (id: string) => {
     setDoc((prev) => {
@@ -272,12 +366,17 @@ export const NurtureJourneyPanel: React.FC = () => {
     }
     setEnrollBusy(true);
     try {
-      await enrollContactInNurture({ contactPhone: phone, connectionId: enrollConnectionId, journeyId });
+      await enrollContactInNurture({
+        contactPhone: phone,
+        connectionId: enrollConnectionId,
+        journeyId,
+        manual: true
+      });
       await load();
       setEnrollPhone('');
       toast.success('Contato inscrito na jornada.');
-    } catch {
-      toast.error('Não foi possível inscrever.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível inscrever.');
     } finally {
       setEnrollBusy(false);
     }
@@ -437,13 +536,23 @@ export const NurtureJourneyPanel: React.FC = () => {
                   setDoc((p) => ({ ...p, entryRules: { ...p.entryRules, autoEnrollOnOptIn: e.target.checked } }))
                 }
               />
-              Auto-inscrever quando virar lead quente (aceitou marketing)
+              Auto-inscrever quem autorizou marketing (opt-in)
             </label>
-            {doc.entryRules.autoEnrollOnOptIn && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={doc.entryRules.autoEnrollOnHotLead !== false}
+                onChange={(e) =>
+                  setDoc((p) => ({ ...p, entryRules: { ...p.entryRules, autoEnrollOnHotLead: e.target.checked } }))
+                }
+              />
+              Auto-inscrever leads quentes (responderam ou engajamento alto)
+            </label>
+            {(doc.entryRules.autoEnrollOnOptIn || doc.entryRules.autoEnrollOnHotLead !== false) && (
               <div className="space-y-2 pl-1 border-l-2 border-teal-500/40 ml-1">
                 <p className="text-xs text-slate-500">
-                  Quem aceitar no fluxo de campanha, bot ou CRM entra automaticamente — desde que a jornada esteja{' '}
-                  <strong>ativa</strong> e salva.
+                  Novos quentes entram sozinhos quando a jornada está <strong>ativa</strong> e salva.
+                  Para a base atual, use <strong>Inscrever leads quentes</strong> na aba Inscritos.
                 </p>
                 <label className="block text-xs font-bold text-slate-500">
                   Chip padrão (auto-inscrição pelo CRM)
@@ -613,10 +722,43 @@ export const NurtureJourneyPanel: React.FC = () => {
             <Button type="button" variant="secondary" size="sm" onClick={() => void load()}>
               <RefreshCw className="w-4 h-4" />
             </Button>
+            <Button
+              type="button"
+              size="sm"
+              loading={hotSyncBusy}
+              disabled={hotSyncBusy || connectedChips.length === 0}
+              onClick={() => void runHotLeadSync(false)}
+            >
+              <Flame className="w-4 h-4 mr-1" />
+              Inscrever leads quentes
+            </Button>
           </div>
 
+          {hotSyncBusy && (
+            <div className="text-xs text-slate-500 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2">
+              Processando… {hotSyncProgress.scanned.toLocaleString('pt-BR')} lidos ·{' '}
+              {hotSyncProgress.hotFound.toLocaleString('pt-BR')} quentes ·{' '}
+              {hotSyncProgress.enrolled.toLocaleString('pt-BR')} inscritos
+            </div>
+          )}
+
           {enrollments.length === 0 ? (
-            <p className="text-sm text-slate-500 py-8 text-center">Nenhum inscrito encontrado.</p>
+            <div className="text-center py-8 space-y-3">
+              <p className="text-sm text-slate-500">Nenhum inscrito encontrado.</p>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Clique em <strong>Inscrever leads quentes</strong> para trazer quem respondeu ou autorizou marketing,
+                ou use a aba Enviar / Inscrever para um número específico.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={hotSyncBusy || connectedChips.length === 0}
+                onClick={() => void runHotLeadSync(true)}
+              >
+                Ver quantos quentes entrariam
+              </Button>
+            </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
               <table className="w-full text-sm">
@@ -703,7 +845,8 @@ export const NurtureJourneyPanel: React.FC = () => {
       )}
 
       {tab === 'enviar' && (
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="grid gap-4">
+          <div className="grid md:grid-cols-2 gap-4">
           <Card className="p-5 space-y-4">
             <h3 className="font-black text-slate-700 dark:text-white flex items-center gap-2">
               <UserPlus className="w-5 h-5 text-teal-600" />
@@ -760,6 +903,45 @@ export const NurtureJourneyPanel: React.FC = () => {
             <p className="text-[10px] text-slate-400">
               Selecione contatos na aba Inscritos antes de usar &quot;só selecionados&quot;.
             </p>
+          </Card>
+          </div>
+
+          <Card className="p-5 space-y-3">
+            <h3 className="font-black text-slate-700 dark:text-white flex items-center gap-2">
+              <Flame className="w-5 h-5 text-orange-500" />
+              Leads quentes disponíveis
+            </h3>
+            <p className="text-xs text-slate-500">
+              Contatos quentes (responderam recentemente ou autorizaram marketing) ainda não inscritos.
+            </p>
+            {hotCandidatesLoading ? (
+              <p className="text-sm text-slate-400">Carregando…</p>
+            ) : hotCandidates.length === 0 ? (
+              <p className="text-sm text-slate-500">Nenhum lead quente pendente nesta página — use Inscrever leads quentes na aba Inscritos.</p>
+            ) : (
+              <div className="max-h-64 overflow-y-auto space-y-2">
+                {hotCandidates.map((c) => (
+                  <div
+                    key={c.contactId}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-semibold truncate">{c.name}</p>
+                      <p className="text-xs font-mono text-slate-500">{formatPhone(c.phone)}</p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={enrollBusy}
+                      onClick={() => void enrollOneHotLead(c.phone)}
+                    >
+                      Inscrever
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
         </div>
       )}

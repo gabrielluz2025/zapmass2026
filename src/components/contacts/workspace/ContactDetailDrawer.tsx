@@ -818,16 +818,16 @@ export const ContactDetailDrawer: React.FC<Props> = ({
                     </label>
                     <button
                       type="button"
-                      disabled={nurtureBusy || !contact.marketingOptIn || contact.marketingOptOut}
+                      disabled={nurtureBusy || contact.marketingOptOut}
                       onClick={() => void handleEnrollNurture()}
                       className="w-full py-2 rounded-lg text-sm font-semibold border border-teal-600/35 bg-teal-500/10 text-teal-800 dark:text-teal-200 hover:bg-teal-500/15 transition disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                       <BookOpen className="w-4 h-4" />
                       Inscrever na jornada
                     </button>
-                    {!contact.marketingOptIn && !contact.marketingOptOut && (
+                    {contact.marketingOptOut && (
                       <p className="text-[10.5px] text-slate-500">
-                        Registre autorização de marketing (lead quente) antes de inscrever.
+                        Contato na lista negra — não pode receber a jornada.
                       </p>
                     )}
                   </>
@@ -854,18 +854,13 @@ export const ContactDetailDrawer: React.FC<Props> = ({
                 </label>
                 <button
                   type="button"
-                  disabled={nurtureBusy || !contact.marketingOptIn || contact.marketingOptOut}
+                  disabled={nurtureBusy || contact.marketingOptOut}
                   onClick={() => void handleEnrollNurture()}
                   className="w-full py-2 rounded-lg text-sm font-semibold border border-teal-600/35 bg-teal-500/10 text-teal-800 dark:text-teal-200 hover:bg-teal-500/15 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   <BookOpen className="w-4 h-4" />
                   Inscrever na jornada
                 </button>
-                {!contact.marketingOptIn && !contact.marketingOptOut && (
-                  <p className="text-[10.5px] text-slate-500">
-                    Registre autorização de marketing (lead quente) antes de inscrever.
-                  </p>
-                )}
                 {contact.marketingOptOut && (
                   <p className="text-[10.5px] text-amber-600">Contato na lista negra — não é possível inscrever.</p>
                 )}

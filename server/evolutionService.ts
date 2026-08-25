@@ -125,6 +125,7 @@ import {
   registerNurtureEnqueue,
   tryAutoEnrollOnOptIn
 } from './nurture/nurtureEngine.js';
+import { tryAutoEnrollHotLead } from './nurture/nurtureHotLeads.js';
 import { loadJourneyByIdPg } from './nurture/nurtureRepository.js';
 import { dispatchEvolutionWebhook, initEvolutionWebhookQueue } from './evolutionWebhookQueue.js';
 import {
@@ -3518,6 +3519,15 @@ function ensureReplyFlowEngine() {
             emitCampaignLog('INFO', message, payload, payload?.ownerUid as string | undefined),
         onInboundReply: ({ campaignId, connectionId, phoneDigits, ownerUid }) => {
             evolutionTrackIncomingReply(connectionId, phoneDigits, { campaignId, ownerUid });
+            if (ownerUid) {
+                void tryAutoEnrollHotLead({
+                    tenantId: ownerUid,
+                    phoneDigits,
+                    connectionId,
+                    conversationId: `${connectionId}:${phoneDigits}`,
+                    treatReplyAsHot: true
+                });
+            }
         },
         isCampaignPaused: (campaignId) => pausedCampaigns.has(campaignId),
         onSessionSave: (connectionId, phoneDigits, session) => {
@@ -6155,6 +6165,15 @@ export async function handleWebhook(event: any) {
                         campaignId: replyCampaignId,
                         ownerUid: replyOwnerUid
                     });
+                    if (replyOwnerUid) {
+                        void tryAutoEnrollHotLead({
+                            tenantId: replyOwnerUid,
+                            phoneDigits,
+                            connectionId: instance,
+                            conversationId: incomingConvId,
+                            treatReplyAsHot: true
+                        });
+                    }
                     const replyPreview =
                         String(bodyText || '').slice(0, 80) ||
                         (nonTextReply ? '[resposta sem texto legível — mídia/botão/etc.]' : '');

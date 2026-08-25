@@ -56,6 +56,8 @@ export type NurtureJourneyDoc = {
   scheduleMode: 'relative' | 'calendar';
   entryRules: {
     autoEnrollOnOptIn: boolean;
+    /** Inscreve quem respondeu / está quente no engajamento (temperatura hot). */
+    autoEnrollOnHotLead: boolean;
     requireMarketingOptIn: boolean;
     /** Chip usado na auto-inscrição (CRM) quando não veio de uma conversa. */
     defaultConnectionId?: string;
@@ -118,6 +120,7 @@ export const DEFAULT_NURTURE_JOURNEY_DOC: NurtureJourneyDoc = {
   scheduleMode: 'relative',
   entryRules: {
     autoEnrollOnOptIn: true,
+    autoEnrollOnHotLead: true,
     requireMarketingOptIn: true
   },
   steps: [

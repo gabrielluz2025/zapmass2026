@@ -240,40 +240,8 @@ export async function tryAutoEnrollOnOptIn(params: {
   connectionId?: string;
   conversationId?: string;
 }): Promise<void> {
-  if (!vpsDataEnabled() || !getZapmassPool()) return;
-  try {
-    const journey = await getOrCreatePrimaryJourneyPg(params.tenantId);
-    if (!journey.enabled && !journey.doc.enabled) return;
-    if (!journey.doc.entryRules.autoEnrollOnOptIn) return;
-
-    const phone = params.phoneDigits.replace(/\D/g, '');
-    if (phone.length < 8) return;
-
-    let connectionId = String(params.connectionId ?? '').trim();
-    if (!connectionId) {
-      connectionId = String(journey.doc.entryRules.defaultConnectionId ?? '').trim();
-    }
-    if (!connectionId && journey.doc.connectionIds.length > 0) {
-      connectionId = journey.doc.connectionIds[0];
-    }
-    if (!connectionId) {
-      console.warn('[nurture] auto-enroll: nenhum chip configurado para lead quente', phone);
-      return;
-    }
-
-    const existing = await findEnrollmentByPhonePg(params.tenantId, phone);
-    if (existing && ['enrolled', 'active', 'waiting_reply', 'paused'].includes(existing.status)) return;
-
-    await enrollContactInNurture({
-      tenantId: params.tenantId,
-      contactPhone: phone,
-      connectionId,
-      conversationId: params.conversationId || `${connectionId}:${phone}`,
-      journeyId: journey.id
-    });
-  } catch (e) {
-    console.warn('[nurture] auto-enroll falhou:', (e as Error)?.message);
-  }
+  const { tryAutoEnrollHotLead } = await import('./nurtureHotLeads.js');
+  return tryAutoEnrollHotLead(params);
 }
 
 export async function processNurtureDueEnrollment(

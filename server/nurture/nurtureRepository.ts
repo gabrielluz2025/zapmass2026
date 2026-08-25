@@ -120,6 +120,7 @@ export function normalizeNurtureJourneyDoc(raw: unknown): NurtureJourneyDoc {
     scheduleMode: o.scheduleMode === 'calendar' ? 'calendar' : 'relative',
     entryRules: {
       autoEnrollOnOptIn: er.autoEnrollOnOptIn !== false,
+      autoEnrollOnHotLead: er.autoEnrollOnHotLead !== false,
       requireMarketingOptIn: er.requireMarketingOptIn !== false,
       defaultConnectionId: er.defaultConnectionId
         ? String(er.defaultConnectionId).trim().slice(0, 64)
