@@ -1,4 +1,4 @@
-import type { Job, Queue } from 'bullmq';
+import { isBrazilNightHour, msUntilBrazil8am } from './sleepModeService.js';
 
 export type GradualResumeOptions = {
   /** Espaçamento linear entre jobs (ms). */
@@ -9,6 +9,8 @@ export type GradualResumeOptions = {
   chunkSize?: number;
   /** Pausa entre chunks (ms). */
   chunkPauseMs?: number;
+  /** Respeita silêncio noturno 20h–8h BRT ao reagendar. */
+  respectNightWindow?: boolean;
 };
 
 export type GradualResumeResult = {
@@ -18,11 +20,14 @@ export type GradualResumeResult = {
   errors: number;
 };
 
-const DEFAULT_OPTS: Required<GradualResumeOptions> = {
+const DEFAULT_OPTS: Required<Omit<GradualResumeOptions, 'respectNightWindow'>> & {
+  respectNightWindow: boolean;
+} = {
   spreadStepMs: 15_000,
   jitterMaxMs: 5_000,
   chunkSize: 50,
   chunkPauseMs: 10,
+  respectNightWindow: true,
 };
 
 type CampaignJobLike = {
@@ -41,6 +46,39 @@ export function estimateJobRunAt(job: { timestamp: number; opts: { delay?: numbe
   return job.timestamp + delay;
 }
 
+/**
+ * Ajusta horário para fora do silêncio noturno (20h–8h BRT).
+ * Preserva o offset de spread relativo ao início da janela (ex.: 08:00 + spread).
+ */
+export function clampRunAtToAllowedWindow(
+  runAtMs: number,
+  spreadOffsetMs: number,
+  respectNightWindow = true
+): number {
+  if (!respectNightWindow || !isBrazilNightHour(runAtMs)) return runAtMs;
+  const windowStart = runAtMs + msUntilBrazil8am(runAtMs);
+  return windowStart + Math.max(0, spreadOffsetMs);
+}
+
+/** Calcula epoch ms do próximo run, preservando agendamentos futuros. */
+export function computeGradualRunAtMs(params: {
+  index: number;
+  nowMs: number;
+  originalRunAtMs: number;
+  spreadStepMs: number;
+  jitterMaxMs: number;
+  random?: () => number;
+  respectNightWindow?: boolean;
+}): number {
+  const rand = params.random ?? Math.random;
+  const jitter = Math.floor(rand() * (params.jitterMaxMs + 1));
+  const spreadOffset = params.spreadStepMs * params.index + jitter;
+  const floorRunAt = params.nowMs + spreadOffset;
+  let newRunAt = Math.max(params.originalRunAtMs, floorRunAt);
+  newRunAt = clampRunAtToAllowedWindow(newRunAt, spreadOffset, params.respectNightWindow !== false);
+  return newRunAt;
+}
+
 /** Calcula novo delay relativo a `now`, preservando agendamentos futuros. */
 export function computeGradualDelayMs(params: {
   index: number;
@@ -49,11 +87,9 @@ export function computeGradualDelayMs(params: {
   spreadStepMs: number;
   jitterMaxMs: number;
   random?: () => number;
+  respectNightWindow?: boolean;
 }): number {
-  const rand = params.random ?? Math.random;
-  const jitter = Math.floor(rand() * (params.jitterMaxMs + 1));
-  const floorRunAt = params.nowMs + params.spreadStepMs * params.index + jitter;
-  const newRunAt = Math.max(params.originalRunAtMs, floorRunAt);
+  const newRunAt = computeGradualRunAtMs(params);
   return Math.max(0, newRunAt - params.nowMs);
 }
 
@@ -81,7 +117,7 @@ async function rescheduleJob(job: CampaignJobLike, newDelayMs: number): Promise<
  * evita burst spike no WhatsApp.
  */
 export async function spreadCampaignJobsOnResume<T extends { campaignId?: string }>(
-  queue: Queue<T>,
+  queue: import('bullmq').Queue<T>,
   campaignId: string,
   opts?: GradualResumeOptions
 ): Promise<GradualResumeResult> {
@@ -98,7 +134,7 @@ export async function spreadCampaignJobsOnResume<T extends { campaignId?: string
   for (const state of states) {
     let start = 0;
     while (true) {
-      const batch = (await queue.getJobs([state], start, start + pageSize - 1, true)) as Job<T>[];
+      const batch = (await queue.getJobs([state], start, start + pageSize - 1, true)) as import('bullmq').Job<T>[];
       if (batch.length === 0) break;
       for (const job of batch) {
         if (!matchesCampaign(job as CampaignJobLike, cid)) continue;
@@ -124,6 +160,7 @@ export async function spreadCampaignJobsOnResume<T extends { campaignId?: string
       originalRunAtMs: originalRunAt,
       spreadStepMs: cfg.spreadStepMs,
       jitterMaxMs: cfg.jitterMaxMs,
+      respectNightWindow: cfg.respectNightWindow,
     });
 
     try {

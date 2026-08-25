@@ -155,6 +155,8 @@ interface NewCampaignWizardProps {
     };
     /** Peso por chip (somente uso real no servidor no modo sequencial; 1 = igual em todos). */
     channelWeights?: Record<string, number>;
+    poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+    poolId?: string;
     /** Gatilhos avançados por etapa (motor multi-etapas persistente). Opcional. */
     stageConfigs?: CampaignStageConfig[];
     /**
@@ -1255,6 +1257,16 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   };
 
   const buildChannelWeightsPayload = (): Record<string, number> | undefined => {
+    if (chipSelectionMode === 'pool' && selectedPool) {
+      if (selectedPool.strategy !== 'weighted') return selectedPool.channelWeights;
+      const ids = getConnectedSelectedIds();
+      if (ids.length <= 1) return undefined;
+      const o: Record<string, number> = {};
+      ids.forEach((id) => {
+        o[id] = Math.max(1, Math.min(100, Math.round(Number(selectedPool.channelWeights?.[id]) || 1)));
+      });
+      return o;
+    }
     const ids = getConnectedSelectedIds();
     if (ids.length <= 1) return undefined;
     if (channelWeightMode === 'equal') {
@@ -1269,6 +1281,25 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       o[id] = Math.max(1, Math.min(100, Math.round(Number(channelWeightsById[id]) || 1)));
     });
     return o;
+  };
+
+  const buildPoolDispatchPayload = (): {
+    poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+    poolId?: string;
+    channelWeights?: Record<string, number>;
+  } | undefined => {
+    if (chipSelectionMode === 'pool' && selectedPool) {
+      return {
+        poolStrategy: selectedPool.strategy,
+        poolId: selectedPool.id,
+        ...(selectedPool.strategy === 'weighted'
+          ? { channelWeights: buildChannelWeightsPayload() }
+          : {}),
+      };
+    }
+    const cw = buildChannelWeightsPayload();
+    if (cw) return { poolStrategy: 'weighted', channelWeights: cw };
+    return undefined;
   };
 
   const sendWizardQuickTest = () => {
@@ -1475,7 +1506,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         : { id: undefined, name: 'Envio manual' };
 
     const runSingle = async () => {
-      const cw = buildChannelWeightsPayload();
+      const poolDispatch = buildPoolDispatchPayload();
       const base = {
         name: name.trim(),
         message: stagesBodies[0] || '',
@@ -1488,7 +1519,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         delaySeconds,
         delaySecondsMax: delaySecondsMax > delaySeconds ? delaySecondsMax : undefined,
         humanizedPauses,
-        ...(cw ? { channelWeights: cw } : {}),
+        ...(poolDispatch?.channelWeights ? { channelWeights: poolDispatch.channelWeights } : {}),
+        ...(poolDispatch?.poolStrategy ? { poolStrategy: poolDispatch.poolStrategy } : {}),
+        ...(poolDispatch?.poolId ? { poolId: poolDispatch.poolId } : {}),
         ...(mediaPayload ? { mediaAttachment: mediaPayload } : {}),
         ...(followUpMediaPayload ? { followUpMediaAttachment: followUpMediaPayload } : {}),
         ...(dailyScheduleEnabled && dailyScheduleDays.length > 0 ? {

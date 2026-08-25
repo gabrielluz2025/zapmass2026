@@ -213,6 +213,8 @@ async function processOneCampaign(
           recipients?: Array<{ phone: string; vars: Record<string, string> }>;
           replyFlow?: { enabled?: boolean; steps?: unknown[] };
           channelWeights?: Record<string, number>;
+          poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+          poolId?: string;
           skipFrequencyCap?: boolean;
           dailySchedule?: {
             enabled: boolean;
@@ -292,6 +294,13 @@ async function processOneCampaign(
       snap?.channelWeights && typeof snap.channelWeights === 'object' && snap.channelWeights !== null
         ? (snap.channelWeights as Record<string, number>)
         : undefined;
+    const scheduledPoolStrategy =
+      snap?.poolStrategy === 'round_robin' ||
+      snap?.poolStrategy === 'weighted' ||
+      snap?.poolStrategy === 'priority'
+        ? snap.poolStrategy
+        : undefined;
+    const scheduledPoolId = typeof snap?.poolId === 'string' ? snap.poolId : undefined;
 
     try {
       const started = await evolutionService.startCampaign(
@@ -310,7 +319,14 @@ async function processOneCampaign(
         snap?.skipFrequencyCap === true,
         Number.isFinite(delaySecondsMax) && delaySecondsMax > 0 ? delaySecondsMax : undefined,
         snap?.humanizedPauses !== false,
-        dailySchedule
+        dailySchedule,
+        scheduledPoolStrategy || scheduledPoolId || scheduledWeights
+          ? {
+              strategy: scheduledPoolStrategy,
+              channelWeights: scheduledWeights,
+              poolId: scheduledPoolId,
+            }
+          : undefined
       );
       if (!started) {
         console.warn('[ScheduledCampaign] startCampaign não iniciou (canais indisponíveis ou fila vazia). Reagendando.');

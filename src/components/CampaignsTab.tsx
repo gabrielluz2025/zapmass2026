@@ -112,6 +112,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     delaySeconds: number; launchMode?: 'now' | 'schedule';
     schedule?: { timeZone: string; slots: CampaignScheduleSlot[]; repeatWeekly: boolean; onceLocalDate?: string; onceLocalTime?: string };
     channelWeights?: Record<string, number>;
+    poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+    poolId?: string;
     stageConfigs?: CampaignStageConfig[];
     mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
     followUpMediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
@@ -300,6 +302,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       onceLocalTime?: string;
     };
     channelWeights?: Record<string, number>;
+    poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+    poolId?: string;
     stageConfigs?: CampaignStageConfig[];
     mediaAttachment?: {
       dataBase64: string;
@@ -344,6 +348,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 messageStages: payload.messageStages,
                 replyFlow: payload.replyFlow,
                 channelWeights: payload.channelWeights,
+                poolStrategy: payload.poolStrategy,
+                poolId: payload.poolId,
                 skipFrequencyCap: payload.skipFrequencyCap,
                 dailySchedule: payload.dailySchedule
               }
@@ -363,6 +369,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 messageStages: payload.messageStages,
                 replyFlow: payload.replyFlow,
                 channelWeights: payload.channelWeights,
+                poolStrategy: payload.poolStrategy,
+                poolId: payload.poolId,
                 stageConfigs: payload.stageConfigs,
                 mediaAttachment: payload.mediaAttachment,
                 followUpMediaAttachment: payload.followUpMediaAttachment,

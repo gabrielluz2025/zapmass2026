@@ -720,6 +720,8 @@ export interface ZapMassContextType {
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
       channelWeights?: Record<string, number>;
+      poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+      poolId?: string;
       stageConfigs?: CampaignStageConfig[];
       /** Anexo unico (foto, video ou arquivo) que vai com a 1a etapa. */
       mediaAttachment?: {
@@ -762,6 +764,8 @@ export interface ZapMassContextType {
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
       channelWeights?: Record<string, number>;
+      poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+      poolId?: string;
       skipFrequencyCap?: boolean;
       dailySchedule?: CampaignDailySchedule;
     }

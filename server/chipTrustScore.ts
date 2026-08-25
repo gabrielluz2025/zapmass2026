@@ -1,4 +1,4 @@
-export type ChipTier = 0 | 1 | 2;
+export type ChipTier = '0A' | '0B' | 1 | 2;
 
 export type ChipTierProfile = {
   tier: ChipTier;
@@ -16,7 +16,8 @@ const TIER_CONFIG: Record<
   ChipTier,
   { label: string; delayMultiplier: number; suggestedDailyCap: number; minDays: number; maxDays: number | null }
 > = {
-  0: { label: 'Novo (0–7d)', delayMultiplier: 3, suggestedDailyCap: 80, minDays: 0, maxDays: 7 },
+  '0A': { label: 'Crítico (0–2d)', delayMultiplier: 5, suggestedDailyCap: 20, minDays: 0, maxDays: 2 },
+  '0B': { label: 'Novo (3–7d)', delayMultiplier: 3, suggestedDailyCap: 80, minDays: 3, maxDays: 7 },
   1: { label: 'Aquecimento (8–21d)', delayMultiplier: 1.8, suggestedDailyCap: 250, minDays: 8, maxDays: 21 },
   2: { label: 'Estabelecido (>21d)', delayMultiplier: 1, suggestedDailyCap: 0, minDays: 22, maxDays: null },
 };
@@ -25,10 +26,11 @@ const TIER_CONFIG: Record<
 export function resolveChipTier(connectedSinceMs: number | undefined, nowMs = Date.now()): ChipTierProfile {
   const since = Number(connectedSinceMs);
   if (!Number.isFinite(since) || since <= 0) {
-    return profileForTier(0, 0);
+    return profileForTier('0A', 0);
   }
   const ageDays = Math.max(0, Math.floor((nowMs - since) / DAY_MS));
-  if (ageDays <= 7) return profileForTier(0, ageDays);
+  if (ageDays <= 2) return profileForTier('0A', ageDays);
+  if (ageDays <= 7) return profileForTier('0B', ageDays);
   if (ageDays <= 21) return profileForTier(1, ageDays);
   return profileForTier(2, ageDays);
 }
@@ -54,4 +56,10 @@ export function computeTierAdjustedDelay(baseDelayMs: number, profile: ChipTierP
 export function computeTierExtraDelayMs(baseDelayMs: number, profile: ChipTierProfile): number {
   const adjusted = computeTierAdjustedDelay(baseDelayMs, profile);
   return Math.max(0, adjusted - baseDelayMs);
+}
+
+/** Verifica se o chip atingiu o cap sugerido do tier no dia corrente. */
+export function isTierDailyCapReached(messagesSentToday: number, profile: ChipTierProfile): boolean {
+  if (profile.suggestedDailyCap <= 0) return false;
+  return Math.max(0, messagesSentToday) >= profile.suggestedDailyCap;
 }

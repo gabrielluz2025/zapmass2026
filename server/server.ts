@@ -1596,6 +1596,8 @@ const registerSocketHandlers = () => {
           humanizedPauses,
           recipients,
           channelWeights,
+          poolStrategy,
+          poolId,
           mediaAttachment,
           followUpMediaAttachment,
           stageConfigs,
@@ -1619,6 +1621,8 @@ const registerSocketHandlers = () => {
           delaySeconds?: number;
           recipients?: Array<{ phone: string; vars: Record<string, string> }>;
           channelWeights?: Record<string, number>;
+          poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+          poolId?: string;
           mediaAttachment?: {
             dataBase64?: string;
             mimeType?: string;
@@ -1859,7 +1863,14 @@ const registerSocketHandlers = () => {
               skipFrequencyCap === true,
               typeof delaySecondsMax === 'number' && Number.isFinite(delaySecondsMax) ? delaySecondsMax : undefined,
               humanizedPauses === true,
-              dailySchedule
+              dailySchedule,
+              poolStrategy || poolId || channelWeights
+                ? {
+                      strategy: poolStrategy,
+                      channelWeights,
+                      poolId,
+                  }
+                : undefined
             );
             if (!ok) {
               const errMsg =

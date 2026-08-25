@@ -49,7 +49,6 @@ import {
     buildRecipientVarsMap,
     extractEvolutionReplyBody,
     normalizePhoneKey,
-    pickWeightedChannel,
     sanitizeReplyFlowSteps,
     sanitizeReplyFlowMeta,
     type CampaignRecipient,
@@ -63,8 +62,18 @@ import {
     type CampaignDispatchGuardResult
 } from './campaignChipGuard.js';
 import { spreadCampaignJobsOnResume } from './campaignGradualResume.js';
+import { pickDispatchChannel, pickInitialDispatchChannel } from './campaignPoolDispatch.js';
+import {
+    resolvePoolStrategy,
+    saveCampaignPoolConfig,
+    type PoolStrategy,
+} from './campaignPoolRedis.js';
 import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
-import { computeTierExtraDelayMs, resolveChipTier } from './chipTrustScore.js';
+import {
+    computeTierExtraDelayMs,
+    isTierDailyCapReached,
+    resolveChipTier,
+} from './chipTrustScore.js';
 import { checkInboundAutomationAllowed } from './inboundAutomationGuard.js';
 import { computeDailyScheduleDelayMs } from './campaignDailyScheduleDelay.js';
 import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
@@ -4285,19 +4294,48 @@ async function attemptEvolutionSendMedia(
 /**
  * Uma tentativa de sendText na Evolution (sem retry de variante).
  */
+import { computeComposingDelayMs } from './campaignComposingDelay.js';
+async function sendPresenceComposing(
+    connectionId: string,
+    toNumber: string,
+    delayMs: number
+): Promise<void> {
+    const ms = Math.floor(Math.max(0, delayMs));
+    if (ms <= 0) return;
+    const number = normalizeOutboundNumber(toNumber);
+    if (!number) return;
+    try {
+        await api.post(`/chat/sendPresence/${evoInst(connectionId)}`, {
+            number,
+            presence: 'composing',
+            delay: ms,
+            options: { delay: ms, presence: 'composing', number },
+        });
+        await new Promise((resolve) => setTimeout(resolve, ms));
+    } catch (err) {
+        log('warn', 'sendPresence composing falhou (ignorado)', {
+            connectionId,
+            to: number,
+            error: err instanceof Error ? err.message : String(err),
+        });
+    }
+}
+
 async function attemptEvolutionSendText(
     connectionId: string,
     number: string,
     message: string,
-    toOriginal: string
+    toOriginal: string,
+    skipInlinePresence = false
 ): Promise<{ ok: boolean; messageId?: string; errorDetail?: string; isPending?: boolean }> {
     try {
         const response = await api.post(`/message/sendText/${evoInst(connectionId)}`, {
             number,
-            options: { delay: 1200, presence: 'composing' },
+            ...(skipInlinePresence
+                ? {}
+                : { options: { delay: 1200, presence: 'composing' }, delay: 1200 }),
             textMessage: { text: message },
             text: message,
-            delay: 1200,
         });
 
         const responseData = response.data;
@@ -4419,7 +4457,7 @@ async function sendMessageInternal(
             });
         }
 
-        lastResult = await attemptEvolutionSendText(connectionId, tryNumber, outgoingText, to);
+        lastResult = await attemptEvolutionSendText(connectionId, tryNumber, outgoingText, to, true);
         if (lastResult.ok) return lastResult;
 
         const hasMoreVariants = i < variants.length - 1;
@@ -4536,21 +4574,18 @@ async function isCampaignChannelHealthy(connectionId: string): Promise<boolean> 
 
 async function pickHealthyFailoverChannel(
     currentId: string,
-    alternateIds: string[] | undefined
+    alternateIds: string[] | undefined,
+    campaignId?: string,
+    rotationIndex?: number
 ): Promise<string | null> {
-    const current = String(currentId || '').trim();
-    if (current && (await isCampaignChannelHealthy(current))) return current;
-    const alts = Array.isArray(alternateIds)
-        ? alternateIds.map((id) => String(id || '').trim()).filter(Boolean)
-        : [];
-    if (alts.length === 0) return null;
-    const curIdx = Math.max(0, alts.indexOf(current));
-    for (let step = 1; step <= alts.length; step++) {
-        const altId = alts[(curIdx + step) % alts.length];
-        if (!altId || altId === current) continue;
-        if (await isCampaignChannelHealthy(altId)) return altId;
-    }
-    return null;
+    return pickDispatchChannel({
+        campaignId,
+        currentId,
+        alternateIds,
+        rotationIndex,
+        preferCurrent: true,
+        isChannelUsable: isCampaignChannelUsable,
+    });
 }
 
 async function buildCampaignGuardContext(
@@ -4827,6 +4862,25 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     // Trust score: chips novos recebem delay extra antes do envio (ramp-up).
     if (!item.nurtureFollowUp && !item._tierDelayApplied) {
         const tierProfile = resolveChipTier(getConnectionConnectedSince(item.connectionId));
+        const tierConn = connections.get(item.connectionId);
+        if (tierConn && isTierDailyCapReached(tierConn.messagesSentToday || 0, tierProfile)) {
+            checkAndResetDailyLimits(tierConn);
+            if (isTierDailyCapReached(tierConn.messagesSentToday || 0, tierProfile)) {
+                const nowBr = new Date(Date.now() - 3 * 3600_000);
+                const msBrMidnight =
+                    (24 - nowBr.getUTCHours()) * 3600_000 -
+                    nowBr.getUTCMinutes() * 60_000 -
+                    nowBr.getUTCSeconds() * 1000;
+                emitCampaignLog(
+                    'WARN',
+                    `Chip ${item.connectionId} atingiu cap diário do tier ${tierProfile.label} (${tierProfile.suggestedDailyCap}/dia). Reagendado para amanhã.`,
+                    { campaignId: item.campaignId, connectionId: item.connectionId, tier: tierProfile.tier },
+                    campaignState?.ownerUid
+                );
+                await job.moveToDelayed(Date.now() + Math.max(msBrMidnight, 60_000), token);
+                throw new DelayedError();
+            }
+        }
         let extraDelay = computeTierExtraDelayMs(dispatchSettings.minDelayMs, tierProfile);
         const cbScore = await getChipCircuitBreaker().getHealthScore(item.connectionId);
         extraDelay = Math.floor(extraDelay * getChipCircuitBreaker().delayMultiplier(cbScore));
@@ -4866,7 +4920,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     if (!(await isCampaignChannelHealthy(item.connectionId))) {
-        const failoverId = await pickHealthyFailoverChannel(item.connectionId, item.alternateChannelIds);
+        const failoverId = await pickHealthyFailoverChannel(
+            item.connectionId,
+            item.alternateChannelIds,
+            item.campaignId,
+            item.rotationIndex
+        );
         if (failoverId && failoverId !== item.connectionId) {
             emitCampaignLog(
                 'WARN',
@@ -4976,7 +5035,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     if (!(await isConnectionOpen(item.connectionId))) {
-        const failoverId = await pickHealthyFailoverChannel(item.connectionId, item.alternateChannelIds);
+        const failoverId = await pickHealthyFailoverChannel(
+            item.connectionId,
+            item.alternateChannelIds,
+            item.campaignId,
+            item.rotationIndex
+        );
         if (failoverId && failoverId !== item.connectionId) {
             emitCampaignLog(
                 'WARN',
@@ -5098,6 +5162,8 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             );
         }
     } else {
+        const composeMs = computeComposingDelayMs(textPayload);
+        await sendPresenceComposing(item.connectionId, sendTo, composeMs);
         sendResult = await sendMessageInternal(item.connectionId, sendTo, item.message);
     }
 
@@ -5113,28 +5179,45 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         const alternates = Array.isArray(item.alternateChannelIds) ? item.alternateChannelIds : [];
         if (alternates.length > 1) {
             const originalId = item.connectionId;
-            const curIdx = Math.max(0, alternates.indexOf(originalId));
+            const tried = new Set<string>([originalId]);
             let switched = false;
-            for (let step = 1; step < alternates.length; step++) {
-                const altId = alternates[(curIdx + step) % alternates.length];
-                if (altId === originalId) continue;
-                if (await isCampaignChannelHealthy(altId)) {
-                    emitCampaignLog(
-                        'WARN',
-                        `Chip ${originalId} falhou — alternando para ${altId} (failover automático)`,
-                        { campaignId: item.campaignId, de: originalId, para: altId },
-                        campaignState?.ownerUid
-                    );
-                    item.connectionId = altId;
-                    await job.updateData(item).catch(() => {});
-                    const altRetry = item.media
-                        ? await sendMediaInternal(altId, sendTo, item.media.base64 || '', item.media.mimeType, item.media.fileName, item.media.caption || item.message)
-                        : await sendMessageInternal(altId, sendTo, item.message);
-                    if (altRetry.ok) {
-                        sendResult = altRetry;
-                        switched = true;
-                        break;
-                    }
+            for (let step = 0; step < alternates.length; step++) {
+                const altId = await pickDispatchChannel({
+                    campaignId: item.campaignId,
+                    currentId: originalId,
+                    alternateIds: alternates,
+                    rotationIndex: (item.rotationIndex ?? 0) + step + 1,
+                    preferCurrent: false,
+                    isChannelUsable: isCampaignChannelUsable,
+                });
+                if (!altId || tried.has(altId)) continue;
+                tried.add(altId);
+                if (!(await isCampaignChannelHealthy(altId))) continue;
+                emitCampaignLog(
+                    'WARN',
+                    `Chip ${originalId} falhou — alternando para ${altId} (failover automático)`,
+                    { campaignId: item.campaignId, de: originalId, para: altId },
+                    campaignState?.ownerUid
+                );
+                item.connectionId = altId;
+                await job.updateData(item).catch(() => {});
+                const altRetry = item.media
+                    ? await sendMediaInternal(
+                          altId,
+                          sendTo,
+                          item.media.base64 || '',
+                          item.media.mimeType,
+                          item.media.fileName,
+                          item.media.caption || item.message
+                      )
+                    : await (async () => {
+                          await sendPresenceComposing(altId, sendTo, computeComposingDelayMs(textPayload));
+                          return sendMessageInternal(altId, sendTo, item.message);
+                      })();
+                if (altRetry.ok) {
+                    sendResult = altRetry;
+                    switched = true;
+                    break;
                 }
             }
             if (!switched) {
@@ -5875,6 +5958,11 @@ export async function startCampaign(
             dayIndex: number;
             limitPerChannel: number;
         }>;
+    },
+    poolDispatch?: {
+        strategy?: PoolStrategy;
+        channelWeights?: Record<string, number>;
+        poolId?: string;
     }
 ): Promise<boolean> {
     if (connectionIds.length === 0 || numbers.length === 0) return false;
@@ -5952,11 +6040,18 @@ export async function startCampaign(
     const recipientVars = buildRecipientVarsMap(recipients);
     const hasMedia = campaignMediaById.has(cid);
 
-    const useWeights =
-        !useReplyFlow &&
-        channelWeights &&
-        typeof channelWeights === 'object' &&
-        Object.keys(channelWeights).length > 0;
+    const resolvedPoolWeights = poolDispatch?.channelWeights ?? channelWeights ?? {};
+    const poolStrategy = resolvePoolStrategy(poolDispatch?.strategy, resolvedPoolWeights);
+    const usePoolDispatch = !useReplyFlow && activeConnectionIds.length > 1;
+
+    if (usePoolDispatch) {
+        await saveCampaignPoolConfig(cid, {
+            strategy: poolStrategy,
+            channelWeights: resolvedPoolWeights,
+            connectionIds: activeConnectionIds,
+            poolId: poolDispatch?.poolId,
+        });
+    }
 
     campaignsById.set(cid, {
         ownerUid,
@@ -6003,8 +6098,13 @@ export async function startCampaign(
             const num = numbers[i];
             const cleanPhone = normalizePhoneKey(num);
             const vars = recipientVars.get(cleanPhone) || {};
-            const assignedConnectionId = useWeights
-                ? pickWeightedChannel(activeConnectionIds, channelWeights, i)
+            const assignedConnectionId = usePoolDispatch
+                ? pickInitialDispatchChannel({
+                      strategy: poolStrategy,
+                      connectionIds: activeConnectionIds,
+                      channelWeights: resolvedPoolWeights,
+                      index: i,
+                  })
                 : activeConnectionIds[i % activeConnectionIds.length];
 
             let staggerDelay = 0;

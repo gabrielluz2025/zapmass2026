@@ -3802,6 +3802,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
       channelWeights?: Record<string, number>;
+      poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+      poolId?: string;
       stageConfigs?: CampaignStageConfig[];
       mediaAttachment?: {
         dataBase64: string;
@@ -3885,6 +3887,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
         ? { channelWeights: options.channelWeights }
         : {}),
+      ...(options?.poolStrategy ? { poolStrategy: options.poolStrategy } : {}),
+      ...(options?.poolId ? { poolId: options.poolId } : {}),
       ...(options?.dailySchedule?.enabled ? { dailySchedule: options.dailySchedule } : {}),
       createdAt: new Date().toISOString(),
       scheduleStartSnapshot: {
@@ -3900,6 +3904,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
           ? { channelWeights: options.channelWeights }
           : {}),
+        ...(options?.poolStrategy ? { poolStrategy: options.poolStrategy } : {}),
+        ...(options?.poolId ? { poolId: options.poolId } : {}),
         ...(options?.dailySchedule?.enabled ? { dailySchedule: options.dailySchedule } : {}),
         ...(options?.skipFrequencyCap ? { skipFrequencyCap: true } : {})
       }
@@ -3970,6 +3976,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             humanizedPauses: options?.humanizedPauses !== false,
             recipients: cleanRecipients,
             channelWeights: options?.channelWeights,
+            poolStrategy: options?.poolStrategy,
+            poolId: options?.poolId,
             stageConfigs: options?.stageConfigs,
             mediaAttachment: options?.mediaAttachment,
             followUpMediaAttachment: options?.followUpMediaAttachment,
@@ -4056,6 +4064,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
       channelWeights?: Record<string, number>;
+      poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+      poolId?: string;
       skipFrequencyCap?: boolean;
       dailySchedule?: CampaignDailySchedule;
       delaySecondsMax?: number;
@@ -4156,6 +4166,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
           ? { channelWeights: options.channelWeights }
           : {}),
+        ...(options?.poolStrategy ? { poolStrategy: options.poolStrategy } : {}),
+        ...(options?.poolId ? { poolId: options.poolId } : {}),
         ...(options?.dailySchedule?.enabled ? { dailySchedule: options.dailySchedule } : {}),
         ...(options?.skipFrequencyCap ? { skipFrequencyCap: true } : {})
       }

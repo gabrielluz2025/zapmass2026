@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { computeGradualDelayMs, estimateJobRunAt } from '../server/campaignGradualResume.js';
+import {
+  computeGradualDelayMs,
+  computeGradualRunAtMs,
+  estimateJobRunAt,
+  clampRunAtToAllowedWindow,
+} from '../server/campaignGradualResume.js';
 import { ChipCircuitBreaker } from '../server/chipCircuitBreaker.js';
+import {
+  applyCircuitWeightPenalty,
+  pickPoolChannelByStrategy,
+} from '../server/campaignPoolDispatch.js';
 import { computeTierAdjustedDelay, resolveChipTier } from '../server/chipTrustScore.js';
 
 describe('computeGradualDelayMs', () => {
@@ -13,6 +22,7 @@ describe('computeGradualDelayMs', () => {
       spreadStepMs: 10_000,
       jitterMaxMs: 0,
       random: () => 0,
+      respectNightWindow: false,
     });
     const d2 = computeGradualDelayMs({
       index: 2,
@@ -21,6 +31,7 @@ describe('computeGradualDelayMs', () => {
       spreadStepMs: 10_000,
       jitterMaxMs: 0,
       random: () => 0,
+      respectNightWindow: false,
     });
     expect(d0).toBe(0);
     expect(d2).toBe(20_000);
@@ -36,8 +47,35 @@ describe('computeGradualDelayMs', () => {
       spreadStepMs: 10_000,
       jitterMaxMs: 0,
       random: () => 0,
+      respectNightWindow: false,
     });
     expect(d).toBe(tomorrow - now);
+  });
+
+  it('empurra jobs noturnos para após 8h BRT', () => {
+    const MS_BR = 3 * 60 * 60 * 1000;
+    const br = new Date(Date.UTC(2026, 0, 15, 23, 30, 0));
+    const now = br.getTime() + MS_BR;
+    const runAt = computeGradualRunAtMs({
+      index: 0,
+      nowMs: now,
+      originalRunAtMs: now,
+      spreadStepMs: 15_000,
+      jitterMaxMs: 0,
+      random: () => 0,
+      respectNightWindow: true,
+    });
+    const brRun = new Date(runAt - MS_BR);
+    expect(brRun.getUTCHours()).toBeGreaterThanOrEqual(8);
+    expect(brRun.getUTCHours()).toBeLessThan(20);
+  });
+});
+
+describe('clampRunAtToAllowedWindow', () => {
+  it('mantém horário diurno', () => {
+    const MS_BR = 3 * 60 * 60 * 1000;
+    const day = new Date(Date.UTC(2026, 0, 15, 14, 0, 0)).getTime() + MS_BR;
+    expect(clampRunAtToAllowedWindow(day, 5000, true)).toBe(day);
   });
 });
 
@@ -64,16 +102,61 @@ describe('ChipCircuitBreaker.classifyCounts', () => {
   });
 });
 
+describe('campaignPoolDispatch', () => {
+  it('penaliza peso em HALF_OPEN', () => {
+    expect(applyCircuitWeightPenalty(10, 'HALF_OPEN')).toBe(5);
+    expect(applyCircuitWeightPenalty(10, 'CLOSED')).toBe(10);
+  });
+
+  it('priority escolhe primeiro chip saudável', () => {
+    expect(
+      pickPoolChannelByStrategy({
+        strategy: 'priority',
+        healthyIds: ['a', 'b', 'c'],
+        channelWeights: {},
+        index: 5,
+      })
+    ).toBe('a');
+  });
+
+  it('weighted distribui por índice', () => {
+    const pick = pickPoolChannelByStrategy({
+      strategy: 'weighted',
+      healthyIds: ['a', 'b'],
+      channelWeights: { a: 1, b: 3 },
+      index: 2,
+    });
+    expect(['a', 'b']).toContain(pick);
+  });
+});
+
 describe('chipTrustScore', () => {
-  it('tier 0 para chip novo', () => {
+  it('tier 0A para chip crítico (0–2d)', () => {
     const now = Date.now();
-    const p = resolveChipTier(now - 2 * 86_400_000, now);
-    expect(p.tier).toBe(0);
+    const p = resolveChipTier(now - 1 * 86_400_000, now);
+    expect(p.tier).toBe('0A');
+    expect(p.delayMultiplier).toBe(5);
+    expect(p.suggestedDailyCap).toBe(20);
+  });
+
+  it('tier 0B para chip 3–7d', () => {
+    const now = Date.now();
+    const p = resolveChipTier(now - 5 * 86_400_000, now);
+    expect(p.tier).toBe('0B');
     expect(p.delayMultiplier).toBe(3);
   });
 
-  it('multiplica delay base', () => {
-    const p = resolveChipTier(Date.now() - 3 * 86_400_000);
-    expect(computeTierAdjustedDelay(20_000, p)).toBe(60_000);
+  it('multiplica delay base no tier 0A', () => {
+    const p = resolveChipTier(Date.now() - 1 * 86_400_000);
+    expect(computeTierAdjustedDelay(20_000, p)).toBe(100_000);
+  });
+});
+
+describe('computeComposingDelayMs', () => {
+  it('limita entre 1.5s e 7s', async () => {
+    const { computeComposingDelayMs } = await import('../server/campaignComposingDelay.js');
+    expect(computeComposingDelayMs('')).toBe(1500);
+    expect(computeComposingDelayMs('x'.repeat(200))).toBe(7000);
+    expect(computeComposingDelayMs('x'.repeat(45))).toBe(3000);
   });
 });
