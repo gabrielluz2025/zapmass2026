@@ -15,7 +15,7 @@ import IORedis from 'ioredis';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { evolutionConfig, isEvolutionGoEngine } from './evolutionConfig.js';
+import { evolutionConfig, isEvolutionGoEngine, isGoWebhookInboxMode } from './evolutionConfig.js';
 import { createEvolutionHttpClient } from './evolutionProvider/createEvolutionHttpClient.js';
 import {
     looksLikeBase64Image,
@@ -1016,6 +1016,10 @@ export async function syncConnectionsForOwner(
                         error: err?.message,
                     });
                 });
+                if (isGoWebhookInboxMode()) {
+                    syncedChats.push(id);
+                    return;
+                }
                 if (ownerSyncProfile.fullHistory) {
                     await ensureEvolutionFullHistorySync(id);
                 }
@@ -1048,7 +1052,11 @@ export async function syncConnectionsForOwner(
         }
     }
 
-    if (syncedChats.length === 0 || mappedChats > 0) {
+    if (isGoWebhookInboxMode()) {
+        if (syncedChats.length > 0) {
+            await markOwnerFullSyncDone(uid);
+        }
+    } else if (syncedChats.length === 0 || mappedChats > 0) {
         await markOwnerFullSyncDone(uid);
     } else {
         log('warn', 'syncConnectionsForOwner: findChats vazio com chip aberto — cooldown não marcado', {
@@ -1107,7 +1115,7 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
     const hasOpenChip = scopedForReemit.some((c) => String(c.status || '').toUpperCase() === 'CONNECTED');
     if (isInboxPaginationEnabled()) {
         const page = await getInboxPageForOwner(uid, uid, { reset: true });
-        if (page.total === 0 && hasOpenChip) {
+        if (page.total === 0 && hasOpenChip && !isGoWebhookInboxMode()) {
             log('info', 'reemitConversationsForOwner: RAM vazia com chips abertos — sync completo', {
                 ownerUid: uid,
             });
@@ -1115,7 +1123,7 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
             return;
         }
         /** Pós-deploy: RAM só com webhooks recentes, cooldown Redis ainda ativo no processo antigo. */
-        if (hasOpenChip && (await ownerFullSyncIsDue(uid))) {
+        if (hasOpenChip && (await ownerFullSyncIsDue(uid)) && !isGoWebhookInboxMode()) {
             log('info', 'reemitConversationsForOwner: sync completo devido (restart)', {
                 ownerUid: uid,
                 ramTotal: page.total,
@@ -1812,12 +1820,16 @@ function applyConnectionStateUpdate(
             if (syncProfile.fullHistory) {
                 await ensureEvolutionFullHistorySync(instance);
             }
-            await chatStore.syncChatsForConnection(instance, {
-                sparseLimit: syncProfile.sparseConvLimit,
-                msgPrefetch: syncProfile.msgPrefetch,
-                prefetchBatchSize: syncProfile.prefetchBatchSize,
-                fullInboxSync: syncProfile.fullInboxSync,
-            });
+            if (!isGoWebhookInboxMode()) {
+                await chatStore.syncChatsForConnection(instance, {
+                    sparseLimit: syncProfile.sparseConvLimit,
+                    msgPrefetch: syncProfile.msgPrefetch,
+                    prefetchBatchSize: syncProfile.prefetchBatchSize,
+                    fullInboxSync: syncProfile.fullInboxSync,
+                });
+            } else {
+                await setupWebhook(instance).catch(() => undefined);
+            }
             if (ou) {
                 publishOwnerEvent(
                     ou,
@@ -3417,6 +3429,7 @@ const fullHistorySyncEnsured = new Set<string>();
 async function ensureEvolutionFullHistorySync(instanceName: string): Promise<boolean> {
     const id = String(instanceName || '').trim();
     if (!id || !isEvolutionFullHistorySyncEnabled()) return false;
+    if (isGoWebhookInboxMode()) return false;
     if (fullHistorySyncEnsured.has(id)) return true;
 
     try {
@@ -8061,6 +8074,7 @@ export function getConversations(): Conversation[] {
 }
 
 export async function syncAllOpenChats(): Promise<void> {
+    if (isGoWebhookInboxMode()) return;
     const tasks: Promise<number>[] = [];
     for (const [id, conn] of connections.entries()) {
         if (conn.status === 'open') {
@@ -8114,11 +8128,13 @@ export async function syncOpenChatsForOwner(ownerUid: string): Promise<{
             });
         });
         syncedChats.push(id);
-        tasks.push(
-            chatStore.syncChatsForConnection(id).then((n) => {
-                conversationCounts[id] = n;
-            })
-        );
+        if (!isGoWebhookInboxMode()) {
+            tasks.push(
+                chatStore.syncChatsForConnection(id).then((n) => {
+                    conversationCounts[id] = n;
+                })
+            );
+        }
     }
 
     if (tasks.length > 0) {

@@ -25,6 +25,11 @@ export function isEvolutionGoEngine(): boolean {
     return resolveWhatsAppEngine() === 'evolution-go';
 }
 
+/** Go não expõe findChats/findMessages — inbox alimentada por webhooks em tempo real. */
+export function isGoWebhookInboxMode(): boolean {
+    return isEvolutionGoEngine();
+}
+
 /** Evolution API (legacy) ou Evolution Go — ambos usam evolutionService. */
 export function usesEvolutionMotor(): boolean {
     const engine = resolveWhatsAppEngine();

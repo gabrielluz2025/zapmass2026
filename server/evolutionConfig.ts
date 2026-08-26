@@ -2,6 +2,7 @@ import {
     activeEvolutionBaseUrl,
     evolutionEngineConfig,
     isEvolutionGoEngine,
+    isGoWebhookInboxMode,
     resolveWhatsAppEngine,
     usesEvolutionMotor,
 } from './evolutionEngineConfig.js';
@@ -25,4 +26,4 @@ export const evolutionConfig = {
     isGo: isEvolutionGoEngine(),
 };
 
-export { evolutionEngineConfig, isEvolutionGoEngine, resolveWhatsAppEngine, usesEvolutionMotor };
+export { evolutionEngineConfig, isEvolutionGoEngine, isGoWebhookInboxMode, resolveWhatsAppEngine, usesEvolutionMotor };
