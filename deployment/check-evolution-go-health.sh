@@ -8,6 +8,7 @@ ENV_FILE="${ENV_FILE:-.env}"
 
 GO_KEY="$(grep -E '^EVOLUTION_GO_KEY=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"'"'"'' || true)"
 GO_KEY="${GO_KEY:-$(grep -E '^EVOLUTION_API_KEY=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"'"'"'' || echo zapmass-secure-key-2026)}"
+CONTAINER_GO_KEY="$(docker compose exec -T evolution-go printenv GLOBAL_API_KEY 2>/dev/null | tr -d '\r' || true)"
 ENGINE="$(grep -E '^ZAPMASS_WHATSAPP_ENGINE=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"'"'"'' || echo evolution-go)"
 
 fail=0
@@ -17,6 +18,9 @@ bad() { echo "ERRO: $*" >&2; fail=1; }
 
 echo "==> Evolution Go — health check"
 echo "    engine=${ENGINE}"
+if [ -n "$CONTAINER_GO_KEY" ] && [ "$CONTAINER_GO_KEY" != "$GO_KEY" ]; then
+  warn "EVOLUTION_GO_KEY no .env difere do GLOBAL_API_KEY do container — alinhe .env e recrie evolution-go"
+fi
 echo ""
 
 echo "==> docker compose ps (zapmass, evolution-go, redis, postgres)"

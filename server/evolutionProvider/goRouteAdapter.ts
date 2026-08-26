@@ -282,6 +282,7 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
             name: row.name || row.instanceName,
             instanceName: row.name || row.instanceName,
             id: row.id,
+            token: row.token,
             jid: row.jid,
             connected: row.connected,
             connectionStatus: row.connected ? 'open' : 'close',

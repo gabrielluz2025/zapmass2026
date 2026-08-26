@@ -109,4 +109,13 @@ describe('normalizeGoResponseToApiV2', () => {
         }) as { profilePictureUrl: string };
         expect(out.profilePictureUrl).toContain('data:image/jpeg;base64,');
     });
+
+    it('preserva token e jid em /instance/all', () => {
+        const out = normalizeGoResponseToApiV2('/instance/all', {
+            data: [{ id: 'uuid-1', name: 'chip1', token: 'tok-1', jid: '554796317344:19@s.whatsapp.net', connected: true }],
+        }) as Array<{ token?: string; jid?: string; connectionStatus?: string }>;
+        expect(out[0]?.token).toBe('tok-1');
+        expect(out[0]?.jid).toContain('554796317344');
+        expect(out[0]?.connectionStatus).toBe('open');
+    });
 });

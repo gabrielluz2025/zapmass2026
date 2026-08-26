@@ -256,9 +256,14 @@ function mapEvolutionState(raw: unknown): EvolutionInstance['status'] {
 
 function phoneDigitsFromJidLike(value: unknown): string | undefined {
     if (typeof value !== 'string' || !value.trim()) return undefined;
-    const base = value.includes('@') ? value.split('@')[0] : value;
+    let base = value.includes('@') ? value.split('@')[0]! : value.trim();
+    // JID multi-device: 5547999999999:19@s.whatsapp.net → só o número
+    if (base.includes(':')) {
+        base = base.split(':')[0]!;
+    }
     const digits = base.replace(/\D/g, '');
-    return digits.length >= 10 ? digits : undefined;
+    if (digits.length < 10 || digits.length > 13) return undefined;
+    return digits;
 }
 
 function phoneFromEvolutionRow(row: Record<string, unknown>): string | undefined {
@@ -2140,7 +2145,7 @@ async function hydrateInstancesFromEvolution() {
                 row.name || row.instanceName || (row.instance as Record<string, unknown> | undefined)?.instanceName || ''
             ).trim();
             if (!instanceName) continue;
-            persistGoInstanceUuid(instanceName, row.id ?? row.instanceId);
+            syncGoInstanceCredentials(instanceName, row);
 
             const existing = connections.get(instanceName);
             // Shard Evolution compartilhado: não hidratar instâncias de outros clientes
@@ -3256,6 +3261,17 @@ function persistGoInstanceUuid(connectionId: string, uuid: unknown): void {
     saveConnectionsSettings();
 }
 
+/** Sincroniza UUID + token da instância Go (evita 401 em /user/avatar). */
+function syncGoInstanceCredentials(connectionId: string, row: Record<string, unknown>): void {
+    persistGoInstanceUuid(connectionId, row.id ?? row.instanceId);
+    const token = typeof row.token === 'string' ? row.token.trim() : '';
+    if (!token) return;
+    if (connectionsSettingsCache[connectionId]?.evolutionGoToken === token) return;
+    mergeConnectionSettingsCache(connectionId, { evolutionGoToken: token });
+    saveConnectionsSettings();
+    log('info', `Token Go sincronizado: ${connectionId}`);
+}
+
 /** Cria instância no Evolution Go se o canal existe no ZapMass mas não no motor (pós-cutover). */
 async function ensureEvolutionGoInstanceExists(connectionId: string): Promise<boolean> {
     if (!isEvolutionGoEngine()) return true;
@@ -3269,7 +3285,11 @@ async function ensureEvolutionGoInstanceExists(connectionId: string): Promise<bo
         const found = list.some((item: Record<string, unknown>) => {
             const name = String(item.name || item.instanceName || '').trim();
             const itemId = String(item.id || item.instanceId || '').trim();
-            return name === id || itemId === goUuid;
+            if (name === id) {
+                syncGoInstanceCredentials(id, item);
+                return true;
+            }
+            return itemId === goUuid;
         });
         if (found) return true;
     } catch (error: unknown) {
