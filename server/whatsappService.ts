@@ -7289,12 +7289,19 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
     emitWarmupChipStats();
 };
 
-export const startAutoWarmup = async (uid: string, connectionIds: string[], intervalMinutes: number) => {
-    const { isChipProtectionBlockingWarmup } = await import('./chipProtectionService.js');
-    if (await isChipProtectionBlockingWarmup(uid)) {
-        console.log(`[AutoWarmup] Bloqueado — proteção de chip (ban/always/lock) ativa para uid=${uid}`);
+export type AutoWarmupStartResult = { ok: true } | { ok: false; error: string };
+
+export const startAutoWarmup = async (
+    uid: string,
+    connectionIds: string[],
+    intervalMinutes: number
+): Promise<AutoWarmupStartResult> => {
+    const { getWarmupBlockReason } = await import('./chipProtectionService.js');
+    const blockReason = await getWarmupBlockReason(uid);
+    if (blockReason) {
+        console.log(`[AutoWarmup] Bloqueado — ${blockReason} uid=${uid}`);
         stopAutoWarmup(uid);
-        return;
+        return { ok: false, error: `Aquecimento bloqueado: ${blockReason}. Aguarde o cooldown ou verifique Proteção de chips.` };
     }
     stopAutoWarmup(uid);
     
@@ -7318,6 +7325,7 @@ export const startAutoWarmup = async (uid: string, connectionIds: string[], inte
 
     await saveAutoWarmupsToDisk();
     emitAutoWarmupStateToUser(uid);
+    return { ok: true };
 };
 
 export const stopAutoWarmup = (uid: string) => {

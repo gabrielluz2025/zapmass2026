@@ -2330,7 +2330,10 @@ const registerSocketHandlers = () => {
           if (ids.length === 0) return;
           const interval = Math.max(5, Math.min(120, Number(intervalMinutes) || 10));
           userLog('warmup:auto-start', { connectionIds: ids, intervalMinutes: interval });
-          await waService.startAutoWarmup(uid, ids, interval);
+          const started = await waService.startAutoWarmup(uid, ids, interval);
+          if (started.ok === false) {
+            socket.emit('warmup-send-error', { error: started.error });
+          }
           socket.emit('auto-warmup-state', waService.getAutoWarmupState(uid));
         } catch (e) {
           reportSocketAsyncError('start-auto-warmup', e);

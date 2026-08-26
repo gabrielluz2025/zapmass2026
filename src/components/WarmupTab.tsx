@@ -252,6 +252,11 @@ export const WarmupTab: React.FC = () => {
   useEffect(() => {
     if (!socket) return;
     const onErr = (data: { from?: string; to?: string; error?: string }) => {
+      setServerModeActive(false);
+      if (data.error && !data.from) {
+        toast.error(data.error);
+        return;
+      }
       const label = connections.find((c) => c.id === data.from)?.name || 'Canal';
       toast.error(`Falha no aquecimento (${label}): ${data.error || 'erro desconhecido'}`);
     };
@@ -264,6 +269,7 @@ export const WarmupTab: React.FC = () => {
     if (!socket) return;
     const onState = (data: { active: boolean; connectionIds?: string[]; intervalMinutes?: number }) => {
       setServerModeActive(!!data.active);
+      if (!data.active) stopWarmupTimer();
       if (data.active) {
         if (data.intervalMinutes) setIntervalMinutes(data.intervalMinutes);
         if (Array.isArray(data.connectionIds) && data.connectionIds.length > 0) {
@@ -285,7 +291,12 @@ export const WarmupTab: React.FC = () => {
       toast.error('Ative pelo menos 2 chips para iniciar o aquecimento.');
       return;
     }
-    socket?.emit('start-auto-warmup', { connectionIds: ids, intervalMinutes });
+    if (!socket?.connected) {
+      toast.error('Sem conexão com o servidor. Recarregue a página.');
+      return;
+    }
+    setServerModeActive(true);
+    socket.emit('start-auto-warmup', { connectionIds: ids, intervalMinutes });
   };
 
   const stopGlobalWarmup = () => {
