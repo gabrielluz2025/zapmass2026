@@ -2216,6 +2216,23 @@ function getRedisConnection(): IORedis | null {
     return redisConnection;
 }
 
+/** Aguarda Redis aceitar comandos (one-off scripts importam evolutionService antes do connect). */
+async function waitForRedisCommandReady(conn: IORedis, timeoutMs = 15_000): Promise<boolean> {
+    if (conn.status === 'ready') return true;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (conn.status === 'ready') return true;
+        try {
+            const pong = await conn.ping();
+            if (pong === 'PONG') return true;
+        } catch {
+            /* retry */
+        }
+        await new Promise((r) => setTimeout(r, 300));
+    }
+    return false;
+}
+
 /** Força recriação da conexão BullMQ (útil após restart do Redis ou URL corrigida). */
 export function resetCampaignRedisConnection(): void {
     if (redisConnection) {
@@ -3525,10 +3542,15 @@ const REPLYFLOW_SESSION_KEY_PREFIX = 'zapmass:rf:sess:';
 export async function recoverStuckReplyFlowSessions(): Promise<number> {
     const conn = getRedisConnection();
     if (!conn) return 0;
+    if (!(await waitForRedisCommandReady(conn))) {
+        log('warn', '[ReplyFlow] Redis indisponível — pulando recover de sessões presas');
+        return 0;
+    }
     ensureReplyFlowEngine();
 
     let recovered = 0;
     let cursor = '0';
+    try {
     do {
         const [next, keys] = await conn.scan(cursor, 'MATCH', `${REPLYFLOW_SESSION_KEY_PREFIX}*`, 'COUNT', 100);
         cursor = next;
@@ -3586,6 +3608,10 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
             });
         }
     } while (cursor !== '0');
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        log('warn', '[ReplyFlow] recoverStuckReplyFlowSessions falhou', { error: message, recovered });
+    }
 
     return recovered;
 }

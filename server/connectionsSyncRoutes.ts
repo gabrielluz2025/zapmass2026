@@ -8,6 +8,11 @@ import {
   resolveAuthPrincipal
 } from './resolveAuth.js';
 
+function isLoopbackRequest(req: Request): boolean {
+  const ip = String(req.socket.remoteAddress || '').trim();
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
 /**
  * Sincroniza instâncias Evolution → RAM da API, vincula canais abertos órfãos ao tenant
  * e importa chats para o pipeline.
@@ -117,6 +122,28 @@ export function registerConnectionsSyncRoutes(app: Express): void {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       console.error('[api/connections/:id/replay-inbound]', message);
+      return res.status(500).json({ ok: false, error: message });
+    }
+  });
+
+  /**
+   * Replay inbound via localhost (VPS: docker exec curl 127.0.0.1:3001).
+   * Usa o processo da API com Redis e chatStore já carregados — não rode tsx -e direto.
+   */
+  app.post('/api/internal/connections/:id/replay-inbound', async (req: Request, res: Response) => {
+    if (!isLoopbackRequest(req)) {
+      return res.status(403).json({ ok: false, error: 'Somente localhost.' });
+    }
+    try {
+      const connectionId = String(req.params.id || '').trim();
+      if (!connectionId) {
+        return res.status(400).json({ ok: false, error: 'Canal inválido.' });
+      }
+      const result = await evolutionService.triggerInboundReplayForConnection(connectionId);
+      return res.json({ ok: true, connectionId, ...result });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error('[api/internal/connections/:id/replay-inbound]', message);
       return res.status(500).json({ ok: false, error: message });
     }
   });
