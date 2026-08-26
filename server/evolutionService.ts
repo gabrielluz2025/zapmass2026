@@ -2218,10 +2218,8 @@ function getRedisConnection(): IORedis | null {
 
 /** Aguarda Redis aceitar comandos (one-off scripts importam evolutionService antes do connect). */
 async function waitForRedisCommandReady(conn: IORedis, timeoutMs = 15_000): Promise<boolean> {
-    if (conn.status === 'ready') return true;
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-        if (conn.status === 'ready') return true;
         try {
             const pong = await conn.ping();
             if (pong === 'PONG') return true;
