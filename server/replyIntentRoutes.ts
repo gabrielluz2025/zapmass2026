@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
 import { normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
-import { classifyReplyIntent } from '../shared/replyFlowMatch.js';
+import { classifyReplyIntent, classifyReplyIntentFromHistory } from '../shared/replyFlowMatch.js';
 import { fetchCampaignDoc } from './campaignStore.js';
 import { requireTenant } from './httpTenant.js';
 import { resolveActiveReplyFlowCampaignId } from './evolutionService.js';
@@ -18,6 +18,7 @@ import {
   APPLY_BATCH_MAX,
   type LeadClassification,
 } from './replyIntentApply.js';
+import { autoApplyReplyIntentsForTenant } from './replyIntentAutoApply.js';
 
 export type { LeadClassification } from './replyIntentApply.js';
 
@@ -76,16 +77,16 @@ export function registerReplyIntentRoutes(app: Express): void {
 
     const flowCtx = campaignId ? await loadReplyFlowStepContext(ctx.tenantId, campaignId) : null;
 
-    const inboundTexts: string[] = [];
+    const inboundOrdered: string[] = [];
     if (body.messages?.length) {
       for (const m of body.messages) {
         if (m.sender === 'them' && String(m.text || '').trim()) {
-          inboundTexts.push(String(m.text).trim());
+          inboundOrdered.push(String(m.text).trim());
         }
       }
     }
-    if (body.bodyText?.trim()) inboundTexts.push(body.bodyText.trim());
-    if (inboundTexts.length === 0) {
+    if (body.bodyText?.trim()) inboundOrdered.push(body.bodyText.trim());
+    if (inboundOrdered.length === 0) {
       return res.json({
         ok: true,
         campaignId: campaignId || null,
@@ -96,22 +97,35 @@ export function registerReplyIntentRoutes(app: Express): void {
       });
     }
 
-    const unique = [...new Set(inboundTexts)].slice(-8);
-    const results = unique.map((text) => ({
-      text,
-      intent: classifyReplyIntent(text, flowCtx
-        ? {
-            globalOptOutKeywords: flowCtx.meta.globalOptOutKeywords,
-            acceptAnyReply: flowCtx.gate.acceptAnyReply,
-            validTokens: flowCtx.gate.validTokens,
-            matchMode: flowCtx.gate.matchMode,
-            options: flowCtx.gate.options,
-            invalidReplyBody: flowCtx.gate.invalidReplyBody,
-          }
-        : undefined),
-    }));
+    const flowInput = flowCtx
+      ? {
+          globalOptOutKeywords: flowCtx.meta.globalOptOutKeywords,
+          acceptAnyReply: flowCtx.gate.acceptAnyReply,
+          validTokens: flowCtx.gate.validTokens,
+          matchMode: flowCtx.gate.matchMode,
+          options: flowCtx.gate.options,
+          invalidReplyBody: flowCtx.gate.invalidReplyBody,
+        }
+      : undefined;
 
-    const latest = results[results.length - 1];
+    const historyIntent = classifyReplyIntentFromHistory(inboundOrdered.slice(-12), flowInput);
+    const displayTexts = inboundOrdered.slice(-8);
+    const results = displayTexts.map((text, idx) => {
+      const isLatest = idx === displayTexts.length - 1;
+      return {
+        text,
+        intent: isLatest
+          ? historyIntent
+          : classifyReplyIntent(text, flowInput),
+      };
+    });
+
+    const autoApplyClass =
+      historyIntent.kind === 'opt_in' || historyIntent.kind === 'flow_match'
+        ? 'hot'
+        : historyIntent.kind === 'opt_out'
+          ? 'blacklist'
+          : null;
 
     return res.json({
       ok: true,
@@ -122,8 +136,28 @@ export function registerReplyIntentRoutes(app: Express): void {
       marketingOptIn: contact?.marketingOptIn ?? false,
       marketingOptOut: contact?.marketingOptOut ?? false,
       results,
-      suggested: latest?.intent.suggestedLeadClass || 'warm',
+      suggested: historyIntent.suggestedLeadClass || 'warm',
+      queroThenSair: Boolean(historyIntent.queroThenSair),
+      autoApplyClass,
     });
+  });
+
+  app.post('/api/reply-intent/auto-apply', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+
+    const body = (req.body || {}) as { excludeWarmup?: boolean; dryRun?: boolean };
+
+    try {
+      const result = await autoApplyReplyIntentsForTenant(ctx.tenantId, {
+        excludeWarmup: body.excludeWarmup,
+        dryRun: body.dryRun,
+      });
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      console.warn('[reply-intent/auto-apply]', (e as Error)?.message || e);
+      return res.status(500).json({ ok: false, error: 'Falha na classificação automática.' });
+    }
   });
 
   app.post('/api/reply-intent/scan', async (req: Request, res: Response) => {

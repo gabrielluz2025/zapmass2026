@@ -27,6 +27,7 @@ import { WaInbox } from './WaInbox';
 import { WaThread } from './WaThread';
 import { WaChannelRail } from './WaChannelRail';
 import { ReplyIntentPanel } from './ReplyIntentPanel';
+import { autoApplyReplyIntents } from '../../services/replyIntentApi';
 import { useWaRealtime } from './hooks/useWaRealtime';
 import {
   avatarUrl,
@@ -87,6 +88,7 @@ export const WaWebChatApp: React.FC<{
   const [mobileShowThread, setMobileShowThread] = useState(false);
   const [showContactInfo, setShowContactInfo] = useState(false);
   const [showReplyIntent, setShowReplyIntent] = useState(false);
+  const [autoClassifying, setAutoClassifying] = useState(false);
   const { sending: sendingMedia, sendFile: sendChatFile } = useSendChatMedia(sendMedia);
   /** Evita pedir a mesma foto várias vezes ao servidor (prefetch + chat aberto). */
   const pictureAttemptedRef = useRef<Set<string>>(new Set());
@@ -664,6 +666,46 @@ export const WaWebChatApp: React.FC<{
     toast.success('Sincronizando com o WhatsApp…', { duration: 2500 });
   }, [runResync, requestSync]);
 
+  const handleAutoClassifyResponses = useCallback(async () => {
+    const ok = window.confirm(
+      'Buscar respostas «quero» e «sair» em todas as conversas?\n\n' +
+        '• «Quero» / interesse → marca como quente\n' +
+        '• «Sair» → lista negra\n' +
+        '• Disse «quero» antes e depois «sair» → lista negra (prioridade)\n\n' +
+        'Threads de aquecimento são ignoradas.'
+    );
+    if (!ok) return;
+
+    setAutoClassifying(true);
+    try {
+      const preview = await autoApplyReplyIntents({ excludeWarmup: true, dryRun: true });
+      if (preview.eligible === 0) {
+        toast('Nenhuma resposta «quero» ou «sair» encontrada para classificar.', { icon: 'ℹ️' });
+        return;
+      }
+      const confirmApply = window.confirm(
+        `Encontradas ${preview.eligible} conversa(s) para classificar:\n` +
+          `• ${preview.appliedHot} quente(s)\n` +
+          `• ${preview.appliedBlacklist} lista negra (incl. ${preview.queroThenSair} quero→sair)\n\n` +
+          'Aplicar agora?'
+      );
+      if (!confirmApply) return;
+
+      const result = await autoApplyReplyIntents({ excludeWarmup: true });
+      toast.success(
+        `Pronto: ${result.appliedHot} quente(s), ${result.appliedBlacklist} lista negra.` +
+          (result.queroThenSair > 0 ? ` (${result.queroThenSair} quero→sair)` : '')
+      );
+      if (result.skippedNoContact > 0) {
+        toast(`${result.skippedNoContact} sem cadastro no CRM — ignorado(s).`, { icon: '⚠️' });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha na classificação automática.');
+    } finally {
+      setAutoClassifying(false);
+    }
+  }, []);
+
   const selectedConnection = useMemo(
     () => connections.find((c) => c.id === selected?.connectionId) ?? null,
     [connections, selected?.connectionId]
@@ -801,6 +843,8 @@ export const WaWebChatApp: React.FC<{
         onSearch={setSearch}
         onToggleUnread={() => setUnreadOnly((v) => !v)}
         onRefresh={handleRefresh}
+        onAutoClassifyResponses={() => void handleAutoClassifyResponses()}
+        autoClassifying={autoClassifying}
         onSelect={selectChat}
         hideOnMobile={mobileShowThread}
         inboxHasMore={inboxHasMore}

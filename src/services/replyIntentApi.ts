@@ -15,6 +15,8 @@ export type ReplyIntentInspectResult = {
   marketingOptOut: boolean;
   results: Array<{ text: string; intent: ClassifyReplyIntentResult }>;
   suggested: LeadClassification;
+  queroThenSair?: boolean;
+  autoApplyClass?: LeadClassification | null;
   message?: string;
 };
 
@@ -35,6 +37,7 @@ export type ReplyIntentScanItem = {
   warmupThread: boolean;
   marketingOptIn: boolean;
   marketingOptOut: boolean;
+  queroThenSair: boolean;
 };
 
 export type ReplyIntentScanSummary = {
@@ -69,6 +72,34 @@ export async function scanReplyIntents(params: {
   return apiFetchJson<ReplyIntentScanResult>('/api/reply-intent/scan', {
     method: 'POST',
     body: JSON.stringify(params),
+  });
+}
+
+export type AutoApplyReplyIntentResult = {
+  ok: boolean;
+  scanned: number;
+  eligible: number;
+  appliedHot: number;
+  appliedBlacklist: number;
+  skippedNoContact: number;
+  queroThenSair: number;
+  errors: Array<{ phoneDigits: string; error: string }>;
+  preview: Array<{
+    contactName: string;
+    phoneDigits: string;
+    lastInboundText: string | null;
+    classification: LeadClassification;
+    queroThenSair: boolean;
+  }>;
+};
+
+export async function autoApplyReplyIntents(params?: {
+  excludeWarmup?: boolean;
+  dryRun?: boolean;
+}): Promise<AutoApplyReplyIntentResult> {
+  return apiFetchJson<AutoApplyReplyIntentResult>('/api/reply-intent/auto-apply', {
+    method: 'POST',
+    body: JSON.stringify(params || {}),
   });
 }
 

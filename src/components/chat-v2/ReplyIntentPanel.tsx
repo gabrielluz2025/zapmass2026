@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Flame, Loader2, ScanSearch, Snowflake, Sun, XCircle } from 'lucide-react';
+import { Flame, Loader2, ScanSearch, Snowflake, Sparkles, Sun, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppView } from '../../context/AppViewContext';
 import type { Conversation } from '../../types';
@@ -62,7 +62,6 @@ export const ReplyIntentPanel: React.FC<Props> = ({
         connectionId,
         phoneDigits,
         messages: conversation.messages,
-        bodyText: lastInboundTexts(conversation, 1)[0],
       });
       setInspect(result);
       if (result.message) toast(result.message, { icon: 'ℹ️' });
@@ -167,7 +166,28 @@ export const ReplyIntentPanel: React.FC<Props> = ({
                     Lista negra
                   </span>
                 )}
+                {inspect.queroThenSair && (
+                  <span className="px-2 py-1 rounded-full border border-red-500/40 text-red-400 bg-red-500/10">
+                    Quero → sair (lista negra)
+                  </span>
+                )}
               </div>
+
+              {inspect.autoApplyClass && (
+                <button
+                  type="button"
+                  disabled={Boolean(applying)}
+                  onClick={() => void apply(inspect.autoApplyClass!)}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/15 disabled:opacity-50"
+                >
+                  {applying ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4" />
+                  )}
+                  Aplicar automaticamente ({CLASS_LABEL[inspect.autoApplyClass]})
+                </button>
+              )}
 
               {inspect.results.length > 0 ? (
                 <ul className="space-y-2">

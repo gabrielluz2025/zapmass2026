@@ -1,7 +1,7 @@
 import { collapseConversationsByPhone } from '../src/utils/collapseConversationsByPhone.js';
 import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
 import { normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
-import { classifyReplyIntent, type ReplyIntentKind } from '../shared/replyFlowMatch.js';
+import { classifyReplyIntent, classifyReplyIntentFromHistory, type ReplyIntentKind } from '../shared/replyFlowMatch.js';
 import { isWarmupGreetingMessage } from '../shared/warmupMessages.js';
 import { fetchCampaignDoc } from './campaignStore.js';
 import { filterByConnectionScope } from './connectionScopeServer.js';
@@ -38,6 +38,7 @@ export type ReplyIntentScanItem = {
   warmupThread: boolean;
   marketingOptIn: boolean;
   marketingOptOut: boolean;
+  queroThenSair: boolean;
 };
 
 export type ReplyIntentScanSummary = {
@@ -93,6 +94,17 @@ function lastInboundFromMessages(messages: ChatMessage[]): { text: string; at: n
     return { text, at: Number(m.timestampMs) || 0 };
   }
   return null;
+}
+
+function inboundTextsFromMessages(messages: ChatMessage[], limit = 12): string[] {
+  const texts: string[] = [];
+  for (const m of messages) {
+    if (m.sender !== 'them') continue;
+    const text = String(m.text || '').trim();
+    if (text) texts.push(text);
+  }
+  if (texts.length <= limit) return texts;
+  return texts.slice(-limit);
 }
 
 function isWarmupThread(messages: ChatMessage[], inbound: { text: string } | null): boolean {
@@ -243,6 +255,7 @@ export async function scanReplyIntentsForTenant(
         warmupThread: false,
         marketingOptIn: false,
         marketingOptOut: false,
+        queroThenSair: false,
       });
     } else {
       if (excludeWarmup && warmupThread) continue;
@@ -256,8 +269,8 @@ export async function scanReplyIntentsForTenant(
       }
 
       const flowCtx = campaignId ? await loadReplyFlowStepContext(tenantId, campaignId) : null;
-      const intent = classifyReplyIntent(
-        inbound.text,
+      const intent = classifyReplyIntentFromHistory(
+        inboundTextsFromMessages(messages),
         flowCtx
           ? {
               globalOptOutKeywords: flowCtx.meta.globalOptOutKeywords,
@@ -291,6 +304,7 @@ export async function scanReplyIntentsForTenant(
         warmupThread,
         marketingOptIn: contact?.marketingOptIn ?? false,
         marketingOptOut: contact?.marketingOptOut ?? false,
+        queroThenSair: Boolean(intent.queroThenSair),
       });
     }
 

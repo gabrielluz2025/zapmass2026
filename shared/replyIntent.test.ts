@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyReplyIntent,
+  classifyReplyIntentFromHistory,
+  autoApplyLeadClassFromIntent,
   isPoliteAcknowledgment,
   isPositiveCampaignIntent,
 } from './replyFlowMatch.ts';
@@ -36,5 +38,19 @@ describe('reply intent classification', () => {
     });
     expect(r.kind).toBe('flow_match');
     expect(r.suggestedLeadClass).toBe('hot');
+  });
+
+  it('lista negra quando disse quero e depois sair', () => {
+    const r = classifyReplyIntentFromHistory(['quero', 'sair']);
+    expect(r.kind).toBe('opt_out');
+    expect(r.queroThenSair).toBe(true);
+    expect(r.suggestedLeadClass).toBe('blacklist');
+    expect(autoApplyLeadClassFromIntent(r)).toBe('blacklist');
+  });
+
+  it('quero isolado vira quente na auto-aplicação', () => {
+    const r = classifyReplyIntentFromHistory(['quero']);
+    expect(r.kind).toBe('opt_in');
+    expect(autoApplyLeadClassFromIntent(r)).toBe('hot');
   });
 });

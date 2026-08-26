@@ -342,6 +342,8 @@ export type ClassifyReplyIntentResult = {
   matchedToken?: string;
   flowMatch?: ReturnType<typeof simulateReplyFlowMatch>;
   suggestedLeadClass?: 'hot' | 'warm' | 'cold' | 'blacklist';
+  /** Disse quero/sim antes e a última resposta foi sair. */
+  queroThenSair?: boolean;
 };
 
 function normIntentText(text: string): string {
@@ -470,4 +472,61 @@ export function classifyReplyIntent(
     label: 'Resposta neutra — revisar manualmente',
     suggestedLeadClass: 'warm',
   };
+}
+
+export type ReplyIntentContext = {
+  globalOptOutKeywords?: string[];
+  acceptAnyReply?: boolean;
+  validTokens?: string[];
+  matchMode?: ReplyMatchMode;
+  options?: ReplyFlowOptionLike[];
+  invalidReplyBody?: string;
+};
+
+function hadPriorQueroIntent(texts: string[], ctx?: ReplyIntentContext): boolean {
+  if (texts.length <= 1) return false;
+  for (const text of texts.slice(0, -1)) {
+    const r = classifyReplyIntent(text, ctx);
+    if (r.kind === 'opt_in' || r.kind === 'flow_match') return true;
+    if (isPositiveCampaignIntent(text)) return true;
+  }
+  return false;
+}
+
+/**
+ * Classifica usando histórico inbound (ordem cronológica).
+ * Regra: disse «quero» antes e depois «sair» → lista negra.
+ */
+export function classifyReplyIntentFromHistory(
+  inboundTextsOldestFirst: string[],
+  ctx?: ReplyIntentContext
+): ClassifyReplyIntentResult {
+  const texts = inboundTextsOldestFirst.map((t) => String(t || '').trim()).filter(Boolean);
+  if (texts.length === 0) {
+    return { kind: 'empty', label: 'Sem texto na mensagem.' };
+  }
+
+  const latest = texts[texts.length - 1];
+  const latestResult = classifyReplyIntent(latest, ctx);
+
+  if (texts.length >= 2 && latestResult.kind === 'opt_out' && hadPriorQueroIntent(texts, ctx)) {
+    return {
+      kind: 'opt_out',
+      label: 'Disse «quero» antes e agora pediu sair — lista negra',
+      matchedToken: latestResult.matchedToken,
+      suggestedLeadClass: 'blacklist',
+      queroThenSair: true,
+    };
+  }
+
+  return latestResult;
+}
+
+/** Classificação aplicável automaticamente (quero → quente; sair → lista negra). */
+export function autoApplyLeadClassFromIntent(
+  intent: ClassifyReplyIntentResult
+): 'hot' | 'blacklist' | null {
+  if (intent.kind === 'opt_in' || intent.kind === 'flow_match') return 'hot';
+  if (intent.kind === 'opt_out') return 'blacklist';
+  return null;
 }

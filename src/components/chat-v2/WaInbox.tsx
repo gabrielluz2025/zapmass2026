@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { MessageCircle, RefreshCw, Search, Wifi, WifiOff, Zap } from 'lucide-react';
+import { MessageCircle, RefreshCw, ScanSearch, Search, Wifi, WifiOff, Zap } from 'lucide-react';
 import type { Conversation, WhatsAppConnection } from '../../types';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import {
@@ -39,6 +39,8 @@ type Props = {
   inboxLoadingMore?: boolean;
   onLoadMore?: () => void;
   onRequestPicture?: (conversationId: string, force?: boolean) => void;
+  onAutoClassifyResponses?: () => void;
+  autoClassifying?: boolean;
 };
 
 export const WaInbox: React.FC<Props> = memo(function WaInbox({
@@ -68,6 +70,8 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   inboxLoadingMore,
   onLoadMore,
   onRequestPicture,
+  onAutoClassifyResponses,
+  autoClassifying = false,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadMoreLockRef = useRef(false);
@@ -184,6 +188,18 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
         </div>
 
         <div className="wa-inbox-header__right">
+          {onAutoClassifyResponses && (
+            <button
+              type="button"
+              className="wa-icon-btn"
+              title="Classificar respostas automaticamente (quero → quente; quero depois sair → lista negra)"
+              aria-label="Classificar respostas automaticamente"
+              disabled={autoClassifying}
+              onClick={onAutoClassifyResponses}
+            >
+              <ScanSearch className={`w-[18px] h-[18px] ${autoClassifying ? 'animate-pulse text-emerald-400' : ''}`} />
+            </button>
+          )}
           <button
             type="button"
             className="wa-icon-btn"
