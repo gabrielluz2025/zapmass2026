@@ -1,11 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  CheckSquare,
+  Download,
   ExternalLink,
   Flame,
   Loader2,
   RefreshCw,
   ScanSearch,
   Snowflake,
+  Sparkles,
+  Square,
   Sun,
   XCircle,
 } from 'lucide-react';
@@ -13,6 +17,10 @@ import toast from 'react-hot-toast';
 import { useAppView } from '../../context/AppViewContext';
 import {
   applyLeadClassification,
+  applyLeadClassificationBatch,
+  downloadReplyIntentScanCsv,
+  fetchAllReplyIntentScanItems,
+  replyIntentScanToApplyPayload,
   scanReplyIntents,
   type LeadClassification,
   type ReplyIntentScanItem,
@@ -38,7 +46,16 @@ const INTENT_COLOR: Record<string, string> = {
   no_inbound: '#64748b',
 };
 
+const BATCH_SIZE = 50;
+
 type IntentFilter = '' | 'opt_in' | 'opt_out' | 'flow_match' | 'neutral' | 'no_inbound';
+
+type ScanFilters = {
+  onlyWithInbound: boolean;
+  excludeWarmup: boolean;
+  intentFilter: IntentFilter;
+  debouncedSearch: string;
+};
 
 function fmtWhen(ts: number | null): string {
   if (!ts) return '—';
@@ -74,10 +91,27 @@ function SummaryPill({
   );
 }
 
+async function applySuggestedInChunks(rows: ReplyIntentScanItem[]): Promise<{
+  applied: number;
+  skipped: number;
+}> {
+  let applied = 0;
+  let skipped = 0;
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const chunk = rows.slice(i, i + BATCH_SIZE);
+    const result = await applyLeadClassificationBatch(chunk.map(replyIntentScanToApplyPayload));
+    applied += result.applied;
+    skipped += result.skipped;
+  }
+  return { applied, skipped };
+}
+
 export const ReplyIntentScanSection: React.FC = () => {
   const { setCurrentView } = useAppView();
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [bulkApplying, setBulkApplying] = useState(false);
   const [items, setItems] = useState<ReplyIntentScanItem[]>([]);
   const [summary, setSummary] = useState<ReplyIntentScanSummary | null>(null);
   const [startIndex, setStartIndex] = useState(0);
@@ -89,11 +123,31 @@ export const ReplyIntentScanSection: React.FC = () => {
   const [onlyWithInbound, setOnlyWithInbound] = useState(true);
   const [intentFilter, setIntentFilter] = useState<IntentFilter>('');
   const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const filters: ScanFilters = useMemo(
+    () => ({ onlyWithInbound, excludeWarmup, intentFilter, debouncedSearch }),
+    [onlyWithInbound, excludeWarmup, intentFilter, debouncedSearch]
+  );
+
+  const scanParams = useMemo(
+    () => ({
+      onlyWithInbound: filters.onlyWithInbound,
+      excludeWarmup: filters.excludeWarmup,
+      intentKind: filters.intentFilter || undefined,
+      search: filters.debouncedSearch || undefined,
+    }),
+    [filters]
+  );
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 350);
     return () => window.clearTimeout(t);
   }, [search]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [onlyWithInbound, excludeWarmup, intentFilter, debouncedSearch]);
 
   const runScan = useCallback(
     async (append = false) => {
@@ -103,10 +157,7 @@ export const ReplyIntentScanSection: React.FC = () => {
         const result = await scanReplyIntents({
           startIndex: append ? startIndex : 0,
           limit: 50,
-          onlyWithInbound,
-          excludeWarmup,
-          intentKind: intentFilter || undefined,
-          search: debouncedSearch || undefined,
+          ...scanParams,
         });
         setSummary(result.summary);
         setHasMore(result.hasMore);
@@ -123,7 +174,7 @@ export const ReplyIntentScanSection: React.FC = () => {
         setLoadingMore(false);
       }
     },
-    [startIndex, onlyWithInbound, excludeWarmup, intentFilter, debouncedSearch]
+    [startIndex, scanParams]
   );
 
   useEffect(() => {
@@ -166,7 +217,77 @@ export const ReplyIntentScanSection: React.FC = () => {
     }
   };
 
-  const filteredCount = useMemo(() => items.length, [items]);
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allVisibleSelected = items.length > 0 && items.every((r) => selectedIds.has(r.conversationId));
+
+  const toggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      setSelectedIds(new Set());
+      return;
+    }
+    setSelectedIds(new Set(items.map((r) => r.conversationId)));
+  };
+
+  const selectedRows = useMemo(
+    () => items.filter((r) => selectedIds.has(r.conversationId)),
+    [items, selectedIds]
+  );
+
+  const applySuggestedBulk = async (rows: ReplyIntentScanItem[], label: string) => {
+    if (rows.length === 0) {
+      toast.error('Nenhuma conversa selecionada.');
+      return;
+    }
+    const ok = window.confirm(
+      `Aplicar a sugestão automática em ${rows.length} contato(s) (${label})?\n\nQuente, morno, frio ou lista negra conforme a análise de cada resposta.`
+    );
+    if (!ok) return;
+
+    setBulkApplying(true);
+    try {
+      const { applied, skipped } = await applySuggestedInChunks(rows);
+      if (applied > 0) {
+        toast.success(`${applied} classificação(ões) aplicada(s).`);
+      }
+      if (skipped > 0) {
+        toast(`${skipped} contato(s) ignorado(s) — sem cadastro no CRM.`, { icon: '⚠️' });
+      }
+      setSelectedIds(new Set());
+      void runScan(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha na classificação em lote.');
+    } finally {
+      setBulkApplying(false);
+    }
+  };
+
+  const exportCsv = async (scope: 'visible' | 'all') => {
+    setExporting(true);
+    try {
+      const rows =
+        scope === 'visible'
+          ? items
+          : await fetchAllReplyIntentScanItems(scanParams);
+      if (rows.length === 0) {
+        toast.error('Nada para exportar.');
+        return;
+      }
+      downloadReplyIntentScanCsv(rows);
+      toast.success(`CSV com ${rows.length} linha(s) baixado.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao exportar CSV.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -184,19 +305,38 @@ export const ReplyIntentScanSection: React.FC = () => {
             </div>
             <p className="text-[12.5px] max-w-2xl" style={{ color: 'var(--text-3)' }}>
               Varre todas as conversas do workspace, classifica a última resposta do contato e
-              sugere quente, morno, frio ou lista negra. Exclua aquecimento para focar em respostas
-              de campanha.
+              sugere quente, morno, frio ou lista negra. Exporte CSV ou aplique sugestões em lote.
             </p>
           </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            leftIcon={loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            onClick={() => void runScan(false)}
-            disabled={loading}
-          >
-            Atualizar
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={exporting || items.length === 0}
+              leftIcon={exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              onClick={() => void exportCsv('visible')}
+            >
+              CSV visível
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={exporting}
+              leftIcon={exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              onClick={() => void exportCsv('all')}
+            >
+              CSV completo
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon={loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              onClick={() => void runScan(false)}
+              disabled={loading}
+            >
+              Atualizar
+            </Button>
+          </div>
         </div>
 
         {summary && (
@@ -264,6 +404,85 @@ export const ReplyIntentScanSection: React.FC = () => {
         </div>
       </div>
 
+      {items.length > 0 && (
+        <div
+          className="rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3"
+          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+        >
+          <button
+            type="button"
+            className="flex items-center gap-2 text-sm font-medium"
+            style={{ color: 'var(--text-2)' }}
+            onClick={toggleSelectAllVisible}
+          >
+            {allVisibleSelected ? (
+              <CheckSquare className="w-4 h-4 text-emerald-400" />
+            ) : (
+              <Square className="w-4 h-4" />
+            )}
+            {selectedIds.size > 0 ? `${selectedIds.size} selecionado(s)` : 'Selecionar visíveis'}
+          </button>
+          <div className="flex flex-wrap gap-2 sm:ml-auto">
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={bulkApplying || selectedRows.length === 0}
+              leftIcon={
+                bulkApplying ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )
+              }
+              onClick={() => void applySuggestedBulk(selectedRows, 'selecionados')}
+            >
+              Aplicar sugestão nos selecionados
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={bulkApplying || loading}
+              leftIcon={
+                bulkApplying ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )
+              }
+              onClick={() => {
+                void (async () => {
+                  const ok = window.confirm(
+                    'Aplicar a sugestão automática em TODAS as conversas do filtro atual?\n\nPode levar alguns minutos se houver muitos contatos.'
+                  );
+                  if (!ok) return;
+                  setBulkApplying(true);
+                  try {
+                    const all = await fetchAllReplyIntentScanItems(scanParams);
+                    if (all.length === 0) {
+                      toast.error('Nenhuma conversa para aplicar.');
+                      return;
+                    }
+                    const { applied, skipped } = await applySuggestedInChunks(all);
+                    if (applied > 0) toast.success(`${applied} classificação(ões) aplicada(s).`);
+                    if (skipped > 0) {
+                      toast(`${skipped} contato(s) ignorado(s) — sem cadastro no CRM.`, { icon: '⚠️' });
+                    }
+                    setSelectedIds(new Set());
+                    void runScan(false);
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Falha na classificação em lote.');
+                  } finally {
+                    setBulkApplying(false);
+                  }
+                })();
+              }}
+            >
+              Aplicar sugestão em todas (filtro)
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div
         className="rounded-2xl overflow-hidden"
         style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-0)' }}
@@ -273,7 +492,7 @@ export const ReplyIntentScanSection: React.FC = () => {
           style={{ color: 'var(--text-3)', borderBottom: '1px solid var(--border-subtle)' }}
         >
           <span>
-            {loading ? 'Analisando…' : `${filteredCount} linha(s) · ${totalCandidates} conversas no workspace`}
+            {loading ? 'Analisando…' : `${items.length} linha(s) · ${totalCandidates} conversas no workspace`}
           </span>
         </div>
 
@@ -288,91 +507,134 @@ export const ReplyIntentScanSection: React.FC = () => {
           </p>
         ) : (
           <ul className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
-            {items.map((row) => (
-              <li key={row.conversationId} className="px-4 py-3 hover:bg-white/[0.02]">
-                <div className="flex flex-col lg:flex-row lg:items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                        {row.contactName}
-                      </p>
-                      {row.warmupThread && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                          Aquecimento
-                        </span>
-                      )}
-                      {row.hasActiveSession && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                          Fluxo ativo
-                        </span>
-                      )}
-                      {row.marketingOptOut && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
-                          Opt-out
-                        </span>
-                      )}
-                    </div>
-                    {row.lastInboundText ? (
-                      <p className="text-[13px] truncate" style={{ color: 'var(--text-2)' }} title={row.lastInboundText}>
-                        «{row.lastInboundText}»
-                      </p>
-                    ) : (
-                      <p className="text-[13px]" style={{ color: 'var(--text-3)' }}>
-                        Sem mensagem inbound
-                      </p>
-                    )}
-                    <p
-                      className="text-xs mt-1 font-medium"
-                      style={{ color: INTENT_COLOR[row.intentKind] || '#94a3b8' }}
-                    >
-                      {row.intentLabel}
-                    </p>
-                    <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                      {fmtWhen(row.lastInboundAt)}
-                      {row.campaignName ? ` · ${row.campaignName}` : ''}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            {items.map((row) => {
+              const selected = selectedIds.has(row.conversationId);
+              return (
+                <li
+                  key={row.conversationId}
+                  className="px-4 py-3 hover:bg-white/[0.02]"
+                  style={selected ? { background: 'rgba(16,185,129,0.04)' } : undefined}
+                >
+                  <div className="flex flex-col lg:flex-row lg:items-start gap-3">
                     <button
                       type="button"
-                      className="p-2 rounded-lg border border-white/10 hover:bg-white/5"
-                      title="Abrir no bate-papo"
-                      onClick={() => openChatByConversationIdNavigate(setCurrentView, row.conversationId)}
+                      className="mt-0.5 shrink-0"
+                      onClick={() => toggleSelect(row.conversationId)}
+                      aria-label={selected ? 'Desmarcar' : 'Selecionar'}
                     >
-                      <ExternalLink className="w-4 h-4" style={{ color: 'var(--text-2)' }} />
+                      {selected ? (
+                        <CheckSquare className="w-4 h-4 text-emerald-400" />
+                      ) : (
+                        <Square className="w-4 h-4" style={{ color: 'var(--text-3)' }} />
+                      )}
                     </button>
-                    {(
-                      [
-                        { id: 'hot' as const, icon: Flame, color: '#f97316' },
-                        { id: 'warm' as const, icon: Sun, color: '#eab308' },
-                        { id: 'cold' as const, icon: Snowflake, color: '#38bdf8' },
-                        { id: 'blacklist' as const, icon: XCircle, color: '#ef4444' },
-                      ] as const
-                    ).map(({ id, icon: Icon, color }) => {
-                      const busy = applyingId === `${row.conversationId}:${id}`;
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          disabled={Boolean(applyingId)}
-                          title={CLASS_LABEL[id]}
-                          onClick={() => void applyClass(row, id)}
-                          className="p-2 rounded-lg border hover:bg-white/5 disabled:opacity-40"
-                          style={{ borderColor: `${color}44` }}
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                          {row.contactName}
+                        </p>
+                        <span
+                          className="text-[10px] px-2 py-0.5 rounded-full border"
+                          style={{
+                            borderColor: `${INTENT_COLOR[row.intentKind] || '#94a3b8'}44`,
+                            color: INTENT_COLOR[row.intentKind] || '#94a3b8',
+                          }}
                         >
-                          {busy ? (
-                            <Loader2 className="w-4 h-4 animate-spin" style={{ color }} />
-                          ) : (
-                            <Icon className="w-4 h-4" style={{ color }} />
-                          )}
-                        </button>
-                      );
-                    })}
+                          Sugestão: {CLASS_LABEL[row.suggestedLeadClass]}
+                        </span>
+                        {row.warmupThread && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            Aquecimento
+                          </span>
+                        )}
+                        {row.hasActiveSession && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            Fluxo ativo
+                          </span>
+                        )}
+                        {row.marketingOptOut && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
+                            Opt-out
+                          </span>
+                        )}
+                      </div>
+                      {row.lastInboundText ? (
+                        <p
+                          className="text-[13px] truncate"
+                          style={{ color: 'var(--text-2)' }}
+                          title={row.lastInboundText}
+                        >
+                          «{row.lastInboundText}»
+                        </p>
+                      ) : (
+                        <p className="text-[13px]" style={{ color: 'var(--text-3)' }}>
+                          Sem mensagem inbound
+                        </p>
+                      )}
+                      <p
+                        className="text-xs mt-1 font-medium"
+                        style={{ color: INTENT_COLOR[row.intentKind] || '#94a3b8' }}
+                      >
+                        {row.intentLabel}
+                      </p>
+                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                        {fmtWhen(row.lastInboundAt)}
+                        {row.campaignName ? ` · ${row.campaignName}` : ''}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        className="p-2 rounded-lg border border-white/10 hover:bg-white/5"
+                        title="Abrir no bate-papo"
+                        onClick={() => openChatByConversationIdNavigate(setCurrentView, row.conversationId)}
+                      >
+                        <ExternalLink className="w-4 h-4" style={{ color: 'var(--text-2)' }} />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={Boolean(applyingId) || bulkApplying}
+                        title={`Aplicar sugestão (${CLASS_LABEL[row.suggestedLeadClass]})`}
+                        onClick={() => void applyClass(row, row.suggestedLeadClass)}
+                        className="p-2 rounded-lg border hover:bg-white/5 disabled:opacity-40"
+                        style={{ borderColor: '#10b98144' }}
+                      >
+                        <Sparkles className="w-4 h-4 text-emerald-400" />
+                      </button>
+                      {(
+                        [
+                          { id: 'hot' as const, icon: Flame, color: '#f97316' },
+                          { id: 'warm' as const, icon: Sun, color: '#eab308' },
+                          { id: 'cold' as const, icon: Snowflake, color: '#38bdf8' },
+                          { id: 'blacklist' as const, icon: XCircle, color: '#ef4444' },
+                        ] as const
+                      ).map(({ id, icon: Icon, color }) => {
+                        const busy = applyingId === `${row.conversationId}:${id}`;
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            disabled={Boolean(applyingId) || bulkApplying}
+                            title={CLASS_LABEL[id]}
+                            onClick={() => void applyClass(row, id)}
+                            className="p-2 rounded-lg border hover:bg-white/5 disabled:opacity-40"
+                            style={{ borderColor: `${color}44` }}
+                          >
+                            {busy ? (
+                              <Loader2 className="w-4 h-4 animate-spin" style={{ color }} />
+                            ) : (
+                              <Icon className="w-4 h-4" style={{ color }} />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
 

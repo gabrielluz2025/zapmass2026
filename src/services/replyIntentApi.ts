@@ -100,6 +100,106 @@ export async function applyLeadClassification(params: {
   });
 }
 
+export type ApplyLeadBatchResult = {
+  ok: boolean;
+  applied: number;
+  skipped: number;
+  errors: Array<{ phoneDigits: string; error: string }>;
+};
+
+export async function applyLeadClassificationBatch(
+  items: Array<{
+    contactId?: string;
+    phoneDigits: string;
+    connectionId?: string;
+    classification: LeadClassification;
+    replyText?: string;
+    reprocessFlow?: boolean;
+    incomingConvId?: string;
+  }>
+): Promise<ApplyLeadBatchResult> {
+  return apiFetchJson<ApplyLeadBatchResult>('/api/reply-intent/apply-batch', {
+    method: 'POST',
+    body: JSON.stringify({ items }),
+  });
+}
+
+export async function fetchAllReplyIntentScanItems(params: {
+  onlyWithInbound?: boolean;
+  excludeWarmup?: boolean;
+  intentKind?: string;
+  search?: string;
+}): Promise<ReplyIntentScanItem[]> {
+  const all: ReplyIntentScanItem[] = [];
+  let startIndex = 0;
+  for (;;) {
+    const page = await scanReplyIntents({ ...params, startIndex, limit: 80 });
+    all.push(...page.items);
+    if (!page.hasMore) break;
+    startIndex = page.nextStartIndex;
+  }
+  return all;
+}
+
+function csvEscape(v: unknown): string {
+  const s = v == null ? '' : String(v);
+  if (/[",\n;]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+export function downloadReplyIntentScanCsv(items: ReplyIntentScanItem[], filename = 'intencoes-resposta.csv'): void {
+  const CLASS_LABEL: Record<LeadClassification, string> = {
+    hot: 'Quente',
+    warm: 'Morno',
+    cold: 'Frio',
+    blacklist: 'Lista negra',
+  };
+  const rows = [
+    [
+      'Nome',
+      'Telefone',
+      'Resposta',
+      'Intenção',
+      'Sugestão',
+      'Campanha',
+      'Data resposta',
+      'Aquecimento',
+      'Fluxo ativo',
+    ],
+    ...items.map((row) => [
+      row.contactName,
+      row.phoneDigits,
+      row.lastInboundText || '',
+      row.intentLabel,
+      CLASS_LABEL[row.suggestedLeadClass],
+      row.campaignName || '',
+      row.lastInboundAt ? new Date(row.lastInboundAt).toLocaleString('pt-BR') : '',
+      row.warmupThread ? 'sim' : 'não',
+      row.hasActiveSession ? 'sim' : 'não',
+    ]),
+  ];
+  const csv = '\uFEFF' + rows.map((r) => r.map(csvEscape).join(';')).join('\n');
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' })),
+    download: filename,
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+export function replyIntentScanToApplyPayload(row: ReplyIntentScanItem) {
+  const classification = row.suggestedLeadClass;
+  return {
+    contactId: row.contactId || undefined,
+    phoneDigits: row.phoneDigits,
+    connectionId: row.connectionId,
+    classification,
+    replyText: row.lastInboundText || undefined,
+    reprocessFlow: classification === 'hot' || classification === 'warm',
+    incomingConvId: row.conversationId,
+  };
+}
+
 export function lastInboundTexts(conversation: Conversation, limit = 5): string[] {
   const msgs = conversation.messages || [];
   const texts: string[] = [];

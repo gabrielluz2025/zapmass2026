@@ -1,25 +1,25 @@
 import type { Express, Request, Response } from 'express';
-import type { Contact } from '../src/types.js';
 import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
 import { normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
 import { classifyReplyIntent } from '../shared/replyFlowMatch.js';
 import { fetchCampaignDoc } from './campaignStore.js';
 import { requireTenant } from './httpTenant.js';
-import {
-  reprocessReplyFlowInbound,
-  resolveActiveReplyFlowCampaignId,
-} from './evolutionService.js';
-import { processContactOptOut } from './contactOptOutService.js';
-import { findContactByPhoneKey, getContactById, updateContact } from './repositories/contactsRepository.js';
-import { tryAutoEnrollOnOptIn } from './nurture/nurtureEngine.js';
+import { resolveActiveReplyFlowCampaignId } from './evolutionService.js';
+import { findContactByPhoneKey } from './repositories/contactsRepository.js';
 import {
   sanitizeReplyFlowMeta,
   sanitizeReplyFlowSteps,
 } from './replyFlowEngine.js';
 import { scanReplyIntentsForTenant } from './replyIntentScan.js';
 import type { ReplyIntentKind } from '../shared/replyFlowMatch.js';
+import {
+  applyLeadClassificationBatchForTenant,
+  applyLeadClassificationForTenant,
+  APPLY_BATCH_MAX,
+  type LeadClassification,
+} from './replyIntentApply.js';
 
-export type LeadClassification = 'hot' | 'warm' | 'cold' | 'blacklist';
+export type { LeadClassification } from './replyIntentApply.js';
 
 const LEAD_TAG: Record<LeadClassification, string> = {
   hot: 'lead:quente',
@@ -42,13 +42,6 @@ async function loadReplyFlowStepContext(tenantId: string, campaignId: string) {
     steps,
     campaignName: String(doc?.name || doc?.title || campaignId),
   };
-}
-
-function mergeLeadTag(tags: string[], classification: LeadClassification): string[] {
-  const without = tags.filter(
-    (t) => !Object.values(LEAD_TAG).includes(String(t).trim().toLowerCase())
-  );
-  return [...without, LEAD_TAG[classification]];
 }
 
 export function registerReplyIntentRoutes(app: Express): void {
@@ -182,85 +175,84 @@ export function registerReplyIntentRoutes(app: Express): void {
     }
 
     const phoneDigits = normalizePhoneDigits(String(body.phoneDigits || ''));
-    let contact: Contact | null = null;
-    if (body.contactId) {
-      contact = await getContactById(ctx.tenantId, String(body.contactId));
-    }
-    if (!contact && phoneDigits.length >= 8) {
-      contact = (await findContactByPhoneKey(ctx.tenantId, normPhoneKey(phoneDigits))) || null;
-    }
-    if (!contact) {
-      return res.status(404).json({ ok: false, error: 'Contato não encontrado.' });
-    }
+    const result = await applyLeadClassificationForTenant(ctx.tenantId, {
+      contactId: body.contactId,
+      phoneDigits,
+      connectionId: body.connectionId,
+      classification,
+      replyText: body.replyText,
+      reprocessFlow: body.reprocessFlow,
+      incomingConvId: body.incomingConvId,
+    });
 
-    const at = new Date().toISOString();
-    const replySnippet = String(body.replyText || '').trim().slice(0, 200);
-    let updated = contact;
-    let reprocess: { hadSessionBefore: boolean; hasSessionAfter: boolean } | null = null;
-
-    if (classification === 'blacklist') {
-      await processContactOptOut({
-        tenantId: ctx.tenantId,
-        phoneDigits: contact.phone,
-        reason: `Classificação manual: lista negra${replySnippet ? ` — "${replySnippet}"` : ''}`,
-        source: 'manual_chat',
-        keyword: replySnippet || 'lista negra',
-      });
-      updated =
-        (await updateContact(ctx.tenantId, contact.id, {
-          marketingOptOut: true,
-          marketingOptIn: false,
-          marketingConsentAt: at,
-          marketingConsentText: replySnippet || 'Lista negra (manual no chat)',
-          tags: mergeLeadTag(contact.tags || [], 'blacklist'),
-        })) || updated;
-    } else if (classification === 'hot') {
-      updated =
-        (await updateContact(ctx.tenantId, contact.id, {
-          marketingOptOut: false,
-          marketingOptIn: true,
-          marketingConsentAt: at,
-          marketingConsentText: replySnippet || 'Lead quente (manual no chat)',
-          tags: mergeLeadTag(contact.tags || [], 'hot'),
-        })) || updated;
-      void tryAutoEnrollOnOptIn({
-        tenantId: ctx.tenantId,
-        phoneDigits: contact.phone,
-        connectionId: body.connectionId,
-      });
-    } else if (classification === 'warm') {
-      updated =
-        (await updateContact(ctx.tenantId, contact.id, {
-          tags: mergeLeadTag(contact.tags || [], 'warm'),
-        })) || updated;
-    } else {
-      updated =
-        (await updateContact(ctx.tenantId, contact.id, {
-          marketingOptIn: false,
-          tags: mergeLeadTag(contact.tags || [], 'cold'),
-        })) || updated;
-    }
-
-    if (
-      body.reprocessFlow &&
-      body.connectionId &&
-      phoneDigits.length >= 8 &&
-      replySnippet &&
-      classification !== 'blacklist'
-    ) {
-      reprocess = await reprocessReplyFlowInbound({
-        connectionId: String(body.connectionId),
-        phoneDigits,
-        bodyText: replySnippet,
-        incomingConvId: body.incomingConvId,
+    if (result.ok === false) {
+      return res.status(result.error === 'Contato não encontrado.' ? 404 : 400).json({
+        ok: false,
+        error: result.error,
       });
     }
 
     return res.json({
       ok: true,
-      contact: updated,
-      classification,
-      reprocess,
+      contact: result.contact,
+      classification: result.classification,
     });
+  });
+
+  app.post('/api/reply-intent/apply-batch', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+
+    const body = (req.body || {}) as {
+      items?: Array<{
+        contactId?: string;
+        phoneDigits?: string;
+        connectionId?: string;
+        classification?: LeadClassification;
+        replyText?: string;
+        reprocessFlow?: boolean;
+        incomingConvId?: string;
+      }>;
+    };
+
+    const raw = Array.isArray(body.items) ? body.items : [];
+    if (raw.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Informe ao menos um item.' });
+    }
+    if (raw.length > APPLY_BATCH_MAX) {
+      return res.status(400).json({
+        ok: false,
+        error: `Máximo de ${APPLY_BATCH_MAX} contatos por lote.`,
+      });
+    }
+
+    const items = raw
+      .map((row) => {
+        const classification = row.classification;
+        const phoneDigits = normalizePhoneDigits(String(row.phoneDigits || ''));
+        if (!classification || !LEAD_TAG[classification] || phoneDigits.length < 8) return null;
+        return {
+          contactId: row.contactId,
+          phoneDigits,
+          connectionId: row.connectionId,
+          classification,
+          replyText: row.replyText,
+          reprocessFlow: row.reprocessFlow,
+          incomingConvId: row.incomingConvId,
+        };
+      })
+      .filter(Boolean) as Parameters<typeof applyLeadClassificationBatchForTenant>[1];
+
+    if (items.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Nenhum item válido no lote.' });
+    }
+
+    try {
+      const batch = await applyLeadClassificationBatchForTenant(ctx.tenantId, items);
+      return res.json({ ok: true, ...batch });
+    } catch (e) {
+      console.warn('[reply-intent/apply-batch]', (e as Error)?.message || e);
+      return res.status(500).json({ ok: false, error: 'Falha ao aplicar classificações.' });
+    }
   });
 }
