@@ -16,6 +16,7 @@ import {
   upsertEnrollmentPg
 } from './nurtureRepository.js';
 import type { NurtureEnrollmentStatus, NurtureJourneyDoc, NurtureStep } from './nurtureTypes.js';
+import { ensureNurtureJourneyReadyForHotLeads } from './nurtureJourneyAutoEnable.js';
 
 export type NurtureEnqueueMedia = {
   url: string;
@@ -196,6 +197,8 @@ export async function enrollContactInNurture(params: {
   connectionId: string;
   conversationId?: string;
   journeyId?: string;
+  /** Ativa jornada/chip automaticamente (leads quentes). */
+  autoEnableJourney?: boolean;
 }): Promise<{ ok: boolean; error?: string }> {
   if (!vpsDataEnabled() || !getZapmassPool()) {
     return { ok: false, error: 'Requer PostgreSQL (modo VPS).' };
@@ -203,10 +206,18 @@ export async function enrollContactInNurture(params: {
   const phone = params.contactPhone.replace(/\D/g, '');
   if (phone.length < 8) return { ok: false, error: 'Telefone inválido.' };
 
-  const journey = await getOrCreatePrimaryJourneyPg(params.tenantId);
+  let journey = await getOrCreatePrimaryJourneyPg(params.tenantId);
   if (params.journeyId && journey.id !== params.journeyId) {
     return { ok: false, error: 'Jornada não encontrada.' };
   }
+
+  if (params.autoEnableJourney) {
+    const ready = await ensureNurtureJourneyReadyForHotLeads(params.tenantId, {
+      preferredConnectionId: params.connectionId,
+    });
+    journey = ready.journey;
+  }
+
   const doc = journey.doc;
   if (!journey.enabled && !doc.enabled) {
     return { ok: false, error: 'Ative a jornada antes de inscrever contatos.' };

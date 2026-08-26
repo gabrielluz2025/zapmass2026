@@ -44,7 +44,7 @@ import { formatNurtureSocialLinks } from '../../utils/nurtureSocialLinks';
 type TabId = 'sequencia' | 'inscritos' | 'enviar';
 
 const DEFAULT_DOC: NurtureJourneyDoc = {
-  enabled: false,
+  enabled: true,
   name: 'Material para leads quentes',
   connectionIds: [],
   scheduleMode: 'relative',

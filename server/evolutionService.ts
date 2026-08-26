@@ -1727,7 +1727,7 @@ function applyConnectionStateUpdate(
                         getLastClosedAt: (id) => connectionsSettingsCache[id]?.lastClosedAt,
                         processInbound: processInboundAutomationMessage,
                         log: (message, payload) => log('info', message, payload),
-                    })
+                    }).then(() => syncHotLeadsAfterInboundReplay(ou, instance))
                 );
             }
         })();
@@ -8062,7 +8062,7 @@ export async function triggerInboundReplayForConnection(connectionId: string): P
     const ownerUid = resolveOwnerUid(connectionId);
     const { replayMissedInboundForConnection } = await import('./inboundMissedReplay.js');
     await recoverStuckReplyFlowSessions();
-    return replayMissedInboundForConnection(connectionId, ownerUid, {
+    const result = await replayMissedInboundForConnection(connectionId, ownerUid, {
         getConversations: () => chatStore.getConversations(),
         loadChatHistory: (conversationId, limit) =>
             chatStore.loadChatHistory(conversationId, limit, true),
@@ -8070,6 +8070,43 @@ export async function triggerInboundReplayForConnection(connectionId: string): P
         processInbound: processInboundAutomationMessage,
         log: (message, payload) => log('info', message, payload),
     });
+    void syncHotLeadsAfterInboundReplay(ownerUid, connectionId);
+    return result;
+}
+
+async function syncHotLeadsAfterInboundReplay(
+    ownerUid: string | undefined,
+    connectionId: string
+): Promise<void> {
+    if (!ownerUid) return;
+    try {
+        const { syncHotLeadEnrollments } = await import('./nurture/nurtureHotLeads.js');
+        let offset = 0;
+        let totalEnrolled = 0;
+        for (let page = 0; page < 8; page++) {
+            const batch = await syncHotLeadEnrollments(ownerUid, {
+                offset,
+                limit: 400,
+                dryRun: false,
+                connectionId,
+            });
+            totalEnrolled += batch.enrolled;
+            offset = batch.nextOffset;
+            if (!batch.hasMore) break;
+        }
+        if (totalEnrolled > 0) {
+            log('info', '[nurture] Leads quentes inscritos após replay inbound', {
+                ownerUid,
+                connectionId,
+                totalEnrolled,
+            });
+        }
+    } catch (e) {
+        log('warn', '[nurture] sync hot leads pós-replay falhou', {
+            error: (e as Error)?.message,
+            connectionId,
+        });
+    }
 }
 
 /** Retorna últimos N jobs falhos da fila BullMQ de campanhas com seus erros. */

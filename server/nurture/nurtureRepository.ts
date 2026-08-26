@@ -353,7 +353,7 @@ export async function getOrCreatePrimaryJourneyPg(tenantId: string): Promise<Nur
     updated_at: Date;
   }>(
     `INSERT INTO zapmass.nurture_journeys (tenant_id, name, enabled, doc)
-     VALUES ($1::uuid, $2, false, $3::jsonb)
+     VALUES ($1::uuid, $2, true, $3::jsonb)
      RETURNING id, name, enabled, doc, created_at, updated_at`,
     [tid, doc.name, JSON.stringify(doc)]
   );

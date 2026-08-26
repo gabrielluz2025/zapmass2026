@@ -114,7 +114,7 @@ export type NurtureMetrics = {
 };
 
 export const DEFAULT_NURTURE_JOURNEY_DOC: NurtureJourneyDoc = {
-  enabled: false,
+  enabled: true,
   name: 'Material para leads quentes',
   connectionIds: [],
   scheduleMode: 'relative',

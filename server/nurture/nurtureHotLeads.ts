@@ -13,8 +13,9 @@ import { enrollContactInNurture } from './nurtureEngine.js';
 import type { NurtureJourneyRow } from './nurtureTypes.js';
 import {
   findEnrollmentByPhonePg,
-  getOrCreatePrimaryJourneyPg
+  getOrCreatePrimaryJourneyPg,
 } from './nurtureRepository.js';
+import { ensureNurtureJourneyReadyForHotLeads } from './nurtureJourneyAutoEnable.js';
 
 const ACTIVE_ENROLLMENT = new Set(['enrolled', 'active', 'waiting_reply', 'paused']);
 
@@ -97,8 +98,6 @@ export async function tryAutoEnrollHotLead(params: {
     if (await isChipQuietMode(params.tenantId)) return;
 
     const journey = await getOrCreatePrimaryJourneyPg(params.tenantId);
-    if (!journey.enabled && !journey.doc.enabled) return;
-
     const rules = journey.doc.entryRules;
     if (!rules.autoEnrollOnOptIn && !rules.autoEnrollOnHotLead && !params.treatReplyAsHot) return;
 
@@ -122,18 +121,18 @@ export async function tryAutoEnrollHotLead(params: {
     );
     if (!decision.enroll) return;
 
-    const connectionId = resolveNurtureConnectionId(journey, params.connectionId);
-    if (!connectionId) {
-      console.warn('[nurture] auto-enroll: nenhum chip configurado', phone);
-      return;
-    }
+    const ready = await ensureNurtureJourneyReadyForHotLeads(params.tenantId, {
+      preferredConnectionId: params.connectionId,
+    });
+    const connectionId = params.connectionId || ready.connectionId;
 
     await enrollContactInNurture({
       tenantId: params.tenantId,
       contactPhone: phone,
       connectionId,
       conversationId: params.conversationId || `${connectionId}:${phone}`,
-      journeyId: journey.id
+      journeyId: ready.journey.id,
+      autoEnableJourney: true,
     });
   } catch (e) {
     console.warn('[nurture] auto-enroll falhou:', (e as Error)?.message);
@@ -168,18 +167,11 @@ export async function syncHotLeadEnrollments(
   const limit = Math.min(Math.max(Number(opts.limit) || SYNC_PAGE, 1), SYNC_PAGE);
   const dryRun = opts.dryRun !== false;
 
-  const journey = await getOrCreatePrimaryJourneyPg(tenantId);
-  if (!journey.enabled && !journey.doc.enabled) {
-    throw new Error('Ative a jornada antes de inscrever leads quentes.');
-  }
-  if (journey.doc.steps.length === 0) {
-    throw new Error('Adicione pelo menos um passo na jornada.');
-  }
-
-  const connectionId = resolveNurtureConnectionId(journey, opts.connectionId);
-  if (!connectionId) {
-    throw new Error('Selecione um chip conectado na jornada.');
-  }
+  const ready = await ensureNurtureJourneyReadyForHotLeads(tenantId, {
+    preferredConnectionId: opts.connectionId,
+  });
+  const journey = ready.journey;
+  const connectionId = ready.connectionId;
 
   const page = await listContacts(tenantId, { limit, offset });
   const phoneIndex = buildPhoneMessageStatsIndex(conversationsForTenant(tenantId));
@@ -229,7 +221,8 @@ export async function syncHotLeadEnrollments(
       contactPhone: phone,
       connectionId,
       conversationId: `${connectionId}:${phone}`,
-      journeyId: journey.id
+      journeyId: journey.id,
+      autoEnableJourney: true,
     });
     if (result.ok) enrolled++;
     else skipped++;
