@@ -63,4 +63,17 @@ describe('normalizeEvolutionGoWebhookIfNeeded', () => {
         expect(out.event).toBe('CONNECTION_UPDATE');
         expect((out.data as { state: string }).state).toBe('open');
     });
+
+    it('OfflineSyncCompleted Go → CONNECTION_UPDATE open', () => {
+        const out = normalizeEvolutionGoWebhookIfNeeded(
+            {
+                event: 'OfflineSyncCompleted',
+                instanceToken: 'tok-chip1',
+                data: { jid: '5511@s.whatsapp.net' },
+            },
+            lookup
+        ) as Record<string, unknown>;
+        expect(out.event).toBe('CONNECTION_UPDATE');
+        expect((out.data as { state: string }).state).toBe('open');
+    });
 });

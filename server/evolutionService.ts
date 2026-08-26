@@ -298,6 +298,7 @@ function phoneFromWebhookData(data?: Record<string, unknown>): string | undefine
         data.number,
         data.phone,
         data.jid,
+        data.ID,
         nested?.wuid,
         nested?.ownerJid,
         nested?.owner,
@@ -1094,6 +1095,7 @@ function resolveInstanceName(raw: unknown): string {
 function parseConnectionStatePayload(data: unknown): string {
     if (!data || typeof data !== 'object') return 'close';
     const row = data as Record<string, unknown>;
+    if (row.connected === true) return 'open';
     for (const key of ['state', 'connectionStatus', 'status'] as const) {
         const v = row[key];
         if (typeof v === 'string' && v.trim()) return v;
@@ -1101,8 +1103,18 @@ function parseConnectionStatePayload(data: unknown): string {
     const nested = row.instance;
     if (nested && typeof nested === 'object') {
         const inst = nested as Record<string, unknown>;
+        if (inst.connected === true) return 'open';
         for (const key of ['state', 'connectionStatus', 'status'] as const) {
             const v = inst[key];
+            if (typeof v === 'string' && v.trim()) return v;
+        }
+    }
+    const wrapped = row.data;
+    if (wrapped && typeof wrapped === 'object') {
+        const inner = wrapped as Record<string, unknown>;
+        if (inner.connected === true) return 'open';
+        for (const key of ['state', 'status'] as const) {
+            const v = inner[key];
             if (typeof v === 'string' && v.trim()) return v;
         }
     }
@@ -1807,7 +1819,8 @@ function watchConnectionUntilOpen(connectionId: string) {
             return;
         }
         attempts++;
-        const state = (await getConnectionState(connectionId)).toLowerCase();
+        invalidateConnectionStateCache(connectionId);
+        const state = (await getConnectionState(connectionId, { skipCache: true })).toLowerCase();
         if (isEvolutionOpenState(state)) {
             applyConnectionStateUpdate(connectionId, state, {});
             return;
@@ -3248,15 +3261,44 @@ function resolveGoWebhookConnectionId(hint: {
     const token = hint.instanceToken?.trim();
     if (token) {
         for (const [connId, settings] of Object.entries(connectionsSettingsCache)) {
-            if (settings.evolutionGoToken === token) return connId;
+            if (settings.evolutionGoToken === token) {
+                if (hint.instanceId?.trim() && settings.evolutionGoInstanceId !== hint.instanceId.trim()) {
+                    persistGoInstanceUuid(connId, hint.instanceId.trim());
+                }
+                return connId;
+            }
         }
     }
     const goId = hint.instanceId?.trim();
     if (goId) {
         for (const [connId, settings] of Object.entries(connectionsSettingsCache)) {
-            if (settings.evolutionGoInstanceId === goId) return connId;
+            if (settings.evolutionGoInstanceId === goId) {
+                if (token && settings.evolutionGoToken !== token) {
+                    mergeConnectionSettingsCache(connId, { evolutionGoToken: token });
+                    saveConnectionsSettings();
+                }
+                return connId;
+            }
         }
     }
+
+    const connecting = [...connections.entries()].filter(
+        ([, conn]) => conn.status === 'connecting' || conn.status === 'created'
+    );
+    if (connecting.length === 1 && (goId || token)) {
+        const [connId] = connecting[0];
+        mergeConnectionSettingsCache(connId, {
+            ...(goId ? { evolutionGoInstanceId: goId } : {}),
+            ...(token ? { evolutionGoToken: token } : {}),
+        });
+        saveConnectionsSettings();
+        log('info', `Webhook Go vinculado ao canal em pairing: ${connId}`, {
+            instanceId: goId || '-',
+            hasToken: Boolean(token),
+        });
+        return connId;
+    }
+
     return undefined;
 }
 
@@ -4412,6 +4454,26 @@ async function setupWebhook(instanceName: string) {
 /**
  * Obtém status da conexão
  */
+async function probeGoConnectionStateFromInstanceList(instanceName: string): Promise<string | null> {
+    if (!isEvolutionGoEngine()) return null;
+    try {
+        const response = await api.get('/instance/fetchInstances', { timeout: 8_000 });
+        const list = Array.isArray(response.data) ? response.data : [];
+        for (const item of list) {
+            if (!item || typeof item !== 'object') continue;
+            const row = item as Record<string, unknown>;
+            const name = String(row.name || row.instanceName || '').trim();
+            if (name !== instanceName) continue;
+            if (row.connected === true || row.connectionStatus === 'open') return 'open';
+            const parsed = parseConnectionStatePayload(row);
+            return parsed || 'close';
+        }
+    } catch {
+        /* ok */
+    }
+    return null;
+}
+
 export async function getConnectionState(
     instanceName: string,
     options?: { timeoutMs?: number; skipCache?: boolean; maxCacheAgeMs?: number }
@@ -4429,10 +4491,24 @@ export async function getConnectionState(
             timeout: options?.timeoutMs ?? evolutionConfig.timeout,
         });
         const state = parseConnectionStatePayload(response.data);
+        if (!isEvolutionOpenState(state)) {
+            const fromList = await probeGoConnectionStateFromInstanceList(instanceName);
+            if (fromList && isEvolutionOpenState(fromList)) {
+                writeConnectionStateCache(instanceName, fromList);
+                return fromList;
+            }
+        }
         writeConnectionStateCache(instanceName, state);
         return state;
     } catch (error: any) {
         const status = error?.response?.status;
+        if (isEvolutionGoEngine()) {
+            const fromList = await probeGoConnectionStateFromInstanceList(instanceName);
+            if (fromList) {
+                writeConnectionStateCache(instanceName, fromList);
+                return fromList;
+            }
+        }
         if (status === 404) {
             writeConnectionStateCache(instanceName, 'close');
             return 'close';

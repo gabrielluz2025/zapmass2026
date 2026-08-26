@@ -15,6 +15,7 @@ const GO_EVENT_MAP: Record<string, string> = {
     Connected: 'CONNECTION_UPDATE',
     PairSuccess: 'CONNECTION_UPDATE',
     LoggedOut: 'CONNECTION_UPDATE',
+    OfflineSyncCompleted: 'CONNECTION_UPDATE',
     Receipt: 'MESSAGES_UPDATE',
 };
 
@@ -82,6 +83,16 @@ function normalizeGoEventData(eventName: string, data: unknown): unknown {
                 status: row.status ?? (eventName === 'PairSuccess' ? 'open' : 'close'),
                 instance: { state: 'open' },
                 jid: row.jid ?? row.ID,
+                owner: row.jid ?? row.ID,
+                pushName: row.pushName,
+            };
+        case 'OfflineSyncCompleted':
+            return {
+                state: 'open',
+                status: 'open',
+                instance: { state: 'open' },
+                jid: row.jid ?? row.ID,
+                owner: row.jid ?? row.ID,
                 pushName: row.pushName,
             };
         case 'LoggedOut':

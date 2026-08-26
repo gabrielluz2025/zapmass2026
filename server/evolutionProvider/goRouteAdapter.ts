@@ -319,7 +319,13 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
         const wrapped = data as { data?: Record<string, unknown> };
         const st = wrapped?.data || (data as Record<string, unknown>);
         const connected = st?.connected === true || st?.state === 'open' || st?.status === 'open';
-        return { instance: { state: connected ? 'open' : 'close', statusReason: st?.statusReason } };
+        const state = connected ? 'open' : 'close';
+        return {
+            state,
+            connectionStatus: state,
+            status: state,
+            instance: { state, statusReason: st?.statusReason },
+        };
     }
 
     if (path.includes('/user/check')) {
