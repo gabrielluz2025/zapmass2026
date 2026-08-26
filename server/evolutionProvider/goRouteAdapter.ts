@@ -125,7 +125,8 @@ export function adaptEvolutionApiRequestToGo(
                     subscribe: ['ALL'],
                     immediate: true,
                 },
-                headers: { ...adminHeaders(globalKey), instanceId: goUuid! },
+                // Go exige apikey = token da instância (global key → not authorized).
+                headers: { ...instH, instanceId: goUuid! },
             };
         }
         return { url: '/instance/qr', headers: instH };

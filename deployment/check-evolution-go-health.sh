@@ -59,7 +59,11 @@ else
   warn "Nenhuma instância no Go — pareie QR na UI"
 fi
 if echo "$INST_JSON" | grep -qE '"webhook"[[:space:]]*:[[:space:]]*""'; then
-  warn "Webhook vazio na instância Go — mensagens/eventos podem não chegar ao ZapMass (será corrigido no próximo hydrate/connect)"
+  if echo "$INST_JSON" | grep -q 'webhook/evolution'; then
+    ok "Webhook configurado (webhookUrl na instância)"
+  else
+    warn "Webhook vazio na instância Go — rode connect com TOKEN ou reinicie zapmass"
+  fi
 fi
 
 echo ""
