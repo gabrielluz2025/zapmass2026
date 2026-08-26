@@ -226,6 +226,50 @@ export function adaptEvolutionApiRequestToGo(
     return { url, data, headers: instH };
 }
 
+/** Código de pareamento WhatsApp (ex.: `2@abc,...`) — não é PNG base64. */
+export function looksLikeWhatsAppPairingCode(value: string): boolean {
+    const t = value.trim();
+    if (!t || t.startsWith('data:image/')) return false;
+    if (/^\d+@/.test(t)) return true;
+    return t.includes('@') && t.length < 512 && !/^[A-Za-z0-9+/=\s]{80,}$/.test(t);
+}
+
+export function looksLikeBase64Image(value: string): boolean {
+    const t = value.trim();
+    if (!t) return false;
+    if (t.startsWith('data:image/')) return true;
+    if (looksLikeWhatsAppPairingCode(t)) return false;
+    const compact = t.replace(/\s/g, '');
+    return compact.length >= 80 && /^[A-Za-z0-9+/=]+$/.test(compact);
+}
+
+/** Separa imagem QR (base64) de código de pareamento nas respostas Go. */
+export function parseGoQrPayload(source: unknown): { imageBase64?: string; pairingCode?: string } {
+    if (!source || typeof source !== 'object') return {};
+    const qr = source as Record<string, unknown>;
+    const codeRaw = typeof qr.code === 'string' ? qr.code.trim() : '';
+    const imageCandidate = [qr.base64, qr.qrcode, qr.image].find(
+        (v) => typeof v === 'string' && String(v).trim()
+    ) as string | undefined;
+
+    let imageBase64: string | undefined;
+    if (imageCandidate && looksLikeBase64Image(imageCandidate)) {
+        const t = imageCandidate.trim();
+        imageBase64 = t.startsWith('data:image/') ? t : `data:image/png;base64,${t}`;
+    }
+
+    let pairingCode: string | undefined;
+    if (codeRaw) {
+        if (looksLikeWhatsAppPairingCode(codeRaw) || !imageBase64) {
+            pairingCode = codeRaw;
+        }
+    } else if (imageCandidate && looksLikeWhatsAppPairingCode(imageCandidate)) {
+        pairingCode = imageCandidate.trim();
+    }
+
+    return { imageBase64, pairingCode };
+}
+
 /** Normaliza respostas Go → formato Evolution API v2. */
 export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown {
     if (data == null) return data;
@@ -262,12 +306,13 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
 
     if (path.includes('/instance/connect') || path.includes('/instance/qr')) {
         const wrapped = data as { data?: Record<string, unknown> };
-        const qr = wrapped?.data || data;
-        const code =
-            (qr as Record<string, unknown>)?.code ||
-            (qr as Record<string, unknown>)?.qrcode ||
-            (qr as Record<string, unknown>)?.base64;
-        return { qrcode: { base64: code, code }, base64: code, count: code ? 1 : 0 };
+        const inner = wrapped?.data ?? data;
+        const { imageBase64, pairingCode } = parseGoQrPayload(inner);
+        return {
+            qrcode: { base64: imageBase64, code: pairingCode },
+            base64: imageBase64,
+            count: imageBase64 || pairingCode ? 1 : 0,
+        };
     }
 
     if (path.includes('/instance/status')) {

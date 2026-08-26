@@ -24,8 +24,9 @@ curl -s -H "apikey: ${GO_KEY}" "http://127.0.0.1:8081/license/status" | head -c 
 echo ""
 echo ""
 
-if curl -sf -H "apikey: ${GO_KEY}" "http://127.0.0.1:8081/license/status" | grep -qiE '"active"[[:space:]]*:[[:space:]]*true|licensed'; then
-  echo "OK: licença parece ATIVA — QR e delete devem funcionar."
+LICENSE_JSON="$(curl -sf -H "apikey: ${GO_KEY}" "http://127.0.0.1:8081/license/status" || true)"
+if echo "$LICENSE_JSON" | grep -qiE '"status"[[:space:]]*:[[:space:]]*"active"|"active"[[:space:]]*:[[:space:]]*true|"licensed"[[:space:]]*:[[:space:]]*true|License is already active|License activated successfully'; then
+  echo "OK: licença ATIVA — QR e delete devem funcionar."
   exit 0
 fi
 
@@ -39,7 +40,6 @@ echo "  4. Volte ao ZapMass e clique Forçar QR"
 echo ""
 echo "Rollback temporário (volta Evolution API Node / Baileys):"
 echo "  sed -i 's/^ZAPMASS_WHATSAPP_ENGINE=.*/ZAPMASS_WHATSAPP_ENGINE=evolution-api/' .env"
-echo "  echo 'EVOLUTION_NODE_REPLICAS=1' >> .env && echo 'EVOLUTION_GO_REPLICAS=0' >> .env"
-echo "  docker stack deploy -c docker-stack.yml zapmass --with-registry-auth"
-echo "  docker service update --force zapmass_api"
+echo "  docker compose stop evolution-go 2>/dev/null || true"
+echo "  docker compose --profile evolution-api up -d evolution zapmass"
 exit 1

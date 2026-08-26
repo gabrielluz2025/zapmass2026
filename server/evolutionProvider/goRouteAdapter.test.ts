@@ -81,4 +81,24 @@ describe('normalizeGoResponseToApiV2', () => {
         const out = normalizeGoResponseToApiV2('/instance/status', { data: { connected: true } });
         expect((out as { instance: { state: string } }).instance.state).toBe('open');
     });
+
+    it('separa código de pareamento de imagem QR', () => {
+        const out = normalizeGoResponseToApiV2('/instance/qr', {
+            data: {
+                code: '2@abc,def',
+                qrcode: 'data:image/png;base64,iVBORw0KGgo=',
+            },
+        }) as { qrcode: { base64?: string; code?: string }; count: number };
+        expect(out.qrcode.code).toBe('2@abc,def');
+        expect(out.qrcode.base64).toContain('data:image/png');
+        expect(out.count).toBe(1);
+    });
+
+    it('não trata código de pareamento como base64', () => {
+        const out = normalizeGoResponseToApiV2('/instance/connect', {
+            data: { code: '2@abc,def' },
+        }) as { qrcode: { base64?: string; code?: string } };
+        expect(out.qrcode.code).toBe('2@abc,def');
+        expect(out.qrcode.base64).toBeUndefined();
+    });
 });

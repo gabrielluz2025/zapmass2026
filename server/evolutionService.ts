@@ -17,6 +17,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { evolutionConfig, isEvolutionGoEngine } from './evolutionConfig.js';
 import { createEvolutionHttpClient } from './evolutionProvider/createEvolutionHttpClient.js';
+import {
+    looksLikeBase64Image,
+    looksLikeWhatsAppPairingCode,
+} from './evolutionProvider/goRouteAdapter.js';
 import { normalizeEvolutionGoWebhookIfNeeded } from './evolutionProvider/evolutionGoWebhookAdapter.js';
 import {
     assertEvolutionGoLicensed,
@@ -469,10 +473,15 @@ function extractEvolutionQr(source: unknown): ExtractedEvolutionQr | null {
     const base64 = qrcode.base64;
     if (typeof base64 === 'string' && base64.trim()) {
         const trimmed = base64.trim();
-        if (trimmed.startsWith('data:image/')) {
-            return { displayValue: trimmed, kind: 'image' };
+        if (looksLikeWhatsAppPairingCode(trimmed)) {
+            return { displayValue: trimmed, kind: 'code' };
         }
-        return { displayValue: `data:image/png;base64,${trimmed}`, kind: 'image' };
+        if (trimmed.startsWith('data:image/') || looksLikeBase64Image(trimmed)) {
+            if (trimmed.startsWith('data:image/')) {
+                return { displayValue: trimmed, kind: 'image' };
+            }
+            return { displayValue: `data:image/png;base64,${trimmed}`, kind: 'image' };
+        }
     }
 
     const code = qrcode.code ?? qrcode.pairingCode;
@@ -483,10 +492,15 @@ function extractEvolutionQr(source: unknown): ExtractedEvolutionQr | null {
     const rootBase64 = root.base64;
     if (typeof rootBase64 === 'string' && rootBase64.trim()) {
         const trimmed = rootBase64.trim();
-        return {
-            displayValue: trimmed.startsWith('data:image/') ? trimmed : `data:image/png;base64,${trimmed}`,
-            kind: 'image',
-        };
+        if (looksLikeWhatsAppPairingCode(trimmed)) {
+            return { displayValue: trimmed, kind: 'code' };
+        }
+        if (trimmed.startsWith('data:image/') || looksLikeBase64Image(trimmed)) {
+            return {
+                displayValue: trimmed.startsWith('data:image/') ? trimmed : `data:image/png;base64,${trimmed}`,
+                kind: 'image',
+            };
+        }
     }
     return null;
 }
@@ -1924,6 +1938,10 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
             return null;
         }
 
+        if (isEvolutionGoEngine()) {
+            await ensureEvolutionGoInstanceExists(instanceName);
+        }
+
         let sawCountZero = false;
 
         try {
@@ -1957,10 +1975,10 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
             if (isEvolutionGoLicenseError(error)) {
                 const msg = evolutionGoLicenseUserMessage(error);
                 emitConnectionProgress(instanceName, 'failed');
-                emitToConnectionFrontend(instanceName, 'socket-operation-error', {
-                    op: 'force-qr',
-                    error: msg,
-                });
+                const ownerUid = resolveOwnerUid(instanceName);
+                if (ownerUid) {
+                    publishOwnerEvent(ownerUid, 'socket-operation-error', { op: 'force-qr', error: msg });
+                }
                 return null;
             }
             log('warn', `POST connect/${instanceName} falhou`, {
@@ -3172,6 +3190,55 @@ function persistGoInstanceUuid(connectionId: string, uuid: unknown): void {
     if (connectionsSettingsCache[connectionId]?.evolutionGoInstanceId === id) return;
     mergeConnectionSettingsCache(connectionId, { evolutionGoInstanceId: id });
     saveConnectionsSettings();
+}
+
+/** Cria instância no Evolution Go se o canal existe no ZapMass mas não no motor (pós-cutover). */
+async function ensureEvolutionGoInstanceExists(connectionId: string): Promise<boolean> {
+    if (!isEvolutionGoEngine()) return true;
+    const id = String(connectionId || '').trim();
+    if (!id) return false;
+
+    try {
+        const response = await api.get('/instance/fetchInstances');
+        const list = Array.isArray(response.data) ? response.data : [];
+        const goUuid = getGoInstanceUuid(id);
+        const found = list.some((item: Record<string, unknown>) => {
+            const name = String(item.name || item.instanceName || '').trim();
+            const itemId = String(item.id || item.instanceId || '').trim();
+            return name === id || itemId === goUuid;
+        });
+        if (found) return true;
+    } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        log('warn', `ensureEvolutionGoInstanceExists: fetch falhou (${id})`, { error: msg });
+    }
+
+    const conn = connections.get(id);
+    const cached = connectionsSettingsCache[id];
+    const friendlyName = conn?.friendlyName || cached?.friendlyName || id;
+    log('info', `Instância Go ausente — recriando: ${id}`, { friendlyName });
+
+    try {
+        const createResp = await api.post('/instance/create', {
+            instanceName: id,
+            qrcode: true,
+        });
+        persistGoInstanceUuid(id, extractGoInstanceIdFromApiPayload(createResp.data));
+        if (!connections.has(id)) {
+            connections.set(id, {
+                instanceName: id,
+                friendlyName,
+                status: 'connecting',
+                ownerUid: conn?.ownerUid || cached?.ownerUid || ownerUidFromConnectionId(id),
+            });
+        }
+        await setupWebhook(id).catch(() => undefined);
+        return true;
+    } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        log('warn', `ensureEvolutionGoInstanceExists: create falhou (${id})`, { error: msg });
+        return false;
+    }
 }
 
 function resolveGoWebhookConnectionId(hint: {
@@ -4497,6 +4564,10 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
     pairingStartedAt.set(id, Date.now());
     emitConnectionProgress(id, 'loading-whatsapp-web');
     emitConnectionsUpdateForConnection(id);
+
+    if (isEvolutionGoEngine()) {
+        await ensureEvolutionGoInstanceExists(id);
+    }
 
     if (!needsCleanReconnect) {
         try {
