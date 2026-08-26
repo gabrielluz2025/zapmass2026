@@ -46,7 +46,9 @@ export function createEvolutionHttpClient(tokenStore: InstanceTokenStore): Axios
             config.url = adapted.url;
             if (adapted.data !== undefined) config.data = adapted.data;
             if (adapted.methodOverride) config.method = adapted.methodOverride;
-            config.headers = { ...config.headers, ...adapted.headers };
+            for (const [key, value] of Object.entries(adapted.headers)) {
+                config.headers.set(key, value);
+            }
             return config;
         });
 

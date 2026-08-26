@@ -699,7 +699,14 @@ if docker info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}' 
   docker service ps zapmass_api || true
   docker service logs --since 10m --tail 200 zapmass_api || true
   if [ -f deployment/recover-api-swarm.sh ]; then
-    chmod +x deployment/SOS-API-FORA.sh deployment/recover-api-swarm.sh 2>/dev/null || true
+    chmod +x deployment/SOS-API-FORA.sh deployment/recover-api-swarm.sh deployment/recover-evolution-go-502.sh 2>/dev/null || true
+    if echo "${ZAPMASS_WHATSAPP_ENGINE:-evolution-go}" | grep -qiE 'evolution-go|^go$|evogo'; then
+      echo "==> tentativa automatica: recover-evolution-go-502.sh"
+      if bash deployment/recover-evolution-go-502.sh; then
+        echo "OK: API recuperada apos recover-evolution-go-502.sh"
+        exit 0
+      fi
+    fi
     echo "==> tentativa automatica: recover-api-swarm.sh (commit ${GHA_SHA:-HEAD})"
     if bash deployment/recover-api-swarm.sh; then
       echo "OK: API recuperada apos recover-api-swarm.sh"

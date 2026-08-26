@@ -1334,6 +1334,7 @@ const circuitStateByConnection = new Map<
     import('./chipCircuitBreaker.js').CircuitState
 >();
 const qrWatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const connectionWatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
 /** Evita tratar close transitório do Baileys durante pairing como desconexão real. */
 const pairingStartedAt = new Map<string, number>();
 const autoReconnectState = new Map<
