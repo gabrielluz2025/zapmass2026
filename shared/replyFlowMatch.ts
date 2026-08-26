@@ -530,3 +530,69 @@ export function autoApplyLeadClassFromIntent(
   if (intent.kind === 'opt_out') return 'blacklist';
   return null;
 }
+
+export type ActionableReplyMatch = {
+  classification: 'hot' | 'blacklist';
+  replyText: string;
+  intentKind: ReplyIntentKind;
+  intentLabel: string;
+  queroThenSair: boolean;
+};
+
+/**
+ * Procura «quero» ou «sair» em todo o histórico inbound (não só na última mensagem).
+ * Prioridade: última resposta com regra quero→sair; senão opt_out; senão opt_in mais recente.
+ */
+export function findActionableReplyInHistory(
+  inboundTextsOldestFirst: string[],
+  ctx?: ReplyIntentContext
+): ActionableReplyMatch | null {
+  const texts = inboundTextsOldestFirst.map((t) => String(t || '').trim()).filter(Boolean);
+  if (texts.length === 0) return null;
+
+  const historyIntent = classifyReplyIntentFromHistory(texts, ctx);
+  if (historyIntent.kind === 'opt_out') {
+    return {
+      classification: 'blacklist',
+      replyText: texts[texts.length - 1],
+      intentKind: 'opt_out',
+      intentLabel: historyIntent.label,
+      queroThenSair: Boolean(historyIntent.queroThenSair),
+    };
+  }
+  if (historyIntent.kind === 'opt_in' || historyIntent.kind === 'flow_match') {
+    return {
+      classification: 'hot',
+      replyText: texts[texts.length - 1],
+      intentKind: historyIntent.kind,
+      intentLabel: historyIntent.label,
+      queroThenSair: false,
+    };
+  }
+
+  for (let i = texts.length - 1; i >= 0; i--) {
+    const slice = texts.slice(0, i + 1);
+    const r = classifyReplyIntent(texts[i], ctx);
+    if (r.kind === 'opt_out') {
+      const hi = classifyReplyIntentFromHistory(slice, ctx);
+      return {
+        classification: 'blacklist',
+        replyText: texts[i],
+        intentKind: 'opt_out',
+        intentLabel: hi.label,
+        queroThenSair: Boolean(hi.queroThenSair),
+      };
+    }
+    if (r.kind === 'opt_in' || r.kind === 'flow_match') {
+      return {
+        classification: 'hot',
+        replyText: texts[i],
+        intentKind: r.kind,
+        intentLabel: r.label,
+        queroThenSair: false,
+      };
+    }
+  }
+
+  return null;
+}

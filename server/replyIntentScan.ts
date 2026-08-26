@@ -77,7 +77,7 @@ async function loadReplyFlowStepContext(tenantId: string, campaignId: string) {
   };
 }
 
-function phoneFromConversation(conv: Conversation): string {
+export function phoneFromConversation(conv: Conversation): string {
   const jid = conv.id || '';
   const afterColon = jid.includes(':') ? jid.slice(jid.indexOf(':') + 1) : jid;
   const user = afterColon.split('@')[0] || '';
@@ -96,7 +96,7 @@ function lastInboundFromMessages(messages: ChatMessage[]): { text: string; at: n
   return null;
 }
 
-function inboundTextsFromMessages(messages: ChatMessage[], limit = 12): string[] {
+export function inboundTextsFromMessages(messages: ChatMessage[], limit = 12): string[] {
   const texts: string[] = [];
   for (const m of messages) {
     if (m.sender !== 'them') continue;
@@ -105,6 +105,11 @@ function inboundTextsFromMessages(messages: ChatMessage[], limit = 12): string[]
   }
   if (texts.length <= limit) return texts;
   return texts.slice(-limit);
+}
+
+export function isWarmupOnlyThread(messages: ChatMessage[]): boolean {
+  const inbound = lastInboundFromMessages(messages);
+  return isWarmupThread(messages, inbound);
 }
 
 function isWarmupThread(messages: ChatMessage[], inbound: { text: string } | null): boolean {
@@ -116,29 +121,72 @@ function isWarmupThread(messages: ChatMessage[], inbound: { text: string } | nul
   return messages.filter((m) => m.sender === 'them').every((m) => isWarmupGreetingMessage(String(m.text || '')));
 }
 
+export async function resolveMergedMessagesForScan(
+  tenantId: string,
+  conv: Conversation
+): Promise<ChatMessage[]> {
+  const ram = Array.isArray(conv.messages) ? conv.messages : [];
+  if (!isWaChatArchiveEnabled()) return ram;
+
+  const threadId = threadIdFromConversationId(conv.id, conv.contactPhone);
+  if (!threadId) return ram;
+
+  const archived = await loadChatArchiveMessages(tenantId, threadId, 250);
+  if (archived.length === 0) return ram;
+
+  const byId = new Map<string, ChatMessage>();
+  for (const m of archived) byId.set(m.id, m);
+  for (const m of ram) {
+    const prev = byId.get(m.id);
+    if (!prev) {
+      byId.set(m.id, m);
+      continue;
+    }
+    byId.set(m.id, {
+      ...prev,
+      ...m,
+      timestampMs: Math.max(Number(prev.timestampMs) || 0, Number(m.timestampMs) || 0),
+      fromCampaign: prev.fromCampaign || m.fromCampaign,
+      campaignId: prev.campaignId || m.campaignId,
+    });
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => (Number(a.timestampMs) || 0) - (Number(b.timestampMs) || 0)
+  );
+}
+
 async function resolveLastInbound(
   tenantId: string,
   conv: Conversation
 ): Promise<{ text: string; at: number; messages: ChatMessage[] } | null> {
-  const ram = Array.isArray(conv.messages) ? conv.messages : [];
-  const fromRam = lastInboundFromMessages(ram);
-  if (fromRam) return { ...fromRam, messages: ram };
-
-  if (!isWaChatArchiveEnabled()) return null;
-  const threadId = threadIdFromConversationId(conv.id, conv.contactPhone);
-  if (!threadId) return null;
-  const archived = await loadChatArchiveMessages(tenantId, threadId, 40);
-  const fromArchive = lastInboundFromMessages(archived);
-  if (!fromArchive) return null;
-  return { ...fromArchive, messages: archived };
+  const messages = await resolveMergedMessagesForScan(tenantId, conv);
+  const fromMerged = lastInboundFromMessages(messages);
+  if (!fromMerged) return null;
+  return { ...fromMerged, messages };
 }
 
-async function collectScopedConversations(tenantId: string): Promise<Conversation[]> {
+async function listAllInboxThreadStubsPg(tenantId: string): Promise<Conversation[]> {
+  if (!usePostgresChatArchive()) return [];
+  const all: Conversation[] = [];
+  let cursorMs: number | null = null;
+  for (let page = 0; page < 40; page++) {
+    const batch = await listInboxThreadStubsPg(tenantId, { cursorMs, limit: 150 });
+    if (batch.length === 0) break;
+    all.push(...batch);
+    const last = batch[batch.length - 1];
+    const nextCursor = last?.lastMessageTimestamp ?? null;
+    if (nextCursor == null || batch.length < 150) break;
+    cursorMs = nextCursor;
+  }
+  return all;
+}
+
+export async function collectScopedConversationsForIntent(tenantId: string): Promise<Conversation[]> {
   const live = filterByConnectionScope(tenantId, getConversations());
   const merged = [...live];
 
   if (usePostgresChatArchive()) {
-    const stubs = await listInboxThreadStubsPg(tenantId, { limit: 150 });
+    const stubs = await listAllInboxThreadStubsPg(tenantId);
     const scopedStubs = filterByConnectionScope(tenantId, stubs);
     const byId = new Map<string, Conversation>();
     for (const c of merged) byId.set(c.id, c);
@@ -175,7 +223,7 @@ export async function scanReplyIntentsForTenant(
   const excludeWarmup = opts.excludeWarmup === true;
   const search = String(opts.search || '').trim();
 
-  const all = await collectScopedConversations(tenantId);
+  const all = await collectScopedConversationsForIntent(tenantId);
   const sorted = [...all].sort(
     (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
   );
@@ -201,16 +249,16 @@ export async function scanReplyIntentsForTenant(
 
   if (startIndex === 0) {
     for (const conv of searchFiltered) {
-      const ram = Array.isArray(conv.messages) ? conv.messages : [];
-      const inbound = lastInboundFromMessages(ram);
-      const warmupThread = isWarmupThread(ram, inbound);
+      const messages = await resolveMergedMessagesForScan(tenantId, conv);
+      const inbound = lastInboundFromMessages(messages);
+      const warmupThread = isWarmupThread(messages, inbound);
       if (!inbound) {
         summary.noInbound += 1;
         continue;
       }
       summary.withInbound += 1;
       if (warmupThread) summary.warmupOnly += 1;
-      const intent = classifyReplyIntent(inbound.text);
+      const intent = classifyReplyIntentFromHistory(inboundTextsFromMessages(messages, 20));
       if (intent.kind === 'opt_in' || intent.kind === 'flow_match') summary.hot += 1;
       else if (intent.kind === 'opt_out') summary.blacklist += 1;
       else if (intent.kind === 'flow_invalid') summary.cold += 1;
@@ -270,7 +318,7 @@ export async function scanReplyIntentsForTenant(
 
       const flowCtx = campaignId ? await loadReplyFlowStepContext(tenantId, campaignId) : null;
       const intent = classifyReplyIntentFromHistory(
-        inboundTextsFromMessages(messages),
+        inboundTextsFromMessages(messages, 20),
         flowCtx
           ? {
               globalOptOutKeywords: flowCtx.meta.globalOptOutKeywords,

@@ -680,7 +680,16 @@ export const WaWebChatApp: React.FC<{
     try {
       const preview = await autoApplyReplyIntents({ excludeWarmup: true, dryRun: true });
       if (preview.eligible === 0) {
-        toast('Nenhuma resposta «quero» ou «sair» encontrada para classificar.', { icon: 'ℹ️' });
+        const parts = [
+          `${preview.scanned} conversas analisadas`,
+          preview.withInbound > 0 ? `${preview.withInbound} com resposta` : null,
+          preview.skippedWarmup > 0 ? `${preview.skippedWarmup} só aquecimento` : null,
+          preview.skippedNeutral > 0 ? `${preview.skippedNeutral} neutras/cortesia` : null,
+        ].filter(Boolean);
+        toast(
+          `Nenhuma resposta «quero» ou «sair» encontrada.${parts.length ? ` (${parts.join(' · ')})` : ''}`,
+          { icon: 'ℹ️', duration: 6000 }
+        );
         return;
       }
       const confirmApply = window.confirm(

@@ -78,10 +78,13 @@ export async function scanReplyIntents(params: {
 export type AutoApplyReplyIntentResult = {
   ok: boolean;
   scanned: number;
+  withInbound: number;
   eligible: number;
   appliedHot: number;
   appliedBlacklist: number;
   skippedNoContact: number;
+  skippedWarmup: number;
+  skippedNeutral: number;
   queroThenSair: number;
   errors: Array<{ phoneDigits: string; error: string }>;
   preview: Array<{

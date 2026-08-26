@@ -3,6 +3,7 @@ import {
   classifyReplyIntent,
   classifyReplyIntentFromHistory,
   autoApplyLeadClassFromIntent,
+  findActionableReplyInHistory,
   isPoliteAcknowledgment,
   isPositiveCampaignIntent,
 } from './replyFlowMatch.ts';
@@ -52,5 +53,17 @@ describe('reply intent classification', () => {
     const r = classifyReplyIntentFromHistory(['quero']);
     expect(r.kind).toBe('opt_in');
     expect(autoApplyLeadClassFromIntent(r)).toBe('hot');
+  });
+
+  it('encontra quero no historico mesmo se ultima msg for neutra', () => {
+    const hit = findActionableReplyInHistory(['quero', 'obrigado']);
+    expect(hit?.classification).toBe('hot');
+    expect(hit?.replyText).toBe('quero');
+  });
+
+  it('encontra sair apos quero no meio do historico', () => {
+    const hit = findActionableReplyInHistory(['quero', 'obrigado', 'sair']);
+    expect(hit?.classification).toBe('blacklist');
+    expect(hit?.queroThenSair).toBe(true);
   });
 });
