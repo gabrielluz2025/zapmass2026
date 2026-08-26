@@ -109,7 +109,7 @@ export function registerConnectionsSyncRoutes(app: Express): void {
         return res.status(400).json({ ok: false, error: 'Canal inválido.' });
       }
       const members = await getWorkspaceMembersForPrincipal(principal);
-      if (!evolutionService.ensureTenantOwnsConnection(principal.tenantUid, connectionId, members, principal.authUid)) {
+      if (!evolutionService.ensureTenantOwnsConnection(principal.tenantUid, connectionId, members)) {
         return res.status(403).json({ ok: false, error: 'Canal não pertence a este workspace.' });
       }
       const result = await evolutionService.triggerInboundReplayForConnection(connectionId);
