@@ -153,8 +153,38 @@ export async function isChipQuietMode(tenantId: string): Promise<boolean> {
   return active;
 }
 
-/** Motivo pelo qual aquecimento está bloqueado (null = permitido). Só ban real bloqueia. */
-export async function getWarmupBlockReason(tenantId: string): Promise<string | null> {
+/** Chips conectados, fora de quarentena, aptos ao aquecimento entre si. */
+export async function countNonQuarantinedWarmupChips(
+  tenantId: string,
+  connectionIds: string[]
+): Promise<number> {
+  const ids = [...new Set(connectionIds.filter(Boolean))];
+  if (ids.length === 0) return 0;
+  const evo = await import('./evolutionService.js');
+  const scoped = filterByConnectionScope(tenantId, evo.getConnections());
+  const allowed = new Set(ids);
+  let count = 0;
+  for (const conn of scoped) {
+    const id = String(conn.id || '').trim();
+    if (!id || !allowed.has(id)) continue;
+    const st = String(conn.status || '').toUpperCase();
+    if (st !== 'CONNECTED' && st !== 'OPEN') continue;
+    const phone = String(conn.phoneNumber || '').replace(/\D/g, '');
+    if (phone.length < 10) continue;
+    if (evo.getConnectionBanInfo(id).inQuarantine) continue;
+    count++;
+  }
+  return count;
+}
+
+/**
+ * Motivo pelo qual aquecimento está bloqueado (null = permitido).
+ * Em cooldown pós-ban, permite aquecer entre chips saudáveis (≥2 fora de quarentena).
+ */
+export async function getWarmupBlockReason(
+  tenantId: string,
+  connectionIds?: string[]
+): Promise<string | null> {
   const { active, reason } = await refreshEffectiveProtection(tenantId);
   if (!active) return null;
   if (
@@ -165,14 +195,22 @@ export async function getWarmupBlockReason(tenantId: string): Promise<string | n
     return null;
   }
   if (reason === 'ban_cooldown') {
+    if (connectionIds && connectionIds.length >= 2) {
+      const eligible = await countNonQuarantinedWarmupChips(tenantId, connectionIds);
+      if (eligible >= 2) return null;
+      return 'Cooldown pós-ban: ative pelo menos 2 chips saudáveis (fora de quarentena).';
+    }
     return chipProtectionReasonLabel(reason);
   }
   return null;
 }
 
-/** Aquecimento entre chips próprios: bloqueia só cooldown pós-ban confirmado. */
-export async function isChipProtectionBlockingWarmup(tenantId: string): Promise<boolean> {
-  return (await getWarmupBlockReason(tenantId)) != null;
+/** Aquecimento entre chips próprios: bloqueia cooldown pós-ban só se não houver 2 chips saudáveis. */
+export async function isChipProtectionBlockingWarmup(
+  tenantId: string,
+  connectionIds?: string[]
+): Promise<boolean> {
+  return (await getWarmupBlockReason(tenantId, connectionIds)) != null;
 }
 
 export function isChipQuietModeSync(tenantId: string): boolean {
@@ -215,6 +253,19 @@ export async function activateTenantProtectionLock(
   console.log(`[ChipProtection] Lock ${reason} até ${until} tenant=${uid}`);
 }
 
+/** Encerra cooldown/lock manualmente (ex.: chip saudável após revisão). */
+export async function clearTenantProtectionLock(tenantId: string): Promise<void> {
+  const uid = String(tenantId || '').trim();
+  if (!uid) return;
+  await saveTenantSettings(uid, {
+    chipProtectionLockUntil: '',
+    chipProtectionLockReason: '',
+  } as Parameters<typeof saveTenantSettings>[1]);
+  invalidateChipQuietCache(uid);
+  await refreshEffectiveProtection(uid);
+  console.log(`[ChipProtection] Lock removido manualmente tenant=${uid}`);
+}
+
 export async function setChipProtectionPolicy(
   tenantId: string,
   policy: ChipProtectionPolicy
@@ -244,7 +295,10 @@ export async function enforceChipProtectionSideEffects(tenantId: string): Promis
   }
   if (reason !== 'ban_cooldown') return;
   const warmup = getAutoWarmupState(tenantId);
-  if (warmup.active) stopAutoWarmup(tenantId);
+  if (!warmup.active) return;
+  const eligible = await countNonQuarantinedWarmupChips(tenantId, warmup.connectionIds);
+  if (eligible >= 2) return;
+  stopAutoWarmup(tenantId);
 }
 
 export function onConnectionClosed(connectionId: string, wasBan: boolean): void {
@@ -344,11 +398,20 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
     });
   }
 
-  if (warmup.active && active && reason === 'ban_cooldown') {
-    risks.push({
-      level: 'info',
-      message: 'Auto-aquecimento será parado — cooldown pós-banimento ativo.',
-    });
+  if (active && reason === 'ban_cooldown') {
+    const eligibleWarmup = await countNonQuarantinedWarmupChips(uid, warmup.connectionIds);
+    if (eligibleWarmup >= 2) {
+      risks.push({
+        level: 'info',
+        message:
+          'Cooldown pós-ban: campanhas e jornada pausadas; aquecimento permitido entre chips saudáveis.',
+      });
+    } else if (warmup.active) {
+      risks.push({
+        level: 'info',
+        message: 'Auto-aquecimento pausado — inclua ≥2 chips fora de quarentena para aquecer.',
+      });
+    }
   } else if (warmup.active && reason === 'reconnect_storm') {
     risks.push({
       level: 'info',

@@ -80,3 +80,14 @@ export async function setChipProtectionPolicy(
   if (!data.ok) throw new Error(data.error || 'Erro ao salvar política de proteção.');
   return data as ChipProtectionSnapshot;
 }
+
+export async function clearChipProtectionLock(): Promise<ChipProtectionSnapshot> {
+  const res = await fetch(apiUrl('/api/chip-protection/clear-lock'), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({}),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Erro ao encerrar cooldown.');
+  return data as ChipProtectionSnapshot;
+}

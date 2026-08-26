@@ -6447,7 +6447,9 @@ export const registerWarmupSendFn = (fn: WarmupSendFn) => {
 // Getter de conexões registrado externamente (Evolution API mode)
 type WarmupConnRef = { id: string; phoneNumber?: string | null; status: string };
 type WarmupGetConnectionsFn = () => WarmupConnRef[];
+type WarmupConnectionEligibleFn = (connectionId: string) => boolean;
 let _warmupGetConnectionsFn: WarmupGetConnectionsFn | null = null;
+let _warmupConnectionEligibleFn: WarmupConnectionEligibleFn | null = null;
 
 type WarmupOwnerResolverFn = (connectionId: string) => string | undefined;
 let _warmupOwnerResolverFn: WarmupOwnerResolverFn | null = null;
@@ -6476,12 +6478,18 @@ export const registerWarmupGetConnectionsFn = (fn: WarmupGetConnectionsFn) => {
     _warmupGetConnectionsFn = fn;
 };
 
+export const registerWarmupConnectionEligibleFn = (fn: WarmupConnectionEligibleFn) => {
+    _warmupConnectionEligibleFn = fn;
+};
+
 const isWarmupEligibleConnection = (c: WarmupConnRef, allowedIds: Set<string>): boolean => {
     if (!allowedIds.has(c.id)) return false;
     const phone = String(c.phoneNumber || '').replace(/\D/g, '');
     if (phone.length < 10) return false;
     const st = String(c.status || '').toUpperCase();
-    return st === 'CONNECTED' || st === 'OPEN';
+    if (st !== 'CONNECTED' && st !== 'OPEN') return false;
+    if (_warmupConnectionEligibleFn && !_warmupConnectionEligibleFn(c.id)) return false;
+    return true;
 };
 
 export const sendWarmupMessage = async (
@@ -7302,11 +7310,11 @@ export const startAutoWarmup = async (
     intervalMinutes: number
 ): Promise<AutoWarmupStartResult> => {
     const { getWarmupBlockReason } = await import('./chipProtectionService.js');
-    const blockReason = await getWarmupBlockReason(uid);
+    const blockReason = await getWarmupBlockReason(uid, connectionIds);
     if (blockReason) {
         console.log(`[AutoWarmup] Bloqueado — ${blockReason} uid=${uid}`);
         stopAutoWarmup(uid);
-        return { ok: false, error: `Aquecimento bloqueado: ${blockReason}. Aguarde o fim do cooldown pós-ban.` };
+        return { ok: false, error: `Aquecimento bloqueado: ${blockReason}` };
     }
     stopAutoWarmup(uid);
     
@@ -7370,7 +7378,7 @@ export const loadAndResumeAutoWarmups = async () => {
             for (const item of parsed) {
                 if (item.uid && Array.isArray(item.connectionIds) && item.connectionIds.length > 0) {
                     const { isChipProtectionBlockingWarmup } = await import('./chipProtectionService.js');
-                    if (await isChipProtectionBlockingWarmup(item.uid)) {
+                    if (await isChipProtectionBlockingWarmup(item.uid, item.connectionIds)) {
                         console.log(`[AutoWarmup] Retomada ignorada — proteção de chip uid=${item.uid}`);
                         continue;
                     }

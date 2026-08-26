@@ -2567,6 +2567,9 @@ const bootstrap = async () => {
   // Registra getter de conexões da Evolution API para o auto-warmup
   // (whatsappService.getConnections retorna apenas conexões Baileys locais; em modo API, precisamos das conexões Evolution)
   waService.registerWarmupGetConnectionsFn(() => evolutionService.getConnections());
+  waService.registerWarmupConnectionEligibleFn(
+    (id) => !evolutionService.getConnectionBanInfo(id).inQuarantine
+  );
   waService.registerWarmupStatsOwnerResolver((connectionId) =>
     evolutionService.resolveConnectionOwnerUid(connectionId)
   );
