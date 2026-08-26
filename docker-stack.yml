@@ -63,6 +63,8 @@ services:
       EVOLUTION_WEBHOOK_TOKEN: ${EVOLUTION_WEBHOOK_TOKEN:-}
       EVOLUTION_API_URL: ${EVOLUTION_API_URL:-http://evolution:8080}
       EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-zapmass-secure-key-2026}
+      EVOLUTION_GO_URL: ${EVOLUTION_GO_URL:-http://evolution-go:8080}
+      EVOLUTION_GO_KEY: ${EVOLUTION_GO_KEY:-${EVOLUTION_API_KEY:-zapmass-secure-key-2026}}
       ZAPMASS_WEBHOOK_URL: ${ZAPMASS_WEBHOOK_URL:-http://api:3001/webhook/evolution}
       S3_ENDPOINT: ${S3_ENDPOINT:-}
       S3_BUCKET: ${S3_BUCKET:-}
@@ -73,7 +75,7 @@ services:
       S3_USE_SSL: ${S3_USE_SSL:-true}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
-      ZAPMASS_WHATSAPP_ENGINE: ${ZAPMASS_WHATSAPP_ENGINE:-evolution}
+      ZAPMASS_WHATSAPP_ENGINE: ${ZAPMASS_WHATSAPP_ENGINE:-evolution-go}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-evolution-secure-pass-2026}
       # Opcional: scrape interno (rede Docker) sem token; localhost/público exigem Bearer se definido.
       METRICS_TOKEN: ${METRICS_TOKEN:-}
@@ -171,7 +173,37 @@ services:
     networks:
       - zapmass_internal
 
+  evolution-go:
+    image: ${EVOLUTION_GO_IMAGE:-evoapicloud/evolution-go:latest}
+    ports:
+      - target: 8080
+        published: 8081
+        protocol: tcp
+        mode: host
+    environment:
+      - SERVER_PORT=8080
+      - CLIENT_NAME=zapmass
+      - GLOBAL_API_KEY=${EVOLUTION_GO_KEY:-${EVOLUTION_API_KEY:-zapmass-secure-key-2026}}
+      - POSTGRES_AUTH_DB=postgresql://postgres:${POSTGRES_PASSWORD:-evolution-secure-pass-2026}@tasks.postgres:5432/evogo_auth?sslmode=disable
+      - POSTGRES_USERS_DB=postgresql://postgres:${POSTGRES_PASSWORD:-evolution-secure-pass-2026}@tasks.postgres:5432/evogo_users?sslmode=disable
+      - DATABASE_SAVE_MESSAGES=false
+      - WEBHOOK_URL=${ZAPMASS_WEBHOOK_URL:-http://api:3001/webhook/evolution}
+      - WADEBUG=${EVOLUTION_GO_WADEBUG:-INFO}
+      - LOGTYPE=console
+    deploy:
+      replicas: ${EVOLUTION_GO_REPLICAS:-1}
+      update_config:
+        order: stop-first
+        delay: 20s
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 8
+    networks:
+      - zapmass_internal
+
   evolution:
+    # Rollback: EVOLUTION_NODE_REPLICAS=1 EVOLUTION_GO_REPLICAS=0 ZAPMASS_WHATSAPP_ENGINE=evolution-api
     # v2.3.7 = ultima 2.3 no Hub (QR ok). v2.4.0-rc* exige licenca Evolution Foundation.
     image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.3.7}
     ports:
@@ -214,7 +246,7 @@ services:
     volumes:
       - zapmass-evolution:/evolution/instances
     deploy:
-      replicas: 1
+      replicas: ${EVOLUTION_NODE_REPLICAS:-0}
       update_config:
         order: stop-first
         delay: 20s

@@ -56,12 +56,23 @@ describe('adaptEvolutionApiRequestToGo', () => {
         expect(r.headers.apikey).toBe('tok-test');
     });
 
-    it('findChats retorna synthetic', () => {
+    it('POST connect → /instance/connect com webhook', () => {
+        const store = {
+            ...tokenStore,
+            getGoInstanceUuid: () => 'uuid-chip1',
+        };
         const r = adaptEvolutionApiRequestToGo(
-            { method: 'post', url: '/chat/findChats/chip1', data: {}, headers: {} },
-            tokenStore
+            {
+                method: 'post',
+                url: '/instance/connect/chip1',
+                data: {},
+                headers: {},
+            },
+            store
         );
-        expect(r.syntheticResponse?.data).toEqual([]);
+        expect(r.url).toBe('/instance/connect');
+        expect(r.headers.instanceId).toBe('uuid-chip1');
+        expect((r.data as { subscribe?: string[] }).subscribe).toContain('ALL');
     });
 });
 

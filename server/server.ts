@@ -23,6 +23,7 @@ import { assertAdminFromBearer, registerAdminAuthRoutes } from './adminAuth.js';
 import { registerAdminAppConfigRoutes } from './adminAppConfigRoutes.js';
 import { registerAdminSystemAnnouncementRoutes } from './adminSystemAnnouncementRoutes.js';
 import { registerAdminOpsRoutes } from './adminOpsRoutes.js';
+import { activeEvolutionBaseUrl, usesEvolutionMotor } from './evolutionConfig.js';
 import { registerEvolutionEngineRoutes } from './evolutionEngineRoutes.js';
 import { registerAdminConnectionsRoutes } from './adminConnectionsRoutes.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
@@ -135,9 +136,9 @@ import {
     type TenantSettingsClientPayload,
 } from './tenantSettings.js';
 
-const whatsappEngine = () => String(process.env.ZAPMASS_WHATSAPP_ENGINE || 'evolution').toLowerCase();
-const useEvolutionChat = () => whatsappEngine() === 'evolution';
-const useEvolutionEngine = () => whatsappEngine() === 'evolution';
+const whatsappEngine = () => String(process.env.ZAPMASS_WHATSAPP_ENGINE || 'evolution-go').toLowerCase();
+const useEvolutionChat = () => usesEvolutionMotor();
+const useEvolutionEngine = () => usesEvolutionMotor();
 
 function notifyCampaignSocketError(
   uid: string,
@@ -2491,7 +2492,7 @@ const startServer = async (port: number): Promise<boolean> => {
       console.warn('[ibge] Falha ao carregar municípios:', e instanceof Error ? e.message : e);
     });
     console.log(
-      `[WhatsApp] engine=${whatsappEngine()} evolutionUrl=${process.env.EVOLUTION_API_URL || 'http://evolution:8080'} webhook=${process.env.ZAPMASS_WEBHOOK_URL || 'http://api:3001/webhook/evolution'}`
+      `[WhatsApp] engine=${whatsappEngine()} evolutionUrl=${activeEvolutionBaseUrl()} webhook=${process.env.ZAPMASS_WEBHOOK_URL || 'http://api:3001/webhook/evolution'}`
     );
     console.log(
       `[Socket.IO] maxHttpBufferSize=${socketMaxHttpBufferMb} MB (SOCKET_MAX_HTTP_BUFFER_MB; campanhas/chat em base64)`

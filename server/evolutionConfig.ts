@@ -3,6 +3,7 @@ import {
     evolutionEngineConfig,
     isEvolutionGoEngine,
     resolveWhatsAppEngine,
+    usesEvolutionMotor,
 } from './evolutionEngineConfig.js';
 
 /** Config legada — apiUrl reflete o motor ativo. */
@@ -24,4 +25,4 @@ export const evolutionConfig = {
     isGo: isEvolutionGoEngine(),
 };
 
-export { evolutionEngineConfig, isEvolutionGoEngine, resolveWhatsAppEngine };
+export { evolutionEngineConfig, isEvolutionGoEngine, resolveWhatsAppEngine, usesEvolutionMotor };

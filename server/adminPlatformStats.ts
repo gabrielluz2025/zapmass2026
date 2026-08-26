@@ -49,8 +49,10 @@ function readPrices(): { monthly: number; annual: number } {
   };
 }
 
+import { usesEvolutionMotor } from './evolutionConfig.js';
+
 function useEvolutionEngine(): boolean {
-  return String(process.env.ZAPMASS_WHATSAPP_ENGINE || 'evolution').toLowerCase() === 'evolution';
+  return usesEvolutionMotor();
 }
 
 function listAllConnections() {

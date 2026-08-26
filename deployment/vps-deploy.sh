@@ -120,6 +120,29 @@ if [ -f .env ]; then
   if [ "${ZAPMASS_API_SESSION_MODE:-monolith}" != "api" ] && [ "${WA_WORKER_REPLICAS:-0}" = "0" ]; then
     echo "==> AVISO: worker com 0 réplicas. Para API separada do Chromium (split): no .env use ZAPMASS_API_SESSION_MODE=api e WA_WORKER_REPLICAS=1 (ver .env.example)."
   fi
+  _engine="$(grep -E '^[[:space:]]*(export[[:space:]]+)?ZAPMASS_WHATSAPP_ENGINE=' .env 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?ZAPMASS_WHATSAPP_ENGINE=//' | tr -d '[:space:]\"'"'"'' || true)"
+  _engine="${_engine:-evolution-go}"
+  if echo "${_engine}" | grep -qiE '^evolution$|^evolution-api$|^api$|^baileys$'; then
+    echo "==> Auto-cutover: ZAPMASS_WHATSAPP_ENGINE=${_engine} → evolution-go"
+    if grep -qE '^[[:space:]]*(export[[:space:]]+)?ZAPMASS_WHATSAPP_ENGINE=' .env 2>/dev/null; then
+      sed -i -E 's/^[[:space:]]*(export[[:space:]]+)?ZAPMASS_WHATSAPP_ENGINE=.*/ZAPMASS_WHATSAPP_ENGINE=evolution-go/' .env
+    else
+      echo "ZAPMASS_WHATSAPP_ENGINE=evolution-go" >> .env
+    fi
+    grep -qE '^EVOLUTION_GO_URL=' .env 2>/dev/null || echo "EVOLUTION_GO_URL=http://evolution-go:8080" >> .env
+    grep -qE '^EVOLUTION_GO_REPLICAS=' .env 2>/dev/null || echo "EVOLUTION_GO_REPLICAS=1" >> .env
+    grep -qE '^EVOLUTION_NODE_REPLICAS=' .env 2>/dev/null || echo "EVOLUTION_NODE_REPLICAS=0" >> .env
+    export ZAPMASS_WHATSAPP_ENGINE=evolution-go
+    export EVOLUTION_GO_URL=http://evolution-go:8080
+    export EVOLUTION_GO_REPLICAS=1
+    export EVOLUTION_NODE_REPLICAS=0
+    _engine=evolution-go
+  fi
+  echo "==> ZAPMASS_WHATSAPP_ENGINE=${_engine}"
+  if echo "${_engine}" | grep -qiE 'evolution-go|^go$|evogo'; then
+    chmod +x deployment/ensure-evolution-go-dbs.sh 2>/dev/null || true
+    bash deployment/ensure-evolution-go-dbs.sh || echo "AVISO: ensure-evolution-go-dbs falhou (continuando deploy)"
+  fi
 fi
 
 # Libera a porta 8080 caso esteja ocupada por algum contêiner órfão ou processo zumbi (evita falha de port allocation no Swarm)

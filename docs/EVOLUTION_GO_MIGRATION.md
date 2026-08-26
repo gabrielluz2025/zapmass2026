@@ -25,8 +25,8 @@ ZapMass (evolutionService.ts)
 Variável principal:
 
 ```env
-ZAPMASS_WHATSAPP_ENGINE=evolution-api   # default produção
-# ZAPMASS_WHATSAPP_ENGINE=evolution-go  # após piloto
+ZAPMASS_WHATSAPP_ENGINE=evolution-go   # padrão produção (desde cutover)
+# ZAPMASS_WHATSAPP_ENGINE=evolution-api  # rollback Node/Baileys
 ```
 
 ## Fase 0 — Preparação
@@ -74,16 +74,21 @@ docker compose up -d --build zapmass
 2. Campanha pequena (10 contatos)
 3. Monitorar 48–72 h: quedas, ACK, circuit breaker
 
-## Fase 3 — Cutover produção
+## Fase 3 — Cutover produção (automático)
 
-1. Pausar campanhas
-2. Migrar chips um a um (QR)
-3. Usar **Trocar chips** na campanha se canal cair
-4. Desligar `evolution` (Node) após período estável:
+Na VPS:
 
 ```bash
-docker compose stop evolution
+cd /opt/zapmass
+bash deployment/cutover-evolution-go.sh
 ```
+
+Ou após `git pull` + deploy CI (stack já sobe `evolution-go` com `EVOLUTION_NODE_REPLICAS=0`):
+
+1. Ativar licença em `http://127.0.0.1:8081/manager`
+2. Pausar campanhas
+3. Re-parear chips um a um (QR)
+4. Usar **Trocar chips** na campanha se canal cair
 
 ## Fase 4 — Rollback
 

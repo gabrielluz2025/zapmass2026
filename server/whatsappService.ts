@@ -2434,8 +2434,8 @@ export const shutdownAll = async (reason: string = 'SIGTERM'): Promise<void> => 
 // --- INITIALIZATION ---
 export const init = (socketIo: SocketIOServer) => {
     io = socketIo;
-    const engine = String(process.env.ZAPMASS_WHATSAPP_ENGINE || 'evolution').toLowerCase();
-    const evolutionOnly = engine === 'evolution';
+    const engine = String(process.env.ZAPMASS_WHATSAPP_ENGINE || 'evolution-go').toLowerCase();
+    const evolutionOnly = engine === 'evolution' || engine === 'evolution-api' || engine === 'evolution-go' || engine === 'go' || engine === 'evogo';
     const headlessApi = process.env.SESSION_PROCESS_MODE === 'api';
     const skipBrowser = evolutionOnly || headlessApi;
 

@@ -25,6 +25,12 @@ export function isEvolutionGoEngine(): boolean {
     return resolveWhatsAppEngine() === 'evolution-go';
 }
 
+/** Evolution API (legacy) ou Evolution Go — ambos usam evolutionService. */
+export function usesEvolutionMotor(): boolean {
+    const engine = resolveWhatsAppEngine();
+    return engine === 'evolution-api' || engine === 'evolution-go';
+}
+
 export const evolutionEngineConfig = {
     engine: resolveWhatsAppEngine(),
 

@@ -4,6 +4,8 @@ import { evolutionEngineConfig } from '../evolutionEngineConfig.js';
 export type InstanceTokenStore = {
     getToken: (instanceId: string) => string | undefined;
     ensureToken: (instanceId: string) => string;
+    /** UUID da instância no Evolution Go (header instanceId). */
+    getGoInstanceUuid?: (connectionId: string) => string | undefined;
 };
 
 /** Extrai instanceId do path estilo Evolution API v2 (/recurso/{instanceId}). */
@@ -31,6 +33,16 @@ function instanceHeaders(instanceToken: string): Record<string, string> {
     return { apikey: instanceToken, 'Content-Type': 'application/json' };
 }
 
+function evolutionWebhookUrlForGo(): string {
+    let url = evolutionEngineConfig.webhookUrl;
+    const tok = evolutionEngineConfig.webhookToken?.trim();
+    if (tok) {
+        const sep = url.includes('?') ? '&' : '?';
+        url = `${url}${sep}token=${encodeURIComponent(tok)}`;
+    }
+    return url;
+}
+
 /** Traduz request Evolution API v2 → Evolution Go. */
 export function adaptEvolutionApiRequestToGo(
     config: InternalAxiosRequestConfig,
@@ -55,7 +67,7 @@ export function adaptEvolutionApiRequestToGo(
             data: {
                 name,
                 token,
-                webhook: evolutionEngineConfig.webhookUrl,
+                webhook: evolutionWebhookUrlForGo(),
             },
             headers: adminHeaders(globalKey),
         };
@@ -97,12 +109,24 @@ export function adaptEvolutionApiRequestToGo(
     const token = tokenStore.getToken(instanceId) || tokenStore.ensureToken(instanceId);
     const instH = instanceHeaders(token);
 
-    if (url.includes('/instance/connectionState/')) {
-        return { url: '/instance/status', headers: instH };
+    if (url.includes('/instance/connect/')) {
+        const goUuid = tokenStore.getGoInstanceUuid?.(instanceId!) || instanceId;
+        if (method === 'POST') {
+            return {
+                url: '/instance/connect',
+                data: {
+                    webhookUrl: evolutionWebhookUrlForGo(),
+                    subscribe: ['ALL'],
+                    immediate: true,
+                },
+                headers: { ...adminHeaders(globalKey), instanceId: goUuid! },
+            };
+        }
+        return { url: '/instance/qr', headers: instH };
     }
 
-    if (url.includes('/instance/connect/')) {
-        return { url: '/instance/qr', headers: instH };
+    if (url.includes('/instance/connectionState/')) {
+        return { url: '/instance/status', headers: instH };
     }
 
     if (url.includes('/instance/restart/')) {
@@ -205,12 +229,39 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
         const wrapped = data as { data?: unknown[] };
         const list = Array.isArray(wrapped?.data) ? wrapped.data : Array.isArray(data) ? data : [];
         return list.map((row: Record<string, unknown>) => ({
+            name: row.name || row.instanceName,
+            instanceName: row.name || row.instanceName,
+            id: row.id,
+            connectionStatus: row.connected ? 'open' : 'close',
             instance: {
-                instanceName: row.name || row.id,
+                instanceName: row.name || row.instanceName,
                 owner: row.owner || row.jid,
                 status: row.connected ? 'open' : 'close',
             },
         }));
+    }
+
+    if (path.includes('/instance/create')) {
+        const wrapped = data as { data?: Record<string, unknown> };
+        const inner = wrapped?.data || (data as Record<string, unknown>);
+        const name = inner?.name || inner?.instanceName;
+        const id = inner?.id || inner?.instanceId;
+        return {
+            instance: { instanceName: name, instanceId: id },
+            hash: id,
+            id,
+            name,
+        };
+    }
+
+    if (path.includes('/instance/connect') || path.includes('/instance/qr')) {
+        const wrapped = data as { data?: Record<string, unknown> };
+        const qr = wrapped?.data || data;
+        const code =
+            (qr as Record<string, unknown>)?.code ||
+            (qr as Record<string, unknown>)?.qrcode ||
+            (qr as Record<string, unknown>)?.base64;
+        return { qrcode: { base64: code, code }, base64: code, count: code ? 1 : 0 };
     }
 
     if (path.includes('/instance/status')) {
@@ -218,16 +269,6 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
         const st = wrapped?.data || (data as Record<string, unknown>);
         const connected = st?.connected === true || st?.state === 'open' || st?.status === 'open';
         return { instance: { state: connected ? 'open' : 'close', statusReason: st?.statusReason } };
-    }
-
-    if (path.includes('/instance/qr')) {
-        const wrapped = data as { data?: Record<string, unknown> };
-        const qr = wrapped?.data || data;
-        const code =
-            (qr as Record<string, unknown>)?.code ||
-            (qr as Record<string, unknown>)?.qrcode ||
-            (qr as Record<string, unknown>)?.base64;
-        return { qrcode: { base64: code }, base64: code };
     }
 
     if (path.includes('/user/check')) {

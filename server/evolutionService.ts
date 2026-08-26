@@ -15,8 +15,9 @@ import IORedis from 'ioredis';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { evolutionConfig } from './evolutionConfig.js';
+import { evolutionConfig, isEvolutionGoEngine } from './evolutionConfig.js';
 import { createEvolutionHttpClient } from './evolutionProvider/createEvolutionHttpClient.js';
+import { normalizeEvolutionGoWebhookIfNeeded } from './evolutionProvider/evolutionGoWebhookAdapter.js';
 import { attachEvolutionAxiosRetry } from './evolutionAxiosRetry.js';
 import { notifyTenant } from './tenantNotifyService.js';
 import { getEffectiveRedisUrl } from './redisConfig.js';
@@ -2022,6 +2023,7 @@ async function hydrateInstancesFromEvolution() {
                 row.name || row.instanceName || (row.instance as Record<string, unknown> | undefined)?.instanceName || ''
             ).trim();
             if (!instanceName) continue;
+            persistGoInstanceUuid(instanceName, row.id ?? row.instanceId);
 
             const existing = connections.get(instanceName);
             // Shard Evolution compartilhado: não hidratar instâncias de outros clientes
@@ -2395,6 +2397,8 @@ interface ConnectionSettingsPayload {
     lastClosedAt?: number;
     /** Token por instância na Evolution Go (apikey por chip). */
     evolutionGoToken?: string;
+    /** UUID da instância no Evolution Go (webhook instanceId). */
+    evolutionGoInstanceId?: string;
 }
 
 function pickNonEmptyUid(...candidates: Array<string | undefined>): string | undefined {
@@ -3118,6 +3122,50 @@ function getGoInstanceToken(connectionId: string): string | undefined {
     return connectionsSettingsCache[connectionId]?.evolutionGoToken;
 }
 
+function getGoInstanceUuid(connectionId: string): string | undefined {
+    return connectionsSettingsCache[connectionId]?.evolutionGoInstanceId;
+}
+
+function persistGoInstanceUuid(connectionId: string, uuid: unknown): void {
+    const id = typeof uuid === 'string' ? uuid.trim() : '';
+    if (!id) return;
+    if (connectionsSettingsCache[connectionId]?.evolutionGoInstanceId === id) return;
+    mergeConnectionSettingsCache(connectionId, { evolutionGoInstanceId: id });
+    saveConnectionsSettings();
+}
+
+function resolveGoWebhookConnectionId(hint: {
+    instanceId?: string;
+    instanceToken?: string;
+}): string | undefined {
+    const token = hint.instanceToken?.trim();
+    if (token) {
+        for (const [connId, settings] of Object.entries(connectionsSettingsCache)) {
+            if (settings.evolutionGoToken === token) return connId;
+        }
+    }
+    const goId = hint.instanceId?.trim();
+    if (goId) {
+        for (const [connId, settings] of Object.entries(connectionsSettingsCache)) {
+            if (settings.evolutionGoInstanceId === goId) return connId;
+        }
+    }
+    return undefined;
+}
+
+function extractGoInstanceIdFromApiPayload(data: unknown): string | undefined {
+    if (!data || typeof data !== 'object') return undefined;
+    const row = data as Record<string, unknown>;
+    const direct = row.id ?? row.hash ?? row.instanceId;
+    if (typeof direct === 'string' && direct.trim()) return direct.trim();
+    const inst = row.instance;
+    if (inst && typeof inst === 'object') {
+        const nested = (inst as Record<string, unknown>).instanceId;
+        if (typeof nested === 'string' && nested.trim()) return nested.trim();
+    }
+    return undefined;
+}
+
 function ensureGoInstanceToken(connectionId: string): string {
     let token = getGoInstanceToken(connectionId);
     if (!token) {
@@ -3131,6 +3179,7 @@ function ensureGoInstanceToken(connectionId: string): string {
 const api = createEvolutionHttpClient({
     getToken: getGoInstanceToken,
     ensureToken: ensureGoInstanceToken,
+    getGoInstanceUuid,
 });
 
 const chatStore: EvolutionChatStore = createEvolutionChat(api, {
@@ -4154,6 +4203,7 @@ async function createConnectionInternal(
 
         emitConnectionProgress(id, 'loading-whatsapp-web');
         const response = await api.post('/instance/create', createPayload);
+        persistGoInstanceUuid(id, extractGoInstanceIdFromApiPayload(response.data));
 
         const instance: EvolutionInstance = {
             instanceName: id,
@@ -4177,7 +4227,9 @@ async function createConnectionInternal(
         }
 
         await setupWebhook(id);
-        await ensureEvolutionFullHistorySync(id);
+        if (!isEvolutionGoEngine()) {
+            await ensureEvolutionFullHistorySync(id);
+        }
 
         emitConnectionProgress(id, 'awaiting-scan');
         let extracted = extractQrFromApiResponse(response.data);
@@ -7282,7 +7334,8 @@ export async function dispatchWebhook(event: unknown): Promise<{
   processedSync?: boolean;
   reason?: string;
 }> {
-  return dispatchEvolutionWebhook(event);
+  const normalized = normalizeEvolutionGoWebhookIfNeeded(event, resolveGoWebhookConnectionId);
+  return dispatchEvolutionWebhook(normalized);
 }
 
 /** Pipeline compartilhado: opt-out, fluxo por resposta, nutrição e lead quente. */

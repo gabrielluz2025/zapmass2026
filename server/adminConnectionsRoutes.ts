@@ -9,8 +9,9 @@ import * as waService from './whatsappService.js';
 import { submitDeleteConnection } from './sessionControlPlane.js';
 import { isLegacyConnectionId } from '../src/utils/connectionScope.js';
 
-const useEvolutionEngine = () =>
-  String(process.env.ZAPMASS_WHATSAPP_ENGINE || 'evolution').toLowerCase() === 'evolution';
+import { usesEvolutionMotor } from './evolutionConfig.js';
+
+const useEvolutionEngine = () => usesEvolutionMotor();
 
 function listConnectionsForAdmin() {
   return useEvolutionEngine() ? evolutionService.getConnections() : waService.getConnections();
@@ -141,7 +142,7 @@ export function registerAdminConnectionsRoutes(app: Express): void {
     if (!auth) return;
 
     if (!useEvolutionEngine()) {
-      res.status(400).json({ ok: false, error: 'Disponível apenas com ZAPMASS_WHATSAPP_ENGINE=evolution.' });
+      res.status(400).json({ ok: false, error: 'Disponível apenas com motor Evolution (API ou Go).' });
       return;
     }
 
@@ -244,7 +245,7 @@ export function registerAdminConnectionsRoutes(app: Express): void {
     if (!auth) return;
 
     if (!useEvolutionEngine()) {
-      res.status(400).json({ ok: false, error: 'Disponível apenas com ZAPMASS_WHATSAPP_ENGINE=evolution.' });
+      res.status(400).json({ ok: false, error: 'Disponível apenas com motor Evolution (API ou Go).' });
       return;
     }
 
@@ -259,7 +260,7 @@ export function registerAdminConnectionsRoutes(app: Express): void {
     if (!auth) return;
 
     if (!useEvolutionEngine()) {
-      res.status(400).json({ ok: false, error: 'Disponível apenas com ZAPMASS_WHATSAPP_ENGINE=evolution.' });
+      res.status(400).json({ ok: false, error: 'Disponível apenas com motor Evolution (API ou Go).' });
       return;
     }
 

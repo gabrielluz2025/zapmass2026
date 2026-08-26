@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
-# Sobe Evolution Go em paralelo à Evolution API (sem cutover automático).
+# Sobe Evolution Go e aplica cutover no .env (motor padrão).
 # Uso na VPS: cd /opt/zapmass && bash deployment/setup-evolution-go-parallel.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-echo "==> Subindo Evolution Go (profile evolution-go)..."
-docker compose --profile evolution-go up -d evolution-go
+bash deployment/ensure-evolution-go-dbs.sh
+
+echo "==> Subindo Evolution Go..."
+docker compose up -d evolution-go 2>/dev/null || docker compose --profile evolution-go up -d evolution-go 2>/dev/null || true
+
+if docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -q active; then
+  docker stack deploy -c docker-stack.yml zapmass --with-registry-auth 2>/dev/null || true
+fi
 
 echo "==> Aguardando /server/ok (até 90s)..."
 for i in $(seq 1 30); do
@@ -15,13 +21,13 @@ for i in $(seq 1 30); do
     "http://127.0.0.1:8081/server/ok" >/dev/null 2>&1; then
     echo "Evolution Go respondeu em http://127.0.0.1:8081"
     echo ""
-    echo "Próximos passos:"
-    echo "  1. Abra http://SEU_IP:8081/manager e ative a licença Foundation"
-    echo "  2. Valide paridade: GET /api/admin/evolution-engine (com token admin)"
-    echo "  3. Piloto: no .env defina ZAPMASS_WHATSAPP_ENGINE=evolution-go"
-    echo "     EVOLUTION_GO_URL=http://evolution-go:8080"
-    echo "  4. docker compose up -d --build zapmass"
-    echo "  5. Re-pareie cada chip (QR) — sessões Baileys não migram"
+    echo "Para cutover completo (recomendado):"
+    echo "  bash deployment/cutover-evolution-go.sh"
+    echo ""
+    echo "Ou manualmente no .env:"
+    echo "  ZAPMASS_WHATSAPP_ENGINE=evolution-go"
+    echo "  EVOLUTION_GO_URL=http://evolution-go:8080"
+    echo "  docker compose up -d --build zapmass"
     exit 0
   fi
   sleep 3
