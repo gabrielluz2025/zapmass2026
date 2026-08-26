@@ -76,6 +76,12 @@ import {
     resolveChipTier,
 } from './chipTrustScore.js';
 import { checkInboundAutomationAllowed } from './inboundAutomationGuard.js';
+import {
+  buildInboundAutomationDedupeKey,
+  isInboundAutomationProcessed,
+  markInboundAutomationProcessed,
+} from './inboundAutomationDedupe.js';
+import type { InboundProcessParams } from './inboundMissedReplay.js';
 import { validateCampaignContentHash } from './campaignContentHashLock.js';
 import {
     cancelCampaignJobsForPhone,
@@ -1518,6 +1524,10 @@ function applyConnectionStateUpdate(
 
     const connBefore = connections.get(instance);
     const prevStatus = connBefore?.status;
+    const reconnecting =
+        open &&
+        prevStatus !== 'open' &&
+        (prevStatus === 'close' || Boolean(connectionsSettingsCache[instance]?.lastClosedAt));
 
     // Close durante pairing (Evolution/Baileys) — ignorar só nos primeiros ~45s; depois tratar como queda real.
     if (state === 'close' && (prevStatus === 'connecting' || prevStatus === 'created')) {
@@ -1573,7 +1583,10 @@ function applyConnectionStateUpdate(
             stopWatchingConnection(instance);
             pairingStartedAt.delete(instance);
             conn.lastOpenAt = undefined;
-            mergeConnectionSettingsCache(instance, { connectedSince: undefined });
+            mergeConnectionSettingsCache(instance, {
+                connectedSince: undefined,
+                lastClosedAt: Date.now(),
+            });
 
             // Detecção de ban: SOMENTE via statusReason 401/"loggedOut" do WhatsApp.
             // Heurística de "rapid_close" foi removida — causava falsos positivos em
@@ -1695,6 +1708,26 @@ function applyConnectionStateUpdate(
                     ou,
                     'conversations-update',
                     await socketConversationsPayload(ou, ou, chatStore.getConversations(), resolveConnectionOwnerUid)
+                );
+            }
+            if (reconnecting) {
+                void recoverStuckReplyFlowSessions().then((recovered) => {
+                    if (recovered > 0) {
+                        log('info', `[ReplyFlow] ${recovered} sessão(ões) retomada(s) após reconexão`, {
+                            connectionId: instance,
+                            recovered,
+                        });
+                    }
+                });
+                void import('./inboundMissedReplay.js').then(({ replayMissedInboundForConnection }) =>
+                    replayMissedInboundForConnection(instance, ou, {
+                        getConversations: () => chatStore.getConversations(),
+                        loadChatHistory: (conversationId, limit) =>
+                            chatStore.loadChatHistory(conversationId, limit, true),
+                        getLastClosedAt: (id) => connectionsSettingsCache[id]?.lastClosedAt,
+                        processInbound: processInboundAutomationMessage,
+                        log: (message, payload) => log('info', message, payload),
+                    })
                 );
             }
         })();
@@ -2306,6 +2339,8 @@ interface ConnectionSettingsPayload {
     quarantineUntil?: number;
     /** Epoch ms em que o chip ficou open — sobrevive a restart (Uptime no cartão). */
     connectedSince?: number;
+    /** Epoch ms em que o chip caiu/offline — usado para reprocessar respostas perdidas. */
+    lastClosedAt?: number;
 }
 
 function pickNonEmptyUid(...candidates: Array<string | undefined>): string | undefined {
@@ -6646,6 +6681,173 @@ export async function dispatchWebhook(event: unknown): Promise<{
   return dispatchEvolutionWebhook(event);
 }
 
+/** Pipeline compartilhado: opt-out, fluxo por resposta, nutrição e lead quente. */
+async function processInboundAutomationMessage(params: InboundProcessParams): Promise<void> {
+    const {
+        connectionId: instance,
+        phoneDigits,
+        bodyText,
+        nonTextReply,
+        incomingConvId,
+        messageOwnerUid,
+        dedupeKey,
+        source,
+    } = params;
+
+    if (dedupeKey && (await isInboundAutomationProcessed(dedupeKey))) {
+        return;
+    }
+
+    if (bodyText && messageOwnerUid) {
+        const optedOut = await handleInboundOptOut({
+            tenantId: messageOwnerUid,
+            connectionId: instance,
+            phoneDigits,
+            bodyText,
+            incomingConvId,
+            sendText: async (convId, text) => {
+                await sendMessage(convId, text);
+            },
+            cancelJobs: async (tenantId, phone) => {
+                const queue = getCampaignQueue();
+                if (!queue) return 0;
+                return cancelCampaignJobsForPhone(
+                    queue,
+                    tenantId,
+                    phone,
+                    (campaignId) => campaignsById.get(campaignId)?.ownerUid
+                );
+            },
+            onComplete: (payload) => {
+                log('info', '[OptOut] Contato descadastrado via inbound', {
+                    ...payload,
+                    source,
+                });
+            },
+        });
+        if (optedOut) {
+            if (dedupeKey) await markInboundAutomationProcessed(dedupeKey);
+            return;
+        }
+    }
+
+    ensureReplyFlowEngine();
+    await tryRestoreReplyFlowSession(instance, phoneDigits);
+    await replyFlowEngine.handleIncoming({
+        connectionId: instance,
+        phoneDigits,
+        bodyText,
+        nonTextReply,
+        incomingConvId,
+    });
+
+    const ownerUidForBot = messageOwnerUid || resolveOwnerUid(instance);
+    if (ownerUidForBot && incomingConvId) {
+        const inboundGuard = await checkInboundAutomationAllowed(ownerUidForBot, instance);
+        if (!inboundGuard.allowed) {
+            log('info', `[inboundGuard] Automação bloqueada tenant=${ownerUidForBot}`, {
+                reason: 'reason' in inboundGuard ? inboundGuard.reason : undefined,
+                source,
+            });
+            if (dedupeKey) await markInboundAutomationProcessed(dedupeKey);
+            return;
+        }
+
+        ensureNurtureEnqueue();
+        const nurtureHandled = await handleNurtureIncoming({
+            tenantId: ownerUidForBot,
+            connectionId: instance,
+            phoneDigits,
+            bodyText,
+            incomingConvId,
+            hasReplyFlowSession: replyFlowEngine.hasSession(instance, phoneDigits),
+            sendText: async (convId, text) => {
+                await sendMessage(convId, text);
+            },
+        });
+        if (!nurtureHandled) {
+            const hasRecentCampaign = chatStore.hasRecentCampaignActivity(phoneDigits);
+            if (!hasRecentCampaign) {
+                void handleSupportBotIncoming({
+                    tenantId: ownerUidForBot,
+                    connectionId: instance,
+                    phoneDigits,
+                    bodyText,
+                    incomingConvId,
+                    hasReplyFlowSession: replyFlowEngine.hasSession(instance, phoneDigits),
+                    sendText: async (convId, text) => {
+                        await sendMessage(convId, text);
+                    },
+                });
+            }
+        }
+    }
+
+    const ownerUidForReply = messageOwnerUid || resolveOwnerUid(instance);
+    if (ownerUidForReply && bodyText) {
+        void onContactReply({
+            tenantId: ownerUidForReply,
+            contactId: phoneDigits,
+            replyText: bodyText,
+            stageConfigsResolver: (cid) => campaignStageConfigsById.get(cid),
+            connectionId: instance,
+            ownerUid: ownerUidForReply,
+            callbacks: {
+                enqueue: async (p) => {
+                    await enqueueCampaignItem(
+                        {
+                            connectionId: p.connectionId,
+                            to: phoneDigits,
+                            message: p.message,
+                            campaignId: p.campaignId,
+                            ownerUid: p.ownerUid,
+                            stageIndex: p.stepIndex,
+                            rotationIndex: campaignRotationIndexFromPhone(phoneDigits),
+                            sendAsMedia: campaignMediaById.has(p.campaignId),
+                            multiStepContact: { contactId: p.contactId, stepIndex: p.stepIndex },
+                        },
+                        p.delayMs
+                    );
+                },
+                onLog: (msg, payload) => emitCampaignLog('INFO', msg, payload, ownerUidForReply),
+                resolveConnectionId: () => instance,
+                resolveVars: () => ({}),
+                applyVars: (template, cid, vars) => applyMessageVars(template, cid, vars),
+                getDispatchDelayMs: () => getTenantDispatchSettings(ownerUidForReply).minDelayMs,
+                publishEvent: (uid, event, data) => publishOwnerEvent(uid, event, data),
+            },
+        });
+    }
+
+    const replyResolved = resolveLatestCampaignForReply(instance, phoneDigits);
+    const replyCampaignId =
+        replyFlowEngine?.resolveCampaignIdForIncoming(instance, phoneDigits, incomingConvId) ||
+        replyResolved.campaignId;
+    const replyOwnerUid = messageOwnerUid || replyResolved.ownerUid;
+
+    evolutionTrackIncomingReply(instance, phoneDigits, {
+        campaignId: replyCampaignId,
+        ownerUid: replyOwnerUid,
+    });
+    if (replyOwnerUid) {
+        void tryAutoEnrollHotLead({
+            tenantId: replyOwnerUid,
+            phoneDigits,
+            connectionId: instance,
+            conversationId: incomingConvId,
+            treatReplyAsHot: true,
+        });
+    }
+    const replyPreview =
+        String(bodyText || '').slice(0, 80) ||
+        (nonTextReply ? '[resposta sem texto legível — mídia/botão/etc.]' : '');
+    if (replyPreview) {
+        logCampaignContactReply(instance, phoneDigits, replyPreview, replyCampaignId, replyOwnerUid);
+    }
+
+    if (dedupeKey) await markInboundAutomationProcessed(dedupeKey);
+}
+
 export async function handleWebhook(event: any) {
     // Garante que nenhum webhook trava o event loop indefinidamente (ex: Redis lento).
     const timeoutId = setTimeout(() => {
@@ -6747,160 +6949,24 @@ export async function handleWebhook(event: any) {
                     const payload = (msg.message || msg.messageContent || {}) as Record<string, unknown>;
                     const { bodyText, nonTextReply } = extractEvolutionMessageBody(payload);
                     const incomingConvId = buildEvolutionIncomingConvId(instance, remoteJid, phoneDigits);
+                    const dedupeKey = buildInboundAutomationDedupeKey({
+                        connectionId: instance,
+                        messageId: messageId ? String(messageId) : undefined,
+                        phoneDigits,
+                        timestampMs: Number(msg.messageTimestamp) || Date.now(),
+                        bodyText: bodyText || (nonTextReply ? '[non-text]' : ''),
+                    });
 
-                    if (bodyText && messageOwnerUid) {
-                        const optedOut = await handleInboundOptOut({
-                            tenantId: messageOwnerUid,
-                            connectionId: instance,
-                            phoneDigits,
-                            bodyText,
-                            incomingConvId,
-                            sendText: async (convId, text) => {
-                                await sendMessage(convId, text);
-                            },
-                            cancelJobs: async (tenantId, phone) => {
-                                const queue = getCampaignQueue();
-                                if (!queue) return 0;
-                                return cancelCampaignJobsForPhone(
-                                    queue,
-                                    tenantId,
-                                    phone,
-                                    (campaignId) => campaignsById.get(campaignId)?.ownerUid
-                                );
-                            },
-                            onComplete: (payload) => {
-                                log('info', '[OptOut] Contato descadastrado via inbound', payload);
-                            },
-                        });
-                        if (optedOut) continue;
-                    }
-
-                        ensureReplyFlowEngine();
-                    // Restaura sessão do Redis se foi perdida (restart do servidor)
-                    await tryRestoreReplyFlowSession(instance, phoneDigits);
-                        void replyFlowEngine.handleIncoming({
-                            connectionId: instance,
-                            phoneDigits,
-                            bodyText,
-                            nonTextReply,
+                    void processInboundAutomationMessage({
+                        connectionId: instance,
+                        phoneDigits,
+                        bodyText,
+                        nonTextReply,
                         incomingConvId,
+                        messageOwnerUid,
+                        dedupeKey,
+                        source: 'webhook',
                     });
-
-                    const ownerUidForBot = messageOwnerUid || resolveOwnerUid(instance);
-                    if (ownerUidForBot && incomingConvId) {
-                        const inboundGuard = await checkInboundAutomationAllowed(ownerUidForBot, instance);
-                        if (!inboundGuard.allowed) {
-                            log('info', `[inboundGuard] Automação bloqueada tenant=${ownerUidForBot}`, {
-                                reason: 'reason' in inboundGuard ? inboundGuard.reason : undefined,
-                            });
-                            continue;
-                        }
-
-                        ensureNurtureEnqueue();
-                        const nurtureHandled = await handleNurtureIncoming({
-                            tenantId: ownerUidForBot,
-                            connectionId: instance,
-                            phoneDigits,
-                            bodyText,
-                            incomingConvId,
-                            hasReplyFlowSession: replyFlowEngine.hasSession(instance, phoneDigits),
-                            sendText: async (convId, text) => {
-                                await sendMessage(convId, text);
-                            }
-                        });
-                        if (!nurtureHandled) {
-                        const hasRecentCampaign = chatStore.hasRecentCampaignActivity(phoneDigits);
-                        if (!hasRecentCampaign) {
-                            void handleSupportBotIncoming({
-                                tenantId: ownerUidForBot,
-                                connectionId: instance,
-                                phoneDigits,
-                                bodyText,
-                                incomingConvId,
-                                hasReplyFlowSession: replyFlowEngine.hasSession(instance, phoneDigits),
-                                sendText: async (convId, text) => {
-                                    await sendMessage(convId, text);
-                                }
-                            });
-                        } else {
-                            log('info', `[supportBot] Ignorando chatbot para ${phoneDigits} pois recebeu campanha recentemente (tolerância 15m).`);
-                        }
-                        }
-                    }
-
-                    // Motor multi-etapas lazy: verifica se contato aguarda resposta
-                    const ownerUidForReply = messageOwnerUid || resolveOwnerUid(instance);
-                    if (ownerUidForReply && bodyText) {
-                        void onContactReply({
-                            tenantId: ownerUidForReply,
-                            contactId: phoneDigits,
-                            replyText: bodyText,
-                            stageConfigsResolver: (cid) => campaignStageConfigsById.get(cid),
-                            connectionId: instance,
-                            ownerUid: ownerUidForReply,
-                            callbacks: {
-                                enqueue: async (p) => {
-                                    await enqueueCampaignItem(
-                                        {
-                                            connectionId: p.connectionId,
-                                            to: phoneDigits,
-                                            message: p.message,
-                                            campaignId: p.campaignId,
-                                            ownerUid: p.ownerUid,
-                                            stageIndex: p.stepIndex,
-                                            rotationIndex: campaignRotationIndexFromPhone(phoneDigits),
-                                            sendAsMedia: campaignMediaById.has(p.campaignId),
-                                            multiStepContact: { contactId: p.contactId, stepIndex: p.stepIndex },
-                                        },
-                                        p.delayMs
-                                    );
-                                    // NÃO incrementar campaignPendingJobs aqui — enqueueCampaignItem já incrementa.
-                                },
-                                onLog: (msg, payload) =>
-                                    emitCampaignLog('INFO', msg, payload, ownerUidForReply),
-                                resolveConnectionId: () => instance,
-                                resolveVars: () => ({}),
-                                applyVars: (template, cid, vars) => applyMessageVars(template, cid, vars),
-                                getDispatchDelayMs: () => getTenantDispatchSettings(ownerUidForReply).minDelayMs,
-                                publishEvent: (uid, event, data) => publishOwnerEvent(uid, event, data),
-                            },
-                        });
-                    }
-
-                    const replyResolved = resolveLatestCampaignForReply(instance, phoneDigits);
-                    const replyCampaignId =
-                        replyFlowEngine?.resolveCampaignIdForIncoming(
-                            instance,
-                            phoneDigits,
-                            incomingConvId
-                        ) || replyResolved.campaignId;
-                    const replyOwnerUid = messageOwnerUid || replyResolved.ownerUid;
-
-                    evolutionTrackIncomingReply(instance, phoneDigits, {
-                        campaignId: replyCampaignId,
-                        ownerUid: replyOwnerUid
-                    });
-                    if (replyOwnerUid) {
-                        void tryAutoEnrollHotLead({
-                            tenantId: replyOwnerUid,
-                            phoneDigits,
-                            connectionId: instance,
-                            conversationId: incomingConvId,
-                            treatReplyAsHot: true
-                        });
-                    }
-                    const replyPreview =
-                        String(bodyText || '').slice(0, 80) ||
-                        (nonTextReply ? '[resposta sem texto legível — mídia/botão/etc.]' : '');
-                    if (replyPreview) {
-                        logCampaignContactReply(
-                            instance,
-                            phoneDigits,
-                            replyPreview,
-                            replyCampaignId,
-                            replyOwnerUid
-                        );
-                    }
                 }
                 break;
             }
@@ -7985,6 +8051,25 @@ export async function sendTestMessage(
         const msg = e instanceof Error ? e.message : String(e);
         return { ok: false, error: msg };
     }
+}
+
+/** Reprocessa respostas recebidas enquanto o chip estava offline (manual ou pós-deploy). */
+export async function triggerInboundReplayForConnection(connectionId: string): Promise<{
+    scanned: number;
+    replayed: number;
+    skipped: number;
+}> {
+    const ownerUid = resolveOwnerUid(connectionId);
+    const { replayMissedInboundForConnection } = await import('./inboundMissedReplay.js');
+    await recoverStuckReplyFlowSessions();
+    return replayMissedInboundForConnection(connectionId, ownerUid, {
+        getConversations: () => chatStore.getConversations(),
+        loadChatHistory: (conversationId, limit) =>
+            chatStore.loadChatHistory(conversationId, limit, true),
+        getLastClosedAt: (id) => connectionsSettingsCache[id]?.lastClosedAt,
+        processInbound: processInboundAutomationMessage,
+        log: (message, payload) => log('info', message, payload),
+    });
 }
 
 /** Retorna últimos N jobs falhos da fila BullMQ de campanhas com seus erros. */

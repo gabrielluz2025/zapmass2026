@@ -92,4 +92,32 @@ export function registerConnectionsSyncRoutes(app: Express): void {
       return res.status(500).json({ ok: false, error: message });
     }
   });
+
+  /** Reprocessa respostas perdidas enquanto o chip esteve offline/banido. */
+  app.post('/api/connections/:id/replay-inbound', async (req: Request, res: Response) => {
+    try {
+      const token = parseBearer(req);
+      if (!token) {
+        return res.status(401).json({ ok: false, error: 'Authorization: Bearer <token> obrigatório.' });
+      }
+      const principal = await resolveAuthPrincipal(token);
+      if (!principal) {
+        return res.status(401).json({ ok: false, error: 'Token inválido.' });
+      }
+      const connectionId = String(req.params.id || '').trim();
+      if (!connectionId) {
+        return res.status(400).json({ ok: false, error: 'Canal inválido.' });
+      }
+      const members = await getWorkspaceMembersForPrincipal(principal);
+      if (!evolutionService.ensureTenantOwnsConnection(principal.tenantUid, connectionId, members, principal.authUid)) {
+        return res.status(403).json({ ok: false, error: 'Canal não pertence a este workspace.' });
+      }
+      const result = await evolutionService.triggerInboundReplayForConnection(connectionId);
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error('[api/connections/:id/replay-inbound]', message);
+      return res.status(500).json({ ok: false, error: message });
+    }
+  });
 }
