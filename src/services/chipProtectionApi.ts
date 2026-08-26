@@ -3,12 +3,34 @@ import { getSessionIdToken } from '../utils/sessionAuth';
 
 export type ChipProtectionPolicy = 'auto' | 'always' | 'off';
 
+export type ChipProtectionConnectionRow = {
+  id: string;
+  name: string;
+  status: string;
+  circuitState: 'CLOSED' | 'HALF_OPEN' | 'OPEN';
+  failRatePct: number;
+  sentWindow: number;
+  failuresWindow: number;
+  inQuarantine: boolean;
+  quarantineUntil: string | null;
+  banCount: number;
+};
+
+export type ChipProtectionFeedItem = {
+  at: string;
+  level: 'ok' | 'info' | 'warn' | 'danger';
+  title: string;
+  detail?: string;
+};
+
 export type ChipProtectionSnapshot = {
   chipQuietMode: boolean;
   chipProtectionPolicy: ChipProtectionPolicy;
   protectionReason: string | null;
   protectionReasonLabel: string;
   protectionLockUntil: string | null;
+  lockRemainingMs: number | null;
+  fetchedAt: string;
   nurture: { journeyEnabled: boolean; dueEnrollments: number; pausedByQuiet: boolean };
   autoWarmup: { active: boolean; connectionIds: string[]; pausedByQuiet: boolean };
   campaigns: { activeCount: number; queueHint: string };
@@ -21,6 +43,8 @@ export type ChipProtectionSnapshot = {
       autoResumeAt?: number;
     }>;
   };
+  connections: ChipProtectionConnectionRow[];
+  liveFeed: ChipProtectionFeedItem[];
   sync: {
     fullHistory: boolean;
     fullInboxSync: boolean;

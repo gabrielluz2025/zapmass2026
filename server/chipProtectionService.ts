@@ -12,6 +12,8 @@ import { getTenantDispatchSettings, loadTenantSettings, saveTenantSettings } fro
 import { getAutoWarmupState, stopAutoWarmup } from './whatsappService.js';
 import { listDueEnrollmentsPg } from './nurture/nurtureRepository.js';
 import { getOrCreatePrimaryJourneyPg } from './nurture/nurtureRepository.js';
+import { filterByConnectionScope } from './connectionScopeServer.js';
+import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
 
 const effectiveCache = new Map<
   string,
@@ -23,12 +25,34 @@ const closeEventsByTenant = new Map<string, number[]>();
 const CLOSE_STORM_WINDOW_MS = 30 * 60 * 1000;
 const CLOSE_STORM_THRESHOLD = 3;
 
+export type ChipProtectionConnectionRow = {
+  id: string;
+  name: string;
+  status: string;
+  circuitState: 'CLOSED' | 'HALF_OPEN' | 'OPEN';
+  failRatePct: number;
+  sentWindow: number;
+  failuresWindow: number;
+  inQuarantine: boolean;
+  quarantineUntil: string | null;
+  banCount: number;
+};
+
+export type ChipProtectionFeedItem = {
+  at: string;
+  level: 'ok' | 'info' | 'warn' | 'danger';
+  title: string;
+  detail?: string;
+};
+
 export type ChipActivitySnapshot = {
   chipQuietMode: boolean;
   chipProtectionPolicy: ChipProtectionPolicy;
   protectionReason: ChipProtectionReason | null;
   protectionReasonLabel: string;
   protectionLockUntil: string | null;
+  lockRemainingMs: number | null;
+  fetchedAt: string;
   nurture: { journeyEnabled: boolean; dueEnrollments: number; pausedByQuiet: boolean };
   autoWarmup: { active: boolean; connectionIds: string[]; pausedByQuiet: boolean };
   campaigns: { activeCount: number; queueHint: string };
@@ -41,6 +65,8 @@ export type ChipActivitySnapshot = {
       autoResumeAt?: number;
     }>;
   };
+  connections: ChipProtectionConnectionRow[];
+  liveFeed: ChipProtectionFeedItem[];
   sync: ChipSyncProfile;
   risks: Array<{ level: 'warn' | 'info'; message: string }>;
   recommendations: string[];
@@ -367,6 +393,128 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
     settings.chipProtectionLockUntil && lockActive(settings)
       ? settings.chipProtectionLockUntil
       : null;
+  const lockRemainingMs = lockUntil
+    ? Math.max(0, new Date(lockUntil).getTime() - Date.now())
+    : null;
+
+  const fetchedAt = new Date().toISOString();
+  const cb = getChipCircuitBreaker();
+  const connectionRows: ChipProtectionConnectionRow[] = [];
+  const scopedConns = filterByConnectionScope(uid, evo.getConnections());
+  for (const conn of scopedConns) {
+    const id = String(conn.id || '').trim();
+    if (!id) continue;
+    const banInfo = evo.getConnectionBanInfo(id);
+    const score = await cb.getHealthScore(id);
+    connectionRows.push({
+      id,
+      name: String(conn.name || id),
+      status: String(conn.status || 'unknown'),
+      circuitState: score.state,
+      failRatePct: Math.round(score.failRate * 1000) / 10,
+      sentWindow: score.sent,
+      failuresWindow: score.failures,
+      inQuarantine: banInfo.inQuarantine,
+      quarantineUntil:
+        banInfo.quarantineUntil && banInfo.quarantineUntil > Date.now()
+          ? new Date(banInfo.quarantineUntil).toISOString()
+          : null,
+      banCount: banInfo.banCount,
+    });
+  }
+
+  const hardLock =
+    reason === 'ban_cooldown' || reason === 'reconnect_storm';
+
+  const liveFeed: ChipProtectionFeedItem[] = [];
+  if (reason === 'reconnect_storm') {
+    liveFeed.push({
+      at: fetchedAt,
+      level: 'danger',
+      title: 'Instabilidade detectada',
+      detail: 'Várias quedas seguidas — envios desacelerados ou pausados por até 6h.',
+    });
+  } else if (reason === 'ban_cooldown') {
+    liveFeed.push({
+      at: fetchedAt,
+      level: 'danger',
+      title: 'Cooldown pós-banimento',
+      detail: 'Campanhas pausadas por 48h após ban detectado no WhatsApp.',
+    });
+  } else if (active && reason === 'policy_auto_idle') {
+    liveFeed.push({
+      at: fetchedAt,
+      level: 'ok',
+      title: 'Chips quietos (sem campanha)',
+      detail: 'Jornada e nutrição pausadas. Ao iniciar campanha, libera automaticamente.',
+    });
+  } else if (!active && activeCampaigns > 0) {
+    liveFeed.push({
+      at: fetchedAt,
+      level: 'info',
+      title: 'Campanha em execução',
+      detail: 'Proteção monitora falhas, texto duplicado e saúde dos chips em tempo real.',
+    });
+  } else if (!active) {
+    liveFeed.push({
+      at: fetchedAt,
+      level: 'info',
+      title: 'Envios liberados',
+      detail: 'Nenhuma trava de proteção ativa neste momento.',
+    });
+  }
+
+  for (const row of connectionRows) {
+    if (row.inQuarantine) {
+      liveFeed.push({
+        at: fetchedAt,
+        level: 'danger',
+        title: `${row.name} em quarentena`,
+        detail: row.quarantineUntil
+          ? `Até ${new Date(row.quarantineUntil).toLocaleString('pt-BR')}`
+          : 'Aguardando fim da quarentena pós-ban.',
+      });
+    } else if (row.circuitState === 'OPEN') {
+      liveFeed.push({
+        at: fetchedAt,
+        level: 'warn',
+        title: `${row.name} — circuit breaker aberto`,
+        detail: `Taxa de falha ${row.failRatePct}% (${row.failuresWindow} falhas na janela).`,
+      });
+    } else if (row.circuitState === 'HALF_OPEN') {
+      liveFeed.push({
+        at: fetchedAt,
+        level: 'warn',
+        title: `${row.name} — recuperação`,
+        detail: `Monitorando estabilidade (${row.failRatePct}% falhas).`,
+      });
+    } else if (row.status !== 'CONNECTED' && row.status !== 'CONNECTING') {
+      liveFeed.push({
+        at: fetchedAt,
+        level: 'warn',
+        title: `${row.name} offline`,
+        detail: `Status: ${row.status}`,
+      });
+    }
+  }
+
+  for (const p of campaignProt.protectionPaused) {
+    liveFeed.push({
+      at: fetchedAt,
+      level: 'warn',
+      title: `Campanha pausada (${p.campaignId})`,
+      detail: p.message || p.reason,
+    });
+  }
+
+  if (warmup.active) {
+    liveFeed.push({
+      at: fetchedAt,
+      level: 'info',
+      title: 'Auto-aquecimento ativo',
+      detail: `${warmup.connectionIds.length} chip(s) trocando mensagens entre si.`,
+    });
+  }
 
   return {
     chipQuietMode: active,
@@ -374,6 +522,8 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
     protectionReason: reason,
     protectionReasonLabel: chipProtectionReasonLabel(reason),
     protectionLockUntil: lockUntil,
+    lockRemainingMs,
+    fetchedAt,
     nurture: {
       journeyEnabled,
       dueEnrollments,
@@ -382,7 +532,7 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
     autoWarmup: {
       active: warmup.active,
       connectionIds: warmup.connectionIds,
-      pausedByQuiet: active && warmup.active,
+      pausedByQuiet: hardLock && warmup.active,
     },
     campaigns: {
       activeCount: activeCampaigns,
@@ -395,6 +545,8 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
       runningCount: campaignProt.running,
       pausedByProtection: campaignProt.protectionPaused,
     },
+    connections: connectionRows,
+    liveFeed: liveFeed.slice(0, 12),
     sync,
     risks,
     recommendations,
