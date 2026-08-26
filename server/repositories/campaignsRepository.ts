@@ -215,6 +215,26 @@ export type DueScheduledRow = {
   next_run_at: Date;
 };
 
+export type RunningCampaignRow = {
+  id: string;
+  tenant_id: string;
+};
+
+/** Campanhas marcadas RUNNING/STARTED no Postgres (reconciliação pós-restart). */
+export async function listRunningCampaigns(limit = 50): Promise<RunningCampaignRow[]> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const r = await pool.query<RunningCampaignRow>(
+    `SELECT id::text, tenant_id::text
+     FROM zapmass.campaigns
+     WHERE status IN ('RUNNING', 'STARTED')
+     ORDER BY updated_at DESC
+     LIMIT $1`,
+    [limit]
+  );
+  return r.rows;
+}
+
 export async function listDueScheduledCampaigns(limit = 5): Promise<DueScheduledRow[]> {
   const pool = getZapmassPool();
   if (!pool) return [];

@@ -3058,6 +3058,8 @@ interface CampaignRuntimeState {
     autoPauseEmitted?: boolean;
     /** Variáveis de personalização por destinatário — usadas em etapas lazy/multi-step. */
     _recipientVars?: Map<string, Record<string, string>>;
+    /** Timestamp de início do disparo (watchdog de campanha presa). */
+    startedAt?: number;
 }
 
 const campaignsById = new Map<string, CampaignRuntimeState>();
@@ -3253,7 +3255,10 @@ function bumpCampaignProgress(campaignId: string | undefined, success: boolean) 
         campaignId,
     });
 
-    const shouldLog = state.processed === state.total || state.processed - state.lastLoggedProcessed >= 5;
+    const shouldLog =
+        state.processed === 1 ||
+        state.processed === state.total ||
+        state.processed - state.lastLoggedProcessed >= 5;
     if (shouldLog) {
         state.lastLoggedProcessed = state.processed;
         emitCampaignLog(
@@ -3706,9 +3711,33 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
 // ──── Persistência de Runtime de Campanha no Redis ────────────────────────────
 const CAMPAIGN_RUNTIME_TTL_SECS = 24 * 3600; // 24h
 
-interface CampaignRuntimeRedis extends CampaignRuntimeState {
+interface CampaignRuntimeRedis extends Omit<CampaignRuntimeState, '_recipientVars' | 'recentOutcomes'> {
     campaignId: string;
     savedAt: number;
+    startedAt?: number;
+    _recipientVars?: Record<string, Record<string, string>>;
+}
+
+function serializeRecipientVars(
+    vars?: Map<string, Record<string, string>>
+): Record<string, Record<string, string>> | undefined {
+    if (!vars || !(vars instanceof Map) || vars.size === 0) return undefined;
+    return Object.fromEntries(vars);
+}
+
+function deserializeRecipientVars(
+    raw?: Record<string, Record<string, string>> | Map<string, Record<string, string>>
+): Map<string, Record<string, string>> | undefined {
+    if (!raw) return undefined;
+    if (raw instanceof Map) return raw.size > 0 ? raw : undefined;
+    const entries = Object.entries(raw).filter(([phone]) => phone.length >= 8);
+    return entries.length > 0 ? new Map(entries) : undefined;
+}
+
+function syncPausedCampaignFromRuntime(campaignId: string, state: CampaignRuntimeState): void {
+    if (state.protectionPaused) {
+        pausedCampaigns.add(campaignId);
+    }
 }
 
 async function saveCampaignRuntimeToRedis(campaignId: string): Promise<void> {
@@ -3717,7 +3746,26 @@ async function saveCampaignRuntimeToRedis(campaignId: string): Promise<void> {
     const state = campaignsById.get(campaignId);
     if (!state) return;
     try {
-        const payload: CampaignRuntimeRedis = { ...state, campaignId, savedAt: Date.now() };
+        const payload: CampaignRuntimeRedis = {
+            ownerUid: state.ownerUid,
+            total: state.total,
+            processed: state.processed,
+            successCount: state.successCount,
+            failCount: state.failCount,
+            skipCount: state.skipCount,
+            lastLoggedProcessed: state.lastLoggedProcessed,
+            isRunning: state.isRunning,
+            connectionIds: state.connectionIds,
+            protectionPaused: state.protectionPaused,
+            protectionPauseReason: state.protectionPauseReason,
+            protectionPauseUntil: state.protectionPauseUntil,
+            protectionPauseMessage: state.protectionPauseMessage,
+            autoPauseEmitted: state.autoPauseEmitted,
+            startedAt: state.startedAt,
+            _recipientVars: serializeRecipientVars(state._recipientVars),
+            campaignId,
+            savedAt: Date.now(),
+        };
         await conn.setex(
             `zapmass:campaign:runtime:${campaignId}`,
             CAMPAIGN_RUNTIME_TTL_SECS,
@@ -3736,7 +3784,7 @@ async function loadCampaignRuntimeFromRedis(campaignId: string): Promise<Campaig
         if (!raw) return null;
         const parsed = JSON.parse(raw) as CampaignRuntimeRedis;
         if (!parsed?.ownerUid || typeof parsed.total !== 'number') return null;
-        return {
+        const restored: CampaignRuntimeState = {
             ownerUid: parsed.ownerUid,
             total: parsed.total,
             processed: parsed.processed || 0,
@@ -3749,8 +3797,13 @@ async function loadCampaignRuntimeFromRedis(campaignId: string): Promise<Campaig
             protectionPauseReason: parsed.protectionPauseReason,
             protectionPauseUntil: parsed.protectionPauseUntil,
             protectionPauseMessage: parsed.protectionPauseMessage,
+            _recipientVars: deserializeRecipientVars(
+                parsed._recipientVars as unknown as Record<string, Record<string, string>>
+            ),
+            startedAt: parsed.startedAt ?? parsed.savedAt,
             recentOutcomes: [],
         };
+        return restored;
     } catch {
         return null;
     }
@@ -3774,6 +3827,7 @@ async function ensureCampaignRuntimeInMemory(campaignId: string, fallbackOwnerUi
     const fromRedis = await loadCampaignRuntimeFromRedis(campaignId);
     if (fromRedis) {
         campaignsById.set(campaignId, fromRedis);
+        syncPausedCampaignFromRuntime(campaignId, fromRedis);
         log('info', `[reconcile] Runtime da campanha ${campaignId} restaurado do Redis`, { ownerUid: fromRedis.ownerUid });
         return;
     }
@@ -5139,6 +5193,10 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     if (item.campaignId && campaignStateEarly?.ownerUid && campaignStateEarly.isRunning) {
         const guard = await runCampaignDispatchGuard(item, campaignStateEarly);
+        if (guard?.action === 'pause') {
+            await job.moveToDelayed(Date.now() + 3000, token);
+            throw new DelayedError();
+        }
         if (guard?.action === 'slow' && guard.extraDelayMs) {
             await job.moveToDelayed(Date.now() + guard.extraDelayMs, token);
             throw new DelayedError();
@@ -5162,7 +5220,15 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     // Última barreira antes do envio: jobs antigos persistidos no Redis, warmup e
     // integrações legadas podem ter entrado na fila com o template cru. Resolver
     // aqui garante que nenhum `{A|B}` chegue ao WhatsApp, mesmo após restart.
-    const queueVars = item.replyFlowOpen?.vars ?? {};
+    const queueVars =
+        item.replyFlowOpen?.vars ??
+        (() => {
+            const phone = normalizePhoneKey(item.to || '');
+            const varsMap = campaignStateEarly?._recipientVars;
+            if (!phone || !varsMap) return undefined;
+            return varsMap instanceof Map ? varsMap.get(phone) : undefined;
+        })() ??
+        {};
     const resolvedQueueMessage = applyMessageVars(item.message, item.to, queueVars, item.rotationIndex);
     if (resolvedQueueMessage !== item.message) {
         item.message = resolvedQueueMessage;
@@ -5419,6 +5485,21 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             throw new DelayedError();
         }
         item._offlineDelayCount = (item._offlineDelayCount || 0) + 1;
+        if (item._offlineDelayCount >= 5) {
+            const connLabel = connections.get(item.connectionId)?.friendlyName || item.connectionId;
+            const stallMsg = `Campanha pausada: chip ${connLabel} offline no servidor. Reconecte em Conexões e clique em Retomar.`;
+            emitCampaignLog(
+                'WARN',
+                stallMsg,
+                { campaignId: item.campaignId, connectionId: item.connectionId, to: item.to },
+                campaignState?.ownerUid
+            );
+            if (item.campaignId) {
+                pauseCampaign(item.campaignId, campaignState?.ownerUid);
+            }
+            await job.moveToDelayed(Date.now() + 300_000, token);
+            throw new DelayedError();
+        }
         if (item._offlineDelayCount > 180) {
             const state = await getConnectionState(item.connectionId);
             throw new Error(
@@ -6214,6 +6295,7 @@ export async function redispatchCampaign(
         failCount: prev?.failCount ?? campaign.failedCount ?? 0,
         lastLoggedProcessed: prev?.lastLoggedProcessed ?? baseProcessed,
         isRunning: true,
+        startedAt: prev?.startedAt ?? Date.now(),
         recentOutcomes: prev?.recentOutcomes ?? [],
         _recipientVars: recipientVars,
     });
@@ -6461,6 +6543,7 @@ export async function startCampaign(
         failCount: 0,
         lastLoggedProcessed: 0,
         isRunning: true,
+        startedAt: Date.now(),
         connectionIds: [...activeConnectionIds],
         recentOutcomes: [],
         // Guarda variáveis dos destinatários para uso em etapas posteriores (multi-step/reply-flow)
@@ -6767,8 +6850,57 @@ export function init(socketIO: SocketIOServer) {
     // fazendo a 2ª+ etapa nunca disparar e a campanha ser marcada COMPLETED prematuramente.
     void (async () => {
         await reconcilePendingJobsFromRedis();
+        await reconcileRunningCampaignsFromPostgres();
         ensureCampaignWorker();
     })();
+}
+
+/** Campanhas RUNNING no Postgres sem runtime/jobs após restart — reidrata ou reenfileira. */
+async function reconcileRunningCampaignsFromPostgres(): Promise<void> {
+    try {
+        const { listRunningCampaigns } = await import('./repositories/campaignsRepository.js');
+        const { isZapmassPostgresConfigured } = await import('./db/postgres.js');
+        if (!isZapmassPostgresConfigured()) return;
+
+        const rows = await listRunningCampaigns(30);
+        for (const row of rows) {
+            const campaignId = String(row.id || '').trim();
+            const tenantId = String(row.tenant_id || '').trim();
+            if (!campaignId || !tenantId) continue;
+
+            if (!campaignsById.has(campaignId)) {
+                await ensureCampaignRuntimeInMemory(campaignId, tenantId);
+            }
+            const state = campaignsById.get(campaignId);
+            if (state) {
+                syncPausedCampaignFromRuntime(campaignId, state);
+                if (!state.startedAt) state.startedAt = Date.now();
+            }
+
+            const pendingMem = campaignPendingJobs.get(campaignId) || 0;
+            if (pendingMem > 0) continue;
+
+            const queue = getCampaignQueue();
+            let pendingQueue = 0;
+            if (queue) {
+                const jobs = await queue.getJobs(['active', 'waiting', 'delayed'], 0, 200);
+                pendingQueue = jobs.filter((j) => j.data?.campaignId === campaignId).length;
+            }
+            if (pendingQueue > 0) {
+                campaignPendingJobs.set(campaignId, pendingQueue);
+                continue;
+            }
+
+            log('warn', `[reconcile] Campanha RUNNING ${campaignId} sem jobs — retomando do snapshot`, {
+                tenantId,
+            });
+            await redispatchCampaign(tenantId, campaignId, { mode: 'resume', skipFrequencyCap: true });
+        }
+    } catch (e: unknown) {
+        log('warn', '[reconcile] Falha ao reconciliar campanhas RUNNING do Postgres', {
+            error: (e as Error)?.message,
+        });
+    }
 }
 
 /** Restaura campaignPendingJobs E campaignsById para campanhas com jobs ativos no Redis. */
@@ -6797,9 +6929,101 @@ async function reconcilePendingJobsFromRedis() {
             if (!campaignsById.has(cid)) {
                 await ensureCampaignRuntimeInMemory(cid, ownerByC.get(cid));
             }
+            const restored = campaignsById.get(cid);
+            if (restored) {
+                syncPausedCampaignFromRuntime(cid, restored);
+                if (!restored.startedAt) {
+                    restored.startedAt = Date.now();
+                }
+            }
         }
     } catch (e: any) {
         log('warn', '[reconcile] Não foi possível reconciliar jobs do Redis:', { error: e?.message });
+    }
+}
+
+const CAMPAIGN_STALL_MS = 120_000;
+const campaignStallNotified = new Set<string>();
+
+/**
+ * Detecta campanhas RUNNING com 0 envios por >2 min e corrige ou pausa com motivo claro.
+ */
+export async function tickCampaignStallWatchdog(): Promise<void> {
+    ensureCampaignWorker();
+    const queue = getCampaignQueue();
+    const now = Date.now();
+
+    for (const [campaignId, state] of campaignsById.entries()) {
+        if (!state.isRunning || state.processed > 0) continue;
+        if (pausedCampaigns.has(campaignId) || state.protectionPaused) continue;
+
+        const startedAt = state.startedAt ?? 0;
+        if (startedAt > 0 && now - startedAt < CAMPAIGN_STALL_MS) continue;
+
+        const pendingMem = campaignPendingJobs.get(campaignId) || 0;
+        let pendingQueue = 0;
+        if (queue) {
+            try {
+                const jobs = await queue.getJobs(['active', 'waiting', 'delayed'], 0, 400);
+                pendingQueue = jobs.filter((j) => j.data?.campaignId === campaignId).length;
+            } catch {
+                pendingQueue = pendingMem;
+            }
+        }
+
+        const pending = Math.max(pendingMem, pendingQueue);
+
+        if (pending <= 0 && state.ownerUid) {
+            if (campaignStallNotified.has(`${campaignId}:reenqueue`)) continue;
+            campaignStallNotified.add(`${campaignId}:reenqueue`);
+            log('warn', `[stall-watchdog] Campanha ${campaignId} sem jobs na fila — tentando retomar`, {
+                ownerUid: state.ownerUid,
+            });
+            const result = await redispatchCampaign(state.ownerUid, campaignId, {
+                mode: 'resume',
+                skipFrequencyCap: true,
+            });
+            if (result.ok) {
+                emitCampaignLog(
+                    'INFO',
+                    `Disparo retomado automaticamente (${result.enqueued} mensagem(ns) reenfileirada(s)).`,
+                    { campaignId, enqueued: result.enqueued },
+                    state.ownerUid
+                );
+                publishOwnerEvent(state.ownerUid, 'campaign-resumed', {
+                    campaignId,
+                    autoRecovery: true,
+                    enqueued: result.enqueued,
+                });
+            } else {
+                emitCampaignLog(
+                    'WARN',
+                    `Campanha sem progresso: ${result.error || 'falha ao reenfileirar'}. Pause e inicie de novo.`,
+                    { campaignId },
+                    state.ownerUid
+                );
+            }
+            continue;
+        }
+
+        const connIds =
+            state.connectionIds?.filter(Boolean) ||
+            (pendingQueue > 0 ? [] : []);
+        const usable = connIds.filter((id) => isCampaignChannelUsable(id));
+        if (connIds.length > 0 && usable.length === 0) {
+            const notifyKey = `${campaignId}:offline`;
+            if (campaignStallNotified.has(notifyKey)) continue;
+            campaignStallNotified.add(notifyKey);
+            const stallMsg =
+                'Campanha pausada: chip offline ou indisponível no servidor. Abra Conexões, reconecte o WhatsApp e clique em Retomar.';
+            emitCampaignLog('WARN', stallMsg, { campaignId, connectionIds: connIds }, state.ownerUid);
+            pauseCampaign(campaignId, state.ownerUid);
+            publishOwnerEvent(state.ownerUid, 'campaign-stall-paused', {
+                campaignId,
+                reason: 'chip_offline',
+                message: stallMsg,
+            });
+        }
     }
 }
 
