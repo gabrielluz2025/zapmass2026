@@ -1,31 +1,83 @@
-import type { Campaign } from '../types';
-import type { CampaignWizardDraft, SavedCampaignTemplate } from '../types/campaignMission';
+import type { Campaign, CampaignReplyFlow, CampaignReplyFlowStep } from '../types';
+import type {
+  CampaignWizardDraft,
+  CampaignWizardStageDraft,
+  SavedCampaignTemplate
+} from '../types/campaignMission';
 
 const rid = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `s-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
+const defaultInvalidReply = 'Não entendi. Responda com uma das opções indicadas acima.';
+
+function resolveCampaignReplyFlow(c: Campaign): CampaignReplyFlow | undefined {
+  const candidate = c.replyFlow ?? c.scheduleStartSnapshot?.replyFlow;
+  if (!candidate || candidate.enabled === false) return undefined;
+  const steps = Array.isArray(candidate.steps) ? candidate.steps : [];
+  if (steps.length === 0) return undefined;
+  return { ...candidate, enabled: true, steps };
+}
+
+function replyFlowStepToWizardStage(step: CampaignReplyFlowStep): CampaignWizardStageDraft {
+  const hasOptions = Array.isArray(step.options) && step.options.length > 0;
+  return {
+    id: rid(),
+    body: step.body,
+    acceptAnyReply: hasOptions ? false : step.acceptAnyReply !== false,
+    validTokensText: (step.validTokens || []).join(', '),
+    invalidReplyBody: step.invalidReplyBody || defaultInvalidReply,
+    marketingEffect: step.marketingEffect ?? 'none',
+    optionsMode: hasOptions ? 'conditional' : 'linear',
+    matchMode: step.matchMode,
+    timeoutHours: step.timeoutHours,
+    timeoutMessage: step.timeoutMessage,
+    options: hasOptions
+      ? step.options!.map((opt) => ({
+          id: rid(),
+          tokensText: (opt.tokens || []).join(', '),
+          reply: opt.reply,
+          marketingEffect: opt.marketingEffect ?? 'none',
+          priority: opt.priority,
+          matchMode: opt.matchMode
+        }))
+      : []
+  };
+}
+
+function singleMessageStage(body: string): CampaignWizardStageDraft {
+  return {
+    id: rid(),
+    body,
+    acceptAnyReply: true,
+    validTokensText: '',
+    invalidReplyBody: defaultInvalidReply,
+    marketingEffect: 'none',
+    optionsMode: 'linear',
+    options: []
+  };
+}
+
 /** Monta rascunho para o assistente a partir de uma campanha existente (público deve ser conferido). */
 export function buildDraftFromCampaign(c: Campaign): CampaignWizardDraft {
-  const stages: CampaignWizardDraft['messageStages'] =
-    c.replyFlow?.enabled && c.replyFlow.steps.length
-      ? c.replyFlow.steps.map((step) => ({
-          id: rid(),
-          body: step.body,
-          acceptAnyReply: step.acceptAnyReply,
-          validTokensText: (step.validTokens || []).join(', '),
-          invalidReplyBody: step.invalidReplyBody || '',
-          marketingEffect: step.marketingEffect ?? 'none'
-        }))
-      : (c.messageStages?.length ? c.messageStages : [c.message]).map((body) => ({
-          id: rid(),
-          body,
-          acceptAnyReply: true,
-          validTokensText: '1, 2, sim, nao',
-          invalidReplyBody: 'Nao entendi. Responda com uma das opcoes indicadas acima.',
-          marketingEffect: 'none' as const
-        }));
+  const replyFlow = resolveCampaignReplyFlow(c);
+
+  let campaignFlowMode: CampaignWizardDraft['campaignFlowMode'];
+  let messageStages: CampaignWizardStageDraft[];
+
+  if (replyFlow) {
+    campaignFlowMode = 'reply';
+    messageStages = replyFlow.steps.map(replyFlowStepToWizardStage);
+  } else {
+    campaignFlowMode = 'single';
+    const primary = String(c.message || '').trim();
+    const extras = (c.messageStages || []).map((s) => String(s || '').trim()).filter(Boolean);
+    const bodies = primary ? [primary, ...extras.filter((b) => b !== primary)] : extras;
+    messageStages = bodies.length > 0 ? [singleMessageStage(bodies[0])] : [singleMessageStage('')];
+  }
+
+  const globalOptOutKeywords = replyFlow?.globalOptOutKeywords || [];
 
   return {
     name: `${c.name} (cópia)`,
@@ -36,8 +88,10 @@ export function buildDraftFromCampaign(c: Campaign): CampaignWizardDraft {
     channelWeightMode: 'equal',
     channelWeights: { ...(c.channelWeights || {}) },
     delaySeconds: c.delaySeconds ?? 45,
-    campaignFlowMode: c.replyFlow?.enabled ? 'reply' : 'single',
-    messageStages: stages,
+    campaignFlowMode,
+    messageStages,
+    replyFlowGlobalOptOutEnabled: replyFlow?.globalOptOutEnabled !== false,
+    replyFlowGlobalOptOutKeywordsText: globalOptOutKeywords.join(', '),
     filterCities: [],
     filterChurches: [],
     filterRoles: [],
@@ -51,6 +105,9 @@ export function buildDraftFromCampaign(c: Campaign): CampaignWizardDraft {
 }
 
 export function templateToWizardDraft(t: SavedCampaignTemplate): CampaignWizardDraft {
+  const snapshot = t.replyFlowSnapshot;
+  const useReply = t.campaignFlowMode === 'reply' && snapshot?.steps?.length;
+
   return {
     name: `Campanha — ${t.name}`,
     sendMode: 'list',
@@ -61,14 +118,22 @@ export function templateToWizardDraft(t: SavedCampaignTemplate): CampaignWizardD
     channelWeights: {},
     delaySeconds: t.delaySeconds,
     campaignFlowMode: t.campaignFlowMode,
-    messageStages: t.stages.map((s) => ({
-      id: rid(),
-      body: s.body,
-      acceptAnyReply: s.acceptAnyReply,
-      validTokensText: s.validTokensText,
-      invalidReplyBody: s.invalidReplyBody,
-      marketingEffect: s.marketingEffect ?? 'none'
-    })),
+    messageStages: useReply
+      ? snapshot!.steps.map(replyFlowStepToWizardStage)
+      : t.stages.map((s) => ({
+          id: rid(),
+          body: s.body,
+          acceptAnyReply: s.acceptAnyReply,
+          validTokensText: s.validTokensText,
+          invalidReplyBody: s.invalidReplyBody,
+          marketingEffect: s.marketingEffect ?? 'none',
+          optionsMode: 'linear' as const,
+          options: []
+        })),
+    replyFlowGlobalOptOutEnabled: useReply ? snapshot!.globalOptOutEnabled !== false : undefined,
+    replyFlowGlobalOptOutKeywordsText: useReply
+      ? (snapshot!.globalOptOutKeywords || []).join(', ')
+      : undefined,
     filterCities: [],
     filterChurches: [],
     filterRoles: [],

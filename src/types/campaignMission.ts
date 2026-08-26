@@ -1,6 +1,28 @@
 import type { CampaignReplyFlow } from '../types';
 import type { ContactTemperature } from '../utils/contactTemperature';
 
+/** Etapa do assistente (mensagem + gatilhos do fluxo por resposta). */
+export interface CampaignWizardStageDraft {
+  id: string;
+  body: string;
+  acceptAnyReply: boolean;
+  validTokensText: string;
+  invalidReplyBody: string;
+  marketingEffect?: 'none' | 'opt_in' | 'opt_out';
+  optionsMode?: 'linear' | 'conditional';
+  options?: Array<{
+    id: string;
+    tokensText: string;
+    reply: string;
+    marketingEffect?: 'none' | 'opt_in' | 'opt_out';
+    priority?: number;
+    matchMode?: 'word' | 'phrase' | 'contains' | 'numeric_exact';
+  }>;
+  matchMode?: 'word' | 'phrase' | 'contains' | 'numeric_exact';
+  timeoutHours?: number;
+  timeoutMessage?: string;
+}
+
 /** Rascunho para reabrir o assistente (clone / template). */
 export interface CampaignWizardDraft {
   name: string;
@@ -15,15 +37,10 @@ export interface CampaignWizardDraft {
   delaySecondsMax?: number;
   humanizedPauses?: boolean;
   campaignFlowMode: 'sequential' | 'reply' | 'single';
-  messageStages: Array<{
-    id: string;
-    body: string;
-    acceptAnyReply: boolean;
-    validTokensText: string;
-    invalidReplyBody: string;
-    /** Efeito CRM quando o contato responde válido nesta etapa (fluxo por respostas). */
-    marketingEffect?: 'none' | 'opt_in' | 'opt_out';
-  }>;
+  messageStages: CampaignWizardStageDraft[];
+  /** Fluxo por resposta: opt-out global antes do menu. */
+  replyFlowGlobalOptOutEnabled?: boolean;
+  replyFlowGlobalOptOutKeywordsText?: string;
   filterCities: string[];
   filterChurches: string[];
   filterRoles: string[];

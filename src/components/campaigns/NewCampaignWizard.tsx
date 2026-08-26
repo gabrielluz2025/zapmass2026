@@ -40,7 +40,7 @@ import {
   ConnectionStatus,
   WhatsAppConnection
 } from '../../types';
-import type { CampaignWizardDraft } from '../../types/campaignMission';
+import type { CampaignWizardDraft, CampaignWizardStageDraft } from '../../types/campaignMission';
 import { parseWeddingDayMonth, yearsCelebratingAtNextAnniversary } from '../../utils/weddingAnniversary';
 import { campaignRecipientNameVars } from '../../utils/contactNameNormalize';
 import { analyzeMessageRisk } from '../../utils/messageRiskScore';
@@ -125,6 +125,25 @@ const newMessageStage = (): MessageStageDraft => ({
 
 const parseValidTokensText = (s: string) =>
   s.split(/[,;\n\r]+/).map((t) => t.trim()).filter(Boolean);
+
+function draftStageToMessageStage(s: CampaignWizardStageDraft): MessageStageDraft {
+  return {
+    ...newMessageStage(),
+    ...s,
+    id: s.id || newMessageStage().id,
+    marketingEffect: s.marketingEffect ?? 'none',
+    optionsMode: s.optionsMode ?? (s.options?.length ? 'conditional' : 'linear'),
+    options: (s.options ?? []).map((o) => ({
+      ...newMessageStageOption(),
+      ...o,
+      id: o.id || newMessageStageOption().id,
+      marketingEffect: o.marketingEffect ?? 'none'
+    })),
+    matchMode: s.matchMode,
+    timeoutHours: s.timeoutHours,
+    timeoutMessage: s.timeoutMessage
+  };
+}
 
 type SendMode = 'list' | 'manual' | 'filter';
 
@@ -866,26 +885,20 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       setCampaignFlowMode('single');
       setMessageStages(
         initialDraft.messageStages.length > 0
-          ? [
-              {
-                ...newMessageStage(),
-                ...initialDraft.messageStages[0],
-                id: initialDraft.messageStages[0].id || newMessageStage().id,
-                marketingEffect: initialDraft.messageStages[0].marketingEffect ?? 'none'
-              }
-            ]
+          ? [draftStageToMessageStage(initialDraft.messageStages[0])]
           : [newMessageStage()]
       );
     } else {
       setCampaignFlowMode(draftMode);
-    setMessageStages(
-      initialDraft.messageStages.map((s) => ({
-        ...newMessageStage(),
-        ...s,
-        id: s.id || newMessageStage().id,
-        marketingEffect: s.marketingEffect ?? 'none'
-      }))
-    );
+      setMessageStages(initialDraft.messageStages.map(draftStageToMessageStage));
+    }
+    if (initialDraft.campaignFlowMode === 'reply') {
+      if (typeof initialDraft.replyFlowGlobalOptOutEnabled === 'boolean') {
+        setReplyFlowGlobalOptOutEnabled(initialDraft.replyFlowGlobalOptOutEnabled);
+      }
+      if (initialDraft.replyFlowGlobalOptOutKeywordsText != null) {
+        setReplyFlowGlobalOptOutKeywordsText(initialDraft.replyFlowGlobalOptOutKeywordsText);
+      }
     }
     // Draft/template/clone já traz o modo definido — não força reescolha.
     setFlowModeChosen(true);
@@ -931,8 +944,24 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       acceptAnyReply: s.acceptAnyReply,
       validTokensText: s.validTokensText,
       invalidReplyBody: s.invalidReplyBody,
-      marketingEffect: s.marketingEffect ?? 'none'
+      marketingEffect: s.marketingEffect ?? 'none',
+      optionsMode: s.optionsMode,
+      options: s.options?.map((o) => ({
+        id: o.id,
+        tokensText: o.tokensText,
+        reply: o.reply,
+        marketingEffect: o.marketingEffect ?? 'none',
+        priority: o.priority,
+        matchMode: o.matchMode
+      })),
+      matchMode: s.matchMode,
+      timeoutHours: s.timeoutHours,
+      timeoutMessage: s.timeoutMessage
     })),
+    replyFlowGlobalOptOutEnabled:
+      campaignFlowMode === 'reply' ? replyFlowGlobalOptOutEnabled : undefined,
+    replyFlowGlobalOptOutKeywordsText:
+      campaignFlowMode === 'reply' ? replyFlowGlobalOptOutKeywordsText : undefined,
     filterCities: Array.from(filterCities),
     filterChurches: Array.from(filterChurches),
     filterRoles: Array.from(filterRoles),
