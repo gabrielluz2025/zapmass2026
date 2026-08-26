@@ -18,6 +18,11 @@ import { fileURLToPath } from 'url';
 import { evolutionConfig, isEvolutionGoEngine } from './evolutionConfig.js';
 import { createEvolutionHttpClient } from './evolutionProvider/createEvolutionHttpClient.js';
 import { normalizeEvolutionGoWebhookIfNeeded } from './evolutionProvider/evolutionGoWebhookAdapter.js';
+import {
+    assertEvolutionGoLicensed,
+    evolutionGoLicenseUserMessage,
+    isEvolutionGoLicenseError,
+} from './evolutionGoLicense.js';
 import { attachEvolutionAxiosRetry } from './evolutionAxiosRetry.js';
 import { notifyTenant } from './tenantNotifyService.js';
 import { getEffectiveRedisUrl } from './redisConfig.js';
@@ -1880,6 +1885,21 @@ async function tryRecoverCountZeroInstance(instanceName: string): Promise<boolea
 }
 
 async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQr | null> {
+    if (isEvolutionGoEngine()) {
+        try {
+            await assertEvolutionGoLicensed('gerar QR');
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : evolutionGoLicenseUserMessage(e);
+            emitConnectionProgress(instanceName, 'failed');
+            const ownerUid = resolveOwnerUid(instanceName);
+            if (ownerUid) {
+                publishOwnerEvent(ownerUid, 'socket-operation-error', { op: 'force-qr', error: msg });
+            }
+            log('warn', `fetchConnectQr bloqueado — licença Go inativa: ${instanceName}`, { msg });
+            return null;
+        }
+    }
+
     const tryParse = (data: unknown, via: string): { extracted: ExtractedEvolutionQr | null; countZero: boolean } => {
         const extracted = extractQrFromApiResponse(data);
         if (extracted) return { extracted, countZero: false };
@@ -1912,6 +1932,16 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
             if (parsed.extracted) return parsed.extracted;
             if (parsed.countZero) sawCountZero = true;
         } catch (error: any) {
+            if (isEvolutionGoLicenseError(error)) {
+                const msg = evolutionGoLicenseUserMessage(error);
+                emitConnectionProgress(instanceName, 'failed');
+                const ownerUid = resolveOwnerUid(instanceName);
+                if (ownerUid) {
+                    publishOwnerEvent(ownerUid, 'socket-operation-error', { op: 'force-qr', error: msg });
+                }
+                log('warn', `connect/${instanceName} — licença Go inativa`, { msg });
+                return null;
+            }
             log('warn', `GET connect/${instanceName} falhou`, {
                 error: error?.message,
                 status: error?.response?.status,
@@ -1924,6 +1954,15 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
             if (parsed.extracted) return parsed.extracted;
             if (parsed.countZero) sawCountZero = true;
         } catch (error: any) {
+            if (isEvolutionGoLicenseError(error)) {
+                const msg = evolutionGoLicenseUserMessage(error);
+                emitConnectionProgress(instanceName, 'failed');
+                emitToConnectionFrontend(instanceName, 'socket-operation-error', {
+                    op: 'force-qr',
+                    error: msg,
+                });
+                return null;
+            }
             log('warn', `POST connect/${instanceName} falhou`, {
                 error: error?.message,
                 status: error?.response?.status,
@@ -4350,6 +4389,16 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
     clearAutoReconnect(id);
     pairingStartedAt.delete(id);
 
+    if (isEvolutionGoEngine()) {
+        try {
+            await assertEvolutionGoLicensed('forçar QR');
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : evolutionGoLicenseUserMessage(e);
+            emitConnectionProgress(id, 'failed');
+            return { error: msg };
+        }
+    }
+
     const conn = connections.get(id);
     if (!conn) {
         await hydrateInstancesFromEvolution();
@@ -4384,12 +4433,17 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
 
         // 2. Recria a instância com credenciais zeradas
         try {
-            await api.post('/instance/create', {
+            const createResp = await api.post('/instance/create', {
                 instanceName: evoInst(id),
-                token: evolutionConfig.apiKey,
                 qrcode: true,
-                integration: 'WHATSAPP-BAILEYS',
+                ...(isEvolutionGoEngine()
+                    ? {}
+                    : {
+                          token: evolutionConfig.apiKey,
+                          integration: 'WHATSAPP-BAILEYS',
+                      }),
             });
+            persistGoInstanceUuid(id, extractGoInstanceIdFromApiPayload(createResp.data));
             log('info', `[CleanReconnect] Instância ${id} recriada com credenciais limpas`);
         } catch (err: any) {
             log('warn', `[CleanReconnect] Falha ao recriar instância ${id}`, { error: err?.message });
@@ -4602,7 +4656,11 @@ export async function deleteConnection(
         await api.delete(`/instance/delete/${evoInst(id)}`);
     } catch (error: any) {
         const status = error?.response?.status;
-        if (status !== 404) {
+        if (isEvolutionGoLicenseError(error)) {
+            log('warn', `delete ${id}: Evolution Go sem licença — removendo canal só no ZapMass`, {
+                status,
+            });
+        } else if (status !== 404) {
             const msg =
                 error?.response?.data?.message ||
                 error?.response?.data?.error ||

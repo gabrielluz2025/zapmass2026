@@ -74,10 +74,16 @@ export function adaptEvolutionApiRequestToGo(
     }
 
     if (method === 'DELETE' && instanceId && url.includes('/instance/delete/')) {
+        const goUuid = tokenStore.getGoInstanceUuid?.(instanceId) || instanceId;
         return {
-            url: `/instance/delete/${encodeURIComponent(instanceId)}`,
+            url: `/instance/delete/${encodeURIComponent(goUuid)}`,
             headers: adminHeaders(globalKey),
         };
+    }
+
+    if (method === 'DELETE' && instanceId && url.includes('/instance/logout/')) {
+        const token = tokenStore.getToken(instanceId) || tokenStore.ensureToken(instanceId);
+        return { url: '/instance/logout', headers: instanceHeaders(token) };
     }
 
     if (method === 'POST' && instanceId && (url.includes('/instance/proxy/') || url.includes('/proxy/set/'))) {

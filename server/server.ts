@@ -1535,7 +1535,12 @@ const registerSocketHandlers = () => {
           userLog('ui:force-qr', { id });
           await runConnectionCommand({
             submit: () => submitForceQr(id, authOp),
-            local: async () => { await evolutionService.forceQr(id); }
+            local: async () => {
+              const result = await evolutionService.forceQr(id);
+              if (result?.error) {
+                socket.emit('socket-operation-error', { op: 'force-qr', error: result.error });
+              }
+            }
           });
           socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
         } catch (e) {

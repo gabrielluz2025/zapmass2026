@@ -10,6 +10,7 @@ import {
     isEvolutionGoEngine,
     resolveWhatsAppEngine,
 } from './evolutionEngineConfig.js';
+import { probeEvolutionGoLicenseActive } from './evolutionGoLicense.js';
 
 export function registerEvolutionEngineRoutes(app: Express): void {
     app.get('/api/admin/evolution-engine', async (req: Request, res: Response) => {
@@ -17,6 +18,7 @@ export function registerEvolutionEngineRoutes(app: Express): void {
         if (!auth) return;
 
         let goReachable: boolean | null = null;
+        let goLicense: { active: boolean; registerUrl?: string } | null = null;
         if (isEvolutionGoEngine() || req.query.probeGo === '1') {
             try {
                 const url = `${evolutionEngineConfig.go.url.replace(/\/$/, '')}/server/ok`;
@@ -31,6 +33,7 @@ export function registerEvolutionEngineRoutes(app: Express): void {
             } catch {
                 goReachable = false;
             }
+            goLicense = await probeEvolutionGoLicenseActive();
         }
 
         return res.json({
@@ -42,6 +45,8 @@ export function registerEvolutionEngineRoutes(app: Express): void {
                 url: evolutionEngineConfig.go.url,
                 image: evolutionEngineConfig.go.image,
                 reachable: goReachable,
+                licenseActive: goLicense?.active ?? null,
+                licenseRegisterUrl: goLicense?.registerUrl ?? null,
             },
             parity: paritySummaryForGo(),
             matrix: EVOLUTION_GO_PARITY_MATRIX,
