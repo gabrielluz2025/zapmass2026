@@ -7,6 +7,7 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
+import crypto from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import { Queue, Worker, Job, DelayedError, UnrecoverableError } from 'bullmq';
@@ -15,6 +16,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { evolutionConfig } from './evolutionConfig.js';
+import { createEvolutionHttpClient } from './evolutionProvider/createEvolutionHttpClient.js';
 import { attachEvolutionAxiosRetry } from './evolutionAxiosRetry.js';
 import { notifyTenant } from './tenantNotifyService.js';
 import { getEffectiveRedisUrl } from './redisConfig.js';
@@ -70,6 +72,7 @@ import {
     type PoolStrategy,
 } from './campaignPoolRedis.js';
 import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
+import { getReconnectStormProgress } from './chipProtectionService.js';
 import {
     computeTierExtraDelayMs,
     isTierDailyCapReached,
@@ -1324,14 +1327,27 @@ function emitScopedConversationsUpdate() {
     })();
 }
 
-const connectionWatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** Cache de circuit breaker por chip (atualizado no health reconcile). */
+const circuitStateByConnection = new Map<
+    string,
+    import('./chipCircuitBreaker.js').CircuitState
+>();
 const qrWatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
 /** Evita tratar close transitório do Baileys durante pairing como desconexão real. */
 const pairingStartedAt = new Map<string, number>();
 const autoReconnectState = new Map<
     string,
-    { attempts: number; timer?: ReturnType<typeof setTimeout>; inFlight?: boolean }
+    {
+        attempts: number;
+        timer?: ReturnType<typeof setTimeout>;
+        inFlight?: boolean;
+        /** Após esgotar tentativas rápidas, continua reconectando a cada ~30 min. */
+        longTail?: boolean;
+        exhaustedNotified?: boolean;
+    }
 >();
+/** Intervalo de reconexão lenta após esgotar tentativas rápidas (evita chip offline por horas). */
+const LONG_TAIL_RECONNECT_MS = 30 * 60 * 1000;
 let connectionHealthTimer: ReturnType<typeof setInterval> | null = null;
 /** Dedupe de sync pesado concorrente por tenant. */
 const syncInFlightByOwner = new Map<
@@ -1367,19 +1383,40 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
             : { maxAttempts: 6, baseDelayMs: 5_000, maxDelayMs: 120_000 };
 
         const st0 = autoReconnectState.get(connectionId) ?? { attempts: 0 };
-        if (st0.attempts >= limits.maxAttempts) {
-            log('warn', `Auto-reconnect esgotado para ${connectionId}`);
+        const inLongTail = Boolean(st0.longTail);
+
+        if (st0.attempts >= limits.maxAttempts && !inLongTail) {
+            log('warn', `Auto-reconnect esgotado para ${connectionId} — entrando em modo lento (~30 min)`);
+            if (!st0.exhaustedNotified && ownerUid) {
+                st0.exhaustedNotified = true;
+                const label = connections.get(connectionId)?.friendlyName || connectionId;
+                void emitAntiBanAlert(ownerUid, 'chip-reconnect-exhausted', {
+                    connectionId,
+                    connectionLabel: label,
+                });
+            }
+            st0.longTail = true;
+            st0.attempts = 0;
+            if (st0.timer) clearTimeout(st0.timer);
+            const longTimer = setTimeout(() => {
+                scheduleEvolutionAutoReconnect(connectionId, { immediate: true });
+            }, LONG_TAIL_RECONNECT_MS);
+            autoReconnectState.set(connectionId, { ...st0, timer: longTimer, inFlight: false });
             emitConnectionInitFailure(
                 connectionId,
-                'Canal desconectou várias vezes. Use "Reconectar" ou "Forçar QR" se não voltar sozinho.'
+                'Canal desconectou várias vezes. Reconexão automática continua a cada ~30 min — ou use "Conectar" manualmente.'
             );
             return;
         }
 
         const attempt = st0.attempts + 1;
-        const delayMs = options?.immediate
-            ? 0
-            : Math.min(limits.maxDelayMs, limits.baseDelayMs * Math.pow(2, attempt - 1));
+        const delayMs = inLongTail
+            ? options?.immediate
+                ? 0
+                : LONG_TAIL_RECONNECT_MS
+            : options?.immediate
+              ? 0
+              : Math.min(limits.maxDelayMs, limits.baseDelayMs * Math.pow(2, st0.attempts));
         if (st0.timer) clearTimeout(st0.timer);
 
         const timer = setTimeout(() => {
@@ -1388,7 +1425,7 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
             if (!st || st.inFlight) return;
             st.inFlight = true;
             autoReconnectState.set(connectionId, st);
-            log('info', `Auto-reconnect Evolution: ${connectionId} (tentativa ${attempt})`);
+            log('info', `Auto-reconnect Evolution: ${connectionId} (tentativa ${attempt}${st.longTail ? ', lento' : ''})`);
             try {
                 try {
                     await api.post(`/instance/restart/${evoInst(connectionId)}`, {});
@@ -1431,7 +1468,7 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
         })();
         }, delayMs);
 
-        autoReconnectState.set(connectionId, { attempts: st0.attempts, timer, inFlight: false });
+        autoReconnectState.set(connectionId, { ...st0, attempts: st0.attempts, timer, inFlight: false });
     })();
 }
 
@@ -2356,6 +2393,8 @@ interface ConnectionSettingsPayload {
     connectedSince?: number;
     /** Epoch ms em que o chip caiu/offline — usado para reprocessar respostas perdidas. */
     lastClosedAt?: number;
+    /** Token por instância na Evolution Go (apikey por chip). */
+    evolutionGoToken?: string;
 }
 
 function pickNonEmptyUid(...candidates: Array<string | undefined>): string | undefined {
@@ -3074,21 +3113,25 @@ export async function applySettings(ownerUid: string, settings: Partial<TenantSe
     log('info', '⚙️ Configurações do tenant atualizadas', { ownerUid, ...saved });
 }
 
-// Cliente HTTP configurado
-const evolutionHttpAgent = new http.Agent({ family: 4, keepAlive: true });
-const evolutionHttpsAgent = new https.Agent({ family: 4, keepAlive: true });
+// Cliente HTTP configurado (Evolution API v2 ou Evolution Go via adapter)
+function getGoInstanceToken(connectionId: string): string | undefined {
+    return connectionsSettingsCache[connectionId]?.evolutionGoToken;
+}
 
-const api: AxiosInstance = axios.create({
-    baseURL: evolutionConfig.apiUrl,
-    timeout: evolutionConfig.timeout,
-    httpAgent: evolutionHttpAgent,
-    httpsAgent: evolutionHttpsAgent,
-    headers: {
-        'apikey': evolutionConfig.apiKey,
-        'Content-Type': 'application/json',
-    },
+function ensureGoInstanceToken(connectionId: string): string {
+    let token = getGoInstanceToken(connectionId);
+    if (!token) {
+        token = crypto.randomUUID();
+        mergeConnectionSettingsCache(connectionId, { evolutionGoToken: token });
+        saveConnectionsSettings();
+    }
+    return token;
+}
+
+const api = createEvolutionHttpClient({
+    getToken: getGoInstanceToken,
+    ensureToken: ensureGoInstanceToken,
 });
-attachEvolutionAxiosRetry(api);
 
 const chatStore: EvolutionChatStore = createEvolutionChat(api, {
     resolveConnectionOwnerUid,
@@ -4932,6 +4975,20 @@ async function maybeNotifyCircuitBreakerOpen(connectionId: string, ownerUid?: st
     });
 }
 
+async function maybeNotifyCircuitBreakerHalfOpen(connectionId: string, ownerUid?: string): Promise<void> {
+    const ou = String(ownerUid || '').trim();
+    const chipId = String(connectionId || '').trim();
+    if (!ou || !chipId) return;
+    const score = await getChipCircuitBreaker().getHealthScore(chipId);
+    if (score.state !== 'HALF_OPEN') return;
+    const label = connections.get(chipId)?.friendlyName || chipId;
+    await emitAntiBanAlert(ou, 'chip-circuit-breaker-half-open', {
+        connectionId: chipId,
+        connectionLabel: label,
+        failRatePct: Math.round(score.failRate * 1000) / 10,
+    });
+}
+
 async function pickHealthyFailoverChannel(
     currentId: string,
     alternateIds: string[] | undefined,
@@ -5351,6 +5408,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     if (!(await isCampaignChannelHealthy(item.connectionId))) {
         void maybeNotifyCircuitBreakerOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
+        void maybeNotifyCircuitBreakerHalfOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
         const failoverId = await pickHealthyFailoverChannel(
             item.connectionId,
             item.alternateChannelIds,
@@ -5635,6 +5693,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         if (/\b4\d{2}\b/.test(detail) || /401|403|429/.test(detail)) {
             await cb.recordFail4xx(item.connectionId);
             void maybeNotifyCircuitBreakerOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
+            void maybeNotifyCircuitBreakerHalfOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
         }
         // Failover silencioso: tenta chips alternativos do pool antes de lançar erro.
         const alternates = Array.isArray(item.alternateChannelIds) ? item.alternateChannelIds : [];
@@ -6112,6 +6171,160 @@ function ensureCampaignWorker() {
 
     log('info', 'Worker BullMQ de campanhas iniciado');
     scheduleReplyFlowRecovery();
+}
+
+function pickRemapConnectionForCampaign(
+    item: MessageQueueItem,
+    connectionIds: string[],
+    strategy: PoolStrategy,
+    channelWeights?: Record<string, number>
+): string {
+    const current = String(item.connectionId || '').trim();
+    if (connectionIds.includes(current) && isCampaignChannelUsable(current)) {
+        return current;
+    }
+    const usable = connectionIds.filter((id) => isCampaignChannelUsable(id));
+    const pool = usable.length > 0 ? usable : connectionIds;
+    return pickInitialDispatchChannel({
+        strategy,
+        connectionIds: pool,
+        channelWeights,
+        index: item.rotationIndex ?? 0,
+    });
+}
+
+/**
+ * Altera os chips de disparo de uma campanha em andamento/pausada.
+ * Atualiza doc, runtime Redis, pool Redis e remapeia jobs pendentes na fila.
+ */
+export async function updateCampaignChannels(
+    tenantId: string,
+    campaignId: string,
+    options: {
+        connectionIds: string[];
+        channelWeights?: Record<string, number>;
+        poolStrategy?: PoolStrategy;
+        remigratePendingJobs?: boolean;
+    }
+): Promise<{ ok: boolean; error?: string; remappedJobs?: number; onlineCount?: number }> {
+    const cid = String(campaignId || '').trim();
+    const rawIds = [...new Set((options.connectionIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+    if (rawIds.length === 0) {
+        return { ok: false, error: 'Selecione ao menos um chip.' };
+    }
+
+    const owned = await ensureTenantOwnsCampaign(tenantId, cid);
+    if (!owned) return { ok: false, error: 'Campanha não encontrada.' };
+
+    const tenantConns = getConnectionsForTenant(tenantId);
+    const ownedSet = new Set(
+        tenantConns.flatMap((c) => [c.id, c.instanceName].filter(Boolean) as string[])
+    );
+    const filtered = rawIds.filter((id) => ownedSet.has(id));
+    if (filtered.length === 0) {
+        return { ok: false, error: 'Nenhum chip pertence a esta conta.' };
+    }
+
+    const { getCampaign, mergeUpdateCampaign } = await import('./repositories/campaignsRepository.js');
+    const campaign = await getCampaign(tenantId, cid);
+    if (!campaign) return { ok: false, error: 'Campanha não encontrada.' };
+
+    const status = String(campaign.status || '').toUpperCase();
+    if (status === 'COMPLETED') {
+        return { ok: false, error: 'Campanha já concluída — clone ou crie nova campanha.' };
+    }
+
+    const channelWeights = options.channelWeights ?? campaign.channelWeights;
+    const poolStrategy = resolvePoolStrategy(
+        options.poolStrategy ?? (campaign as { poolStrategy?: PoolStrategy }).poolStrategy,
+        channelWeights
+    );
+
+    const docPatch: Record<string, unknown> = {
+        selectedConnectionIds: filtered,
+    };
+    if (channelWeights && Object.keys(channelWeights).length > 0) {
+        docPatch.channelWeights = channelWeights;
+    }
+    if (options.poolStrategy) docPatch.poolStrategy = options.poolStrategy;
+    if (
+        campaign.scheduleStartSnapshot &&
+        typeof campaign.scheduleStartSnapshot === 'object'
+    ) {
+        docPatch.scheduleStartSnapshot = {
+            ...campaign.scheduleStartSnapshot,
+            connectionIds: filtered,
+        };
+    }
+    await mergeUpdateCampaign(tenantId, cid, docPatch);
+
+    let state = campaignsById.get(cid);
+    if (!state) {
+        await ensureCampaignRuntimeInMemory(cid, tenantId);
+        state = campaignsById.get(cid);
+    }
+    if (state) {
+        state.connectionIds = [...filtered];
+        void saveCampaignRuntimeToRedis(cid);
+    }
+
+    await saveCampaignPoolConfig(cid, {
+        strategy: poolStrategy,
+        channelWeights: channelWeights || {},
+        connectionIds: filtered,
+    });
+
+    let remappedJobs = 0;
+    const queue = getCampaignQueue();
+    if (queue && options.remigratePendingJobs !== false) {
+        try {
+            const jobs = await queue.getJobs(['waiting', 'delayed', 'paused']);
+            for (const job of jobs) {
+                const data = job.data as MessageQueueItem;
+                if (String(data?.campaignId || '') !== cid) continue;
+                const newConnId = pickRemapConnectionForCampaign(
+                    data,
+                    filtered,
+                    poolStrategy,
+                    channelWeights
+                );
+                const alt = filtered.length > 1 ? filtered : undefined;
+                const altChanged =
+                    JSON.stringify(alt ?? []) !== JSON.stringify(data.alternateChannelIds ?? []);
+                if (newConnId !== data.connectionId || altChanged) {
+                    await job.updateData({
+                        ...data,
+                        connectionId: newConnId,
+                        alternateChannelIds: alt,
+                    });
+                    remappedJobs++;
+                }
+            }
+        } catch (e: unknown) {
+            log('warn', 'updateCampaignChannels: falha ao remapear jobs', {
+                campaignId: cid,
+                error: (e as Error)?.message,
+            });
+        }
+    }
+
+    const onlineCount = filtered.filter((id) => isCampaignChannelUsable(id)).length;
+
+    emitCampaignLog(
+        'INFO',
+        `Chips da campanha atualizados (${filtered.length} chip(s), ${onlineCount} online, ${remappedJobs} job(s) remapeado(s))`,
+        { campaignId: cid, connectionIds: filtered, remappedJobs, onlineCount },
+        tenantId
+    );
+
+    publishOwnerEvent(tenantId, 'campaign-channels-updated', {
+        campaignId: cid,
+        connectionIds: filtered,
+        remappedJobs,
+        onlineCount,
+    });
+
+    return { ok: true, remappedJobs, onlineCount };
 }
 
 /**
@@ -6799,6 +7012,18 @@ async function reconcileConnectionHealth() {
             }
         })
     );
+
+    try {
+        const cb = getChipCircuitBreaker();
+        await Promise.all(
+            [...connections.keys()].map(async (id) => {
+                const score = await cb.getHealthScore(id);
+                circuitStateByConnection.set(id, score.state);
+            })
+        );
+    } catch {
+        /* opcional */
+    }
 }
 
 export function init(socketIO: SocketIOServer) {
@@ -6806,7 +7031,8 @@ export function init(socketIO: SocketIOServer) {
     chatStore.init(socketIO, { notifyConversationsChanged: emitScopedConversationsUpdate });
     ensureReplyFlowEngine();
     initEvolutionWebhookQueue(handleWebhook);
-        log('info', 'Evolution API Service Initialized', {
+        log('info', 'Evolution WhatsApp engine initialized', {
+        engine: evolutionConfig.engine,
         apiUrl: evolutionConfig.apiUrl,
         webhookUrl: evolutionConfig.webhookUrl,
     });
@@ -7389,6 +7615,9 @@ export function getConnections(): WhatsAppConnection[] {
         else if (conn.status === 'created') status = ConnectionStatus.QR_READY;
 
         const banInfo = getConnectionBanInfo(id);
+        const ownerUidForConn = resolveOwnerUid(id);
+        const circuitState = circuitStateByConnection.get(id);
+        const reconnectLongTail = Boolean(autoReconnectState.get(id)?.longTail);
         // Chip online sem timestamp (boot antigo / hydrate): inicia o relógio agora e persiste.
         if (status === ConnectionStatus.CONNECTED && !conn.lastOpenAt) {
             conn.lastOpenAt = Date.now();
@@ -7431,6 +7660,14 @@ export function getConnections(): WhatsAppConnection[] {
             growthType: conn.growthType || 'fixed',
             limitAction: conn.limitAction || 'ask',
             limitExceededApproved: conn.limitExceededApproved || false,
+            ...(circuitState && circuitState !== 'CLOSED' ? { circuitState } : {}),
+            ...(reconnectLongTail ? { reconnectLongTail: true } : {}),
+            ...(ownerUidForConn
+                ? (() => {
+                      const storm = getReconnectStormProgress(ownerUidForConn);
+                      return storm.count >= 2 ? { reconnectStormProgress: storm } : {};
+                  })()
+                : {}),
         });
     }
     if (seededConnectedSince) saveConnectionsSettings();

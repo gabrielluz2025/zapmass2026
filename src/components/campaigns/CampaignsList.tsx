@@ -30,6 +30,7 @@ interface CampaignsListProps {
   onDelete?: (id: string) => Promise<void> | void;
   onDeleteMany?: (ids: string[]) => Promise<void> | void;
   onClone?: (campaign: Campaign) => void;
+  onChangeChannels?: (campaign: Campaign) => void;
 }
 
 type StatusFilter = 'ALL' | 'SCHEDULED' | 'RUNNING' | 'PAUSED' | 'COMPLETED';
@@ -135,7 +136,8 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
   onTogglePause,
   onDelete,
   onDeleteMany,
-  onClone
+  onClone,
+  onChangeChannels,
 }) => {
   const [search, setSearch] = useState('');
   /** Defer search: digitação não dispara filtro/sort em listas grandes, mantém o input fluido. */
@@ -472,6 +474,7 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
               }}
               onTogglePause={() => onTogglePause(camp.id)}
               onClone={onClone ? () => onClone(camp) : undefined}
+              onChangeChannels={onChangeChannels ? () => onChangeChannels(camp) : undefined}
               onDelete={onDelete ? () => askDelete([camp.id]) : undefined}
             />
           ))}
@@ -728,6 +731,7 @@ type CampaignCardExtendedProps = {
   onOpen: () => void;
   onTogglePause: () => void;
   onClone?: () => void;
+  onChangeChannels?: () => void;
   onDelete?: () => void;
 };
 /** Memo evita rerender de TODOS os cards quando muda só o input de busca / filtro / outra campanha. */
@@ -739,6 +743,7 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
   onOpen,
   onTogglePause,
   onClone,
+  onChangeChannels,
   onDelete
 }) {
   const m = getCampaignProgressMetrics(campaign);
@@ -881,6 +886,20 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
                 title={isRunning ? 'Pausar' : 'Retomar'}
               >
                 {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+              </button>
+            )}
+            {(isRunning || isPaused) && onChangeChannels && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChangeChannels();
+                }}
+                className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
+                style={{ background: 'rgba(59,130,246,0.12)', color: '#2563eb' }}
+                title="Trocar chips de disparo"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
               </button>
             )}
             {onClone && (

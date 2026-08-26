@@ -4,6 +4,9 @@ import { persistUserNotification } from './notificationStore.js';
 export type AntiBanAlertType =
   | 'campaign-protection-paused'
   | 'chip-circuit-breaker-open'
+  | 'chip-circuit-breaker-half-open'
+  | 'reconnect-storm-warning'
+  | 'chip-reconnect-exhausted'
   | 'tenant-ban-cooldown-started'
   | 'contact-marketing-consent';
 
@@ -66,6 +69,50 @@ function buildCircuitBreakerOpen(payload: {
   return {
     title: 'Chip isolado pelo circuit breaker',
     body: `O chip ${label} foi temporariamente isolado do pool por taxa elevada de falhas (4xx). Os demais chips continuam enviando. Aguarde a janela de recuperação (5 min) ou verifique a saúde da conexão.`,
+    kind: 'warning',
+    connectionId: payload.connectionId,
+  };
+}
+
+function buildCircuitBreakerHalfOpen(payload: {
+  connectionId: string;
+  connectionLabel?: string;
+  failRatePct?: number;
+}): AntiBanAlertPayload {
+  const label = payload.connectionLabel || payload.connectionId;
+  const rate =
+    typeof payload.failRatePct === 'number' ? ` (${payload.failRatePct}% de falhas na janela)` : '';
+  return {
+    title: 'Instabilidade detectada no chip — ação preventiva',
+    body: `O chip ${label} está com taxa elevada de falhas${rate}. Reduza o ritmo de envio ou troque para outro chip saudável antes que o circuit breaker isole este canal. Verifique Conexões → Proteção de chips.`,
+    kind: 'warning',
+    connectionId: payload.connectionId,
+  };
+}
+
+function buildReconnectStormWarning(payload: {
+  dropsInWindow?: number;
+  threshold?: number;
+  windowMinutes?: number;
+}): AntiBanAlertPayload {
+  const drops = payload.dropsInWindow ?? 2;
+  const threshold = payload.threshold ?? 3;
+  const windowMin = payload.windowMinutes ?? 30;
+  return {
+    title: 'Aviso: chip instável — próxima queda ativa proteção',
+    body: `${drops} queda(s) de conexão nos últimos ${windowMin} min. Se cair mais ${threshold - drops} vez(es), a proteção anti-ban entra em modo reforçado por 6h (reconexão lenta e campanhas pausadas). Evite reconectar manualmente em loop — aguarde a reconexão automática ou use outro chip.`,
+    kind: 'warning',
+  };
+}
+
+function buildChipReconnectExhausted(payload: {
+  connectionId: string;
+  connectionLabel?: string;
+}): AntiBanAlertPayload {
+  const label = payload.connectionLabel || payload.connectionId;
+  return {
+    title: 'Chip offline — reconexão automática em andamento',
+    body: `O chip ${label} caiu e as tentativas rápidas de reconexão esgotaram. O sistema continuará tentando reconectar a cada ~30 min automaticamente. Se persistir, abra Conexões e use "Conectar" ou verifique o celular/WhatsApp.`,
     kind: 'warning',
     connectionId: payload.connectionId,
   };
@@ -139,6 +186,39 @@ export async function emitAntiBanAlert(
       });
       break;
     }
+    case 'chip-circuit-breaker-half-open': {
+      const connectionId = String(raw.connectionId || '').trim();
+      if (!connectionId) return;
+      dedupeKey = connectionId;
+      if (await shouldDedupe(tid, type, dedupeKey)) return;
+      alert = buildCircuitBreakerHalfOpen({
+        connectionId,
+        connectionLabel: typeof raw.connectionLabel === 'string' ? raw.connectionLabel : undefined,
+        failRatePct: typeof raw.failRatePct === 'number' ? raw.failRatePct : undefined,
+      });
+      break;
+    }
+    case 'reconnect-storm-warning': {
+      dedupeKey = `storm:${raw.dropsInWindow ?? 2}`;
+      if (await shouldDedupe(tid, type, dedupeKey)) return;
+      alert = buildReconnectStormWarning({
+        dropsInWindow: typeof raw.dropsInWindow === 'number' ? raw.dropsInWindow : undefined,
+        threshold: typeof raw.threshold === 'number' ? raw.threshold : undefined,
+        windowMinutes: typeof raw.windowMinutes === 'number' ? raw.windowMinutes : undefined,
+      });
+      break;
+    }
+    case 'chip-reconnect-exhausted': {
+      const connectionId = String(raw.connectionId || '').trim();
+      if (!connectionId) return;
+      dedupeKey = connectionId;
+      if (await shouldDedupe(tid, type, dedupeKey)) return;
+      alert = buildChipReconnectExhausted({
+        connectionId,
+        connectionLabel: typeof raw.connectionLabel === 'string' ? raw.connectionLabel : undefined,
+      });
+      break;
+    }
     case 'tenant-ban-cooldown-started': {
       dedupeKey = 'ban';
       if (await shouldDedupe(tid, type, dedupeKey)) return;
@@ -205,5 +285,28 @@ export async function emitAntiBanAlert(
   if (type === 'chip-circuit-breaker-open' && alert.connectionId) {
     publishFn?.(tid, 'circuit-breaker-open', { connectionId: alert.connectionId });
     publishFn?.(tid, 'chip-circuit-breaker-open', { connectionId: alert.connectionId });
+  }
+
+  if (type === 'chip-circuit-breaker-half-open' && alert.connectionId) {
+    publishFn?.(tid, 'chip-circuit-breaker-half-open', {
+      connectionId: alert.connectionId,
+      title: alert.title,
+      body: alert.body,
+    });
+  }
+
+  if (type === 'reconnect-storm-warning') {
+    publishFn?.(tid, 'reconnect-storm-warning', {
+      title: alert.title,
+      body: alert.body,
+    });
+  }
+
+  if (type === 'chip-reconnect-exhausted' && alert.connectionId) {
+    publishFn?.(tid, 'chip-reconnect-exhausted', {
+      connectionId: alert.connectionId,
+      title: alert.title,
+      body: alert.body,
+    });
   }
 }

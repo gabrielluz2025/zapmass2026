@@ -22,8 +22,20 @@ const effectiveCache = new Map<
 const EFFECTIVE_CACHE_MS = 30_000;
 
 const closeEventsByTenant = new Map<string, number[]>();
-const CLOSE_STORM_WINDOW_MS = 30 * 60 * 1000;
-const CLOSE_STORM_THRESHOLD = 3;
+export const CLOSE_STORM_WINDOW_MS = 30 * 60 * 1000;
+export const CLOSE_STORM_THRESHOLD = 3;
+
+/** Progresso de quedas recentes antes do lock reconnect_storm (para UI/alertas). */
+export function getReconnectStormProgress(tenantId: string): {
+  count: number;
+  threshold: number;
+  windowMs: number;
+} {
+  const uid = String(tenantId || '').trim();
+  const now = Date.now();
+  const recent = (closeEventsByTenant.get(uid) ?? []).filter((t) => now - t < CLOSE_STORM_WINDOW_MS);
+  return { count: recent.length, threshold: CLOSE_STORM_THRESHOLD, windowMs: CLOSE_STORM_WINDOW_MS };
+}
 
 export type ChipProtectionConnectionRow = {
   id: string;
@@ -318,6 +330,15 @@ export function onConnectionClosed(connectionId: string, wasBan: boolean): void 
     recent.push(now);
     closeEventsByTenant.set(ownerUid, recent);
 
+    if (recent.length === CLOSE_STORM_THRESHOLD - 1) {
+      const { emitAntiBanAlert } = await import('./antiBanProactiveNotifications.js');
+      await emitAntiBanAlert(ownerUid, 'reconnect-storm-warning', {
+        dropsInWindow: recent.length,
+        threshold: CLOSE_STORM_THRESHOLD,
+        windowMinutes: Math.round(CLOSE_STORM_WINDOW_MS / 60_000),
+      });
+    }
+
     if (recent.length >= CLOSE_STORM_THRESHOLD) {
       closeEventsByTenant.set(ownerUid, []);
       await activateTenantProtectionLock(ownerUid, 'reconnect_storm', 6);
@@ -458,6 +479,14 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
     risks.push({
       level: 'warn',
       message: 'Várias quedas seguidas — proteção reforçada por 6h.',
+    });
+  }
+
+  const stormProgress = getReconnectStormProgress(uid);
+  if (stormProgress.count >= stormProgress.threshold - 1 && stormProgress.count < stormProgress.threshold) {
+    risks.push({
+      level: 'warn',
+      message: `Aviso preventivo: ${stormProgress.count}/${stormProgress.threshold} quedas em 30 min — mais uma queda ativa proteção reforçada.`,
     });
   }
 
@@ -633,5 +662,30 @@ export async function refreshAllKnownTenantProtections(): Promise<void> {
   const owners = evo.listConnectionOwnerUids();
   for (const uid of owners) {
     await enforceChipProtectionSideEffects(uid);
+  }
+}
+
+/** Watchdog: alertas preventivos (HALF_OPEN, offline prolongado) — dedupe via Redis no emitAntiBanAlert. */
+export async function tickChipEarlyWarningWatchdog(): Promise<void> {
+  const evo = await import('./evolutionService.js');
+  const { emitAntiBanAlert } = await import('./antiBanProactiveNotifications.js');
+  const cb = getChipCircuitBreaker();
+  const owners = evo.listConnectionOwnerUids();
+
+  for (const uid of owners) {
+    const scopedConns = filterByConnectionScope(uid, evo.getConnections());
+    for (const conn of scopedConns) {
+      const id = String(conn.id || '').trim();
+      if (!id) continue;
+
+      const score = await cb.getHealthScore(id);
+      if (score.state === 'HALF_OPEN') {
+        await emitAntiBanAlert(uid, 'chip-circuit-breaker-half-open', {
+          connectionId: id,
+          connectionLabel: String(conn.name || id),
+          failRatePct: Math.round(score.failRate * 1000) / 10,
+        });
+      }
+    }
   }
 }

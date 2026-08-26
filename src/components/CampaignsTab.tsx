@@ -36,6 +36,9 @@ import { CampaignTemplatesGallery } from './campaigns/CampaignTemplatesGallery';
 import { CampaignInsightsBanner } from './campaigns/CampaignInsightsBanner';
 import { WhatsAppRiskAcceptModal } from './legal/WhatsAppRiskAcceptModal';
 import { CampaignPreviewModal } from './campaigns/CampaignPreviewModal';
+import { CampaignChangeChannelsDialog } from './campaigns/CampaignChangeChannelsDialog';
+import { updateCampaignChannels } from '../services/campaignsApi';
+import type { Campaign } from '../types';
 
 interface CampaignsTabProps {
   connections: WhatsAppConnection[];
@@ -94,6 +97,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   const [pendingDraft, setPendingDraft] = useState<CampaignWizardDraft | null>(null);
   const [dismissedInsights, setDismissedInsights] = useState<string[]>(loadDismissed);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [changeChannelsCampaign, setChangeChannelsCampaign] = useState<Campaign | null>(null);
+  const [changingChannels, setChangingChannels] = useState(false);
   const ignoreWizardAutosaveRef = useRef(false);
 
   const muteWizardAutosaveBriefly = () => {
@@ -259,6 +264,22 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
         label: `Retomar: ${campaign.name}`,
         campaignId: id
       });
+    }
+  };
+
+  const handleChangeChannelsConfirm = async (connectionIds: string[]) => {
+    if (!changeChannelsCampaign) return;
+    setChangingChannels(true);
+    try {
+      const result = await updateCampaignChannels(changeChannelsCampaign.id, connectionIds);
+      toast.success(
+        `Chips atualizados — ${result.onlineCount} online, ${result.remappedJobs} mensagem(ns) remapeada(s).`
+      );
+      setChangeChannelsCampaign(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao alterar chips.');
+    } finally {
+      setChangingChannels(false);
     }
   };
 
@@ -773,6 +794,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 onDelete={handleDeleteCampaign}
                 onDeleteMany={handleDeleteManyCampaigns}
                 onClone={(c) => openWizardWithDraft(buildDraftFromCampaign(c))}
+                onChangeChannels={setChangeChannelsCampaign}
               />
             </div>
           )}
@@ -840,6 +862,16 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           ))}
         </div>
       </Modal>
+
+      <CampaignChangeChannelsDialog
+        isOpen={changeChannelsCampaign != null}
+        onClose={() => !changingChannels && setChangeChannelsCampaign(null)}
+        campaignName={changeChannelsCampaign?.name ?? ''}
+        connections={connections}
+        selectedIds={changeChannelsCampaign?.selectedConnectionIds ?? []}
+        loading={changingChannels}
+        onConfirm={(ids) => void handleChangeChannelsConfirm(ids)}
+      />
     </>
   );
 };

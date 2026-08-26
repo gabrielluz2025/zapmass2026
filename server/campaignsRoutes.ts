@@ -307,6 +307,48 @@ export function registerCampaignsDataRoutes(app: Express): void {
     }
   });
 
+  /** Troca chips de disparo em campanha ativa/pausada/agendada. */
+  app.post('/api/campaigns/:id/channels', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const campaignId = String(req.params.id || '').trim();
+    const body = req.body as {
+      connectionIds?: string[];
+      channelWeights?: Record<string, number>;
+      poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+    };
+    const connectionIds = Array.isArray(body.connectionIds)
+      ? body.connectionIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (connectionIds.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Informe ao menos um chip.' });
+    }
+    try {
+      const owned = await evolutionService.ensureTenantOwnsCampaign(ctx.tenantId, campaignId);
+      if (!owned) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
+      const result = await evolutionService.updateCampaignChannels(ctx.tenantId, campaignId, {
+        connectionIds,
+        channelWeights:
+          body.channelWeights && typeof body.channelWeights === 'object'
+            ? body.channelWeights
+            : undefined,
+        poolStrategy: body.poolStrategy,
+      });
+      if (!result.ok) {
+        return res.status(400).json({ ok: false, error: result.error || 'Não foi possível alterar os chips.' });
+      }
+      return res.json({
+        ok: true,
+        remappedJobs: result.remappedJobs ?? 0,
+        onlineCount: result.onlineCount ?? 0,
+        connectionIds,
+      });
+    } catch (e) {
+      console.error('[api/campaigns/channels]', e);
+      return res.status(500).json({ ok: false, error: 'Erro ao alterar chips da campanha.' });
+    }
+  });
+
   /** Reenvio / retomada na mesma campanha (falhos ou pendências por etapa). */
   app.post('/api/campaigns/:id/redispatch', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);

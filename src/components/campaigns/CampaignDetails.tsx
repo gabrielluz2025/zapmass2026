@@ -48,6 +48,7 @@ import {
   fetchCampaignReport,
   redispatchCampaign,
   retryFailedContacts,
+  updateCampaignChannels,
   type CampaignInboundReplyDto,
   type CampaignLogDto,
   type CampaignReportSnapshotDto
@@ -103,6 +104,7 @@ import { CampaignMessagePreview } from './CampaignMessagePreview';
 import { CampaignChipsPodium } from './CampaignChipsPodium';
 import { CampaignStageRepliesCell } from './CampaignStageRepliesCell';
 import { CampaignRetryDialog, type CampaignRetryDialogState } from './CampaignRetryDialog';
+import { CampaignChangeChannelsDialog } from './CampaignChangeChannelsDialog';
 import { fetchCampaignMediaAttachments } from '../../services/campaignsApi';
 import { ReplyFlowStageFunnels } from './ReplyFlowStageFunnels';
 import { CampaignMultiStepDashboard } from './CampaignMultiStepDashboard';
@@ -630,6 +632,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const [openRow, setOpenRow] = useState<ReportRow | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [retryDialog, setRetryDialog] = useState<CampaignRetryDialogState | null>(null);
+  const [channelsDialogOpen, setChannelsDialogOpen] = useState(false);
+  const [changingChannels, setChangingChannels] = useState(false);
   const [showRetryBanner, setShowRetryBanner] = useState(false);
 
   const campaignLive = useMemo(() => healCampaignDocument(campaign), [campaign]);
@@ -1213,6 +1217,29 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     [campaign.id, refreshCampaignData]
   );
 
+  const canChangeChannels =
+    !isDone &&
+    !isScheduled &&
+    (isRunning || isPaused || (campaign.processedCount ?? 0) > 0);
+
+  const executeChangeChannels = useCallback(
+    async (connectionIds: string[]) => {
+      setChangingChannels(true);
+      try {
+        const result = await updateCampaignChannels(campaign.id, connectionIds);
+        toast.success(
+          `Chips atualizados — ${result.onlineCount} online, ${result.remappedJobs} mensagem(ns) remapeada(s) na fila.`
+        );
+        setChannelsDialogOpen(false);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Erro ao alterar chips.');
+      } finally {
+        setChangingChannels(false);
+      }
+    },
+    [campaign.id]
+  );
+
   const handleResumeRedispatch = useCallback(async () => {
     const onlineIds = (campaign.selectedConnectionIds || []).filter(
       (id) => connections.find((c) => c.id === id)?.status === ConnectionStatus.CONNECTED
@@ -1753,9 +1780,26 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 </div>
                 {chipRows.length > 0 && (
                   <div>
-                    <p className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--text-3)' }}>
-                      Cota dos chips hoje
-                    </p>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+                        Cota dos chips hoje
+                      </p>
+                      {canChangeChannels && (
+                        <button
+                          type="button"
+                          onClick={() => setChannelsDialogOpen(true)}
+                          className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg transition-colors hover:opacity-90"
+                          style={{
+                            background: 'rgba(59,130,246,0.12)',
+                            color: '#2563eb',
+                            border: '1px solid rgba(59,130,246,0.25)',
+                          }}
+                        >
+                          <Smartphone className="w-3 h-3" />
+                          Trocar chips
+                        </button>
+                      )}
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                       {chipRows.map((chip) => {
                         const pct = chip.limit > 0 ? Math.min(100, Math.round((chip.sentToday / chip.limit) * 100)) : 0;
@@ -2806,6 +2850,16 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         onConfirm={(connectionId, phones) =>
           void executeRetry(connectionId, phones, phones.length > 1)
         }
+      />
+
+      <CampaignChangeChannelsDialog
+        isOpen={channelsDialogOpen}
+        onClose={() => !changingChannels && setChannelsDialogOpen(false)}
+        campaignName={campaign.name}
+        connections={connections}
+        selectedIds={campaign.selectedConnectionIds || []}
+        loading={changingChannels}
+        onConfirm={(ids) => void executeChangeChannels(ids)}
       />
     </div>
   );

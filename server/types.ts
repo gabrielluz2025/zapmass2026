@@ -50,6 +50,9 @@ export interface WhatsAppConnection {
   lastBanReason?: string;
   /** Chip em quarentena (bloqueado de campanhas) até este timestamp. */
   quarantineUntil?: number;
+  circuitState?: 'CLOSED' | 'HALF_OPEN' | 'OPEN';
+  reconnectLongTail?: boolean;
+  reconnectStormProgress?: { count: number; threshold: number; windowMs: number };
 }
 
 export interface DashboardMetrics {

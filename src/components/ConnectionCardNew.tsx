@@ -157,6 +157,13 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
   const inQuarantine = quarantineUntil > Date.now();
   const quarantineRemainH = inQuarantine ? Math.ceil((quarantineUntil - Date.now()) / 3_600_000) : 0;
 
+  const circuitState = connection.circuitState;
+  const stormProgress = connection.reconnectStormProgress;
+  const reconnectLongTail = connection.reconnectLongTail;
+  const showStormWarning =
+    stormProgress && stormProgress.count >= stormProgress.threshold - 1 && stormProgress.count < stormProgress.threshold;
+  const showHalfOpen = circuitState === 'HALF_OPEN';
+
   const riskLevel: 'low' | 'medium' | 'high' = banCount >= 2 ? 'high' : banCount === 1 ? 'medium' : 'low';
   const riskColor = riskLevel === 'high' ? '#ef4444' : riskLevel === 'medium' ? '#f59e0b' : '#10b981';
   const riskLabel = riskLevel === 'high' ? 'Alto risco' : riskLevel === 'medium' ? '1 ban anterior' : 'Sem histórico';
@@ -322,6 +329,36 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                 >
                   <Eraser className="w-3 h-3" />
                   Creds. serão zeradas no QR
+                </span>
+              )}
+              {showHalfOpen && (
+                <span
+                  className="flex items-center gap-1 text-[9.5px] font-black px-2 py-0.5 rounded-full animate-pulse"
+                  style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)' }}
+                  title="Taxa elevada de falhas — reduza envios ou troque de chip antes do isolamento."
+                >
+                  <AlertTriangle className="w-3 h-3" />
+                  Instabilidade detectada
+                </span>
+              )}
+              {showStormWarning && (
+                <span
+                  className="flex items-center gap-1 text-[9.5px] font-black px-2 py-0.5 rounded-full"
+                  style={{ background: 'rgba(249,115,22,0.12)', color: '#f97316', border: '1px solid rgba(249,115,22,0.25)' }}
+                  title="Mais uma queda ativa proteção reforçada por 6h. Evite reconectar em loop."
+                >
+                  <ShieldAlert className="w-3 h-3" />
+                  Risco: {stormProgress!.count}/{stormProgress!.threshold} quedas
+                </span>
+              )}
+              {reconnectLongTail && !isConnected && (
+                <span
+                  className="flex items-center gap-1 text-[9.5px] font-semibold px-2 py-0.5 rounded-full"
+                  style={{ background: 'rgba(59,130,246,0.10)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.20)' }}
+                  title="Tentativas rápidas esgotadas — reconexão automática a cada ~30 min."
+                >
+                  <WifiOff className="w-3 h-3" />
+                  Reconectando (~30 min)
                 </span>
               )}
             </div>

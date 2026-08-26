@@ -181,6 +181,28 @@ export async function redispatchCampaign(
   return Number(j.enqueued) || 0;
 }
 
+/** Altera chips de disparo de campanha ativa/pausada. */
+export async function updateCampaignChannels(
+  campaignId: string,
+  connectionIds: string[]
+): Promise<{ remappedJobs: number; onlineCount: number }> {
+  const path = `/api/campaigns/${encodeURIComponent(campaignId)}/channels`;
+  const j = await apiFetchJson<{
+    ok?: boolean;
+    remappedJobs?: number;
+    onlineCount?: number;
+    error?: string;
+  }>(path, {
+    method: 'POST',
+    body: JSON.stringify({ connectionIds }),
+  });
+  if (j.ok === false) throw new Error(j.error || 'Não foi possível alterar os chips.');
+  return {
+    remappedJobs: Number(j.remappedJobs) || 0,
+    onlineCount: Number(j.onlineCount) || 0,
+  };
+}
+
 export type CampaignMediaAttachmentPayload = {
   dataBase64: string;
   mimeType: string;

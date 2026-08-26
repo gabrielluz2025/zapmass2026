@@ -2747,6 +2747,40 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
     });
 
+    socket.on('reconnect-storm-warning', (p: { body?: string; title?: string }) => {
+      const msg = String(p?.body || p?.title || 'Chip instável — próxima queda ativa proteção reforçada.').trim();
+      toast(msg, { icon: '⚡', duration: 18_000 });
+      window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
+    });
+
+    socket.on('chip-circuit-breaker-half-open', (p: { body?: string; title?: string }) => {
+      const msg = String(p?.body || p?.title || 'Instabilidade detectada — reduza o ritmo ou troque de chip.').trim();
+      toast(msg, { icon: '⚠️', duration: 14_000 });
+      window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
+    });
+
+    socket.on('chip-reconnect-exhausted', (p: { body?: string; title?: string; connectionId?: string }) => {
+      const msg = String(p?.body || p?.title || 'Chip offline — reconexão automática continua a cada ~30 min.').trim();
+      toast(msg, { icon: '📡', duration: 16_000 });
+      window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
+    });
+
+    socket.on(
+      'campaign-channels-updated',
+      (p: { campaignId?: string; connectionIds?: string[]; remappedJobs?: number; onlineCount?: number }) => {
+        const id = String(p?.campaignId || '').trim();
+        const ids = Array.isArray(p?.connectionIds) ? p.connectionIds : [];
+        if (!id || ids.length === 0) return;
+        setCampaigns((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, selectedConnectionIds: ids } : c))
+        );
+        const uid = currentUidRef.current;
+        if (uid) {
+          void apiUpdateCampaign(id, { selectedConnectionIds: ids }).catch(() => undefined);
+        }
+      }
+    );
+
     socket.on('campaign-paused', ({ campaignId }: { campaignId: string }) => {
       flushCampaignProgressToFirestore(campaignId, true);
       const uid = currentUidRef.current;

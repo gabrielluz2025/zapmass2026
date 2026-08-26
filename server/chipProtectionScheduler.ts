@@ -1,10 +1,11 @@
-import { refreshAllKnownTenantProtections } from './chipProtectionService.js';
+import { refreshAllKnownTenantProtections, tickChipEarlyWarningWatchdog } from './chipProtectionService.js';
 
 const TICK_MS = 60_000;
 let timer: ReturnType<typeof setInterval> | null = null;
 
 async function tick(): Promise<void> {
   await refreshAllKnownTenantProtections();
+  await tickChipEarlyWarningWatchdog();
   try {
     const evo = await import('./evolutionService.js');
     await evo.tickAutoResumeProtectedCampaigns();
