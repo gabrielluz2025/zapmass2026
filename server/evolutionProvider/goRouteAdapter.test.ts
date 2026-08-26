@@ -72,7 +72,7 @@ describe('adaptEvolutionApiRequestToGo', () => {
         );
         expect(r.url).toBe('/instance/connect');
         expect(r.headers.instanceId).toBe('uuid-chip1');
-        expect(r.headers.apikey).toBe('tok-chip1');
+        expect(r.headers.apikey).toBe('tok-test');
         expect((r.data as { subscribe?: string[] }).subscribe).toContain('ALL');
     });
 });
