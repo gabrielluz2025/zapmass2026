@@ -376,19 +376,30 @@ async function enrichConnectionMeta(instanceName: string): Promise<void> {
 
     if (!conn.profilePicUrl?.trim() && conn.phoneNumber?.replace(/\D/g, '').length >= 10) {
         const phone = conn.phoneNumber!.replace(/\D/g, '');
-        try {
-            const picResp = await api.post(`/chat/fetchProfilePictureUrl/${evoInst(instanceName)}`, {
-                number: phone,
-                preview: true,
-            });
-            const pic = parseProfilePictureFromApiData(picResp.data);
-            if (pic && conn.profilePicUrl !== pic) {
-                conn.profilePicUrl = pic;
-                changed = true;
+        const numberCandidates = [
+            phone,
+            `${phone}@s.whatsapp.net`,
+            conn.phoneNumber!.trim(),
+        ].filter((n, i, arr) => n && arr.indexOf(n) === i);
+        for (const number of numberCandidates) {
+            try {
+                const picResp = await api.post(`/chat/fetchProfilePictureUrl/${evoInst(instanceName)}`, {
+                    number,
+                    preview: true,
+                });
+                const pic = parseProfilePictureFromApiData(picResp.data);
+                if (pic && conn.profilePicUrl !== pic) {
+                    conn.profilePicUrl = pic;
+                    changed = true;
+                    log('info', `Avatar carregado para ${instanceName}`, {
+                        bytes: pic.length,
+                    });
+                    break;
+                }
+            } catch (error: unknown) {
+                const msg = error instanceof Error ? error.message : String(error);
+                log('warn', `enrichConnectionMeta: avatar ${instanceName} (${number}) falhou`, { error: msg });
             }
-        } catch (error: unknown) {
-            const msg = error instanceof Error ? error.message : String(error);
-            log('warn', `enrichConnectionMeta: avatar ${instanceName} falhou`, { error: msg });
         }
     }
 
@@ -4451,7 +4462,26 @@ async function createConnectionInternal(
 /**
  * Configura webhook para receber eventos da instância
  */
+async function ensureGoInstanceWebhook(instanceName: string): Promise<void> {
+    if (!isEvolutionGoEngine()) return;
+    if (!connections.has(instanceName) && !getGoInstanceUuid(instanceName)) return;
+    try {
+        await api.post(`/instance/connect/${evoInst(instanceName)}`, {});
+        log('info', `Webhook Go aplicado via connect: ${instanceName}`);
+    } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        log('warn', `ensureGoInstanceWebhook falhou: ${instanceName}`, { error: msg });
+    }
+}
+
+/**
+ * Configura webhook para receber eventos da instância
+ */
 async function setupWebhook(instanceName: string) {
+    if (isEvolutionGoEngine()) {
+        await ensureGoInstanceWebhook(instanceName);
+        return;
+    }
     try {
         let url = evolutionConfig.webhookUrl;
         const tok = process.env.EVOLUTION_WEBHOOK_TOKEN?.trim();

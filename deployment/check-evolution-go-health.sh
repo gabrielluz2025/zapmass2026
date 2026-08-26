@@ -54,6 +54,9 @@ if [ "${INST_COUNT:-0}" -gt 0 ]; then
 else
   warn "Nenhuma instância no Go — pareie QR na UI"
 fi
+if echo "$INST_JSON" | grep -qE '"webhook"[[:space:]]*:[[:space:]]*""'; then
+  warn "Webhook vazio na instância Go — mensagens/eventos podem não chegar ao ZapMass (será corrigido no próximo hydrate/connect)"
+fi
 
 echo ""
 echo "==> GET /api/health (ZapMass :3001)"
