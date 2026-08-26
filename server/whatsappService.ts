@@ -4919,7 +4919,15 @@ const handleReplyFlowIncoming = async (
 
     const tBody = String(bodyText || '').trim();
     const meta = def.meta || {};
-    if (meta.globalOptOutEnabled !== false && tBody) {
+    const steps = def.steps;
+    const awaiting = session.awaitingAfterStep;
+    const gateStepForOptOut = steps[awaiting];
+    const hasConfiguredOptions = (gateStepForOptOut?.options?.length ?? 0) > 0;
+    const matchesConfiguredOption = hasConfiguredOptions && tBody
+        ? findBestMatchingOption(gateStepForOptOut!.options!, tBody, gateStepForOptOut?.matchMode || 'word') !== null
+        : false;
+
+    if (meta.globalOptOutEnabled !== false && tBody && !matchesConfiguredOption) {
         const optOut = detectGlobalOptOut(tBody, meta.globalOptOutKeywords);
         if (optOut.matched) {
             emitCampaignLog('INFO', 'Opt-out global reconhecido no fluxo por resposta', {
@@ -4934,9 +4942,6 @@ const handleReplyFlowIncoming = async (
             return;
         }
     }
-
-    const steps = def.steps;
-    const awaiting = session.awaitingAfterStep;
 
     /** Log estruturado: ajuda muito a diagnosticar "etapa 2 nao saiu". */
     const preview =

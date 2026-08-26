@@ -26,6 +26,7 @@ import type { Conversation } from '../../types';
 import { WaInbox } from './WaInbox';
 import { WaThread } from './WaThread';
 import { WaChannelRail } from './WaChannelRail';
+import { ReplyIntentPanel } from './ReplyIntentPanel';
 import { useWaRealtime } from './hooks/useWaRealtime';
 import {
   avatarUrl,
@@ -85,6 +86,7 @@ export const WaWebChatApp: React.FC<{
   const [historyExhausted, setHistoryExhausted] = useState<Record<string, boolean>>({});
   const [mobileShowThread, setMobileShowThread] = useState(false);
   const [showContactInfo, setShowContactInfo] = useState(false);
+  const [showReplyIntent, setShowReplyIntent] = useState(false);
   const { sending: sendingMedia, sendFile: sendChatFile } = useSendChatMedia(sendMedia);
   /** Evita pedir a mesma foto várias vezes ao servidor (prefetch + chat aberto). */
   const pictureAttemptedRef = useRef<Set<string>>(new Set());
@@ -675,6 +677,14 @@ export const WaWebChatApp: React.FC<{
 
   const pipelineAgg = useMemo(() => getConversationPipelineAgg(selected ?? undefined), [selected]);
 
+  const selectedContactId = useMemo(() => {
+    if (!selected) return null;
+    const phone = normPhoneKey(phoneRawForContactLookup(selected));
+    if (!phone) return null;
+    const hit = deferredContacts.find((c) => normPhoneKey(c.phone) === phone);
+    return hit?.id ?? null;
+  }, [selected, deferredContacts]);
+
   const loadOlder = useCallback(() => {
     if (selected?.id) void loadMoreHistory(selected.id);
   }, [selected?.id, loadMoreHistory]);
@@ -826,11 +836,24 @@ export const WaWebChatApp: React.FC<{
         onLoadMedia={handleLoadMedia}
         onExport={selected ? handleExportConversation : undefined}
         onGetAiSuggestions={selected && !isSelectedDraft ? handleGetAiSuggestions : undefined}
+        onAnalyzeIntent={selected && !isSelectedDraft ? () => setShowReplyIntent(true) : undefined}
         isDraft={isSelectedDraft}
         draftChannels={connections}
         draftChannelId={selectedDraftChannelId}
         onDraftChannelChange={handleDraftChannelChange}
       />
+
+      {selected && (
+        <ReplyIntentPanel
+          open={showReplyIntent}
+          onClose={() => setShowReplyIntent(false)}
+          conversation={selected}
+          contactId={selectedContactId}
+          onContactUpdated={() => {
+            /* contatos atualizados via socket / próximo sync */
+          }}
+        />
+      )}
 
       {selected && (
         <WaContactDrawer

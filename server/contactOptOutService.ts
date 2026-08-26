@@ -6,6 +6,8 @@ import { getZapmassPool, isZapmassPostgresConfigured } from './db/postgres.js';
 import { getSharedRedis } from './redisShared.js';
 import { emitAntiBanAlert } from './antiBanProactiveNotifications.js';
 
+import { detectGlobalOptOut } from '../shared/replyFlowMatch.js';
+
 export const INBOUND_OPT_OUT_REGEX = /^(parar|cancelar|sair|stop|descadastrar)$/i;
 
 export const OPT_OUT_CONFIRMATION_MESSAGE =
@@ -25,7 +27,8 @@ export function normalizeOptOutPhoneSuffix(phone: string): string {
 export function matchesInboundOptOutTrigger(bodyText: string): boolean {
   const trimmed = String(bodyText || '').trim();
   if (!trimmed) return false;
-  return INBOUND_OPT_OUT_REGEX.test(trimmed);
+  if (INBOUND_OPT_OUT_REGEX.test(trimmed)) return true;
+  return detectGlobalOptOut(trimmed).matched;
 }
 
 function phoneKeysForMatch(phoneDigits: string): Set<string> {

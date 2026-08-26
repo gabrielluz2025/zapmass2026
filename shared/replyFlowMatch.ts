@@ -285,3 +285,189 @@ export function simulateReplyFlowMatch(input: {
     message: input.invalidReplyBody?.trim() || 'Resposta não reconhecida.',
   };
 }
+
+/** Respostas de cortesia/encerramento — não são interesse comercial ("quero"). */
+export const POLITE_ACK_PHRASES = [
+  'amem',
+  'amen',
+  'tamo junto',
+  'tamos juntos',
+  'deus abencoe',
+  'deus abençoe',
+  'fica com deus',
+  'gloria a deus',
+  'glória a deus',
+  'aleluia',
+  'obrigado',
+  'obrigada',
+  'valeu',
+  'abraço',
+  'abraco',
+  'abraços',
+  'abencoes',
+  'abençoes',
+  'paz do senhor',
+  'gratidao',
+  'gratidão',
+  'tmj',
+];
+
+/** Tokens de interesse explícito (fora cortesia). */
+export const POSITIVE_INTENT_TOKENS = [
+  'quero',
+  'sim',
+  'aceito',
+  'topo',
+  'pode ser',
+  'fechado',
+  'bora',
+  'vamos',
+  'interesse',
+  'interessado',
+  'interessada',
+];
+
+export type ReplyIntentKind =
+  | 'empty'
+  | 'opt_out'
+  | 'opt_in'
+  | 'polite_ack'
+  | 'flow_match'
+  | 'flow_invalid'
+  | 'neutral';
+
+export type ClassifyReplyIntentResult = {
+  kind: ReplyIntentKind;
+  label: string;
+  matchedToken?: string;
+  flowMatch?: ReturnType<typeof simulateReplyFlowMatch>;
+  suggestedLeadClass?: 'hot' | 'warm' | 'cold' | 'blacklist';
+};
+
+function normIntentText(text: string): string {
+  return normalizeReplyBodyForMatch(text).norm;
+}
+
+/** Detecta "amém", "tamo junto" etc. — engajamento social, não opt-in. */
+export function isPoliteAcknowledgment(bodyText: string): boolean {
+  const norm = normIntentText(bodyText);
+  if (!norm) return false;
+  for (const phrase of POLITE_ACK_PHRASES) {
+    const clean = cleanReplyTriggerToken(phrase);
+    if (!clean) continue;
+    if (norm === clean || norm.includes(clean)) return true;
+  }
+  return false;
+}
+
+/** Interesse explícito (quero/sim) excluindo cortesia e opt-out. */
+export function isPositiveCampaignIntent(bodyText: string): boolean {
+  const t = String(bodyText || '').trim();
+  if (!t || isPoliteAcknowledgment(t)) return false;
+  if (detectGlobalOptOut(t).matched) return false;
+  const { norm, words } = normalizeReplyBodyForMatch(t);
+  if (!norm) return false;
+  for (const tok of POSITIVE_INTENT_TOKENS) {
+    const r = matchReplyTriggerToken(tok, t, 'word');
+    if (r.matched) return true;
+  }
+  if (/^[1-9]$/.test(norm) || (words.length === 1 && /^[0-9]+$/.test(words[0]))) return true;
+  return false;
+}
+
+/** Classifica intenção da resposta para automação e revisão manual no chat. */
+export function classifyReplyIntent(
+  bodyText: string,
+  ctx?: {
+    globalOptOutKeywords?: string[];
+    acceptAnyReply?: boolean;
+    validTokens?: string[];
+    matchMode?: ReplyMatchMode;
+    options?: ReplyFlowOptionLike[];
+    invalidReplyBody?: string;
+  }
+): ClassifyReplyIntentResult {
+  const t = String(bodyText || '').trim();
+  if (!t) {
+    return { kind: 'empty', label: 'Sem texto na mensagem.' };
+  }
+
+  const optOut = detectGlobalOptOut(t, ctx?.globalOptOutKeywords);
+  if (optOut.matched) {
+    return {
+      kind: 'opt_out',
+      label: `Pediu sair (${optOut.keyword})`,
+      matchedToken: optOut.keyword,
+      suggestedLeadClass: 'blacklist',
+    };
+  }
+
+  if (isPoliteAcknowledgment(t)) {
+    return {
+      kind: 'polite_ack',
+      label: 'Cortesia/encerramento (não é "quero")',
+      suggestedLeadClass: 'warm',
+    };
+  }
+
+  const flowMatch = ctx
+    ? simulateReplyFlowMatch({
+        bodyText: t,
+        acceptAnyReply: ctx.acceptAnyReply,
+        validTokens: ctx.validTokens,
+        matchMode: ctx.matchMode,
+        options: ctx.options,
+        invalidReplyBody: ctx.invalidReplyBody,
+      })
+    : undefined;
+
+  if (flowMatch) {
+    if (flowMatch.kind === 'option' || flowMatch.kind === 'gate') {
+      return {
+        kind: 'flow_match',
+        label: `Fluxo: gatilho "${flowMatch.matchedToken || '?'}"`,
+        matchedToken: flowMatch.matchedToken,
+        flowMatch,
+        suggestedLeadClass: 'hot',
+      };
+    }
+    if (flowMatch.kind === 'any') {
+      return {
+        kind: 'flow_match',
+        label: 'Fluxo aceita qualquer resposta',
+        flowMatch,
+        suggestedLeadClass: 'warm',
+      };
+    }
+    if (flowMatch.kind === 'invalid') {
+      if (isPositiveCampaignIntent(t)) {
+        return {
+          kind: 'opt_in',
+          label: 'Interesse explícito (quero/sim)',
+          flowMatch,
+          suggestedLeadClass: 'hot',
+        };
+      }
+      return {
+        kind: 'flow_invalid',
+        label: flowMatch.message || 'Resposta não reconhecida no fluxo',
+        flowMatch,
+        suggestedLeadClass: 'cold',
+      };
+    }
+  }
+
+  if (isPositiveCampaignIntent(t)) {
+    return {
+      kind: 'opt_in',
+      label: 'Interesse explícito (quero/sim)',
+      suggestedLeadClass: 'hot',
+    };
+  }
+
+  return {
+    kind: 'neutral',
+    label: 'Resposta neutra — revisar manualmente',
+    suggestedLeadClass: 'warm',
+  };
+}

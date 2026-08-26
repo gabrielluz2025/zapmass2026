@@ -28,7 +28,7 @@ describe('contactOptOutService', () => {
     expect(matchesInboundOptOutTrigger('cancelar')).toBe(true);
     expect(matchesInboundOptOutTrigger('stop')).toBe(true);
     expect(INBOUND_OPT_OUT_REGEX.test('descadastrar')).toBe(true);
-    expect(matchesInboundOptOutTrigger('quero parar')).toBe(false);
+    expect(matchesInboundOptOutTrigger('quero parar')).toBe(true);
     expect(matchesInboundOptOutTrigger('')).toBe(false);
   });
 

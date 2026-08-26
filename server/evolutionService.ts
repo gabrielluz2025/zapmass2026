@@ -3534,6 +3534,95 @@ async function deleteReplyFlowSessionFromRedis(connectionId: string, phoneDigits
     } catch { /* ignora */ }
 }
 
+type ReplyFlowContextSnapshot = {
+    campaignId: string;
+    ownerUid?: string;
+    vars: Record<string, string>;
+    toRaw: string;
+    openedAt: number;
+};
+
+async function saveReplyFlowContextToRedis(
+    connectionId: string,
+    phoneDigits: string,
+    ctx: ReplyFlowContextSnapshot
+): Promise<void> {
+    const conn = getRedisConnection();
+    if (!conn) return;
+    try {
+        const key = `zapmass:rf:ctx:${connectionId}:${phoneDigits}`;
+        await conn.setex(key, REPLYFLOW_SESSION_TTL_SECS, JSON.stringify(ctx));
+    } catch (e: any) {
+        log('warn', 'saveReplyFlowContextToRedis falhou', { error: e?.message });
+    }
+}
+
+async function loadReplyFlowContextFromRedis(
+    connectionId: string,
+    phoneDigits: string
+): Promise<ReplyFlowContextSnapshot | null> {
+    const conn = getRedisConnection();
+    if (!conn) return null;
+    try {
+        const key = `zapmass:rf:ctx:${connectionId}:${phoneDigits}`;
+        const raw = await conn.get(key);
+        if (!raw) return null;
+        const ctx = JSON.parse(raw) as ReplyFlowContextSnapshot;
+        if (!ctx?.campaignId) return null;
+        return ctx;
+    } catch {
+        return null;
+    }
+}
+
+async function deleteReplyFlowContextFromRedis(connectionId: string, phoneDigits: string): Promise<void> {
+    const conn = getRedisConnection();
+    if (!conn) return;
+    try {
+        await conn.del(`zapmass:rf:ctx:${connectionId}:${phoneDigits}`);
+    } catch { /* ignora */ }
+}
+
+/** Reabre sessão perdida quando há contexto recente da campanha (resposta sem sessão ativa). */
+async function tryReopenReplyFlowFromContext(connectionId: string, phoneDigits: string): Promise<boolean> {
+    if (!replyFlowEngine || replyFlowEngine.hasSession(connectionId, phoneDigits)) return false;
+
+    const variants = new Set([phoneDigits]);
+    if (phoneDigits.length === 13 && phoneDigits.startsWith('55') && phoneDigits.charAt(4) === '9') {
+        variants.add(phoneDigits.slice(0, 4) + phoneDigits.slice(5));
+    } else if (phoneDigits.length === 12 && phoneDigits.startsWith('55')) {
+        variants.add(phoneDigits.slice(0, 4) + '9' + phoneDigits.slice(4));
+    }
+
+    for (const variant of variants) {
+        const ctx = await loadReplyFlowContextFromRedis(connectionId, variant);
+        if (!ctx?.campaignId) continue;
+        const ageMs = Date.now() - (ctx.openedAt || 0);
+        const maxReopenMs = 72 * 3600 * 1000;
+        if (ageMs > maxReopenMs) continue;
+
+        ensureReplyFlowEngine();
+        const remoteJid = variant.length >= 8 ? `${variant}@s.whatsapp.net` : undefined;
+        replyFlowEngine.openSession({
+            connectionId,
+            phoneDigits: variant,
+            campaignId: ctx.campaignId,
+            ownerUid: ctx.ownerUid,
+            vars: ctx.vars || {},
+            toRaw: ctx.toRaw || variant,
+            convKey: `${connectionId}:${variant}`,
+            remoteJid,
+        });
+        log('info', 'Sessão reply flow reaberta a partir de contexto Redis', {
+            connectionId,
+            phoneDigits: variant,
+            campaignId: ctx.campaignId,
+        });
+        return true;
+    }
+    return false;
+}
+
 const REPLYFLOW_SESSION_KEY_PREFIX = 'zapmass:rf:sess:';
 
 /** Re-enfileira respostas pendentes após queda, ban temporário ou restart. */
@@ -3733,6 +3822,8 @@ async function tryRestoreReplyFlowSession(connectionId: string, phoneDigits: str
             return;
         }
     }
+
+    await tryReopenReplyFlowFromContext(connectionId, phoneDigits);
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -3779,24 +3870,31 @@ function ensureReplyFlowEngine() {
         },
         onLog: (message, payload) =>
             emitCampaignLog('INFO', message, payload, payload?.ownerUid as string | undefined),
-        onInboundReply: ({ campaignId, connectionId, phoneDigits, ownerUid }) => {
+        onInboundReply: ({ campaignId, connectionId, phoneDigits, ownerUid, marketingEffect }) => {
             evolutionTrackIncomingReply(connectionId, phoneDigits, { campaignId, ownerUid });
-            if (ownerUid) {
+            if (ownerUid && marketingEffect === 'opt_in') {
                 void tryAutoEnrollHotLead({
                     tenantId: ownerUid,
                     phoneDigits,
                     connectionId,
                     conversationId: `${connectionId}:${phoneDigits}`,
-                    treatReplyAsHot: true
                 });
             }
         },
         isCampaignPaused: (campaignId) => pausedCampaigns.has(campaignId),
         onSessionSave: (connectionId, phoneDigits, session) => {
             void saveReplyFlowSessionToRedis(connectionId, phoneDigits, session);
+            void saveReplyFlowContextToRedis(connectionId, phoneDigits, {
+                campaignId: session.campaignId,
+                ownerUid: session.ownerUid,
+                vars: session.vars || {},
+                toRaw: session.toRaw,
+                openedAt: Date.now(),
+            });
         },
         onSessionDisposed: (connectionId, phoneDigits) => {
             void deleteReplyFlowSessionFromRedis(connectionId, phoneDigits);
+            void deleteReplyFlowContextFromRedis(connectionId, phoneDigits);
         },
         // Quando todas as sessões de reply flow de uma campanha fecham, tenta finalizar.
         // Não deletamos campaignPendingJobs aqui porque respostas de menu podem ter sido
@@ -3807,6 +3905,38 @@ function ensureReplyFlowEngine() {
         },
     });
     ensureNurtureEnqueue();
+}
+
+/** Campanha com fluxo por resposta ativo para este contato (se houver). */
+export function resolveActiveReplyFlowCampaignId(
+    connectionId: string,
+    phoneDigits: string,
+    incomingConvId?: string
+): string | undefined {
+    ensureReplyFlowEngine();
+    return replyFlowEngine?.resolveCampaignIdForIncoming(connectionId, phoneDigits, incomingConvId);
+}
+
+/** Reprocessa resposta inbound no fluxo (útil após reabrir sessão manualmente). */
+export async function reprocessReplyFlowInbound(params: {
+    connectionId: string;
+    phoneDigits: string;
+    bodyText: string;
+    incomingConvId?: string;
+}): Promise<{ hadSessionBefore: boolean; hasSessionAfter: boolean }> {
+    ensureReplyFlowEngine();
+    await tryRestoreReplyFlowSession(params.connectionId, params.phoneDigits);
+    const hadSessionBefore = replyFlowEngine!.hasSession(params.connectionId, params.phoneDigits);
+    await replyFlowEngine!.handleIncoming({
+        connectionId: params.connectionId,
+        phoneDigits: params.phoneDigits,
+        bodyText: params.bodyText,
+        incomingConvId: params.incomingConvId,
+    });
+    return {
+        hadSessionBefore,
+        hasSessionAfter: replyFlowEngine!.hasSession(params.connectionId, params.phoneDigits),
+    };
 }
 
 let nurtureEnqueueRegistered = false;

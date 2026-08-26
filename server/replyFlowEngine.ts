@@ -93,12 +93,16 @@ export type ReplyFlowCallbacks = {
         connectionId?: string
     ) => void;
     onLog?: (message: string, payload?: Record<string, unknown>) => void;
-    /** Telemetria de resposta (funil/geo) com campaignId da sessão ativa. */
+    /** Telemetria de resposta com match reconhecido (não dispara em cortesia/neutro). */
     onInboundReply?: (info: {
         campaignId: string;
         connectionId: string;
         phoneDigits: string;
         ownerUid?: string;
+        replyText: string;
+        matchedToken?: string;
+        marketingEffect?: 'none' | 'opt_in' | 'opt_out';
+        matchKind: 'option' | 'gate' | 'any';
     }) => void;
     isCampaignPaused?: (campaignId: string) => boolean;
     /** Chamado quando todas as sessões de uma campanha são encerradas (reply flow concluído). */
@@ -632,9 +636,32 @@ export class ReplyFlowEngine {
 
         const { key, session } = found;
 
+        let def = this.defs.get(session.campaignId);
+        if (!def?.steps?.length) {
+            def = (await this.loadDefFromFirestore(session.campaignId, session.ownerUid)) ?? undefined;
+        }
+        if (!def?.steps?.length) {
+            this.disposeSession(key, session);
+            return;
+        }
+
+        if (this.callbacks.isCampaignPaused?.(session.campaignId)) return;
+
+        const tBody = String(bodyText || '').trim();
+        const meta = def.meta || {};
+        const gateStepForPending = def.steps[session.awaitingAfterStep];
+        const wouldMatchOption =
+            gateStepForPending?.options?.length && tBody
+                ? findBestMatchingOption(
+                      gateStepForPending.options,
+                      tBody,
+                      gateStepForPending.matchMode || 'word'
+                  ) !== null
+                : false;
+
         if (session.pendingOutbound) {
             const ageMs = Date.now() - (session.pendingOutbound.enqueuedAt || 0);
-            if (ageMs < 90_000) {
+            if (ageMs < 90_000 && !wouldMatchOption) {
                 this.callbacks.onLog?.('Resposta recebida mas envio anterior ainda pendente', {
                     campaignId: session.campaignId,
                     connectionId,
@@ -649,20 +676,6 @@ export class ReplyFlowEngine {
             const phoneKey = colonIdx > 0 ? key.slice(colonIdx + 1) : phoneDigits;
             this.callbacks.onSessionSave?.(connId, phoneKey, session);
         }
-
-        let def = this.defs.get(session.campaignId);
-        if (!def?.steps?.length) {
-            def = (await this.loadDefFromFirestore(session.campaignId, session.ownerUid)) ?? undefined;
-        }
-        if (!def?.steps?.length) {
-            this.disposeSession(key, session);
-            return;
-        }
-
-        if (this.callbacks.isCampaignPaused?.(session.campaignId)) return;
-
-        const tBody = String(bodyText || '').trim();
-        const meta = def.meta || {};
 
         // Verificar opt-out global SOMENTE se a resposta não casar com nenhuma opção
         // configurada pelo usuário. Isso permite que palavras como "sair" sejam usadas
@@ -695,13 +708,6 @@ export class ReplyFlowEngine {
                 return;
             }
         }
-
-        this.callbacks.onInboundReply?.({
-            campaignId: session.campaignId,
-            connectionId,
-            phoneDigits,
-            ownerUid: session.ownerUid,
-        });
 
         const steps = def.steps;
         const awaiting = session.awaitingAfterStep;
@@ -783,6 +789,16 @@ export class ReplyFlowEngine {
                         connectionId
                     );
                 }
+                this.callbacks.onInboundReply?.({
+                    campaignId: session.campaignId,
+                    connectionId,
+                    phoneDigits,
+                    ownerUid: session.ownerUid,
+                    replyText: bodyText,
+                    matchedToken: matchMeta.matchedToken,
+                    marketingEffect: optMe,
+                    matchKind: 'option',
+                });
                 return;
             }
 
@@ -864,6 +880,17 @@ export class ReplyFlowEngine {
                     connectionId
                 );
             }
+            if (gateOk) {
+                this.callbacks.onInboundReply?.({
+                    campaignId: session.campaignId,
+                    connectionId,
+                    phoneDigits,
+                    ownerUid: session.ownerUid,
+                    replyText: bodyText,
+                    marketingEffect: gate.marketingEffect || 'none',
+                    matchKind: gate.acceptAnyReply ? 'any' : 'gate',
+                });
+            }
             this.disposeSession(key, session);
             return;
         }
@@ -900,6 +927,16 @@ export class ReplyFlowEngine {
                 connectionId
             );
         }
+
+        this.callbacks.onInboundReply?.({
+            campaignId: session.campaignId,
+            connectionId,
+            phoneDigits,
+            ownerUid: session.ownerUid,
+            replyText: bodyText,
+            marketingEffect: gateStep.marketingEffect || 'none',
+            matchKind: gateStep.acceptAnyReply ? 'any' : 'gate',
+        });
 
         const nextIdx = awaiting + 1;
         if (nextIdx >= steps.length) {

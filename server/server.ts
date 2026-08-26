@@ -111,6 +111,7 @@ import { registerConnectionsSyncRoutes } from './connectionsSyncRoutes.js';
 import { registerSupportBotRoutes } from './supportBotRoutes.js';
 import { registerNurtureRoutes } from './nurtureRoutes.js';
 import { registerChipProtectionRoutes } from './chipProtectionRoutes.js';
+import { registerReplyIntentRoutes } from './replyIntentRoutes.js';
 import { startChipProtectionScheduler } from './chipProtectionScheduler.js';
 import { startNurtureScheduler } from './nurture/nurtureScheduler.js';
 import { registerAiAssistantRoutes } from './aiAssistantRoutes.js';
@@ -403,6 +404,7 @@ registerConnectionsSyncRoutes(app);
 registerSupportBotRoutes(app);
 registerNurtureRoutes(app);
 registerChipProtectionRoutes(app);
+registerReplyIntentRoutes(app);
 registerAiAssistantRoutes(app);
 registerAssistantRoutes(app);
 

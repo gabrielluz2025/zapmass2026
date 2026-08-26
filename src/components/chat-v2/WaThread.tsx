@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDown, ArrowLeft, History, Loader2, Lock, MoreVertical } from 'lucide-react';
+import { ArrowDown, ArrowLeft, History, Loader2, Lock, MoreVertical, ScanSearch } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Conversation, WhatsAppConnection } from '../../types';
 import { WaBubble } from '../chat/wa/WaBubble';
@@ -60,6 +60,7 @@ type Props = {
   onDraftChannelChange?: (connectionId: string) => void;
   onExport?: () => void;
   onGetAiSuggestions?: () => Promise<string[]>;
+  onAnalyzeIntent?: () => void;
 };
 
 function messageShowsTail(messages: Conversation['messages'], index: number): boolean {
@@ -96,6 +97,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
   onDraftChannelChange,
   onExport,
   onGetAiSuggestions,
+  onAnalyzeIntent,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollPreserveRef = useRef<{ id: string; height: number; top: number } | null>(null);
@@ -281,6 +283,17 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
             {headerSub}
           </p>
         </div>
+        {onAnalyzeIntent && (
+          <button
+            type="button"
+            className="wa-icon-btn flex-shrink-0"
+            onClick={onAnalyzeIntent}
+            aria-label="Analisar intenção da resposta"
+            title="Analisar intenção (quero / sair / cortesia)"
+          >
+            <ScanSearch className="w-5 h-5" />
+          </button>
+        )}
         {onOpenContactInfo && (
           <button
             type="button"
