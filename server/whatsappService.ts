@@ -7301,7 +7301,7 @@ export const startAutoWarmup = async (
     if (blockReason) {
         console.log(`[AutoWarmup] Bloqueado — ${blockReason} uid=${uid}`);
         stopAutoWarmup(uid);
-        return { ok: false, error: `Aquecimento bloqueado: ${blockReason}. Aguarde o cooldown ou verifique Proteção de chips.` };
+        return { ok: false, error: `Aquecimento bloqueado: ${blockReason}. Aguarde o fim do cooldown pós-ban.` };
     }
     stopAutoWarmup(uid);
     

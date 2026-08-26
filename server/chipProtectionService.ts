@@ -153,18 +153,24 @@ export async function isChipQuietMode(tenantId: string): Promise<boolean> {
   return active;
 }
 
-/** Motivo pelo qual aquecimento está bloqueado (null = permitido). Políticas quiet/idle não bloqueiam. */
+/** Motivo pelo qual aquecimento está bloqueado (null = permitido). Só ban real bloqueia. */
 export async function getWarmupBlockReason(tenantId: string): Promise<string | null> {
   const { active, reason } = await refreshEffectiveProtection(tenantId);
   if (!active) return null;
-  if (reason === 'policy_auto_idle' || reason === 'policy_always') return null;
-  if (reason === 'ban_cooldown' || reason === 'reconnect_storm') {
+  if (
+    reason === 'policy_auto_idle' ||
+    reason === 'policy_always' ||
+    reason === 'reconnect_storm'
+  ) {
+    return null;
+  }
+  if (reason === 'ban_cooldown') {
     return chipProtectionReasonLabel(reason);
   }
   return null;
 }
 
-/** Aquecimento entre chips próprios: bloqueia só cooldown pós-ban ou instabilidade. */
+/** Aquecimento entre chips próprios: bloqueia só cooldown pós-ban confirmado. */
 export async function isChipProtectionBlockingWarmup(tenantId: string): Promise<boolean> {
   return (await getWarmupBlockReason(tenantId)) != null;
 }
@@ -232,9 +238,11 @@ export async function setChipQuietMode(
 export async function enforceChipProtectionSideEffects(tenantId: string): Promise<void> {
   const { active, reason } = await refreshEffectiveProtection(tenantId);
   if (!active) return;
-  // Políticas quiet/idle não interrompem aquecimento entre chips próprios.
-  if (reason === 'policy_auto_idle' || reason === 'policy_always') return;
-  if (reason !== 'ban_cooldown' && reason !== 'reconnect_storm') return;
+  // Políticas quiet/idle e instabilidade não interrompem aquecimento entre chips próprios.
+  if (reason === 'policy_auto_idle' || reason === 'policy_always' || reason === 'reconnect_storm') {
+    return;
+  }
+  if (reason !== 'ban_cooldown') return;
   const warmup = getAutoWarmupState(tenantId);
   if (warmup.active) stopAutoWarmup(tenantId);
 }
@@ -336,10 +344,15 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
     });
   }
 
-  if (warmup.active && active && (reason === 'ban_cooldown' || reason === 'reconnect_storm')) {
+  if (warmup.active && active && reason === 'ban_cooldown') {
     risks.push({
       level: 'info',
-      message: 'Auto-aquecimento será parado pela proteção de chip (ban/instabilidade).',
+      message: 'Auto-aquecimento será parado — cooldown pós-banimento ativo.',
+    });
+  } else if (warmup.active && reason === 'reconnect_storm') {
+    risks.push({
+      level: 'info',
+      message: 'Auto-aquecimento ativo — instabilidade recente; campanhas desaceleradas, aquecimento segue.',
     });
   } else if (warmup.active) {
     risks.push({
@@ -423,8 +436,7 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
     });
   }
 
-  const hardLock =
-    reason === 'ban_cooldown' || reason === 'reconnect_storm';
+  const hardLock = reason === 'ban_cooldown';
 
   const liveFeed: ChipProtectionFeedItem[] = [];
   if (reason === 'reconnect_storm') {
