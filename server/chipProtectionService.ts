@@ -127,6 +127,14 @@ export async function isChipQuietMode(tenantId: string): Promise<boolean> {
   return active;
 }
 
+/** Aquecimento entre chips próprios pode rodar no modo auto (idle); bloqueia ban/always/lock. */
+export async function isChipProtectionBlockingWarmup(tenantId: string): Promise<boolean> {
+  const { active, reason } = await refreshEffectiveProtection(tenantId);
+  if (!active) return false;
+  if (reason === 'policy_auto_idle') return false;
+  return true;
+}
+
 export function isChipQuietModeSync(tenantId: string): boolean {
   const uid = String(tenantId || '').trim();
   if (!uid) return false;
@@ -188,8 +196,10 @@ export async function setChipQuietMode(
 }
 
 export async function enforceChipProtectionSideEffects(tenantId: string): Promise<void> {
-  const { active } = await refreshEffectiveProtection(tenantId);
+  const { active, reason } = await refreshEffectiveProtection(tenantId);
   if (!active) return;
+  // Modo auto sem campanha: chips quietos para disparo, mas aquecimento segue permitido.
+  if (reason === 'policy_auto_idle') return;
   const warmup = getAutoWarmupState(tenantId);
   if (warmup.active) stopAutoWarmup(tenantId);
 }
@@ -291,10 +301,10 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
     });
   }
 
-  if (warmup.active && active) {
+  if (warmup.active && active && reason !== 'policy_auto_idle') {
     risks.push({
       level: 'info',
-      message: 'Auto-aquecimento será parado pela proteção automática.',
+      message: 'Auto-aquecimento será parado pela proteção de chip (ban/always/lock).',
     });
   } else if (warmup.active) {
     risks.push({

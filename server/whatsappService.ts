@@ -7290,9 +7290,9 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
 };
 
 export const startAutoWarmup = async (uid: string, connectionIds: string[], intervalMinutes: number) => {
-    const { isChipQuietMode } = await import('./chipProtectionService.js');
-    if (await isChipQuietMode(uid)) {
-        console.log(`[AutoWarmup] Bloqueado — modo chip quieto ativo para uid=${uid}`);
+    const { isChipProtectionBlockingWarmup } = await import('./chipProtectionService.js');
+    if (await isChipProtectionBlockingWarmup(uid)) {
+        console.log(`[AutoWarmup] Bloqueado — proteção de chip (ban/always/lock) ativa para uid=${uid}`);
         stopAutoWarmup(uid);
         return;
     }
@@ -7356,9 +7356,9 @@ export const loadAndResumeAutoWarmups = async () => {
         if (Array.isArray(parsed)) {
             for (const item of parsed) {
                 if (item.uid && Array.isArray(item.connectionIds) && item.connectionIds.length > 0) {
-                    const { isChipQuietMode } = await import('./chipProtectionService.js');
-                    if (await isChipQuietMode(item.uid)) {
-                        console.log(`[AutoWarmup] Retomada ignorada — chip quieto uid=${item.uid}`);
+                    const { isChipProtectionBlockingWarmup } = await import('./chipProtectionService.js');
+                    if (await isChipProtectionBlockingWarmup(item.uid)) {
+                        console.log(`[AutoWarmup] Retomada ignorada — proteção de chip uid=${item.uid}`);
                         continue;
                     }
                     void startAutoWarmup(item.uid, item.connectionIds, item.intervalMinutes || 10);

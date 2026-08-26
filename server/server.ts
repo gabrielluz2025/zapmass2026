@@ -2331,7 +2331,7 @@ const registerSocketHandlers = () => {
           const interval = Math.max(5, Math.min(120, Number(intervalMinutes) || 10));
           userLog('warmup:auto-start', { connectionIds: ids, intervalMinutes: interval });
           await waService.startAutoWarmup(uid, ids, interval);
-          socket.emit('auto-warmup-state', { active: true, connectionIds: ids, intervalMinutes: interval });
+          socket.emit('auto-warmup-state', waService.getAutoWarmupState(uid));
         } catch (e) {
           reportSocketAsyncError('start-auto-warmup', e);
         }
