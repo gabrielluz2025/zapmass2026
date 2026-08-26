@@ -681,10 +681,14 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     function parseProfilePicturePayload(raw: unknown): string | null {
         if (!raw || typeof raw !== 'object') return null;
         const row = raw as Record<string, unknown>;
-        for (const key of ['profilePictureUrl', 'url', 'picture', 'imgUrl', 'base64'] as const) {
+        for (const key of ['profilePictureUrl', 'url', 'picture', 'imgUrl', 'avatar', 'base64'] as const) {
             const v = row[key];
             if (typeof v !== 'string' || v.length < 8) continue;
             if (v.startsWith('http') || v.startsWith('data:')) return v;
+            const compact = v.replace(/\s/g, '');
+            if (/^[A-Za-z0-9+/=]{32,}$/.test(compact)) {
+                return `data:image/jpeg;base64,${compact}`;
+            }
         }
         const nested = row.response ?? row.data ?? row.result;
         if (nested && nested !== raw) return parseProfilePicturePayload(nested);
@@ -719,6 +723,10 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (url.startsWith('http')) {
             const mirrored = await mirrorRemoteProfilePicture(url);
             return mirrored || url;
+        }
+        const compact = url.replace(/\s/g, '');
+        if (/^[A-Za-z0-9+/=]{32,}$/.test(compact)) {
+            return `data:image/jpeg;base64,${compact}`;
         }
         return null;
     }

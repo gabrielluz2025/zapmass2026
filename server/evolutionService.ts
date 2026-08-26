@@ -311,6 +311,23 @@ function phoneFromWebhookData(data?: Record<string, unknown>): string | undefine
 }
 
 /** Evolution v2 nem sempre manda wuid no webhook — busca ownerJid em fetchInstances. */
+function parseProfilePictureFromApiData(raw: unknown): string | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const row = raw as Record<string, unknown>;
+    for (const key of ['profilePictureUrl', 'url', 'picture', 'imgUrl', 'avatar', 'base64'] as const) {
+        const v = row[key];
+        if (typeof v !== 'string' || v.length < 8) continue;
+        if (v.startsWith('http') || v.startsWith('data:')) return v;
+        const compact = v.replace(/\s/g, '');
+        if (/^[A-Za-z0-9+/=]{32,}$/.test(compact)) {
+            return `data:image/jpeg;base64,${compact}`;
+        }
+    }
+    const nested = row.response ?? row.data ?? row.result;
+    if (nested && nested !== raw) return parseProfilePictureFromApiData(nested);
+    return null;
+}
+
 async function enrichConnectionMeta(instanceName: string): Promise<void> {
     const conn = connections.get(instanceName);
     if (!conn) return;
@@ -355,6 +372,24 @@ async function enrichConnectionMeta(instanceName: string): Promise<void> {
         }
     } catch (error: any) {
         log('warn', `enrichConnectionMeta(${instanceName}) falhou`, { error: error?.message });
+    }
+
+    if (!conn.profilePicUrl?.trim() && conn.phoneNumber?.replace(/\D/g, '').length >= 10) {
+        const phone = conn.phoneNumber!.replace(/\D/g, '');
+        try {
+            const picResp = await api.post(`/chat/fetchProfilePictureUrl/${evoInst(instanceName)}`, {
+                number: phone,
+                preview: true,
+            });
+            const pic = parseProfilePictureFromApiData(picResp.data);
+            if (pic && conn.profilePicUrl !== pic) {
+                conn.profilePicUrl = pic;
+                changed = true;
+            }
+        } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error);
+            log('warn', `enrichConnectionMeta: avatar ${instanceName} falhou`, { error: msg });
+        }
     }
 
     if (changed) {
@@ -2180,6 +2215,11 @@ async function hydrateInstancesFromEvolution() {
                         error: err?.message,
                     });
                 });
+            }
+        }
+        for (const [id, conn] of connections.entries()) {
+            if (conn.status === 'open' && conn.phoneNumber && !conn.profilePicUrl?.trim()) {
+                void enrichConnectionMeta(id);
             }
         }
         log('info', `Instâncias Evolution sincronizadas: ${list.length}`);

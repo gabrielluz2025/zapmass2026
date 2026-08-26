@@ -101,4 +101,12 @@ describe('normalizeGoResponseToApiV2', () => {
         expect(out.qrcode.code).toBe('2@abc,def');
         expect(out.qrcode.base64).toBeUndefined();
     });
+
+    it('normaliza avatar Go (base64) para profilePictureUrl', () => {
+        const out = normalizeGoResponseToApiV2('/user/avatar', {
+            success: true,
+            avatar: 'iVBORw0KGgoAAAANSUhEUgAA',
+        }) as { profilePictureUrl: string };
+        expect(out.profilePictureUrl).toContain('data:image/jpeg;base64,');
+    });
 });

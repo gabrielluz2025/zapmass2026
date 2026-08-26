@@ -328,6 +328,33 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
         };
     }
 
+    if (path.includes('/user/avatar')) {
+        const wrapped = data as { data?: Record<string, unknown> };
+        const inner = wrapped?.data ?? (data as Record<string, unknown>);
+        const avatarRaw = inner?.avatar ?? inner?.base64 ?? inner?.profilePictureUrl ?? inner?.url;
+        if (typeof avatarRaw === 'string' && avatarRaw.trim()) {
+            const avatar = avatarRaw.trim();
+            const profilePictureUrl =
+                avatar.startsWith('data:') || avatar.startsWith('http')
+                    ? avatar
+                    : `data:image/jpeg;base64,${avatar}`;
+            return { profilePictureUrl, url: profilePictureUrl, avatar, base64: avatar };
+        }
+        return data;
+    }
+
+    if (path.includes('/user/info') || path.includes('/user/profile')) {
+        const wrapped = data as { data?: Record<string, unknown> };
+        const inner = wrapped?.data ?? (data as Record<string, unknown>);
+        const jid = inner?.jid ?? inner?.ID ?? inner?.id;
+        return {
+            ...inner,
+            jid,
+            pushName: inner?.pushName ?? inner?.PushName ?? inner?.VerifiedName,
+            profileName: inner?.pushName ?? inner?.PushName ?? inner?.VerifiedName,
+        };
+    }
+
     if (path.includes('/user/check')) {
         const wrapped = data as { data?: unknown[] };
         const rows = Array.isArray(wrapped?.data) ? wrapped.data : [];
