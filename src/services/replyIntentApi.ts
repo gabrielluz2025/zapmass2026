@@ -18,6 +18,60 @@ export type ReplyIntentInspectResult = {
   message?: string;
 };
 
+export type ReplyIntentScanItem = {
+  conversationId: string;
+  connectionId: string;
+  phoneDigits: string;
+  contactName: string;
+  contactId: string | null;
+  lastInboundText: string | null;
+  lastInboundAt: number | null;
+  intentKind: string;
+  intentLabel: string;
+  suggestedLeadClass: LeadClassification;
+  hasActiveSession: boolean;
+  campaignId: string | null;
+  campaignName: string | null;
+  warmupThread: boolean;
+  marketingOptIn: boolean;
+  marketingOptOut: boolean;
+};
+
+export type ReplyIntentScanSummary = {
+  total: number;
+  withInbound: number;
+  hot: number;
+  warm: number;
+  cold: number;
+  blacklist: number;
+  neutral: number;
+  noInbound: number;
+  warmupOnly: number;
+};
+
+export type ReplyIntentScanResult = {
+  ok: boolean;
+  items: ReplyIntentScanItem[];
+  summary: ReplyIntentScanSummary;
+  nextStartIndex: number;
+  hasMore: boolean;
+  totalCandidates: number;
+};
+
+export async function scanReplyIntents(params: {
+  startIndex?: number;
+  limit?: number;
+  onlyWithInbound?: boolean;
+  excludeWarmup?: boolean;
+  intentKind?: string;
+  search?: string;
+}): Promise<ReplyIntentScanResult> {
+  return apiFetchJson<ReplyIntentScanResult>('/api/reply-intent/scan', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
+
 export async function inspectReplyIntent(params: {
   connectionId: string;
   phoneDigits: string;

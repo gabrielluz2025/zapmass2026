@@ -16,6 +16,8 @@ import {
   sanitizeReplyFlowMeta,
   sanitizeReplyFlowSteps,
 } from './replyFlowEngine.js';
+import { scanReplyIntentsForTenant } from './replyIntentScan.js';
+import type { ReplyIntentKind } from '../shared/replyFlowMatch.js';
 
 export type LeadClassification = 'hot' | 'warm' | 'cold' | 'blacklist';
 
@@ -129,6 +131,35 @@ export function registerReplyIntentRoutes(app: Express): void {
       results,
       suggested: latest?.intent.suggestedLeadClass || 'warm',
     });
+  });
+
+  app.post('/api/reply-intent/scan', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+
+    const body = (req.body || {}) as {
+      startIndex?: number;
+      limit?: number;
+      onlyWithInbound?: boolean;
+      excludeWarmup?: boolean;
+      intentKind?: ReplyIntentKind | 'no_inbound';
+      search?: string;
+    };
+
+    try {
+      const result = await scanReplyIntentsForTenant(ctx.tenantId, {
+        startIndex: body.startIndex,
+        limit: body.limit,
+        onlyWithInbound: body.onlyWithInbound,
+        excludeWarmup: body.excludeWarmup,
+        intentKind: body.intentKind,
+        search: body.search,
+      });
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      console.warn('[reply-intent/scan]', (e as Error)?.message || e);
+      return res.status(500).json({ ok: false, error: 'Falha ao analisar conversas.' });
+    }
   });
 
   app.post('/api/reply-intent/apply', async (req: Request, res: Response) => {

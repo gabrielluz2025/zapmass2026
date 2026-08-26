@@ -13,6 +13,7 @@ import {
   Flame,
   MessageSquare,
   Reply,
+  ScanSearch,
   Search,
   Send,
   Smartphone,
@@ -26,12 +27,13 @@ import { PerformanceFunnel } from './PerformanceFunnel';
 import type { Campaign } from '../types';
 import { getCampaignDeliverySuccessRatePct, getCampaignPlannedSendTotal } from '../utils/campaignMetrics';
 import { ClientAttendanceFeedbackSection } from './reports/ClientAttendanceFeedbackSection';
+import { ReplyIntentScanSection } from './reports/ReplyIntentScanSection';
 import { CampaignFailuresPanel } from './tenant/CampaignFailuresPanel';
 import { printReportsPdf } from '../utils/reportsPdfExport';
 
 /* ─── tipos e constantes ─────────────────────────────────────── */
 type PeriodFilter = '7d' | '30d' | '90d';
-type ReportTab = 'overview' | 'campanhas' | 'canais' | 'heatmap';
+type ReportTab = 'overview' | 'campanhas' | 'canais' | 'heatmap' | 'intencoes';
 
 const PERIOD_DAYS: Record<PeriodFilter, number> = { '7d': 7, '30d': 30, '90d': 90 };
 const PERIOD_LABEL: Record<PeriodFilter, string> = { '7d': 'Últimos 7 dias', '30d': 'Últimos 30 dias', '90d': 'Últimos 3 meses' };
@@ -67,7 +69,18 @@ export const ReportsTab: React.FC = () => {
   const deferredConversations = useDeferredValue(conversations);
   const { campaigns, connections, funnelStats } = useZapMassCore();
   const [period, setPeriod] = useState<PeriodFilter>('30d');
-  const [activeTab, setActiveTab] = useState<ReportTab>('overview');
+  const [activeTab, setActiveTab] = useState<ReportTab>(() => {
+    try {
+      const saved = sessionStorage.getItem('zapmass.reportsTab');
+      if (saved === 'intencoes') {
+        sessionStorage.removeItem('zapmass.reportsTab');
+        return 'intencoes';
+      }
+    } catch {
+      /* ignore */
+    }
+    return 'overview';
+  });
   const [campaignSearch, setCampaignSearch] = useState('');
   const [campaignSort, setCampaignSort] = useState<'date' | 'total' | 'rate'>('date');
 
@@ -281,6 +294,7 @@ export const ReportsTab: React.FC = () => {
           { id: 'campanhas', label: 'Campanhas',     icon: <Trophy className="w-3.5 h-3.5" /> },
           { id: 'canais',    label: 'Canais',        icon: <Smartphone className="w-3.5 h-3.5" /> },
           { id: 'heatmap',   label: 'Horários',      icon: <Clock className="w-3.5 h-3.5" /> },
+          { id: 'intencoes', label: 'Intenções',     icon: <ScanSearch className="w-3.5 h-3.5" /> },
         ] as { id: ReportTab; label: string; icon: React.ReactNode }[]).map((t) => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
             className="flex items-center gap-1.5 px-4 py-2.5 text-[12.5px] font-semibold transition-all"
@@ -536,6 +550,8 @@ export const ReportsTab: React.FC = () => {
           )}
         </div>
       )}
+
+      {activeTab === 'intencoes' && <ReplyIntentScanSection />}
 
     </div>
     </PageShell>

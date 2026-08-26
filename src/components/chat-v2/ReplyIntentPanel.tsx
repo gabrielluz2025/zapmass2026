@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Flame, Loader2, ScanSearch, Snowflake, Sun, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAppView } from '../../context/AppViewContext';
 import type { Conversation } from '../../types';
 import {
   applyLeadClassification,
@@ -43,6 +44,7 @@ export const ReplyIntentPanel: React.FC<Props> = ({
   contactId,
   onContactUpdated,
 }) => {
+  const { setCurrentView } = useAppView();
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState<LeadClassification | null>(null);
   const [inspect, setInspect] = useState<ReplyIntentInspectResult | null>(null);
@@ -235,6 +237,22 @@ export const ReplyIntentPanel: React.FC<Props> = ({
                 disabled={loading}
               >
                 Reanalisar
+              </button>
+
+              <button
+                type="button"
+                className="w-full text-xs text-white/45 hover:text-white/70 py-1 border-t border-white/10 mt-2 pt-2"
+                onClick={() => {
+                  onClose();
+                  try {
+                    sessionStorage.setItem('zapmass.reportsTab', 'intencoes');
+                  } catch {
+                    /* ignore */
+                  }
+                  setCurrentView('reports');
+                }}
+              >
+                Analisar todas as conversas →
               </button>
             </>
           )}
