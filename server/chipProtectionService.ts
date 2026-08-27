@@ -14,6 +14,7 @@ import { listDueEnrollmentsPg } from './nurture/nurtureRepository.js';
 import { getOrCreatePrimaryJourneyPg } from './nurture/nurtureRepository.js';
 import { filterByConnectionScope } from './connectionScopeServer.js';
 import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
+import { isInDeployGraceWindow } from '../shared/deployGrace.js';
 
 const effectiveCache = new Map<
   string,
@@ -325,6 +326,12 @@ export function onConnectionClosed(connectionId: string, wasBan: boolean): void 
     }
 
     const now = Date.now();
+
+    // Deploy/restart do container: vários chips caem juntos — não contar como tempestade.
+    if (isInDeployGraceWindow()) {
+      return;
+    }
+
     const prev = closeEventsByTenant.get(ownerUid) ?? [];
     const recent = prev.filter((t) => now - t < CLOSE_STORM_WINDOW_MS);
     recent.push(now);

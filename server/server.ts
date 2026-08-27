@@ -24,6 +24,7 @@ import { registerAdminAppConfigRoutes } from './adminAppConfigRoutes.js';
 import { registerAdminSystemAnnouncementRoutes } from './adminSystemAnnouncementRoutes.js';
 import { registerAdminOpsRoutes } from './adminOpsRoutes.js';
 import { isGoWebhookInboxMode, usesEvolutionMotor } from './evolutionConfig.js';
+import { isInDeployGraceWindow } from '../shared/deployGrace.js';
 import { activeEvolutionBaseUrl } from './evolutionEngineConfig.js';
 import { registerEvolutionEngineRoutes } from './evolutionEngineRoutes.js';
 import { registerAdminConnectionsRoutes } from './adminConnectionsRoutes.js';
@@ -1133,7 +1134,7 @@ const registerSocketHandlers = () => {
       }
       emitScopedConnections();
       if (useEvolutionChat() && uid && uid !== 'anonymous') {
-        if (isGoWebhookInboxMode()) {
+        if (isGoWebhookInboxMode() || isInDeployGraceWindow()) {
           await evolutionService.reemitConversationsForOwner(uid).catch(() => undefined);
         } else {
           await evolutionService.syncConnectionsForOwner(uid).catch(() => undefined);

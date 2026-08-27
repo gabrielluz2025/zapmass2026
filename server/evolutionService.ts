@@ -84,6 +84,12 @@ import {
 import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
 import { getReconnectStormProgress } from './chipProtectionService.js';
 import {
+    CAMPAIGN_RESUME_GRACE_MS,
+    isInDeployGraceWindow,
+    processUptimeMs,
+} from '../shared/deployGrace.js';
+import { runEvolutionReconnectExclusive } from './evolutionReconnectQueue.js';
+import {
     computeTierExtraDelayMs,
     isTierDailyCapReached,
     resolveChipTier,
@@ -1502,17 +1508,20 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
         }
 
         const attempt = st0.attempts + 1;
-        const delayMs = inLongTail
+        let delayMs = inLongTail
             ? options?.immediate
                 ? 0
                 : LONG_TAIL_RECONNECT_MS
             : options?.immediate
               ? 0
               : Math.min(limits.maxDelayMs, limits.baseDelayMs * Math.pow(2, st0.attempts));
+        if (isInDeployGraceWindow() && !options?.immediate) {
+            delayMs = Math.max(delayMs, 60_000);
+        }
         if (st0.timer) clearTimeout(st0.timer);
 
         const timer = setTimeout(() => {
-        void (async () => {
+        runEvolutionReconnectExclusive(async () => {
             const st = autoReconnectState.get(connectionId);
             if (!st || st.inFlight) return;
             st.inFlight = true;
@@ -1557,7 +1566,7 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
                     scheduleEvolutionAutoReconnect(connectionId);
                 }
             }
-        })();
+        });
         }, delayMs);
 
         autoReconnectState.set(connectionId, { ...st0, attempts: st0.attempts, timer, inFlight: false });
@@ -1817,16 +1826,19 @@ function applyConnectionStateUpdate(
                       sparseConvLimit: 120,
                       prefetchBatchSize: 8,
                   };
-            if (syncProfile.fullHistory) {
+            const postDeployGrace = isInDeployGraceWindow();
+            if (syncProfile.fullHistory && !postDeployGrace) {
                 await ensureEvolutionFullHistorySync(instance);
             }
             if (!isGoWebhookInboxMode()) {
-                await chatStore.syncChatsForConnection(instance, {
-                    sparseLimit: syncProfile.sparseConvLimit,
-                    msgPrefetch: syncProfile.msgPrefetch,
-                    prefetchBatchSize: syncProfile.prefetchBatchSize,
-                    fullInboxSync: syncProfile.fullInboxSync,
-                });
+                if (!postDeployGrace) {
+                    await chatStore.syncChatsForConnection(instance, {
+                        sparseLimit: syncProfile.sparseConvLimit,
+                        msgPrefetch: syncProfile.msgPrefetch,
+                        prefetchBatchSize: syncProfile.prefetchBatchSize,
+                        fullInboxSync: syncProfile.fullInboxSync,
+                    });
+                }
             } else {
                 await setupWebhook(instance).catch(() => undefined);
             }
@@ -7369,7 +7381,9 @@ async function reconcileConnectionHealth() {
             }
 
             if (paired && memState === 'close' && !isEvolutionOpenState(apiState) && !autoReconnectState.has(id)) {
-                scheduleEvolutionAutoReconnect(id);
+                if (!isInDeployGraceWindow()) {
+                    scheduleEvolutionAutoReconnect(id);
+                }
             }
         })
     );
@@ -7425,9 +7439,17 @@ export function init(socketIO: SocketIOServer) {
         return reconcileConnectionHealth();
     });
     if (!connectionHealthTimer) {
+        const healthIntervalMs = isInDeployGraceWindow() ? 30_000 : 120_000;
         connectionHealthTimer = setInterval(() => {
             void reconcileConnectionHealth();
-        }, 120_000);
+        }, healthIntervalMs);
+        setTimeout(() => {
+            if (!connectionHealthTimer) return;
+            clearInterval(connectionHealthTimer);
+            connectionHealthTimer = setInterval(() => {
+                void reconcileConnectionHealth();
+            }, 120_000);
+        }, CAMPAIGN_RESUME_GRACE_MS);
     }
     testConnection();
 
@@ -7437,9 +7459,19 @@ export function init(socketIO: SocketIOServer) {
     // fazendo a 2ª+ etapa nunca disparar e a campanha ser marcada COMPLETED prematuramente.
     void (async () => {
         await reconcilePendingJobsFromRedis();
+        await waitForCampaignResumeGrace();
         await reconcileRunningCampaignsFromPostgres();
         ensureCampaignWorker();
     })();
+}
+
+async function waitForCampaignResumeGrace(): Promise<void> {
+    const remaining = CAMPAIGN_RESUME_GRACE_MS - processUptimeMs();
+    if (remaining <= 0) return;
+    log('info', `Pós-deploy: aguardando ${Math.round(remaining / 1000)}s antes de retomar campanhas RUNNING`, {
+        graceMinutes: Math.round(CAMPAIGN_RESUME_GRACE_MS / 60_000),
+    });
+    await sleep(remaining);
 }
 
 /** Campanhas RUNNING no Postgres sem runtime/jobs após restart — reidrata ou reenfileira. */
