@@ -48,9 +48,10 @@ docker exec "$PG" psql -U postgres -d postgres -c \
   "SELECT count(*) AS total FROM pg_stat_activity;" 2>/dev/null || true
 
 if [ "$RESTART_PG" = "1" ]; then
-  log "Reiniciar Postgres (aplica max_connections=300 do docker-compose)…"
-  docker compose up -d postgres
-  sleep 5
+  log "Recriar Postgres com max_connections=300 (breve indisponibilidade SQL)…"
+  docker compose up -d --force-recreate postgres
+  sleep 8
+  PG="$(pg_cid)"
   docker exec "$PG" psql -U postgres -d postgres -c "SHOW max_connections;" 2>/dev/null || true
 fi
 
