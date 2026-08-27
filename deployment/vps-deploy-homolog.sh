@@ -10,6 +10,12 @@ HOMOLOG_DIR="${ROOT}/homolog"
 COMPOSE_FILE="${ROOT}/docker-compose.homolog.yml"
 LOCK="/var/lock/zapmass-homolog-deploy.lock"
 
+read_env_val() {
+  local file="$1" key="$2"
+  grep -E "^${key}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' \
+    | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+}
+
 event="${GITHUB_EVENT_NAME:-manual}"
 if [ -z "${GITHUB_ACTIONS:-}" ] && [ "$event" = "push" ]; then
   event="manual"
@@ -17,7 +23,6 @@ fi
 
 # shellcheck source=deployment/deploy-window.sh
 . "$(dirname "$0")/deploy-window.sh"
-# Homolog pode deployar a qualquer hora (chips de teste).
 if [ "$event" = "schedule" ] && ! deploy_window_active; then
   echo "==> Cron homolog fora da janela — ignorado."
   exit 0
@@ -38,30 +43,30 @@ fi
 
 bash deployment/ensure-homolog-dbs.sh
 
-# Garante rede partilhada com postgres/redis
 docker compose up -d postgres redis 2>/dev/null || true
 
 VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 export VITE_GIT_REF
 export BUILDKIT_MAX_PARALLELISM="${BUILDKIT_MAX_PARALLELISM:-1}"
 
-# Carrega vars do homolog/.env para interpolar compose + build Vite
-while IFS='=' read -r k v; do
-  k="${k//$'\r'/}"
-  v="${v//$'\r'/}"
-  v="${v#\"}"; v="${v%\"}"; v="${v#\'}"; v="${v%\'}"
-  [ -z "$k" ] && continue
-  case "$k" in
-    \#*) continue ;;
-    HOMOLOG_*|EVOLUTION_GO_KEY_HOMOLOG|ZAPMASS_HOMOLOG_*|POSTGRES_PASSWORD|ZAPMASS_SHARED_NETWORK|VITE_*|GEMINI_*|RESEND_*|EMAIL_*|ADMIN_*|ZAPMASS_ADMIN_*)
-      export "$k=$v"
+while IFS= read -r line || [ -n "$line" ]; do
+  line="${line%%$'\r'}"
+  case "$line" in
+    ''|'#'*) continue ;;
+    *=*)
+      key="${line%%=*}"
+      val="${line#*=}"
+      case "$key" in
+        HOMOLOG_*|EVOLUTION_GO_KEY_HOMOLOG|ZAPMASS_HOMOLOG_*|POSTGRES_PASSWORD|ZAPMASS_SHARED_NETWORK|VITE_*|GEMINI_*|RESEND_*|EMAIL_*|ADMIN_*|ZAPMASS_ADMIN_*)
+          export "${key}=${val}"
+          ;;
+      esac
       ;;
   esac
 done < "${HOMOLOG_DIR}/.env"
 
-# Repassa senha postgres da stack principal se não estiver no homolog/.env
 if [ -z "${POSTGRES_PASSWORD:-}" ] && [ -f "${ROOT}/.env" ]; then
-  POSTGRES_PASSWORD="$(grep -E '^POSTGRES_PASSWORD=' "${ROOT}/.env" | tail -1 | sed -E 's/^POSTGRES_PASSWORD=//' | tr -d '\r"\'')"
+  POSTGRES_PASSWORD="$(read_env_val "${ROOT}/.env" POSTGRES_PASSWORD)"
   export POSTGRES_PASSWORD
 fi
 

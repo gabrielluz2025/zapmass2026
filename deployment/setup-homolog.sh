@@ -41,7 +41,7 @@ chmod 750 "$HOMOLOG_DIR"
 
 if [ ! -f "${HOMOLOG_DIR}/.env" ]; then
   log "Criar ${HOMOLOG_DIR}/.env"
-  PG_PASS="$(grep -E '^POSTGRES_PASSWORD=' "${ROOT}/.env" 2>/dev/null | tail -1 | sed -E 's/^POSTGRES_PASSWORD=//' | tr -d '\r"'\' || echo 'evolution-secure-pass-2026')"
+  PG_PASS="$(grep -E '^POSTGRES_PASSWORD=' "${ROOT}/.env" 2>/dev/null | tail -1 | sed -E 's/^POSTGRES_PASSWORD=//' | tr -d '\r' | sed -e 's/^"//' -e 's/"$//' || echo 'evolution-secure-pass-2026')"
   JWT="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 64 | head -1)"
   cp "$TEMPLATE" "${HOMOLOG_DIR}/.env"
   sed -i "s|SUBSTITUA_PELO_MESMO_DA_VPS|${PG_PASS}|g" "${HOMOLOG_DIR}/.env"
