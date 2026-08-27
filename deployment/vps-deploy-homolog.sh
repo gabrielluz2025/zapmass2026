@@ -6,6 +6,14 @@ set -euo pipefail
 ROOT="${ROOT:-/opt/zapmass}"
 cd "$ROOT"
 
+# Manual na VPS: alinhar com origin/develop (CI faz checkout -f do SHA do workflow).
+if [ "${SKIP_GIT_SYNC:-0}" != "1" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+  if [ -f deployment/ensure-git-develop.sh ]; then
+    chmod +x deployment/ensure-git-develop.sh 2>/dev/null || true
+    bash deployment/ensure-git-develop.sh
+  fi
+fi
+
 HOMOLOG_DIR="${ROOT}/homolog"
 COMPOSE_FILE="${ROOT}/docker-compose.homolog.yml"
 LOCK="/var/lock/zapmass-homolog-deploy.lock"
@@ -57,7 +65,7 @@ while IFS= read -r line || [ -n "$line" ]; do
       key="${line%%=*}"
       val="${line#*=}"
       case "$key" in
-        HOMOLOG_*|EVOLUTION_GO_KEY_HOMOLOG|ZAPMASS_HOMOLOG_*|POSTGRES_PASSWORD|ZAPMASS_SHARED_NETWORK|VITE_*|GEMINI_*|RESEND_*|EMAIL_*|ADMIN_*|ZAPMASS_ADMIN_*)
+        HOMOLOG_*|EVOLUTION_GO_KEY_HOMOLOG|EVOLUTION_OPERATOR_EMAIL|ZAPMASS_HOMOLOG_*|POSTGRES_PASSWORD|ZAPMASS_SHARED_NETWORK|VITE_*|GEMINI_*|RESEND_*|EMAIL_*|ADMIN_*|ZAPMASS_ADMIN_*)
           export "${key}=${val}"
           ;;
       esac
@@ -72,9 +80,15 @@ fi
 
 echo "==> homolog deploy commit=${VITE_GIT_REF} event=${event}"
 
+if [ -f deployment/fix-postgres-connections.sh ]; then
+  chmod +x deployment/fix-postgres-connections.sh 2>/dev/null || true
+  bash deployment/fix-postgres-connections.sh --aggressive || {
+    echo "AVISO: limpeza Postgres falhou — tentando restart…" >&2
+    bash deployment/fix-postgres-connections.sh --aggressive --restart-postgres || true
+  }
+fi
+
 docker compose -f "$COMPOSE_FILE" --env-file "${HOMOLOG_DIR}/.env" build zapmass-homolog
-docker compose -f "$COMPOSE_FILE" --env-file "${HOMOLOG_DIR}/.env" up -d --no-deps evolution-go-homolog
-sleep 3
 docker compose -f "$COMPOSE_FILE" --env-file "${HOMOLOG_DIR}/.env" up -d --no-deps zapmass-homolog
 
 if [ -f deployment/recover-homolog-evolution-go.sh ]; then

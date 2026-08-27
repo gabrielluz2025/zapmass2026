@@ -20,12 +20,12 @@ if [ "$(id -u)" -ne 0 ]; then
   die "Execute como root: sudo bash deployment/setup-homolog.sh"
 fi
 
-if [ "${SKIP_GIT_SYNC:-0}" != "1" ] && [ -f deployment/ensure-git-main.sh ]; then
-  log "Alinhar código com origin/main (descarta edits locais em ficheiros rastreados)..."
-  bash deployment/ensure-git-main.sh
+if [ "${SKIP_GIT_SYNC:-0}" != "1" ] && [ -f deployment/ensure-git-develop.sh ]; then
+  log "Alinhar código com origin/develop (descarta edits locais em ficheiros rastreados)..."
+  bash deployment/ensure-git-develop.sh
 fi
 
-[ -f "$TEMPLATE" ] || die "Template não encontrado em ${ROOT}. Rode: bash deployment/ensure-git-main.sh"
+[ -f "$TEMPLATE" ] || die "Template não encontrado em ${ROOT}. Rode: bash deployment/ensure-git-develop.sh"
 
 chmod +x deployment/ensure-homolog-dbs.sh deployment/vps-deploy-homolog.sh 2>/dev/null || true
 

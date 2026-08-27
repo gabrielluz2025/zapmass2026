@@ -102,7 +102,9 @@ jobs:
             git fetch --all --prune
             git checkout -f "${GHA_SHA}"
             export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo '')"
-            chmod +x deployment/vps-deploy-homolog.sh deployment/ensure-homolog-dbs.sh deployment/setup-homolog.sh
+            chmod +x deployment/vps-deploy-homolog.sh deployment/ensure-homolog-dbs.sh deployment/setup-homolog.sh \
+              deployment/ensure-git-develop.sh deployment/fix-postgres-connections.sh \
+              deployment/recover-homolog-evolution-go.sh deployment/activate-homolog-evolution-license.sh
             if [ ! -f homolog/.env ]; then
               echo "==> homolog/.env ausente — executando setup-homolog.sh"
               bash deployment/setup-homolog.sh
@@ -128,7 +130,7 @@ jobs:
             sleep 10
           done
           if [ "${{ steps.ssh_precheck.outputs.reachable }}" != "true" ]; then
-            echo "## SSH indisponível — rode na VPS: cd /opt/zapmass && git pull && bash deployment/vps-deploy-homolog.sh" >> "$GITHUB_STEP_SUMMARY"
+            echo "## SSH indisponível — rode na VPS: cd /opt/zapmass && bash deployment/vps-deploy-homolog.sh" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           echo "::warning::Homolog não confirmou versão ${EXPECTED} — verifique logs: docker compose -f docker-compose.homolog.yml logs"
@@ -137,4 +139,4 @@ jobs:
         if: steps.ssh_precheck.outputs.reachable != 'true'
         run: |
           echo "## Deploy homolog — SSH bloqueado" >> "$GITHUB_STEP_SUMMARY"
-          echo "Na VPS: \`cd /opt/zapmass && git fetch && git checkout develop && bash deployment/vps-deploy-homolog.sh\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Na VPS: \`cd /opt/zapmass && bash deployment/vps-deploy-homolog.sh\`" >> "$GITHUB_STEP_SUMMARY"

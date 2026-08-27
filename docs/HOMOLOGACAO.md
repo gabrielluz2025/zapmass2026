@@ -17,10 +17,10 @@ Ambiente isolado para testar features antes de produção, sem derrubar chips de
 ## Setup inicial (uma vez na VPS)
 
 ```bash
-# Se git pull falhar por "local changes would be overwritten":
+# Se git checkout develop falhar por "local changes would be overwritten":
 cd /opt/zapmass
-bash deployment/ensure-git-main.sh   # alinha com origin/main (descarta edits locais rastreados)
-git log -1 --oneline                 # deve mostrar commit com homolog (ex.: e9c1f4c)
+bash deployment/ensure-git-develop.sh   # alinha com origin/develop (descarta edits locais rastreados)
+git log -1 --oneline
 
 sudo bash deployment/setup-homolog.sh
 ```
@@ -54,8 +54,7 @@ git push -u origin develop
 
 ```bash
 cd /opt/zapmass
-git fetch && git checkout develop && git pull
-bash deployment/vps-deploy-homolog.sh
+bash deployment/vps-deploy-homolog.sh   # já chama ensure-git-develop antes do build
 ```
 
 Ou: **GitHub Actions → Deploy homolog (develop) → Run workflow**
@@ -68,7 +67,7 @@ Ou: **GitHub Actions → Deploy homolog (develop) → Run workflow**
 
 ### Licença Evolution Go (porta :8082)
 
-Instância homolog é **nova** — a licença da prod (:8081) **não** vale aqui. Se `fetchInstances` retornar `LICENSE_REQUIRED`:
+Instância homolog é **nova** — a licença da prod (:8081) **não** vale aqui. Se `/instance/all` retornar `LICENSE_REQUIRED` ou HTTP 503:
 
 ```bash
 # No PC (túnel SSH):
@@ -81,9 +80,25 @@ http://127.0.0.1:8082/manager/login
 Depois de ativar:
 
 ```bash
-curl -s -H "apikey: zapmass-homolog-key-2026" http://127.0.0.1:8082/license/status
-curl -s -H "apikey: zapmass-homolog-key-2026" http://127.0.0.1:8082/instance/fetchInstances
+# Evolution Go usa GET /instance/all (não fetchInstances da Evolution API Node)
+KEY="$(grep EVOLUTION_GO_KEY_HOMOLOG homolog/.env | cut -d= -f2-)"
+curl -s -H "apikey: ${KEY}" http://127.0.0.1:8082/license/status
+curl -s -H "apikey: ${KEY}" http://127.0.0.1:8082/instance/all
 ```
+
+Após `register/auto` na Foundation, a `api_key` retornada deve ir em `homolog/.env` como `EVOLUTION_GO_KEY_HOMOLOG` — o Evolution Go valida no boot via `GLOBAL_API_KEY` (`✓ GLOBAL_API_KEY accepted`).
+
+**OAuth Google/GitHub com erro?** O servidor `license.evolutionfoundation.com.br` costuma falhar no OAuth — **não use** Google/GitHub. Opções:
+
+1. **Magic Link** — na página de registro, só preencha nome + e-mail e confirme o link recebido.
+2. **Auto-ativação** (se prod `:8081` já licenciada com o mesmo e-mail):
+
+```bash
+cd /opt/zapmass
+bash deployment/activate-homolog-evolution-license.sh festaimportgabriel@gmail.com
+```
+
+Adicione em `homolog/.env`: `EVOLUTION_OPERATOR_EMAIL=seu@email.com` e recrie `evolution-go-homolog`.
 
 ## Mercado Pago
 
@@ -109,6 +124,7 @@ HOMOLOG_MERCADOPAGO_BACK_URL=https://homolog.zap-mass.com
 | `docker-compose.homolog.yml` | Stack API + Evolution Go homolog |
 | `homolog/.env` | Secrets e URLs (não commitar) |
 | `deployment/setup-homolog.sh` | Instalação inicial |
+| `deployment/ensure-git-develop.sh` | Alinha VPS com `origin/develop` |
 | `deployment/vps-deploy-homolog.sh` | Deploy sem tocar produção |
 | `.github/workflows/deploy-homolog.yml` | CI branch `develop` |
 

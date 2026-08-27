@@ -36,6 +36,8 @@ services:
       WEBHOOK_URL: http://zapmass-homolog:3001/webhook/evolution
       WADEBUG: ${EVOLUTION_GO_WADEBUG:-INFO}
       LOGTYPE: console
+      # Ativa licença homolog sem browser (requer e-mail já registrado na Foundation — ex.: prod :8081)
+      EVOLUTION_OPERATOR_EMAIL: ${EVOLUTION_OPERATOR_EMAIL:-}
     networks:
       - zapmass_shared
 
