@@ -1,0 +1,140 @@
+name: Deploy homolog (develop)
+
+# Homologação na mesma VPS — deploy a qualquer hora (chips de teste).
+# Produção (main) continua na madrugada via deploy.yml.
+#
+# Fluxo:
+#   feature/* → PR → develop → este workflow → homolog.zap-mass.com
+#   develop → PR → main → deploy produção (madrugada)
+#
+# Setup inicial na VPS (uma vez):
+#   cd /opt/zapmass && sudo bash deployment/setup-homolog.sh
+#
+# Deploy manual imediato: Actions → Run workflow
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - "shared/**"
+      - "src/**"
+      - "server/**"
+      - "public/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.*"
+      - "tsconfig*.json"
+      - "vitest.config.ts"
+      - "Dockerfile"
+      - "docker-compose.homolog.yml"
+      - "homolog/**"
+      - "deployment/**"
+      - ".github/workflows/deploy-homolog.yml"
+      - "VERSION"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-homolog-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Validar build (Vite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Instalar e compilar
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm run test
+          npm run build
+
+  deploy-homolog:
+    name: SSH homolog (VPS)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Pré-teste SSH
+        id: ssh_precheck
+        continue-on-error: true
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 15); do
+            if nc -zvw8 "${VPS_HOST}" "${VPS_PORT}"; then ok=1; break; fi
+            sleep 8
+          done
+          echo "reachable=$([ "$ok" = "1" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: VPS — deploy homolog
+        if: steps.ssh_precheck.outputs.reachable == 'true'
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
+          timeout: 30m
+          command_timeout: 75m
+          script: |
+            set -euo pipefail
+            export GITHUB_EVENT_NAME="${{ github.event_name }}"
+            export GITHUB_ACTIONS=true
+            GHA_SHA="${{ github.sha }}"
+            cd /opt/zapmass
+            git fetch --all --prune
+            git checkout -f "${GHA_SHA}"
+            export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo '')"
+            chmod +x deployment/vps-deploy-homolog.sh deployment/ensure-homolog-dbs.sh deployment/setup-homolog.sh
+            if [ ! -f homolog/.env ]; then
+              echo "==> homolog/.env ausente — executando setup-homolog.sh"
+              bash deployment/setup-homolog.sh
+            else
+              bash deployment/vps-deploy-homolog.sh
+            fi
+
+      - name: Verificar homolog.zap-mass.com
+        if: always()
+        run: |
+          set -euo pipefail
+          EXPECTED="${GITHUB_SHA::7}"
+          for i in $(seq 1 12); do
+            resp=$(curl -sf --max-time 15 https://homolog.zap-mass.com/api/health 2>/dev/null || echo "")
+            if [ -n "$resp" ] && echo "$resp" | grep -q '"environment"[[:space:]]*:[[:space:]]*"homolog"'; then
+              ver=$(echo "$resp" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
+              echo "## Homolog OK (version=${ver:-?} environment=homolog)" >> "$GITHUB_STEP_SUMMARY"
+              if [ -n "$ver" ] && { [ "$ver" = "$EXPECTED" ] || [ "$ver" = "${{ github.sha }}" ]; }; then
+                exit 0
+              fi
+            fi
+            echo "tentativa $i/12..."
+            sleep 10
+          done
+          if [ "${{ steps.ssh_precheck.outputs.reachable }}" != "true" ]; then
+            echo "## SSH indisponível — rode na VPS: cd /opt/zapmass && git pull && bash deployment/vps-deploy-homolog.sh" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::warning::Homolog não confirmou versão ${EXPECTED} — verifique logs: docker compose -f docker-compose.homolog.yml logs"
+
+      - name: Resumo SSH indisponível
+        if: steps.ssh_precheck.outputs.reachable != 'true'
+        run: |
+          echo "## Deploy homolog — SSH bloqueado" >> "$GITHUB_STEP_SUMMARY"
+          echo "Na VPS: \`cd /opt/zapmass && git fetch && git checkout develop && bash deployment/vps-deploy-homolog.sh\`" >> "$GITHUB_STEP_SUMMARY"

@@ -49,6 +49,7 @@ import { lazyWithRetry } from './utils/lazyWithRetry';
 import { prefetchDefaultAppViews } from './utils/prefetchAppViews';
 import { useRegisterLegalAcceptances } from './hooks/useRegisterLegalAcceptances';
 import { installApiErrorToastGuard } from './utils/toastApiError';
+import { HomologBanner } from './components/shell/HomologBanner';
 
 installApiErrorToastGuard();
 
@@ -598,7 +599,14 @@ const AuthGate: React.FC = () => {
     return <SessionSpinner label="Carregando sessao..." />;
   }
 
-  if (!user) return <PreLoginLanding />;
+  if (!user) {
+    return (
+      <>
+        <HomologBanner />
+        <PreLoginLanding />
+      </>
+    );
+  }
 
   return (
     <WorkspaceProvider>

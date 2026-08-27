@@ -66,7 +66,8 @@ export default defineConfig(({ mode }) => {
         }
       },
       define: {
-        'import.meta.env.VITE_GIT_REF': JSON.stringify(vitGitRef)
+        'import.meta.env.VITE_GIT_REF': JSON.stringify(vitGitRef),
+        'import.meta.env.VITE_ZAPMASS_ENV': JSON.stringify(process.env.VITE_ZAPMASS_ENV || '')
       }
     };
 });

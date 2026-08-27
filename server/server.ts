@@ -476,6 +476,7 @@ app.get('/api/health', async (_req, res) => {
     status: 'ok',
     serverTime: new Date(),
     version: getAppVersion(),
+    environment: String(process.env.ZAPMASS_ENV || 'production').trim() || 'production',
     mercadopagoConfigured: mp?.configured ?? false,
     mercadopagoCheckoutAvailable: mp?.valid ?? false,
     mercadopagoMode: mp?.mode ?? null,

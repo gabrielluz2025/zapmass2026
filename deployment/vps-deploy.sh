@@ -142,6 +142,7 @@ if [ -f .env ]; then
   if echo "${_engine}" | grep -qiE 'evolution-go|^go$|evogo'; then
     chmod +x deployment/ensure-evolution-go-dbs.sh 2>/dev/null || true
     bash deployment/ensure-evolution-go-dbs.sh || echo "AVISO: ensure-evolution-go-dbs falhou (continuando deploy)"
+    bash deployment/ensure-homolog-dbs.sh 2>/dev/null || true
   fi
 fi
 

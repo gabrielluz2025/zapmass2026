@@ -339,6 +339,7 @@ proximo_redis_db() {
     usadas_file="$(mktemp)"
     trap 'rm -f "$usadas_file"' RETURN
     echo "1" >> "$usadas_file"
+    echo "14" >> "$usadas_file"
     if [ -d "$CLIENTES_DIR" ]; then
         grep -hE '^REDIS_URL=.*redis://' "$CLIENTES_DIR"/*/.env 2>/dev/null \
             | sed -n 's#.*/\([0-9]\+\)$#\1#p' >> "$usadas_file" || true

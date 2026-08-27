@@ -1,0 +1,123 @@
+# ZapMass — ambiente de homologação (mesma VPS, isolado de produção).
+#
+# Pré-requisitos: stack principal com postgres + redis (docker compose up -d postgres redis).
+# Setup inicial: sudo bash deployment/setup-homolog.sh
+# Deploy: bash deployment/vps-deploy-homolog.sh
+#
+# - API :3200 (Nginx → homolog.zap-mass.com)
+# - Evolution Go dedicado :8082 (chips de teste — não compartilha com prod)
+# - Postgres zapmass_homolog · Redis DB 14
+
+name: zapmass-homolog
+
+services:
+  evolution-go-homolog:
+    container_name: zapmass-evolution-go-homolog
+    image: ${EVOLUTION_GO_IMAGE:-evoapicloud/evolution-go:latest}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "40m"
+        max-file: "4"
+    ports:
+      - "127.0.0.1:${HOMOLOG_EVOLUTION_PORT:-8082}:8080"
+    environment:
+      SERVER_PORT: "8080"
+      CLIENT_NAME: zapmass-homolog
+      GLOBAL_API_KEY: ${EVOLUTION_GO_KEY_HOMOLOG:-zapmass-homolog-key-2026}
+      POSTGRES_AUTH_DB: postgresql://postgres:${POSTGRES_PASSWORD:-evolution-secure-pass-2026}@postgres:5432/evogo_homolog_auth?sslmode=disable
+      POSTGRES_USERS_DB: postgresql://postgres:${POSTGRES_PASSWORD:-evolution-secure-pass-2026}@postgres:5432/evogo_homolog_users?sslmode=disable
+      DATABASE_SAVE_MESSAGES: "false"
+      WEBHOOK_URL: ${ZAPMASS_HOMOLOG_WEBHOOK_URL:-http://zapmass-homolog:3001/webhook/evolution}
+      WADEBUG: ${EVOLUTION_GO_WADEBUG:-INFO}
+      LOGTYPE: console
+    networks:
+      - zapmass_shared
+
+  zapmass-homolog:
+    container_name: zapmass-homolog-api
+    build:
+      context: .
+      args:
+        VITE_ADMIN_EMAILS: ${VITE_ADMIN_EMAILS:-}
+        VITE_ADMIN_UIDS: ${VITE_ADMIN_UIDS:-${ZAPMASS_ADMIN_UIDS:-}}
+        VITE_ZAPMASS_ADMIN_UIDS: ${VITE_ZAPMASS_ADMIN_UIDS:-}
+        VITE_MARKETING_PRICE_MONTHLY: ${VITE_MARKETING_PRICE_MONTHLY:-}
+        VITE_MARKETING_PRICE_ANNUAL: ${VITE_MARKETING_PRICE_ANNUAL:-}
+        VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-false}
+        VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
+        VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
+        CACHEBUST: ${VITE_GIT_REF:-unknown}
+        VITE_GA_MEASUREMENT_ID: ${VITE_GA_MEASUREMENT_ID:-}
+        VITE_USE_VPS_AUTH: ${VITE_USE_VPS_AUTH:-true}
+        VITE_USE_VPS_DATA: ${VITE_USE_VPS_DATA:-true}
+        VITE_ZAPMASS_ENV: homolog
+    init: true
+    ports:
+      - "127.0.0.1:${HOMOLOG_HOST_PORT:-3200}:3001"
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      ZAPMASS_ENV: homolog
+      REDIS_URL: ${HOMOLOG_REDIS_URL:-redis://redis:6379/14}
+      SESSION_PROCESS_MODE: monolith
+      ZAPMASS_AUTH_PROVIDER: ${ZAPMASS_AUTH_PROVIDER:-vps}
+      ZAPMASS_DATA_PROVIDER: ${ZAPMASS_DATA_PROVIDER:-vps}
+      ZAPMASS_DATABASE_URL: ${HOMOLOG_DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-evolution-secure-pass-2026}@postgres:5432/zapmass_homolog}
+      ZAPMASS_JWT_SECRET: ${HOMOLOG_JWT_SECRET:-}
+      ZAPMASS_WHATSAPP_ENGINE: evolution-go
+      EVOLUTION_GO_URL: http://evolution-go-homolog:8080
+      EVOLUTION_GO_KEY: ${EVOLUTION_GO_KEY_HOMOLOG:-zapmass-homolog-key-2026}
+      EVOLUTION_API_KEY: ${EVOLUTION_GO_KEY_HOMOLOG:-zapmass-homolog-key-2026}
+      ZAPMASS_WEBHOOK_URL: ${ZAPMASS_HOMOLOG_WEBHOOK_URL:-http://zapmass-homolog:3001/webhook/evolution}
+      PUBLIC_APP_URL: ${HOMOLOG_PUBLIC_URL:-https://homolog.zap-mass.com}
+      ALLOWED_ORIGINS: ${HOMOLOG_ALLOWED_ORIGINS:-https://homolog.zap-mass.com}
+      SUBSCRIPTION_ENFORCE: "false"
+      TRUST_PROXY: "1"
+      MERCADOPAGO_ACCESS_TOKEN: ${HOMOLOG_MERCADOPAGO_ACCESS_TOKEN:-}
+      MERCADOPAGO_BACK_URL: ${HOMOLOG_MERCADOPAGO_BACK_URL:-https://homolog.zap-mass.com}
+      MERCADOPAGO_WEBHOOK_SECRET: ${HOMOLOG_MERCADOPAGO_WEBHOOK_SECRET:-}
+      MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED: ${HOMOLOG_MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED:-true}
+      ADMIN_EMAILS: ${HOMOLOG_ADMIN_EMAILS:-}
+      ZAPMASS_ADMIN_UIDS: ${ZAPMASS_ADMIN_UIDS:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
+      ZAPMASS_AUTO_PROVISION: "0"
+    env_file:
+      - path: homolog/.env
+        required: false
+    volumes:
+      - zapmass-homolog-data:/app/data
+      - ./secrets:/run/secrets:ro
+    restart: unless-stopped
+    shm_size: "1536m"
+    stop_grace_period: 45s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:3001/api/health || exit 1"]
+      interval: 30s
+      timeout: 12s
+      retries: 3
+      start_period: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "40m"
+        max-file: "4"
+    depends_on:
+      evolution-go-homolog:
+        condition: service_started
+    networks:
+      - zapmass_shared
+
+networks:
+  zapmass_shared:
+    external: true
+    name: ${ZAPMASS_SHARED_NETWORK:-zapmass_default}
+
+volumes:
+  zapmass-homolog-data:
+    name: zapmass_homolog_data
