@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { MessageCircle, RefreshCw, ScanSearch, Search, Wifi, WifiOff } from 'lucide-react';
+import { MessageCircle, RefreshCw, Search, Wifi, WifiOff } from 'lucide-react';
 import type { Conversation, WhatsAppConnection } from '../../types';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import {
@@ -47,6 +47,7 @@ type Props = {
   onInboxTabChange?: (tab: InboxSmartTab) => void;
   pinnedIds?: string[];
   slaByConvId?: Map<string, SlaLevel>;
+  hotCount?: number;
 };
 
 export const WaInbox: React.FC<Props> = memo(function WaInbox({
@@ -82,6 +83,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   onInboxTabChange,
   pinnedIds = [],
   slaByConvId,
+  hotCount = 0,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadMoreLockRef = useRef(false);
@@ -161,14 +163,10 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   const smartTabs: { id: InboxSmartTab; label: string; badge?: number }[] = [
     { id: 'all', label: 'Tudo' },
     { id: 'unread', label: 'Não lidas', badge: totalUnread || undefined },
-    { id: 'hot', label: 'Quentes' },
+    { id: 'hot', label: 'Quentes', badge: hotCount || undefined },
   ];
 
-  const moreTabs: { id: InboxSmartTab; label: string }[] = [
-    { id: 'campaign', label: 'Campanha' },
-    { id: 'team', label: 'Equipe' },
-    { id: 'archived', label: 'Arquivo' },
-  ];
+  const moreTabs: { id: InboxSmartTab; label: string }[] = [];
 
   const showAllActive = inboxTab === 'all' && !unreadOnly && !campaignOnly && connectionFilterId === 'ALL';
 
@@ -190,18 +188,6 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
       <div className="wa-inbox-header wa-inbox-header--wa">
         <h2 className="wa-inbox-title wa-inbox-title--main">Conversas</h2>
         <div className="wa-inbox-header__actions">
-          {onAutoClassifyResponses && (
-            <button
-              type="button"
-              className="wa-icon-btn"
-              title="Classificar respostas (quero / sair)"
-              aria-label="Classificar respostas"
-              disabled={autoClassifying}
-              onClick={onAutoClassifyResponses}
-            >
-              <ScanSearch className={`w-[18px] h-[18px] ${autoClassifying ? 'animate-pulse opacity-70' : ''}`} />
-            </button>
-          )}
           <button
             type="button"
             className="wa-icon-btn"
@@ -255,17 +241,6 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
             {t.badge != null && t.badge > 0 ? (
               <span className="wa-pill-badge">{t.badge > 999 ? '999+' : t.badge}</span>
             ) : null}
-          </button>
-        ))}
-        {moreTabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className="wa-filter-pill wa-filter-pill--muted"
-            data-active={inboxTab === t.id ? 'true' : 'false'}
-            onClick={() => onInboxTabChange?.(t.id)}
-          >
-            {t.label}
           </button>
         ))}
       </div>

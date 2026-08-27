@@ -300,9 +300,14 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
         <img
           src={avatarSrc}
           alt=""
-          className="wa-conv-avatar"
+          className="wa-conv-avatar wa-chat-header-avatar cursor-pointer"
           width={40}
           height={40}
+          role="button"
+          tabIndex={0}
+          title="Dados do contato"
+          onClick={() => onOpenContactInfo?.()}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenContactInfo?.(); } }}
           onError={(e) => {
             const el = e.currentTarget;
             el.onerror = null;
@@ -330,7 +335,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
           </p>
         </div>
         {onAnalyzeIntent && (
-          <button type="button" className="wa-icon-btn flex-shrink-0" onClick={onAnalyzeIntent} aria-label="Analisar intenção" title="Analisar intenção">
+          <button type="button" className="wa-icon-btn flex-shrink-0 hidden" onClick={onAnalyzeIntent} aria-hidden tabIndex={-1}>
             <ScanSearch className="w-5 h-5" />
           </button>
         )}
@@ -340,7 +345,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
           </button>
         )}
         {onToggleFocus && (
-          <button type="button" className="wa-icon-btn flex-shrink-0" onClick={onToggleFocus} aria-label="Modo foco" title="Modo foco">
+          <button type="button" className="wa-icon-btn flex-shrink-0 hidden" onClick={onToggleFocus} aria-hidden tabIndex={-1}>
             {focusMode ? '◧' : '◨'}
           </button>
         )}
@@ -386,11 +391,13 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
 
       {teamBar}
 
-      <WaCampaignContextBar
-        conversation={conversation}
-        pipelineAgg={pipelineAgg ?? null}
-        connectionName={connectionName}
-      />
+      {pipelineAgg && pipelineAgg.sent > 0 ? (
+        <WaCampaignContextBar
+          conversation={conversation}
+          pipelineAgg={pipelineAgg ?? null}
+          connectionName={connectionName}
+        />
+      ) : null}
 
       <div className="relative flex-1 min-h-0">
         <div

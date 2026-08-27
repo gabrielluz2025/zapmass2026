@@ -3,36 +3,32 @@
    'html[data-mode="dark"]' (também 0,1,1) pela ordem de importação (wa-web-v2 importado depois). */
 
 html .wa-chat-pro {
-  /* Paleta dark premium — bolhas claras sobre fundo escuro */
-  --wa-bg:         #0d1117;
-  --wa-panel:      #161b22;
-  --wa-panel-2:    #1c2128;
-  --wa-header:     #161b22;
-  --wa-search:     #0d1117;
-  --wa-divider:    rgba(255,255,255,0.08);
+  /* Paleta oficial WhatsApp Web (dark) */
+  --wa-bg:         #0b141a;
+  --wa-panel:      #111b21;
+  --wa-panel-2:    #202c33;
+  --wa-header:     #202c33;
+  --wa-search:     #202c33;
+  --wa-divider:    rgba(134, 150, 160, 0.15);
 
-  /* Bolhas com boa visibilidade */
-  --wa-bubble-in:  #1e2d3f;
-  --wa-bubble-out: #0a3622;
+  --wa-bubble-in:  #202c33;
+  --wa-bubble-out: #005c4b;
 
-  /* Texto claro */
-  --wa-text:       #e6edf3;
-  --wa-text-2:     #8b949e;
-  --wa-text-3:     #6e7681;
-  --wa-icon:       #8b949e;
-  --wa-hover:      rgba(255,255,255,0.05);
-  --wa-active:     rgba(22,185,129,0.10);
+  --wa-text:       #e9edef;
+  --wa-text-2:     #8696a0;
+  --wa-text-3:     #667781;
+  --wa-icon:       #aebac1;
+  --wa-hover:      rgba(134, 150, 160, 0.08);
+  --wa-active:     rgba(0, 168, 132, 0.12);
 
-  /* Verde WhatsApp */
-  --wa-green:        #25d366;
-  --wa-green-strong: #22c55e;
+  --wa-green:        #00a884;
+  --wa-green-strong: #008069;
   --wa-tick-blue:    #53bdeb;
   --wa-unread:       #25d366;
-  --wa-shadow-sm:    0 1px 3px rgba(0,0,0,0.5);
-  --wa-shadow-md:    0 8px 24px rgba(0,0,0,0.45);
+  --wa-shadow-sm:    0 1px 0.5px rgba(11, 20, 26, 0.13);
+  --wa-shadow-md:    0 4px 18px rgba(0, 0, 0, 0.35);
 
-  /* Side-bg para borda do dot de presença */
-  --wa-side-bg: #161b22;
+  --wa-side-bg: #202c33;
 
   color: var(--wa-text);
   background: var(--wa-bg);
@@ -43,12 +39,20 @@ html .wa-chat-pro {
 .wa-chat-pro.wa-pipeline-root {
   flex: 1 1 auto;
   min-height: 0;
-  height: clamp(480px, calc(100dvh - 11rem), 1200px);
-  border-radius: 14px;
-  border: 1px solid var(--wa-divider);
-  box-shadow: var(--wa-shadow-md);
+  height: calc(100dvh - 3.5rem);
+  max-height: none;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
   overflow: hidden;
-  background: var(--wa-panel);
+  background: var(--wa-bg);
+}
+
+.wa-chat-pro .wa-side {
+  width: min(420px, 38vw);
+  min-width: 300px;
+  max-width: 480px;
+  border-right: 1px solid var(--wa-divider);
 }
 
 /* ── Rail de canais (coluna 1) ──────────────── */
@@ -155,9 +159,9 @@ html .wa-chat-pro {
 
 /* ── Lista de conversas (coluna 2) ─────────── */
 .wa-chat-pro .wa-side {
-  width: 100%;
-  max-width: 420px;
+  width: min(420px, 38vw);
   min-width: 300px;
+  max-width: 480px;
 }
 
 /* Header inbox — mais compacto e alinhado */
@@ -679,19 +683,46 @@ html .wa-chat-pro .wa-chat-wallpaper {
 }
 
 html .wa-chat-pro .wa-bubble[data-tail='true'][data-side='in']::before {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'><path fill='%231e2d3f' d='M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'><path fill='%23202c33' d='M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z'/></svg>");
 }
 
 html .wa-chat-pro .wa-bubble[data-tail='true'][data-side='out']::before {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'><path fill='%230a3622' d='M2.812 1H8v11.193L1.533 3.568C.474 2.156 1.042 1 2.812 1z'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'><path fill='%23005c4b' d='M2.812 1H8v11.193L1.533 3.568C.474 2.156 1.042 1 2.812 1z'/></svg>");
 }
 
 /* ── Composer melhorado ──────────────────────── */
 .wa-composer-row {
   display: flex;
   align-items: flex-end;
-  gap: 4px;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  background: var(--wa-header);
+}
+
+.wa-composer-input {
+  flex: 1;
+  min-height: 42px;
+  max-height: 120px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  background: var(--wa-panel-2);
+  color: var(--wa-text);
+  border: none;
+  outline: none;
+  resize: none;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.wa-composer-btn--emoji {
+  order: -1;
+}
+
+.wa-chat-pro .wa-context-panel {
+  width: min(360px, 32vw);
+  min-width: 280px;
+  border-left: 1px solid var(--wa-divider);
+  background: var(--wa-panel);
 }
 
 .wa-composer-btn {

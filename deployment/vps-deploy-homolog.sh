@@ -118,7 +118,11 @@ if [ -f deployment/fix-postgres-connections.sh ]; then
   }
 fi
 
-docker compose -f "$COMPOSE_FILE" --env-file "${HOMOLOG_DIR}/.env" build zapmass-homolog
+docker compose -f "$COMPOSE_FILE" --env-file "${HOMOLOG_DIR}/.env" build \
+  --build-arg CACHEBUST="${VITE_GIT_REF}" \
+  --build-arg VITE_GIT_REF="${VITE_GIT_REF}" \
+  --no-cache \
+  zapmass-homolog
 docker compose -f "$COMPOSE_FILE" --env-file "${HOMOLOG_DIR}/.env" up -d --no-deps zapmass-homolog
 
 if [ -f deployment/recover-homolog-evolution-go.sh ]; then
