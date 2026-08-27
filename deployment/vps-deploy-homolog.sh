@@ -6,11 +6,34 @@ set -euo pipefail
 ROOT="${ROOT:-/opt/zapmass}"
 cd "$ROOT"
 
-# Manual na VPS: alinhar com origin/develop (CI faz checkout -f do SHA do workflow).
-if [ "${SKIP_GIT_SYNC:-0}" != "1" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+# Sempre alinhar com origin/develop antes do build (CI usa checkout -f do SHA do workflow).
+sync_git_develop() {
   if [ -f deployment/ensure-git-develop.sh ]; then
     chmod +x deployment/ensure-git-develop.sh 2>/dev/null || true
     bash deployment/ensure-git-develop.sh
+    return
+  fi
+  echo "==> ensure-git-develop.sh ausente — sync inline (fetch + reset --hard)…"
+  git fetch origin develop --prune
+  if ! git show-ref -q --verify refs/remotes/origin/develop; then
+    echo "ERRO: origin/develop não encontrado após fetch." >&2
+    exit 1
+  fi
+  if git show-ref -q --verify refs/heads/develop; then
+    git checkout -f develop
+  else
+    git checkout -b develop origin/develop
+  fi
+  git reset --hard origin/develop
+  echo "==> develop @ $(git rev-parse --short HEAD)"
+}
+
+if [ "${SKIP_GIT_SYNC:-0}" != "1" ]; then
+  if [ -n "${GITHUB_ACTIONS:-}" ] && [ -n "${GHA_SHA:-}" ]; then
+    git fetch --all --prune
+    git checkout -f "${GHA_SHA}"
+  else
+    sync_git_develop
   fi
 fi
 
@@ -80,6 +103,13 @@ fi
 
 echo "==> homolog deploy commit=${VITE_GIT_REF} event=${event}"
 
+EXPECTED_REMOTE="$(git rev-parse --short origin/develop 2>/dev/null || echo '')"
+if [ -n "${EXPECTED_REMOTE}" ] && [ "${VITE_GIT_REF}" != "${EXPECTED_REMOTE}" ]; then
+  echo "ERRO: HEAD=${VITE_GIT_REF} mas origin/develop=${EXPECTED_REMOTE}." >&2
+  echo "      Rode: cd /opt/zapmass && git fetch origin develop && git reset --hard origin/develop" >&2
+  exit 1
+fi
+
 if [ -f deployment/fix-postgres-connections.sh ]; then
   chmod +x deployment/fix-postgres-connections.sh 2>/dev/null || true
   bash deployment/fix-postgres-connections.sh --aggressive || {
@@ -103,7 +133,12 @@ for i in $(seq 1 40); do
   code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/api/health" 2>/dev/null || echo 000)"
   if [ "$code" = "200" ]; then
     ver="$(curl -sf "http://127.0.0.1:${PORT}/api/health" 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)"
-    echo "==> homolog OK version=${ver:-?} env=homolog"
+    echo "==> homolog OK version=${ver:-?} env=homolog (commit=${VITE_GIT_REF})"
+    if [ -n "${ver}" ] && [ "${ver}" != "${VITE_GIT_REF}" ] && [ "${ver}" != "$(git rev-parse HEAD 2>/dev/null)" ]; then
+      echo "ERRO: API ainda em ${ver}, esperado ${VITE_GIT_REF}. Rebuild sem cache:" >&2
+      echo "  docker compose -f ${COMPOSE_FILE} --env-file ${HOMOLOG_DIR}/.env build --no-cache zapmass-homolog" >&2
+      exit 1
+    fi
     ok=1
     break
   fi

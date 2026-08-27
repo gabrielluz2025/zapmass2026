@@ -75,6 +75,19 @@ cd /opt/zapmass
 bash deployment/vps-deploy-homolog.sh
 ```
 
+Se `git pull` falhar com *"local changes would be overwritten"* (edits manuais na VPS):
+
+```bash
+cd /opt/zapmass
+git fetch origin develop
+git checkout -f develop 2>/dev/null || git checkout -b develop origin/develop
+git reset --hard origin/develop
+git rev-parse --short HEAD   # deve ser c678cab ou mais recente
+bash deployment/vps-deploy-homolog.sh
+```
+
+Confirme: `curl -s https://homolog.zap-mass.com/api/health` → `"version"` igual ao commit acima.
+
 **Deploy automático sem SSH do GitHub** (recomendado — cron a cada 3 min):
 
 ```bash
