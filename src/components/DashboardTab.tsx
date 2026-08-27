@@ -48,7 +48,6 @@ import {
   yearsCelebratingAtNextAnniversary
 } from '../utils/weddingAnniversary';
 import { campaignRecipientNameVars } from '../utils/contactNameNormalize';
-import { campaignClockVars } from '../utils/campaignClockVars';
 import { DashboardCommandPanel } from './dashboard/DashboardCommandPanel';
 import { usePastoralVisits } from '../hooks/usePastoralVisits';
 import { openChatNavigate } from '../utils/openChatByPhoneNav';
@@ -64,16 +63,15 @@ import {
 import { Card, CardHeader, Button, Badge, Modal, Textarea, Select, PageShell, CollapsibleSection, StatTile } from './ui';
 import { CampaignAttachmentBlock, type CampaignAttachmentState } from './campaigns/CampaignAttachmentBlock';
 import { SavedMediaLibraryPicker } from './campaigns/SavedMediaLibraryPicker';
-import { DEFAULT_BIRTHDAY_TEMPLATE } from '../constants/birthdayTemplates';
+import { computeSendLocalDate, type BirthdayPerson } from '../utils/birthdayDispatch';
+import { BirthdayBulkModal } from './dashboard/BirthdayBulkModal';
 import { prepareCampaignAttachmentPayload } from '../utils/campaignMediaLibrary';
-import { ensureDispatchReady, formatDispatchUnavailableMessage } from '../services/campaignsApi';
 import {
   excludeGreetedBirthdayContacts,
   getBirthdayGreetedIds,
   hydrateBirthdayGreetedFromCampaigns,
   hydrateBirthdayGreetedFromConversations,
   markBirthdayGreeted,
-  markBirthdayGreetedMany
 } from '../utils/birthdayGreeted';
 import { PerformanceFunnel } from './PerformanceFunnel';
 import { DashboardIntelPanel } from './dashboard/DashboardIntelPanel';
@@ -94,6 +92,7 @@ interface UpcomingBirthday {
   daysRemaining: number;
   age: number | null;
   profilePicUrl?: string;
+  sendLocalDate: string;
 }
 
 interface UpcomingWedding {
@@ -313,6 +312,7 @@ export const DashboardTab: React.FC = () => {
     contactsSavedTotal,
     socket,
     startCampaign,
+    scheduleCampaign,
     funnelStats,
     clearFunnelStats,
     isBackendConnected,
@@ -393,15 +393,7 @@ export const DashboardTab: React.FC = () => {
   const [showChannelSelector, setShowChannelSelector] = useState(false);
 
   const [bulkBirthdayOpen, setBulkBirthdayOpen] = useState(false);
-  const [bulkStep, setBulkStep] = useState<'compose' | 'preview'>('compose');
-  const [bulkTemplate, setBulkTemplate] = useState<string>(DEFAULT_BIRTHDAY_TEMPLATE);
   const [bulkConnectionId, setBulkConnectionId] = useState<string>('');
-  const [bulkDaysRange, setBulkDaysRange] = useState<number>(7);
-  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkSubmitting, setBulkSubmitting] = useState(false);
-  const [bulkPreviewIndex, setBulkPreviewIndex] = useState(0);
-  const [bulkAttachment, setBulkAttachment] = useState<CampaignAttachmentState | null>(null);
-  const bulkAttachmentInputRef = useRef<HTMLInputElement>(null);
   const [birthdayAttachment, setBirthdayAttachment] = useState<CampaignAttachmentState | null>(null);
   const birthdayAttachmentInputRef = useRef<HTMLInputElement>(null);
   const [birthdaySending, setBirthdaySending] = useState(false);
@@ -439,13 +431,6 @@ export const DashboardTab: React.FC = () => {
       setSendingConnectionId(firstOnline ? firstOnline.id : connections[0]?.id || '');
     }
   }, [selectedContact, selectedWedding, connections]);
-
-  useEffect(() => {
-    if (bulkBirthdayOpen && !bulkConnectionId) {
-      const firstOnline = connections.find((c) => c.status === ConnectionStatus.CONNECTED);
-      if (firstOnline) setBulkConnectionId(firstOnline.id);
-    }
-  }, [bulkBirthdayOpen, connections, bulkConnectionId]);
 
   useEffect(() => {
     if (weddingBulkOpen && !bulkConnectionId) {
@@ -495,7 +480,8 @@ export const DashboardTab: React.FC = () => {
           month: '2-digit'
         }),
         daysRemaining: days,
-        age: ageNow
+        age: ageNow,
+        sendLocalDate: computeSendLocalDate(days, today),
       });
     }
 
@@ -543,6 +529,34 @@ export const DashboardTab: React.FC = () => {
 
   const todaysBirthdays = upcomingBirthdays.filter((b) => b.daysRemaining === 0);
   const weekBirthdays = upcomingBirthdays.filter((b) => b.daysRemaining <= 7);
+
+  const todaysBirthdayPeople = useMemo(
+    (): BirthdayPerson[] =>
+      todaysBirthdays.map(({ id, name, phone, birthdayLabel, daysRemaining, age, sendLocalDate }) => ({
+        id,
+        name,
+        phone,
+        birthdayLabel,
+        daysRemaining,
+        age,
+        sendLocalDate,
+      })),
+    [todaysBirthdays]
+  );
+
+  const weekBirthdayPeople = useMemo(
+    (): BirthdayPerson[] =>
+      weekBirthdays.map(({ id, name, phone, birthdayLabel, daysRemaining, age, sendLocalDate }) => ({
+        id,
+        name,
+        phone,
+        birthdayLabel,
+        daysRemaining,
+        age,
+        sendLocalDate,
+      })),
+    [weekBirthdays]
+  );
   const todaysWeddings = upcomingWeddings.filter((w) => w.daysRemaining === 0);
   const weekWeddings = upcomingWeddings.filter((w) => w.daysRemaining <= 7);
 
@@ -563,34 +577,6 @@ export const DashboardTab: React.FC = () => {
     () => upcomingWeddings.slice(0, weddingsVisible),
     [upcomingWeddings, weddingsVisible]
   );
-
-  const bulkCandidates = useMemo(
-    () => upcomingBirthdays.filter((b) => b.daysRemaining <= bulkDaysRange),
-    [upcomingBirthdays, bulkDaysRange]
-  );
-
-  const allBulkSelected =
-    bulkCandidates.length > 0 && bulkCandidates.every((b) => bulkSelectedIds.has(b.id));
-
-  const toggleBulkSelect = (id: string) => {
-    setBulkSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleBulkSelectAll = () => {
-    setBulkSelectedIds((prev) => {
-      if (bulkCandidates.every((b) => prev.has(b.id))) {
-        return new Set(Array.from(prev).filter((id) => !bulkCandidates.some((b) => b.id === id)));
-      }
-      const next = new Set(prev);
-      bulkCandidates.forEach((b) => next.add(b.id));
-      return next;
-    });
-  };
 
   const pickCampaignAttachment = (
     file: File | null,
@@ -636,159 +622,6 @@ export const DashboardTab: React.FC = () => {
   const openBulkBirthday = () => {
     setWeddingBulkOpen(false);
     setBulkBirthdayOpen(true);
-    setBulkStep('compose');
-    setBulkPreviewIndex(0);
-    setBulkTemplate(DEFAULT_BIRTHDAY_TEMPLATE);
-    setBulkDaysRange(7);
-    setBulkSelectedIds(new Set(upcomingBirthdays.filter((b) => b.daysRemaining <= 7).map((b) => b.id)));
-    pickCampaignAttachment(null, setBulkAttachment);
-  };
-
-  // Substitui variaveis {nome}, {idade}, etc. igual ao backend
-  const renderTemplate = (tpl: string, b: UpcomingBirthday): string => {
-    const nv = campaignRecipientNameVars(b.name || '');
-    const clock = campaignClockVars();
-    const vars: Record<string, string> = {
-      ...clock,
-      nome: nv.nome,
-      nome_completo: nv.nome_completo,
-      telefone: b.phone,
-      aniversario: b.birthdayLabel,
-      idade: b.age != null ? String(b.age) : ''
-    };
-    return tpl.replace(/\{\{?\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}?\}/g, (match, key) => {
-      const v = vars[String(key).toLowerCase()];
-      return v !== undefined ? v : match;
-    });
-  };
-
-  const bulkSelectedList = useMemo(
-    () => bulkCandidates.filter((b) => bulkSelectedIds.has(b.id)),
-    [bulkCandidates, bulkSelectedIds]
-  );
-
-  const goToPreview = async () => {
-    if (!bulkConnectionId) {
-      toast.error('Selecione um canal online para disparar.');
-      return;
-    }
-    if (bulkSelectedIds.size === 0) {
-      toast.error('Selecione pelo menos um aniversariante.');
-      return;
-    }
-    if (!bulkTemplate.trim()) {
-      toast.error('Escreva a mensagem que sera enviada.');
-      return;
-    }
-    if (bulkAttachment?.preparing) {
-      toast.error('Aguarde o anexo terminar de carregar.');
-      return;
-    }
-    if (bulkAttachment?.file && !bulkAttachment.mediaPayload) {
-      try {
-        const mediaPayload = await prepareCampaignAttachmentPayload(bulkAttachment.file);
-        setBulkAttachment((prev) => (prev ? { ...prev, mediaPayload, preparing: false } : prev));
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Não foi possível ler o anexo. Selecione-o novamente.');
-        return;
-      }
-    }
-    setBulkPreviewIndex(0);
-    setBulkStep('preview');
-  };
-
-  const handleBulkBirthdaySubmit = async () => {
-    if (!bulkTemplate.trim()) {
-      toast.error('Escreva a mensagem que será enviada.');
-      return;
-    }
-    if (bulkSelectedList.length === 0) {
-      toast.error('Selecione pelo menos um aniversariante.');
-      return;
-    }
-
-    let channelId = bulkConnectionId;
-    if (!channelId) {
-      const firstOnline = connections.find((c) => c.status === ConnectionStatus.CONNECTED);
-      if (firstOnline) {
-        channelId = firstOnline.id;
-        setBulkConnectionId(firstOnline.id);
-      }
-    }
-    if (!channelId) {
-      toast.error('Selecione um canal online para disparar.');
-      return;
-    }
-
-    const conn = connections.find((c) => c.id === channelId);
-    if (!conn || conn.status !== ConnectionStatus.CONNECTED) {
-      toast.error('Canal offline ou suspenso. Reconecte o chip antes de disparar.');
-      return;
-    }
-
-    const recipients = bulkSelectedList.map((b) => {
-      const nv = campaignRecipientNameVars(b.name || '');
-      return {
-        phone: b.phone,
-        vars: {
-          nome: nv.nome,
-          nome_completo: nv.nome_completo,
-          telefone: b.phone,
-          aniversario: b.birthdayLabel,
-          idade: b.age != null ? String(b.age) : ''
-        }
-      };
-    });
-
-    const numbers = recipients.map((r) => r.phone);
-
-    const dispatchHealth = await ensureDispatchReady({ maxAttempts: 2, tryReconnect: true });
-    if (!dispatchHealth.ok) {
-      toast.error(formatDispatchUnavailableMessage(dispatchHealth), {
-        id: 'birthday-dispatch-blocked',
-        duration: 12_000
-      });
-      return;
-    }
-
-    setBulkSubmitting(true);
-    try {
-      let mediaAttachment = bulkAttachment?.mediaPayload;
-      if (!mediaAttachment && bulkAttachment?.file) {
-        mediaAttachment = await prepareCampaignAttachmentPayload(bulkAttachment.file);
-      }
-      await startCampaign(
-        channelId,
-        numbers,
-        bulkTemplate.trim(),
-        [channelId],
-        { id: undefined, name: `Aniversariantes (${bulkSelectedList.length})` },
-        `Parabens automatico - ${new Date().toLocaleDateString('pt-BR')}`,
-        {
-          delaySeconds: 10,
-          recipients,
-          skipFrequencyCap: true,
-          ...(mediaAttachment ? { mediaAttachment } : {})
-        }
-      );
-      markBirthdayGreetedMany(bulkSelectedList.map((b) => b.id));
-      refreshGreetedBirthdays();
-      toast.success(`Disparo iniciado para ${bulkSelectedList.length} contato(s). Acompanhe em Campanhas.`);
-      setBulkBirthdayOpen(false);
-      setBulkSelectedIds(new Set());
-      setBulkStep('compose');
-      pickCampaignAttachment(null, setBulkAttachment);
-      leaveBirthdayContext('campaigns');
-    } catch (err: any) {
-      const raw = err?.message || 'Falha ao iniciar disparo de aniversariantes.';
-      const msg =
-        /conectar ao servidor|conexão com o servidor|contactar o servidor/i.test(raw)
-          ? 'O servidor não respondeu a tempo. Atualize a página (F5) e tente de novo — se persistir, a fila Redis na VPS precisa ser corrigida.'
-          : raw;
-      toast.error(msg, { id: 'birthday-dispatch-error', duration: 12_000 });
-    } finally {
-      setBulkSubmitting(false);
-    }
   };
 
   const handleOpenChat = (contact: UpcomingBirthday) => {
@@ -956,7 +789,6 @@ export const DashboardTab: React.FC = () => {
   };
 
   const currentChannel = connections.find((c) => c.id === sendingConnectionId);
-  const bulkChannel = connections.find((c) => c.id === bulkConnectionId);
 
   // --- METRICAS REAIS (acumulador persistente do servidor) ---
   // funnelStats sobrevive a reinicios do servidor e a delecao de campanhas.
@@ -1266,7 +1098,7 @@ export const DashboardTab: React.FC = () => {
                 className="w-full mb-3 mt-3"
                 onClick={openBulkBirthday}
               >
-                Felicitar todos ({weekBirthdays.length})
+                Felicitar — hoje {todaysBirthdays.length > 0 ? `(${todaysBirthdays.length})` : ''} · semana ({weekBirthdays.length})
               </Button>
             )}
 
@@ -2146,375 +1978,19 @@ export const DashboardTab: React.FC = () => {
         </div>
       </Modal>
 
-      <Modal
-        isOpen={bulkBirthdayOpen}
-        onClose={() => {
-          if (bulkSubmitting) return;
-          setBulkBirthdayOpen(false);
-          setBulkStep('compose');
+      <BirthdayBulkModal
+        open={bulkBirthdayOpen}
+        onClose={() => setBulkBirthdayOpen(false)}
+        connections={connections}
+        todaysBirthdays={todaysBirthdayPeople}
+        weekBirthdays={weekBirthdayPeople}
+        startCampaign={startCampaign}
+        scheduleCampaign={scheduleCampaign}
+        onDispatched={() => {
+          refreshGreetedBirthdays();
+          leaveBirthdayContext('campaigns');
         }}
-        title={bulkStep === 'compose' ? 'Felicitar aniversariantes' : 'Revise antes de disparar'}
-        subtitle={
-          bulkStep === 'compose'
-            ? 'Monte uma mensagem unica e dispare para todos de uma vez'
-            : `Confira exatamente o que cada pessoa vai receber (${bulkSelectedList.length} mensagens)`
-        }
-        icon={<Sparkles className="w-4 h-4 text-pink-500" />}
-        size="lg"
-        footer={
-          bulkStep === 'compose' ? (
-            <>
-              <Button variant="ghost" onClick={() => setBulkBirthdayOpen(false)}>
-                Cancelar
-              </Button>
-              <Button
-                variant="primary"
-                leftIcon={<Sparkles className="w-4 h-4" />}
-                disabled={
-                  bulkSelectedIds.size === 0 ||
-                  !bulkConnectionId ||
-                  !bulkTemplate.trim() ||
-                  bulkAttachment?.preparing
-                }
-                onClick={() => void goToPreview()}
-              >
-                Pre-visualizar ({bulkSelectedIds.size})
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="ghost" onClick={() => setBulkStep('compose')} disabled={bulkSubmitting}>
-                Voltar e editar
-              </Button>
-              <Button
-                variant="primary"
-                leftIcon={<Send className="w-4 h-4" />}
-                disabled={bulkSubmitting || bulkAttachment?.preparing}
-                onClick={() => void handleBulkBirthdaySubmit()}
-              >
-                {bulkSubmitting ? 'Disparando...' : `Confirmar e disparar para ${bulkSelectedList.length}`}
-              </Button>
-            </>
-          )
-        }
-      >
-        {bulkStep === 'compose' ? (
-        <div className="space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="ui-eyebrow mb-1.5 block">Canal de envio</label>
-              <Select value={bulkConnectionId} onChange={(e) => setBulkConnectionId(e.target.value)}>
-                <option value="">Selecione um canal...</option>
-                {connections.map((c) => (
-                  <option key={c.id} value={c.id} disabled={c.status !== ConnectionStatus.CONNECTED}>
-                    {c.name} {c.status !== ConnectionStatus.CONNECTED ? '(offline)' : ''}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <label className="ui-eyebrow mb-1.5 block">Periodo dos aniversariantes</label>
-              <Select value={bulkDaysRange} onChange={(e) => setBulkDaysRange(Number(e.target.value))}>
-                <option value={0}>Apenas hoje</option>
-                <option value={1}>Ate amanha</option>
-                <option value={3}>Próximos 3 dias</option>
-                <option value={7}>Próximos 7 dias</option>
-                <option value={15}>Próximos 15 dias</option>
-                <option value={30}>Próximos 30 dias</option>
-              </Select>
-            </div>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="ui-eyebrow">Mensagem (use variaveis entre chaves)</label>
-              <Badge variant="info">{'{nome} {idade} {aniversario}'}</Badge>
-            </div>
-            <Textarea
-              rows={6}
-              value={bulkTemplate}
-              onChange={(e) => setBulkTemplate(e.target.value)}
-              placeholder={DEFAULT_BIRTHDAY_TEMPLATE}
-            />
-            <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-3)' }}>
-              Exemplos: <code>{'{nome}'}</code> = primeiro nome, <code>{'{nome_completo}'}</code>, <code>{'{idade}'}</code>, <code>{'{aniversario}'}</code>.
-            </p>
-          </div>
-
-          <CampaignAttachmentBlock
-            compact
-            attachment={bulkAttachment}
-            inputRef={bulkAttachmentInputRef}
-            onPick={(file) => pickCampaignAttachment(file, setBulkAttachment)}
-            onRemove={() => pickCampaignAttachment(null, setBulkAttachment)}
-          />
-          <SavedMediaLibraryPicker
-            compact
-            currentFile={bulkAttachment?.file ?? null}
-            onPick={(file) => pickCampaignAttachment(file, setBulkAttachment)}
-          />
-
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="ui-eyebrow">
-                Aniversariantes selecionados ({bulkSelectedIds.size} de {bulkCandidates.length})
-              </label>
-              <button
-                type="button"
-                onClick={toggleBulkSelectAll}
-                className="text-[11.5px] font-semibold hover:underline"
-                style={{ color: 'var(--brand-600)' }}
-              >
-                {allBulkSelected ? 'Desmarcar todos' : 'Selecionar todos'}
-              </button>
-            </div>
-
-            <div
-              className="rounded-xl max-h-[260px] overflow-y-auto divide-y"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)', borderColor: 'var(--border-subtle)' }}
-            >
-              {bulkCandidates.length === 0 ? (
-                <div className="py-8 text-center text-[12.5px]" style={{ color: 'var(--text-3)' }}>
-                  Nenhum aniversariante no periodo selecionado.
-                </div>
-              ) : (
-                bulkCandidates.map((b) => {
-                  const checked = bulkSelectedIds.has(b.id);
-                  return (
-                    <label
-                      key={b.id}
-                      className="flex items-center gap-3 p-2.5 cursor-pointer hover:bg-[var(--surface-2)] transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleBulkSelect(b.id)}
-                        className="w-4 h-4 accent-pink-500"
-                      />
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-pink-50 dark:bg-pink-500/10 text-pink-500">
-                        {b.daysRemaining === 0 ? <Cake className="w-4 h-4" /> : <User className="w-4 h-4" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                          {b.name}
-                          {b.age != null && (
-                            <span className="ml-1.5 text-[11px] font-normal" style={{ color: 'var(--text-3)' }}>
-                              - {b.age} anos
-                            </span>
-                          )}
-                        </p>
-                        <p className="text-[11px] font-mono" style={{ color: 'var(--text-3)' }}>
-                          +{b.phone}
-                        </p>
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
-                          {b.birthdayLabel}
-                        </p>
-                        <p className="text-[10.5px]" style={{ color: b.daysRemaining === 0 ? '#ec4899' : 'var(--text-3)' }}>
-                          {b.daysRemaining === 0 ? 'Hoje' : b.daysRemaining === 1 ? 'Amanha' : `em ${b.daysRemaining} dias`}
-                        </p>
-                      </div>
-                    </label>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          <div
-            className="p-3 rounded-xl flex items-start gap-2.5"
-            style={{ background: 'rgba(236,72,153,0.08)', border: '1px solid rgba(236,72,153,0.18)' }}
-          >
-            <Sparkles className="w-4 h-4 mt-0.5 flex-shrink-0 text-pink-500" />
-            <p className="text-[12px]" style={{ color: 'var(--text-2)' }}>
-              No proximo passo voce vera <strong>exatamente como cada mensagem ficara</strong>, com o nome de cada pessoa ja preenchido, antes de confirmar o envio.
-            </p>
-          </div>
-        </div>
-        ) : (
-          <div className="space-y-4">
-            {/* Canal selecionado — visível na revisão */}
-            <div
-              className="flex flex-wrap items-center gap-3 p-3 rounded-xl"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <Smartphone className="w-4 h-4 shrink-0" style={{ color: 'var(--text-3)' }} />
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-                  Canal de envio
-                </p>
-                <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                  {bulkChannel?.name || 'Nenhum canal selecionado'}
-                  {bulkChannel?.phoneNumber ? ` · ${bulkChannel.phoneNumber}` : ''}
-                </p>
-              </div>
-              {bulkChannel?.status === ConnectionStatus.CONNECTED ? (
-                <Badge variant="success" dot>Online</Badge>
-              ) : (
-                <Badge variant="warning">Offline — reconecte</Badge>
-              )}
-              <Select
-                className="w-full sm:w-auto sm:min-w-[200px]"
-                value={bulkConnectionId}
-                onChange={(e) => setBulkConnectionId(e.target.value)}
-              >
-                <option value="">Trocar canal...</option>
-                {connections.map((c) => (
-                  <option key={c.id} value={c.id} disabled={c.status !== ConnectionStatus.CONNECTED}>
-                    {c.name} {c.status !== ConnectionStatus.CONNECTED ? '(offline)' : ''}
-                  </option>
-                ))}
-              </Select>
-            </div>
-
-            {bulkSelectedList.length === 0 ? (
-              <div className="py-10 text-center text-[13px]" style={{ color: 'var(--text-3)' }}>
-                Nenhum aniversariante selecionado.
-              </div>
-            ) : (
-              <>
-                {/* Navegador entre mensagens */}
-                <div
-                  className="flex items-center justify-between p-2 rounded-lg"
-                  style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                >
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={bulkPreviewIndex === 0}
-                    onClick={() => setBulkPreviewIndex((i) => Math.max(0, i - 1))}
-                  >
-                    ← Anterior
-                  </Button>
-                  <div className="text-center">
-                    <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
-                      Mensagem {bulkPreviewIndex + 1} de {bulkSelectedList.length}
-                    </p>
-                    <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                      Para {bulkSelectedList[bulkPreviewIndex]?.name}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={bulkPreviewIndex >= bulkSelectedList.length - 1}
-                    onClick={() => setBulkPreviewIndex((i) => Math.min(bulkSelectedList.length - 1, i + 1))}
-                  >
-                    Proxima →
-                  </Button>
-                </div>
-
-                {/* Preview da mensagem em estilo WhatsApp */}
-                {bulkSelectedList[bulkPreviewIndex] && (() => {
-                  const b = bulkSelectedList[bulkPreviewIndex];
-                  const rendered = renderTemplate(bulkTemplate, b);
-                  return (
-                    <div
-                      className="rounded-xl p-4"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(236,72,153,0.06), rgba(139,92,246,0.06))',
-                        border: '1px solid var(--border-subtle)'
-                      }}
-                    >
-                      <div className="flex items-center gap-3 pb-3 mb-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-pink-50 dark:bg-pink-500/15 text-pink-500">
-                          <User className="w-5 h-5" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13.5px] font-bold truncate" style={{ color: 'var(--text-1)' }}>
-                            {b.name}
-                          </p>
-                          <p className="text-[11.5px] font-mono" style={{ color: 'var(--text-3)' }}>
-                            +{b.phone}
-                          </p>
-                        </div>
-                        <div className="text-right flex-shrink-0">
-                          <p className="text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                            {b.birthdayLabel}
-                          </p>
-                          <p
-                            className="text-[10.5px] font-bold"
-                            style={{ color: b.daysRemaining === 0 ? '#ec4899' : 'var(--text-3)' }}
-                          >
-                            {b.daysRemaining === 0
-                              ? '🎂 Hoje'
-                              : b.daysRemaining === 1
-                              ? 'Amanha'
-                              : `em ${b.daysRemaining} dias`}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div
-                        className="rounded-lg p-3 text-[13.5px] whitespace-pre-wrap leading-relaxed"
-                        style={{
-                          background: 'var(--surface-0)',
-                          border: '1px solid var(--border-subtle)',
-                          color: 'var(--text-1)',
-                          maxHeight: '260px',
-                          overflowY: 'auto'
-                        }}
-                      >
-                        {rendered || <span style={{ color: 'var(--text-3)' }}>(mensagem vazia)</span>}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Resumo + miniatura das demais */}
-                <div>
-                  <p className="ui-eyebrow mb-2">Resumo das {bulkSelectedList.length} mensagens</p>
-                  <div
-                    className="rounded-xl max-h-[180px] overflow-y-auto divide-y"
-                    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                  >
-                    {bulkSelectedList.map((b, idx) => {
-                      const preview = renderTemplate(bulkTemplate, b).replace(/\s+/g, ' ').slice(0, 80);
-                      const active = idx === bulkPreviewIndex;
-                      return (
-                        <button
-                          key={b.id}
-                          type="button"
-                          onClick={() => setBulkPreviewIndex(idx)}
-                          className="w-full flex items-center gap-3 p-2.5 text-left transition-colors hover:bg-[var(--surface-2)]"
-                          style={{
-                            background: active ? 'rgba(236,72,153,0.08)' : 'transparent'
-                          }}
-                        >
-                          <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-pink-50 dark:bg-pink-500/10 text-pink-500 text-[11px] font-bold">
-                            {idx + 1}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[12.5px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                              {b.name}
-                            </p>
-                            <p className="text-[11px] truncate" style={{ color: 'var(--text-3)' }}>
-                              {preview}
-                              {preview.length >= 80 ? '...' : ''}
-                            </p>
-                          </div>
-                          {active && <Badge variant="info">atual</Badge>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div
-                  className="p-3 rounded-xl flex items-start gap-2.5"
-                  style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.18)' }}
-                >
-                  <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-500" />
-                  <p className="text-[12px]" style={{ color: 'var(--text-2)' }}>
-                    Ao confirmar, uma campanha real sera criada e as mensagens serao enviadas com intervalo anti-ban de 10 segundos. Esta acao <strong>nao pode ser desfeita</strong>.
-                  </p>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </Modal>
+      />
 
       {/* Confirmacao para zerar contadores do funil */}
       <Modal
