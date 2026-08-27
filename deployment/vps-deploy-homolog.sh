@@ -77,6 +77,11 @@ docker compose -f "$COMPOSE_FILE" --env-file "${HOMOLOG_DIR}/.env" up -d --no-de
 sleep 3
 docker compose -f "$COMPOSE_FILE" --env-file "${HOMOLOG_DIR}/.env" up -d --no-deps zapmass-homolog
 
+if [ -f deployment/recover-homolog-evolution-go.sh ]; then
+  chmod +x deployment/recover-homolog-evolution-go.sh 2>/dev/null || true
+  bash deployment/recover-homolog-evolution-go.sh || echo "AVISO: Evolution Go homolog com problema — chips WhatsApp em homolog indisponíveis até corrigir."
+fi
+
 PORT="${HOMOLOG_HOST_PORT:-3200}"
 echo "==> aguardando health homolog (:${PORT})..."
 ok=0

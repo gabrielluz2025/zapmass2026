@@ -22,14 +22,18 @@ services:
         max-file: "4"
     ports:
       - "127.0.0.1:${HOMOLOG_EVOLUTION_PORT:-8082}:8080"
+    env_file:
+      - path: homolog/.env
+        required: false
     environment:
       SERVER_PORT: "8080"
-      CLIENT_NAME: zapmass-homolog
+      CLIENT_NAME: homolog
       GLOBAL_API_KEY: ${EVOLUTION_GO_KEY_HOMOLOG:-zapmass-homolog-key-2026}
       POSTGRES_AUTH_DB: postgresql://postgres:${POSTGRES_PASSWORD:-evolution-secure-pass-2026}@postgres:5432/evogo_homolog_auth?sslmode=disable
       POSTGRES_USERS_DB: postgresql://postgres:${POSTGRES_PASSWORD:-evolution-secure-pass-2026}@postgres:5432/evogo_homolog_users?sslmode=disable
       DATABASE_SAVE_MESSAGES: "false"
-      WEBHOOK_URL: ${ZAPMASS_HOMOLOG_WEBHOOK_URL:-http://zapmass-homolog:3001/webhook/evolution}
+      # URL interna (Evolution → API no mesmo compose); WhatsApp/webhook público fica no zapmass-homolog.
+      WEBHOOK_URL: http://zapmass-homolog:3001/webhook/evolution
       WADEBUG: ${EVOLUTION_GO_WADEBUG:-INFO}
       LOGTYPE: console
     networks:
