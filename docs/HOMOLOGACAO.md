@@ -168,6 +168,26 @@ HOMOLOG_MERCADOPAGO_BACK_URL=https://homolog.zap-mass.com
 
 ## Troubleshooting
 
+### GitHub Actions: deploy homolog com X vermelho (SSH)
+
+O job **SSH homolog (VPS)** falha quando o runner do GitHub **não alcança a porta SSH** da VPS (firewall/ufw). O build (Vite) pode estar verde mesmo assim.
+
+**Sintoma:** step `Pré-teste SSH` ~1 min, depois `VPS — deploy homolog` **skipped**.
+
+**Opções:**
+
+1. **Deploy manual ou cron (recomendado hoje):**
+   ```bash
+   cd /opt/zapmass && bash deployment/vps-deploy-homolog.sh
+   # ou cron a cada 3 min:
+   sudo bash deployment/install-homolog-watch-cron.sh
+   ```
+   Com homolog já na versão do commit, o CI passa só verificando `https://homolog.zap-mass.com/api/health`.
+
+2. **Liberar SSH para GitHub Actions** (deploy automático via SSH):
+   - Meta IPs: https://api.github.com/meta (campo `actions`)
+   - Exemplo ufw: allowlist na porta 22 só para esses ranges
+
 ### Evolution Go homolog: `too many clients already`
 
 Postgres compartilhado entre prod + clientes + homolog. Limpeza imediata:
