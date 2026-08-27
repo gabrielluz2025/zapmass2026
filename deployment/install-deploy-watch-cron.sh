@@ -26,8 +26,11 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+# shellcheck source=deployment/deploy-window.sh
+. "$(dirname "$0")/deploy-window.sh"
 cat >"${MARKER}" <<EOF
 # ZapMass — deploy automático quando origin/main avança (sem SSH do GitHub Actions)
+# Só aplica entre $(deploy_window_label) — fora disso o commit fica pendente.
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 ${CRON_LINE}

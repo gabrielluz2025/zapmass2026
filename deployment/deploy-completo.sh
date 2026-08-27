@@ -113,8 +113,7 @@ chmod +x deployment/vps-deploy.sh
 
 export VITE_GIT_REF="${COMMIT}"
 export DEPLOY_FLOCK_WAIT_SEC="${DEPLOY_FLOCK_WAIT_SEC:-900}"
-# Não simular GitHub Actions — evita pausa de 90s antes do healthcheck em deploy manual.
-unset GITHUB_EVENT_NAME
+export GITHUB_EVENT_NAME=manual
 unset GITHUB_ACTIONS
 
 bash deployment/vps-deploy.sh

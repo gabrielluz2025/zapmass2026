@@ -34,15 +34,15 @@ if [ ! -f .env ]; then
 fi
 
 event="${GITHUB_EVENT_NAME:-push}"
+# deploy-completo / manual na VPS não define GITHUB_ACTIONS
+if [ -z "${GITHUB_ACTIONS:-}" ] && [ "$event" = "push" ]; then
+  event="manual"
+fi
 
-# Janela segura: só no cron. Hora UTC (alinha com horários do GitHub Actions schedule).
-if [ "$event" = "schedule" ]; then
-  HOUR="$(date -u +%H)"
-  if [ "$HOUR" -ge 6 ]; then
-    echo "==> (cron) Fora da janela segura de deploy (agora: ${HOUR}h UTC)."
-    echo "==> (cron) Próximo ciclo do cron retoma."
-    exit 0
-  fi
+# shellcheck source=deployment/deploy-window.sh
+. "$(dirname "$0")/deploy-window.sh"
+if ! deploy_window_check_or_exit "$event"; then
+  exit 0
 fi
 
 # Hash no bundle Vite

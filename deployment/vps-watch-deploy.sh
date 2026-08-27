@@ -33,6 +33,13 @@ if [ -z "${REMOTE}" ] || [ "${LOCAL}" = "${REMOTE}" ]; then
   exit 0
 fi
 
+# shellcheck source=deployment/deploy-window.sh
+. "$(dirname "$0")/deploy-window.sh"
+if ! deploy_window_check_or_exit "watch"; then
+  echo "$(date -Is) commit ${REMOTE:0:7} pendente — fora da janela $(deploy_window_label)" >>"${LOG}"
+  exit 0
+fi
+
 echo "$(date -Is) novo commit ${REMOTE:0:7} (local ${LOCAL:0:7}) — iniciando deploy" >>"${LOG}"
 export GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME:-watch}"
 export GITHUB_ACTIONS="${GITHUB_ACTIONS:-false}"
