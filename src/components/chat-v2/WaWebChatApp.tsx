@@ -497,11 +497,10 @@ export const WaWebChatApp: React.FC<{
     if (!selected?.id || !socket?.connected) return;
     if (!historyInitializedRef.current.has(selected.id)) {
       historyInitializedRef.current.add(selected.id);
-      if (!isGoWebhookInbox) {
-        void loadMoreHistory(selected.id, true);
-      }
+      // Evolution Go: findMessages indisponível — histórico vem de arquivo + HistorySync webhook.
+      void loadMoreHistory(selected.id, true);
     }
-  }, [selected?.id, socket?.connected, loadMoreHistory, isGoWebhookInbox]);
+  }, [selected?.id, socket?.connected, loadMoreHistory]);
 
   const isSelectedDraft = useMemo(() => {
     if (!selected?.id) return false;
@@ -516,10 +515,10 @@ export const WaWebChatApp: React.FC<{
   useEffect(() => {
     if (!selected?.id || isSelectedDraft) return;
     const t = window.setTimeout(() => {
-      void hydrateFirestoreChatArchive(selected.id, 500);
+      void hydrateFirestoreChatArchive(selected.id, isGoWebhookInbox ? 1500 : 500);
     }, 70);
     return () => window.clearTimeout(t);
-  }, [selected?.id, isSelectedDraft, hydrateFirestoreChatArchive]);
+  }, [selected?.id, isSelectedDraft, hydrateFirestoreChatArchive, isGoWebhookInbox]);
 
   const handleLoadMedia = useCallback(
     async (messageId: string, silent = false): Promise<string | null> => {
