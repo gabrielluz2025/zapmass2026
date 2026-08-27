@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { MessageCircle, RefreshCw, Search, Wifi, WifiOff } from 'lucide-react';
+import { MessageCircle, MoreVertical, PenSquare, RefreshCw, Search, Wifi, WifiOff } from 'lucide-react';
 import type { Conversation, WhatsAppConnection } from '../../types';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import {
@@ -164,9 +164,8 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
     { id: 'all', label: 'Tudo' },
     { id: 'unread', label: 'Não lidas', badge: totalUnread || undefined },
     { id: 'hot', label: 'Quentes', badge: hotCount || undefined },
+    { id: 'campaign', label: 'Campanhas', badge: undefined },
   ];
-
-  const moreTabs: { id: InboxSmartTab; label: string }[] = [];
 
   const showAllActive = inboxTab === 'all' && !unreadOnly && !campaignOnly && connectionFilterId === 'ALL';
 
@@ -184,18 +183,34 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   return (
     <aside className="wa-side flex flex-col min-h-0" data-hide-mobile={hideOnMobile ? 'true' : undefined}>
 
-      {/* ── Header estilo WhatsApp Web ─────────────── */}
+      {/* ── Header estilo WhatsApp Desktop ─────────── */}
       <div className="wa-inbox-header wa-inbox-header--wa">
         <h2 className="wa-inbox-title wa-inbox-title--main">Conversas</h2>
         <div className="wa-inbox-header__actions">
           <button
             type="button"
             className="wa-icon-btn"
-            title="Sincronizar conversas e mensagens abertas"
+            title="Sincronizar conversas"
             aria-label="Sincronizar"
             onClick={onRefresh}
           >
             <RefreshCw className={`w-[18px] h-[18px] ${syncing ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            type="button"
+            className="wa-icon-btn"
+            title="Nova conversa"
+            aria-label="Nova conversa"
+          >
+            <PenSquare className="w-[18px] h-[18px]" />
+          </button>
+          <button
+            type="button"
+            className="wa-icon-btn"
+            title="Opções"
+            aria-label="Opções"
+          >
+            <MoreVertical className="w-[18px] h-[18px]" />
           </button>
         </div>
       </div>

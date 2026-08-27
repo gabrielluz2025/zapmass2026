@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDown, ArrowLeft, History, Loader2, Lock, MoreVertical, ScanSearch, Search, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowLeft, History, Loader2, Lock, MoreVertical, Phone, ScanSearch, Search, Trash2, Video } from 'lucide-react';
 import type { ChatMessage, Conversation, WhatsAppConnection } from '../../types';
 import { WaBubble } from '../chat/wa/WaBubble';
 import { WaComposer } from './WaComposer';
@@ -334,6 +334,13 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
             {headerSub}
           </p>
         </div>
+        {/* Ícones de ação no header — estilo WhatsApp Desktop */}
+        <button type="button" className="wa-icon-btn flex-shrink-0" aria-label="Chamada de vídeo" title="Chamada de vídeo">
+          <Video className="w-5 h-5" />
+        </button>
+        <button type="button" className="wa-icon-btn flex-shrink-0" aria-label="Chamada de voz" title="Chamada de voz">
+          <Phone className="w-5 h-5" />
+        </button>
         {onAnalyzeIntent && (
           <button type="button" className="wa-icon-btn flex-shrink-0 hidden" onClick={onAnalyzeIntent} aria-hidden tabIndex={-1}>
             <ScanSearch className="w-5 h-5" />

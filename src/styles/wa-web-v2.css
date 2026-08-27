@@ -184,10 +184,32 @@ html .wa-chat-pro {
   gap: 6px;
 }
 
+/* Filter pills — idêntico ao WhatsApp Desktop */
 .wa-chat-pro .wa-filter-pill {
-  padding: 6px 13px;
-  font-size: 12.5px;
+  padding: 6px 14px;
+  font-size: 13px;
   max-width: none;
+  background: #2a3942;
+  color: #e9edef;
+  border-radius: 999px;
+  font-weight: 500;
+  transition: background 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.wa-chat-pro .wa-filter-pill:hover {
+  background: #3d4f59;
+}
+
+.wa-chat-pro .wa-filter-pill[data-active='true'] {
+  background: var(--wa-green);
+  color: #fff;
+  font-weight: 600;
+}
+
+.wa-chat-pro .wa-filter-pill[data-active='true']:hover {
+  background: var(--wa-green-strong);
 }
 
 .wa-chat-pro .wa-filter-pill--channel {
@@ -201,27 +223,39 @@ html .wa-chat-pro {
   white-space: nowrap;
 }
 
-/* ── Linhas de conversa (visual pro v3) ───── */
+/* ── Linhas de conversa (visual WhatsApp Desktop exato) ───── */
 .wa-chat-pro .wa-conv-row {
   align-items: center;
-  gap: 11px;
-  padding: 10px 14px 10px 18px;
+  gap: 13px;
+  padding: 0 12px;
   margin: 0;
   border-radius: 0;
-  min-height: 68px;
+  min-height: 72px;
   width: 100%;
+  transition: background 0.1s ease;
+}
+
+.wa-chat-pro .wa-conv-row:hover {
+  background: #1e2a31;
 }
 
 .wa-chat-pro .wa-conv-row[data-active='true'] {
-  background: color-mix(in srgb, var(--wa-green) 11%, var(--wa-panel));
+  background: #2a3942;
 }
 
+.wa-chat-pro .wa-conv-row[data-active='true']:hover {
+  background: #2a3942;
+}
+
+/* Avatar circular — idêntico ao WhatsApp Desktop */
 .wa-chat-pro .wa-conv-avatar-wrap {
-  width: 46px;
-  height: 46px;
-  overflow: visible;
+  width: 49px;
+  height: 49px;
+  min-width: 49px;
+  overflow: hidden;
   background: transparent;
   box-shadow: none;
+  border-radius: 50%;
 }
 
 .wa-chat-pro .wa-conv-avatar-wrap[data-channel='true'] {
@@ -229,14 +263,22 @@ html .wa-chat-pro {
 }
 
 .wa-chat-pro .wa-conv-avatar {
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
+  width: 49px;
+  height: 49px;
+  border-radius: 50%;
   display: block;
+  object-fit: cover;
 }
 
 .wa-chat-pro .wa-conv-row[data-active='true'] .wa-conv-avatar {
-  box-shadow: 0 0 0 2px var(--wa-green), 0 4px 12px rgba(16,185,129,0.3);
+  box-shadow: none;
+}
+
+/* Manter circular em todos os estados */
+.wa-chat-pro .wa-conv-row:hover .wa-conv-avatar,
+.wa-chat-pro .wa-conv-row[data-active='true'] .wa-conv-avatar {
+  border-radius: 50%;
+  box-shadow: none;
 }
 
 .wa-chat-pro .wa-presence-ring {
@@ -329,6 +371,28 @@ html .wa-chat-pro {
 
 .wa-chat-pro .wa-conv-channel-tag {
   display: none;
+}
+
+/* Sem accent bar no WA Desktop */
+.wa-chat-pro .wa-conv-accent {
+  display: none;
+}
+
+/* Separador entre linhas — começa após o avatar (73px = 12px padding + 49px avatar + 12px gap) */
+.wa-chat-pro .wa-conv-row::after {
+  left: 73px;
+  opacity: 0.4;
+}
+
+/* Remover fundo de não-lidas diferente (WA Desktop não destaca fundo de não-lidas) */
+.wa-chat-pro .wa-conv-row[data-unread='true']:not([data-active='true']) {
+  background: transparent;
+}
+
+/* Não-lidas: apenas nome em branco + badge verde (sem bg diferente) */
+.wa-chat-pro .wa-conv-name--bold {
+  color: var(--wa-text);
+  font-weight: 600;
 }
 
 .wa-chat-pro .wa-status-strip {
@@ -539,23 +603,50 @@ html .wa-chat-pro {
   cursor: wait;
 }
 
+/* ── Cabeçalho do chat (WA Desktop style) ──── */
+.wa-chat-pro .wa-chat-header {
+  min-height: 60px;
+  padding: 10px 16px 10px 16px;
+  gap: 12px;
+  background: var(--wa-header);
+}
+
+/* Avatar circular no header do chat — WA Desktop */
+.wa-chat-pro .wa-chat-header-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50% !important;
+  min-width: 40px;
+  object-fit: cover;
+}
+
 .wa-chat-pro .wa-chat-header-title {
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--wa-text);
   line-height: 1.25;
 }
 
 .wa-chat-pro .wa-chat-header-title--crm {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .wa-chat-pro .wa-chat-header-sub {
   font-size: 13px;
   color: var(--wa-text-3);
   line-height: 1.3;
+}
+
+/* Ícones de ação no header — WA Desktop style */
+.wa-chat-pro .wa-chat-header .wa-icon-btn {
+  color: var(--wa-icon);
+}
+
+.wa-chat-pro .wa-chat-header .wa-icon-btn:hover {
+  background: rgba(134, 150, 160, 0.15);
+  color: var(--wa-text);
 }
 
 .wa-chat-pro .wa-chat-header-sub[data-presence='online'],
