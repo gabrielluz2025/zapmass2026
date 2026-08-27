@@ -4,9 +4,9 @@ import type { Socket } from 'socket.io-client';
 export type WaSocketStatus = 'online' | 'offline' | 'slow';
 
 /** Reemit inbox do servidor (leve) enquanto a aba está visível. */
-const AUTO_LIGHT_SYNC_MS = 90_000;
+const AUTO_LIGHT_SYNC_MS = 120_000;
 /** Não re-sincroniza se houve delta/update recente. */
-const RECENT_REALTIME_SKIP_MS = 45_000;
+const RECENT_REALTIME_SKIP_MS = 60_000;
 /** Acima disso (RTT), considera servidor lento — sync pesado pode atrasar pong sem estar offline. */
 const SLOW_RTT_MS = 45_000;
 /** Pings consecutivos lentos antes de exibir aviso (evita falso positivo). */
@@ -80,7 +80,7 @@ export function useWaRealtime(
       pingSentAtRef.current = Date.now();
       slowStrikeRef.current = 0;
       setSocketStatus('online');
-      runResync({ full: false });
+      // Servidor já reemite inbox no connect — evita sync duplicado e latência ao abrir aba.
     };
     const onDisconnect = () => {
       clearOfflineGrace();

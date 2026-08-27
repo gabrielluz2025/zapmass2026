@@ -66,6 +66,8 @@ export interface SystemMetrics {
   ramFreeGb?: number;
   ramUsedGb?: number;
   platform?: string;
+  /** evolution-api | evolution-go — define se inbox usa findChats ou só webhook. */
+  whatsappEngine?: string;
 }
 
 export interface NavItem {

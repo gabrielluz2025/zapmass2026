@@ -8,6 +8,7 @@ import {
   useZapMassConversations,
   useZapMassInboxPagination,
   useZapMassConnectionsSlice,
+  useZapMassUiSnapshot,
 } from '../../context/ZapMassContext';
 import { ClientCrmPanel } from '../chat/ClientCrmPanel';
 import { WaContactDrawer } from '../chat/wa/WaContactDrawer';
@@ -54,6 +55,8 @@ export const WaWebChatApp: React.FC<{
   const conversations = useZapMassConversations();
   const { inboxHasMore, inboxLoadingMore, loadMoreInbox } = useZapMassInboxPagination();
   const connections = useZapMassConnectionsSlice();
+  const { systemMetrics } = useZapMassUiSnapshot();
+  const isGoWebhookInbox = systemMetrics.whatsappEngine === 'evolution-go';
   const {
     contacts,
     sendMessage,
@@ -94,7 +97,8 @@ export const WaWebChatApp: React.FC<{
   const pictureAttemptedRef = useRef<Set<string>>(new Set());
   const historyRequestedRef = useRef<Map<string, number>>(new Map());
   const historyInitializedRef = useRef<Set<string>>(new Set());
-  const HISTORY_LEVELS = [200, 600, 1500, 3500, 8000];
+  /** Níveis sob demanda (scroll-up); não carregar tudo ao abrir conversa. */
+  const HISTORY_LEVELS = [200, 500, 1500, 3500];
 
   const requestSync = useCallback((opts?: { full?: boolean }) => {
     if (socket?.connected) socket.emit('request-conversations-sync', opts);
@@ -104,7 +108,7 @@ export const WaWebChatApp: React.FC<{
     chipsConnected: connectedChannels.length
   });
 
-  /** Atendimento: sync completo no máximo 1× por dia; se inbox vazia, força full (ex.: pós-deploy). */
+  /** Sync leve ao abrir; full 1×/dia só na Evolution API (Go = inbox via webhook). */
   const initialFullSyncDoneRef = useRef(false);
   const emptyInboxRecoveryRef = useRef(false);
 
@@ -112,16 +116,24 @@ export const WaWebChatApp: React.FC<{
     if (!isBackendConnected || !socket?.connected || connectedChannels.length === 0 || !tenantUid) return;
     if (initialFullSyncDoneRef.current) return;
     initialFullSyncDoneRef.current = true;
-    if (isInboxFullSyncDoneToday(tenantUid)) {
+    if (isGoWebhookInbox || isInboxFullSyncDoneToday(tenantUid)) {
       requestSync({ full: false });
       return;
     }
     markInboxFullSyncDoneForToday(tenantUid);
     runResync({ full: true });
     requestSync({ full: true });
-  }, [isBackendConnected, socket, connectedChannels.length, tenantUid, runResync, requestSync]);
+  }, [
+    isBackendConnected,
+    socket,
+    connectedChannels.length,
+    tenantUid,
+    runResync,
+    requestSync,
+    isGoWebhookInbox,
+  ]);
 
-  /** Chips online mas zero conversas — servidor pode ter reiniciado (RAM vazia). */
+  /** Chips online mas inbox vazia — sync leve (full no Go não traz histórico). */
   useEffect(() => {
     if (!isBackendConnected || !socket?.connected || connectedChannels.length === 0) return;
     if (conversations.length > 0) {
@@ -131,8 +143,8 @@ export const WaWebChatApp: React.FC<{
     if (emptyInboxRecoveryRef.current) return;
     emptyInboxRecoveryRef.current = true;
     const t = window.setTimeout(() => {
-      requestSync({ full: true });
-      runResync({ full: true });
+      requestSync({ full: false });
+      if (!isGoWebhookInbox) runResync({ full: true });
     }, 2800);
     return () => window.clearTimeout(t);
   }, [
@@ -142,6 +154,7 @@ export const WaWebChatApp: React.FC<{
     conversations.length,
     requestSync,
     runResync,
+    isGoWebhookInbox,
   ]);
 
   const mergedConversations = useMemo(() => {
@@ -389,11 +402,11 @@ export const WaWebChatApp: React.FC<{
     [fetchConversationPicture]
   );
 
-  /** Prefetch leve — só primeiras conversas visíveis (evita 60 round-trips ao abrir a aba). */
+  /** Prefetch leve — só primeiras conversas visíveis. */
   useEffect(() => {
-    const MAX = 28;
-    const BATCH = 4;
-    const DELAY_MS = 400;
+    const MAX = 12;
+    const BATCH = 3;
+    const DELAY_MS = 600;
     const queue: string[] = [];
     for (const conv of sortedConversations) {
       if (queue.length >= MAX) break;
@@ -484,9 +497,11 @@ export const WaWebChatApp: React.FC<{
     if (!selected?.id || !socket?.connected) return;
     if (!historyInitializedRef.current.has(selected.id)) {
       historyInitializedRef.current.add(selected.id);
-      void loadMoreHistory(selected.id, true);
+      if (!isGoWebhookInbox) {
+        void loadMoreHistory(selected.id, true);
+      }
     }
-  }, [selected?.id, socket?.connected, loadMoreHistory]);
+  }, [selected?.id, socket?.connected, loadMoreHistory, isGoWebhookInbox]);
 
   const isSelectedDraft = useMemo(() => {
     if (!selected?.id) return false;
@@ -661,10 +676,16 @@ export const WaWebChatApp: React.FC<{
   );
 
   const handleRefresh = useCallback(() => {
-    runResync({ full: true });
-    requestSync({ full: true });
-    toast.success('Sincronizando com o WhatsApp…', { duration: 2500 });
-  }, [runResync, requestSync]);
+    const full = !isGoWebhookInbox;
+    runResync({ full });
+    requestSync({ full });
+    toast.success(
+      full
+        ? 'Sincronizando com o WhatsApp…'
+        : 'Atualizando conversas recentes…',
+      { duration: 2500 }
+    );
+  }, [runResync, requestSync, isGoWebhookInbox]);
 
   const handleAutoClassifyResponses = useCallback(async () => {
     const ok = window.confirm(
@@ -739,32 +760,6 @@ export const WaWebChatApp: React.FC<{
   const loadOlder = useCallback(() => {
     if (selected?.id) void loadMoreHistory(selected.id);
   }, [selected?.id, loadMoreHistory]);
-
-  // Auto-load sequencial de histórico ao abrir conversa — espera cada nível terminar antes do próximo
-  const autoLoadedRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!selected?.id || isSelectedDraft || !socket?.connected) return;
-    if (autoLoadedRef.current.has(selected.id)) return;
-    autoLoadedRef.current.add(selected.id);
-
-    const convId = selected.id;
-    const loadSequential = async () => {
-      // Aguarda 300ms para hydrate terminar antes de começar
-      await new Promise((r) => setTimeout(r, 300));
-      // Carrega todos os níveis sequencialmente até o nível máximo (8000)
-      for (let i = 0; i < HISTORY_LEVELS.length; i++) {
-        // Para se trocou de conversa
-        if (autoLoadedRef.current.has(convId) === false) break;
-        await loadMoreHistory(convId, true);
-        // Pequena pausa entre níveis para não sobrecarregar o socket
-        if (i < HISTORY_LEVELS.length - 1) {
-          await new Promise((r) => setTimeout(r, 400));
-        }
-      }
-    };
-    void loadSequential();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id, isSelectedDraft]);
 
   const handleSendMedia = useCallback(
     (file: File, caption?: string) => {

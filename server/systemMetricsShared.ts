@@ -1,4 +1,5 @@
 import os from 'os';
+import { resolveWhatsAppEngine } from './evolutionEngineConfig.js';
 
 let lastCpuInfo = os.cpus();
 
@@ -36,6 +37,7 @@ export const getSystemMetrics = () => {
     ramTotalGb: toGb(totalMem),
     ramFreeGb: toGb(freeMem),
     ramUsedGb: toGb(usedMem),
-    platform: process.platform
+    platform: process.platform,
+    whatsappEngine: resolveWhatsAppEngine(),
   };
 };

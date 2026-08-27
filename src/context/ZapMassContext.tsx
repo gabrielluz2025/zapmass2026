@@ -1858,7 +1858,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                 window.setTimeout(() => {
                   inboxFullRecoveryPendingRef.current = false;
                   if (socket.connected) {
-                    socket.emit('request-conversations-sync', { full: true });
+                    socket.emit('request-conversations-sync', { full: false });
                   }
                 }, 400);
               }
@@ -2809,8 +2809,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       toast('Campanha retomada!', { icon: '▶️' });
     });
 
-    /** Ao voltar ao separador/desktop: reconectar se o browser suspendeu o WS; depois pedir sync. */
-    let lastConvResyncMs = 0;
+    /** Ao voltar ao separador/desktop: reconectar se o browser suspendeu o WS (sync fica no useWaRealtime da aba chat). */
     let lastReconnectNudgeMs = 0;
     const onVisibilityOrFocus = () => {
       if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
@@ -2826,11 +2825,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             .catch(() => {
               if (!socket.connected) socket.connect();
             });
-        return;
       }
-      if (now - lastConvResyncMs < 4500) return;
-      lastConvResyncMs = now;
-      socket.emit('request-conversations-sync');
     };
     document.addEventListener('visibilitychange', onVisibilityOrFocus);
     window.addEventListener('focus', onVisibilityOrFocus);
