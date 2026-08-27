@@ -17,11 +17,18 @@ Ambiente isolado para testar features antes de produção, sem derrubar chips de
 ## Setup inicial (uma vez na VPS)
 
 ```bash
-# 1. DNS: registro A homolog.zap-mass.com → IP da VPS
-
+# Se git pull falhar por "local changes would be overwritten":
 cd /opt/zapmass
-git pull origin main
+bash deployment/ensure-git-main.sh   # alinha com origin/main (descarta edits locais rastreados)
+git log -1 --oneline                 # deve mostrar commit com homolog (ex.: e9c1f4c)
+
 sudo bash deployment/setup-homolog.sh
+```
+
+O `setup-homolog.sh` também chama `ensure-git-main.sh` automaticamente.
+
+```bash
+# 1. DNS: registro A homolog.zap-mass.com → IP da VPS
 ```
 
 O script cria `homolog/.env`, bases Postgres, Nginx + SSL e sobe os containers.

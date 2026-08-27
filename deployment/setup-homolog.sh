@@ -20,7 +20,12 @@ if [ "$(id -u)" -ne 0 ]; then
   die "Execute como root: sudo bash deployment/setup-homolog.sh"
 fi
 
-[ -f "$TEMPLATE" ] || die "Template não encontrado. Rode git pull em ${ROOT}."
+if [ "${SKIP_GIT_SYNC:-0}" != "1" ] && [ -f deployment/ensure-git-main.sh ]; then
+  log "Alinhar código com origin/main (descarta edits locais em ficheiros rastreados)..."
+  bash deployment/ensure-git-main.sh
+fi
+
+[ -f "$TEMPLATE" ] || die "Template não encontrado em ${ROOT}. Rode: bash deployment/ensure-git-main.sh"
 
 chmod +x deployment/ensure-homolog-dbs.sh deployment/vps-deploy-homolog.sh 2>/dev/null || true
 
@@ -68,9 +73,17 @@ fi
 
 if command -v certbot >/dev/null 2>&1; then
   log "Certificado SSL Let's Encrypt..."
-  certbot --nginx -d "${DOMAIN}" --non-interactive --agree-tos --redirect \
-    -m "${ZAPMASS_CERTBOT_EMAIL:-admin@zap-mass.com}" 2>/dev/null || \
-    log "AVISO: certbot falhou — confirme DNS A/CNAME para ${DOMAIN} e rode certbot manualmente."
+  if certbot certificates 2>/dev/null | grep -qF "${DOMAIN}"; then
+    certbot install --cert-name "${DOMAIN}" --nginx --non-interactive 2>/dev/null || \
+      certbot --nginx -d "${DOMAIN}" --non-interactive --agree-tos --redirect \
+        -m "${ZAPMASS_CERTBOT_EMAIL:-admin@zap-mass.com}" || \
+      log "AVISO: certbot install falhou — nginx já tem vhost? Teste: curl -I https://${DOMAIN}/api/health"
+  else
+    certbot --nginx -d "${DOMAIN}" --non-interactive --agree-tos --redirect \
+      -m "${ZAPMASS_CERTBOT_EMAIL:-admin@zap-mass.com}" 2>/dev/null || \
+      log "AVISO: certbot falhou — confirme DNS para ${DOMAIN}."
+  fi
+  nginx -t && systemctl reload nginx
 fi
 
 log "Primeiro deploy homolog..."
