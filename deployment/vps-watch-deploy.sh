@@ -39,7 +39,8 @@ export GITHUB_ACTIONS="${GITHUB_ACTIONS:-false}"
 export GHA_SHA="${REMOTE}"
 export VITE_GIT_REF="${REMOTE:0:7}"
 
-git checkout -f "${REMOTE}" >>"${LOG}" 2>&1
+# Descarta edições locais em scripts (ex.: vps-deploy.sh) — o repo prevalece.
+git reset --hard origin/main >>"${LOG}" 2>&1
 chmod +x deployment/vps-deploy.sh deployment/gha-healthcheck.sh 2>/dev/null || true
 
 if bash deployment/vps-deploy.sh >>"${LOG}" 2>&1; then
