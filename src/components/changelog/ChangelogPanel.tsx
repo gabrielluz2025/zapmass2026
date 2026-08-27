@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.18',
+    date: '27/08/2026',
+    highlights: [
+      { type: 'feat', text: 'Chat completamente redesenhado: layout idêntico ao WhatsApp Desktop' },
+      { type: 'feat', text: 'Avatares circulares (50%) em toda a inbox e header — exato WA Desktop' },
+      { type: 'feat', text: 'Linhas de conversa 72px, padding 12px — medidas exatas do WA Desktop' },
+      { type: 'feat', text: 'Selecionado = #2a3942, hover = #1e2a31 (sem verde), sem accent bar' },
+      { type: 'feat', text: 'Filter pills estilo WA Desktop: escuro inativo / verde ativo' },
+      { type: 'feat', text: 'Header inbox com botões Nova Conversa e Menu (igual WA Desktop)' },
+      { type: 'feat', text: 'Header do chat com ícones Vídeo e Ligação (exato WA Desktop)' },
+      { type: 'feat', text: 'Nova aba "Campanhas" na inbox junto com Tudo / Não lidas / Quentes' },
+    ],
+  },
+  {
     version: '2.3.17',
     date: '27/08/2026',
     highlights: [
