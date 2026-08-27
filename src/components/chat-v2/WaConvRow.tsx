@@ -15,6 +15,8 @@ import {
 } from '../../utils/evolutionPresence';
 
 import type { ConversationOrigin } from './lib/conversationOrigin';
+import type { SlaLevel } from './lib/slaUtils';
+import { slaLabel } from './lib/slaUtils';
 
 type Props = {
   conv: Conversation;
@@ -29,6 +31,8 @@ type Props = {
   dataIndex: number;
   onSelect: (id: string) => void;
   onRequestPicture?: (id: string, force?: boolean) => void;
+  isPinned?: boolean;
+  slaLevel?: SlaLevel;
 };
 
 const UI_AVATAR_HOST = 'ui-avatars.com';
@@ -50,6 +54,8 @@ export const WaConvRow = memo(function WaConvRow({
   dataIndex,
   onSelect,
   onRequestPicture,
+  isPinned = false,
+  slaLevel = 'none',
 }: Props) {
   const rowRef = useRef<HTMLButtonElement | null>(null);
   const title = inboxListTitle(display, conv);
@@ -138,7 +144,7 @@ export const WaConvRow = memo(function WaConvRow({
             className={`wa-conv-name${unread > 0 ? ' wa-conv-name--bold' : ''}${display?.fromDatabase ? ' wa-conv-name--crm' : ''}`}
             title={title}
           >
-            {title}
+            {isPinned ? '📌 ' : ''}{title}
           </span>
           <span
             className="wa-conv-time flex-shrink-0"
@@ -162,6 +168,9 @@ export const WaConvRow = memo(function WaConvRow({
             {preview}
           </span>
           <div className="wa-conv-bottomline-right">
+            {slaLevel !== 'none' && (
+              <span className={`wa-sla-dot wa-sla-dot--${slaLevel}`} title={slaLabel(slaLevel)} aria-hidden />
+            )}
             {showChannelTag && channelLabel && (
               <span
                 className="wa-conv-channel-inline"

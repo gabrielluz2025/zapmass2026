@@ -9,8 +9,10 @@ import {
   unreadCount
 } from './lib/conversationDisplay';
 import type { WaSocketStatus } from './hooks/useWaRealtime';
-import type { ConversationOrigin } from './lib/conversationOrigin';
 import { WaConvRow } from './WaConvRow';
+import type { InboxSmartTab } from '../../utils/chatInboxPrefs';
+import type { ConversationOrigin } from './lib/conversationOrigin';
+import type { SlaLevel } from './lib/slaUtils';
 
 type Props = {
   conversations: Conversation[];
@@ -41,6 +43,10 @@ type Props = {
   onRequestPicture?: (conversationId: string, force?: boolean) => void;
   onAutoClassifyResponses?: () => void;
   autoClassifying?: boolean;
+  inboxTab?: InboxSmartTab;
+  onInboxTabChange?: (tab: InboxSmartTab) => void;
+  pinnedIds?: string[];
+  slaByConvId?: Map<string, SlaLevel>;
 };
 
 export const WaInbox: React.FC<Props> = memo(function WaInbox({
@@ -72,6 +78,10 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   onRequestPicture,
   onAutoClassifyResponses,
   autoClassifying = false,
+  inboxTab = 'all',
+  onInboxTabChange,
+  pinnedIds = [],
+  slaByConvId,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadMoreLockRef = useRef(false);
@@ -148,7 +158,16 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
     return 'Conecte um chip em Conexões';
   }, [syncing, isOffline, isSlow, chipsConnected]);
 
-  const showAllActive = !unreadOnly && !campaignOnly && connectionFilterId === 'ALL';
+  const smartTabs: { id: InboxSmartTab; label: string }[] = [
+    { id: 'all', label: 'Todas' },
+    { id: 'unread', label: 'Não lidas' },
+    { id: 'hot', label: 'Quentes' },
+    { id: 'campaign', label: 'Campanha' },
+    { id: 'team', label: 'Equipe' },
+    { id: 'archived', label: 'Arquivo' },
+  ];
+
+  const showAllActive = inboxTab === 'all' && !unreadOnly && !campaignOnly && connectionFilterId === 'ALL';
 
   const handleShowAll = useCallback(() => {
     onConnectionFilterChange('ALL');
@@ -240,6 +259,20 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
       {/* O seletor de canal foi movido para o WaChannelRail (coluna esquerda) */}
 
       {/* ── Pills de filtro ─────────────────────────── */}
+      <div className="wa-filter-row flex-shrink-0 wa-filter-row--scroll">
+        {smartTabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className="wa-filter-pill"
+            data-active={inboxTab === t.id ? 'true' : 'false'}
+            onClick={() => onInboxTabChange?.(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       <div className="wa-filter-row flex-shrink-0">
         <button
           type="button"
@@ -247,7 +280,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
           data-active={showAllActive ? 'true' : 'false'}
           onClick={handleShowAll}
         >
-          Todas
+          Reset
         </button>
         {totalUnread > 0 && (
           <button
@@ -339,6 +372,8 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
                   style={{ height: row.size, transform: `translateY(${row.start}px)` }}
                   onSelect={onSelect}
                   onRequestPicture={onRequestPicture}
+                  isPinned={pinnedIds.includes(conv.id)}
+                  slaLevel={slaByConvId?.get(conv.id) ?? 'none'}
                 />
               );
             })}

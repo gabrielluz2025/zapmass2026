@@ -362,6 +362,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   hydrateFirestoreChatArchive: async () => ({ ok: false, total: 0 }),
   loadMessageMedia: async () => ({ ok: false }),
   patchChatMessageMediaUrl: () => {},
+  removeLocalChatMessage: () => {},
   markWarmupReady: () => {},
   pauseCampaign: () => {},
   resumeCampaign: () => {},
@@ -3657,6 +3658,24 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     );
   };
 
+  const removeLocalChatMessage = (conversationId: string, messageId: string) => {
+    if (!conversationId || !messageId) return;
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== conversationId) return c;
+        const msgs = (c.messages || []).filter((m) => m.id !== messageId);
+        if (msgs.length === (c.messages || []).length) return c;
+        const last = msgs[msgs.length - 1];
+        return {
+          ...c,
+          messages: msgs,
+          lastMessage: last?.text ?? c.lastMessage,
+          lastMessageTimestamp: last?.timestampMs ?? c.lastMessageTimestamp,
+        };
+      })
+    );
+  };
+
   const loadMoreInbox = useCallback(() => {
     const socket = socketRef.current;
     if (!socket?.connected || inboxLoadingMore || !inboxHasMore) return;
@@ -4273,6 +4292,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const stableHydrateFirestoreChatArchive = useStableCallback(hydrateFirestoreChatArchive);
   const stableLoadMessageMedia = useStableCallback(loadMessageMedia);
   const stablePatchChatMessageMediaUrl = useStableCallback(patchChatMessageMediaUrl);
+  const stableRemoveLocalChatMessage = useStableCallback(removeLocalChatMessage);
   const stableMarkWarmupReady = useStableCallback(markWarmupReady);
   const stablePauseCampaign = useStableCallback(pauseCampaign);
   const stableResumeCampaign = useStableCallback(resumeCampaign);
@@ -4395,6 +4415,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       hydrateFirestoreChatArchive: stableHydrateFirestoreChatArchive,
       loadMessageMedia: stableLoadMessageMedia,
       patchChatMessageMediaUrl: stablePatchChatMessageMediaUrl,
+      removeLocalChatMessage: stableRemoveLocalChatMessage,
       markWarmupReady: stableMarkWarmupReady,
       pauseCampaign: stablePauseCampaign,
       resumeCampaign: stableResumeCampaign,

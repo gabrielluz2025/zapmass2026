@@ -23,13 +23,38 @@ import {
   buildPhoneDigitLookupKeys,
   normalizePhoneDigits
 } from '../../utils/contactPhoneLookup';
-import type { Conversation } from '../../types';
+import type { ChatMessage, Conversation } from '../../types';
 import { WaInbox } from './WaInbox';
 import { WaThread } from './WaThread';
 import { WaChannelRail } from './WaChannelRail';
+import { WaContextPanel } from './WaContextPanel';
+import { WaForwardModal, WaScheduleModal } from './WaForwardModal';
+import { WaMediaPreviewModal } from './WaMediaPreviewModal';
+import { WaInboxTeamBar } from './WaInboxTeamBar';
 import { ReplyIntentPanel } from './ReplyIntentPanel';
 import { autoApplyReplyIntents } from '../../services/replyIntentApi';
 import { useWaRealtime } from './hooks/useWaRealtime';
+import { useScheduledOutboundDispatch } from './hooks/useScheduledOutbound';
+import {
+  filterConversationsBySmartTab,
+  sortInboxWithPins,
+} from './lib/inboxFilter';
+import { slaLevelForConversation } from './lib/slaUtils';
+import {
+  addScheduledMessagePref,
+  isConversationArchived,
+  isConversationPinned,
+  loadChatInboxPrefs,
+  pruneExpiredSnoozes,
+  removeScheduledMessagePref,
+  saveChatInboxPrefs,
+  snoozeConversationPref,
+  toggleArchivedPref,
+  togglePinnedPref,
+  type ChatInboxPrefsState,
+  type InboxSmartTab,
+  type ScheduledOutbound,
+} from '../../utils/chatInboxPrefs';
 import {
   avatarUrl,
   buildDisplayIndex,
@@ -49,7 +74,10 @@ export const WaWebChatApp: React.FC<{
   onClearAutoSelected?: () => void;
 }> = ({ autoSelectedConversationId, onClearAutoSelected }) => {
   const { user } = useAuth();
-  const { effectiveWorkspaceUid } = useWorkspace();
+  const { effectiveWorkspaceUid, authUid: workspaceAuthUid, isTeamMember } = useWorkspace();
+  const isWorkspaceOwner = Boolean(
+    workspaceAuthUid && effectiveWorkspaceUid && workspaceAuthUid === effectiveWorkspaceUid
+  );
   const tenantUid = effectiveWorkspaceUid ?? user?.uid ?? '';
   const crm = useClientCrm(user?.uid);
   const conversations = useZapMassConversations();
@@ -67,6 +95,9 @@ export const WaWebChatApp: React.FC<{
     hydrateFirestoreChatArchive,
     loadMessageMedia,
     patchChatMessageMediaUrl,
+    removeLocalChatMessage,
+    deleteLocalConversations,
+    patchConversationInboxClaim,
     socket,
     isBackendConnected,
   } = useZapMassCore();
@@ -92,6 +123,18 @@ export const WaWebChatApp: React.FC<{
   const [showContactInfo, setShowContactInfo] = useState(false);
   const [showReplyIntent, setShowReplyIntent] = useState(false);
   const [autoClassifying, setAutoClassifying] = useState(false);
+  const [inboxPrefs, setInboxPrefs] = useState<ChatInboxPrefsState>(() => loadChatInboxPrefs());
+  const [inboxTab, setInboxTab] = useState<InboxSmartTab>('all');
+  const [focusMode, setFocusMode] = useState(false);
+  const [quoteMessage, setQuoteMessage] = useState<ChatMessage | null>(null);
+  const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleDefaultText, setScheduleDefaultText] = useState('');
+  const [mediaPreviewFile, setMediaPreviewFile] = useState<File | null>(null);
+  const [inThreadSearchOpen, setInThreadSearchOpen] = useState(false);
+  const [inThreadQuery, setInThreadQuery] = useState('');
+  const [inThreadMatchIndex, setInThreadMatchIndex] = useState(0);
+  const autoSelectDoneRef = useRef(false);
   const { sending: sendingMedia, sendFile: sendChatFile } = useSendChatMedia(sendMedia);
   /** Evita pedir a mesma foto várias vezes ao servidor (prefetch + chat aberto). */
   const pictureAttemptedRef = useRef<Set<string>>(new Set());
@@ -157,6 +200,25 @@ export const WaWebChatApp: React.FC<{
     isGoWebhookInbox,
   ]);
 
+  useEffect(() => {
+    saveChatInboxPrefs(inboxPrefs);
+  }, [inboxPrefs]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setInboxPrefs((prev) => {
+        const { state, wokeIds } = pruneExpiredSnoozes(prev);
+        if (wokeIds.length === 0) return prev;
+        return state;
+      });
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const updateInboxPrefs = useCallback((updater: (prev: ChatInboxPrefsState) => ChatInboxPrefsState) => {
+    setInboxPrefs((prev) => updater(prev));
+  }, []);
+
   const mergedConversations = useMemo(() => {
     const realIds = new Set(conversations.map((c) => c.id));
     const drafts = draftConversations.filter((d) => !realIds.has(d.id));
@@ -220,20 +282,52 @@ export const WaWebChatApp: React.FC<{
     return map;
   }, [sortedConversations, displayById, profilePicByPhoneKey]);
 
+  const slaByConvId = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof slaLevelForConversation>>();
+    const now = Date.now();
+    for (const c of sortedConversations) {
+      map.set(c.id, slaLevelForConversation(c, now));
+    }
+    return map;
+  }, [sortedConversations]);
+
   const filtered = useMemo(() => {
+    let list = sortedConversations;
+    if (connectionFilterId !== 'ALL') {
+      list = list.filter((c) => c.connectionId === connectionFilterId);
+    }
+    list = filterConversationsBySmartTab(
+      list,
+      inboxTab,
+      inboxPrefs,
+      (id) => crm.get(id),
+      Date.now()
+    );
+    if (unreadOnly && inboxTab === 'all') {
+      list = list.filter((c) => unreadCount(c) > 0);
+    }
     const q = deferredSearch.trim().toLowerCase();
-    return sortedConversations.filter((c) => {
-      if (connectionFilterId !== 'ALL' && c.connectionId !== connectionFilterId) return false;
-      if (unreadOnly && unreadCount(c) === 0) return false;
-      if (!q) return true;
-      const disp = displayById.get(c.id);
-      const primary = disp?.primary?.toLowerCase() ?? '';
-      const sub = disp?.whatsappSubtitle?.toLowerCase() ?? '';
-      const phone = (c.contactPhone || '').toLowerCase();
-      const preview = (c.lastMessage || '').toLowerCase();
-      return primary.includes(q) || sub.includes(q) || phone.includes(q) || preview.includes(q);
-    });
-  }, [sortedConversations, deferredSearch, unreadOnly, connectionFilterId, displayById]);
+    if (q) {
+      list = list.filter((c) => {
+        const disp = displayById.get(c.id);
+        const primary = disp?.primary?.toLowerCase() ?? '';
+        const sub = disp?.whatsappSubtitle?.toLowerCase() ?? '';
+        const phone = (c.contactPhone || '').toLowerCase();
+        const preview = (c.lastMessage || '').toLowerCase();
+        return primary.includes(q) || sub.includes(q) || phone.includes(q) || preview.includes(q);
+      });
+    }
+    return sortInboxWithPins(list, inboxPrefs.pinnedIds);
+  }, [
+    sortedConversations,
+    connectionFilterId,
+    inboxTab,
+    inboxPrefs,
+    crm.get,
+    unreadOnly,
+    deferredSearch,
+    displayById,
+  ]);
 
   const selected = useMemo(
     () => sortedConversations.find((c) => c.id === selectedId) ?? null,
@@ -244,10 +338,28 @@ export const WaWebChatApp: React.FC<{
     (id: string) => {
       setSelectedId(id);
       setMobileShowThread(true);
+      setQuoteMessage(null);
       markAsRead(id);
     },
     [markAsRead]
   );
+
+  /** Desktop: auto-seleciona a primeira conversa quando a lista carrega. */
+  useEffect(() => {
+    if (autoSelectDoneRef.current || selectedId || filtered.length === 0) return;
+    if (typeof window !== 'undefined' && window.innerWidth < 768) return;
+    if (autoSelectedConversationId?.trim()) return;
+    autoSelectDoneRef.current = true;
+    selectChat(filtered[0].id);
+  }, [filtered, selectedId, selectChat, autoSelectedConversationId]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    setInThreadSearchOpen(false);
+    setInThreadQuery('');
+    setInThreadMatchIndex(0);
+    setQuoteMessage(null);
+  }, [selectedId]);
 
   useEffect(() => {
     let id = autoSelectedConversationId?.trim() || '';
@@ -812,6 +924,127 @@ export const WaWebChatApp: React.FC<{
     if (!selected) setShowContactInfo(false);
   }, [selected?.id]);
 
+  const inThreadMatchIds = useMemo(() => {
+    if (!inThreadQuery.trim() || !selected?.messages?.length) return [];
+    const q = inThreadQuery.trim().toLowerCase();
+    return selected.messages
+      .filter((m) => (m.text || '').toLowerCase().includes(q))
+      .map((m) => m.id);
+  }, [selected?.messages, inThreadQuery]);
+
+  useEffect(() => {
+    if (inThreadMatchIds.length === 0) {
+      setInThreadMatchIndex(0);
+      return;
+    }
+    setInThreadMatchIndex((i) => Math.min(i, inThreadMatchIds.length - 1));
+  }, [inThreadMatchIds]);
+
+  const highlightMessageId = inThreadMatchIds[inThreadMatchIndex] ?? null;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && selected) {
+        e.preventDefault();
+        setInThreadSearchOpen(true);
+      }
+      if (e.key === 'Escape' && inThreadSearchOpen) {
+        setInThreadSearchOpen(false);
+        setInThreadQuery('');
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selected, inThreadSearchOpen]);
+
+  const handleScheduledDue = useCallback(
+    (item: ScheduledOutbound) => {
+      sendMessage(item.conversationId, item.text);
+      updateInboxPrefs((prev) => removeScheduledMessagePref(prev, item.id));
+      toast.success('Mensagem agendada enviada.');
+    },
+    [sendMessage, updateInboxPrefs]
+  );
+
+  useScheduledOutboundDispatch({
+    scheduled: inboxPrefs.scheduled,
+    onDue: handleScheduledDue,
+  });
+
+  const handleForward = useCallback(
+    (targetId: string, text: string) => {
+      if (!text.trim()) return;
+      sendMessage(targetId, text.trim());
+      toast.success('Mensagem encaminhada.');
+    },
+    [sendMessage]
+  );
+
+  const handleDeleteLocalMessage = useCallback(
+    (msg: ChatMessage) => {
+      if (!selected?.id) return;
+      removeLocalChatMessage(selected.id, msg.id);
+    },
+    [selected?.id, removeLocalChatMessage]
+  );
+
+  const handleDeleteConversation = useCallback(() => {
+    if (!selected?.id) return;
+    const ok = window.confirm(
+      'Remover esta conversa apenas da tela local?\n\nO histórico no WhatsApp não é apagado.'
+    );
+    if (!ok) return;
+    void deleteLocalConversations([selected.id]).then((n) => {
+      if (n > 0) {
+        setSelectedId(null);
+        toast.success('Conversa removida da lista local.');
+      }
+    });
+  }, [selected?.id, deleteLocalConversations]);
+
+  const handleScheduleConfirm = useCallback(
+    (text: string, sendAt: number) => {
+      if (!selected?.id) return;
+      const item: ScheduledOutbound = {
+        id: `sched-${Date.now()}`,
+        conversationId: selected.id,
+        text,
+        sendAt,
+        connectionId: selected.connectionId,
+      };
+      updateInboxPrefs((prev) => addScheduledMessagePref(prev, item));
+      toast.success(`Agendado para ${new Date(sendAt).toLocaleString('pt-BR')}`);
+    },
+    [selected?.id, selected?.connectionId, updateInboxPrefs]
+  );
+
+  const handleMediaPreviewSend = useCallback(
+    (caption: string) => {
+      if (!mediaPreviewFile || !selected?.id) return;
+      handleSendMedia(mediaPreviewFile, caption.trim() || undefined);
+      setMediaPreviewFile(null);
+    },
+    [mediaPreviewFile, selected?.id, handleSendMedia]
+  );
+
+  const handleInboxTabChange = useCallback((tab: InboxSmartTab) => {
+    setInboxTab(tab);
+    if (tab === 'unread') setUnreadOnly(true);
+    else if (tab === 'all') setUnreadOnly(false);
+  }, []);
+
+  const teamBar = selected ? (
+    <WaInboxTeamBar
+      conversation={selected}
+      isDraft={isSelectedDraft}
+      workspaceAuthUid={workspaceAuthUid}
+      isTeamMember={isTeamMember}
+      isWorkspaceOwner={isWorkspaceOwner}
+      patchConversationInboxClaim={patchConversationInboxClaim}
+      socket={socket}
+    />
+  ) : null;
+
   const selectedDisplay = selected ? displayById.get(selected.id) : null;
   const selectedTitle = selected
     ? inboxListTitle(selectedDisplay, selected)
@@ -819,16 +1052,20 @@ export const WaWebChatApp: React.FC<{
 
   return (
     <div className="flex flex-1 min-h-0 flex-col">
-      <div className="wa-chat-pro wa-pipeline-root flex min-h-0 flex-1">
+      <div
+        className={`wa-chat-pro wa-pipeline-root flex min-h-0 flex-1${focusMode ? ' wa-chat-pro--focus' : ''}`}
+      >
 
-      {/* ── Rail de canais (3ª coluna à esquerda) ── */}
+      {!focusMode && (
       <WaChannelRail
         connections={connections}
         conversations={sortedConversations}
         activeId={connectionFilterId}
         onChange={setConnectionFilterId}
       />
+      )}
 
+      {!focusMode && (
       <WaInbox
         conversations={filtered}
         allConversations={sortedConversations}
@@ -854,7 +1091,12 @@ export const WaWebChatApp: React.FC<{
         inboxLoadingMore={inboxLoadingMore}
         onLoadMore={loadMoreInbox}
         onRequestPicture={requestConversationPicture}
+        inboxTab={inboxTab}
+        onInboxTabChange={handleInboxTabChange}
+        pinnedIds={inboxPrefs.pinnedIds}
+        slaByConvId={slaByConvId}
       />
+      )}
 
       <WaThread
         conversation={selected}
@@ -888,7 +1130,70 @@ export const WaWebChatApp: React.FC<{
         draftChannels={connections}
         draftChannelId={selectedDraftChannelId}
         onDraftChannelChange={handleDraftChannelChange}
+        teamBar={teamBar}
+        pipelineAgg={pipelineAgg}
+        quoteMessage={quoteMessage}
+        onQuoteChange={setQuoteMessage}
+        onForwardMessage={(m) => setForwardMsg(m)}
+        onDeleteLocalMessage={handleDeleteLocalMessage}
+        onDeleteConversation={selected ? handleDeleteConversation : undefined}
+        onSearchInThread={selected ? () => setInThreadSearchOpen(true) : undefined}
+        inThreadSearchOpen={inThreadSearchOpen}
+        inThreadQuery={inThreadQuery}
+        inThreadMatchCount={inThreadMatchIds.length}
+        inThreadMatchIndex={inThreadMatchIndex}
+        onInThreadQueryChange={setInThreadQuery}
+        onInThreadSearchClose={() => {
+          setInThreadSearchOpen(false);
+          setInThreadQuery('');
+        }}
+        onInThreadPrev={() =>
+          setInThreadMatchIndex((i) =>
+            inThreadMatchIds.length ? (i - 1 + inThreadMatchIds.length) % inThreadMatchIds.length : 0
+          )
+        }
+        onInThreadNext={() =>
+          setInThreadMatchIndex((i) =>
+            inThreadMatchIds.length ? (i + 1) % inThreadMatchIds.length : 0
+          )
+        }
+        highlightMessageId={highlightMessageId}
+        onPickFileForPreview={(file) => setMediaPreviewFile(file)}
+        focusMode={focusMode}
+        onToggleFocus={() => setFocusMode((v) => !v)}
       />
+
+      {selected && !focusMode && (
+        <WaContextPanel
+          conversation={selected}
+          display={selectedDisplay ?? null}
+          avatarSrc={avatarById.get(selected.id) || ''}
+          connectionName={selectedConnection?.name}
+          crmData={crm.get(selected.id)}
+          pipelineAgg={pipelineAgg}
+          displayTitle={selectedTitle}
+          onClose={() => setSelectedId(null)}
+          onUpdateCrm={(patch) => crm.update(selected.id, patch)}
+          onClearCrm={() => crm.clear(selected.id)}
+          onExport={handleExportConversation}
+          onAnalyzeIntent={() => setShowReplyIntent(true)}
+          onPin={() => updateInboxPrefs((p) => togglePinnedPref(p, selected.id))}
+          onArchive={() => updateInboxPrefs((p) => toggleArchivedPref(p, selected.id))}
+          onSnooze={(hours) =>
+            updateInboxPrefs((p) =>
+              snoozeConversationPref(p, selected.id, Date.now() + hours * 60 * 60_000)
+            )
+          }
+          onSchedule={() => {
+            setScheduleDefaultText('');
+            setScheduleOpen(true);
+          }}
+          isPinned={isConversationPinned(inboxPrefs, selected.id)}
+          isArchived={isConversationArchived(inboxPrefs, selected.id)}
+          onSearchInThread={() => setInThreadSearchOpen(true)}
+          hideOnMobile={!mobileShowThread}
+        />
+      )}
 
       {selected && (
         <ReplyIntentPanel
@@ -923,6 +1228,31 @@ export const WaWebChatApp: React.FC<{
           />
         </WaContactDrawer>
       )}
+
+      <WaForwardModal
+        open={Boolean(forwardMsg)}
+        messageText={forwardMsg?.text || ''}
+        conversations={sortedConversations}
+        displayById={displayById}
+        excludeId={selected?.id}
+        onClose={() => setForwardMsg(null)}
+        onForward={handleForward}
+      />
+
+      <WaScheduleModal
+        open={scheduleOpen}
+        defaultText={scheduleDefaultText}
+        onClose={() => setScheduleOpen(false)}
+        onConfirm={handleScheduleConfirm}
+      />
+
+      <WaMediaPreviewModal
+        open={Boolean(mediaPreviewFile)}
+        file={mediaPreviewFile}
+        busy={sendingMedia}
+        onClose={() => setMediaPreviewFile(null)}
+        onSend={handleMediaPreviewSend}
+      />
       </div>
     </div>
   );

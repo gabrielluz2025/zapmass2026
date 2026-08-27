@@ -708,6 +708,8 @@ export interface ZapMassContextType {
   loadMessageMedia: (conversationId: string, messageId: string) => Promise<{ ok: boolean; mediaUrl?: string; error?: string }>;
   /** Persiste URL de mídia no estado global para não sumir após re-render/socket. */
   patchChatMessageMediaUrl: (conversationId: string, messageId: string, mediaUrl: string) => void;
+  /** Remove mensagem só da UI local (não apaga no WhatsApp). */
+  removeLocalChatMessage: (conversationId: string, messageId: string) => void;
   markWarmupReady: (numbers: string[]) => void;
   pauseCampaign: (campaignId: string) => void;
   resumeCampaign: (campaignId: string) => void;

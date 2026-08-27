@@ -11,9 +11,24 @@ import type { ChatMessage } from '../../types';
 
 type Props = {
   msg: ChatMessage;
-  /** silent=true no auto-load (não exibe toast ao falhar); false/undefined no clique manual */
   onLoadMedia?: (messageId: string, silent?: boolean) => Promise<string | null>;
+  searchHighlight?: string;
 };
+
+function highlightText(text: string, needle: string): React.ReactNode {
+  const q = needle.trim();
+  if (!q) return text;
+  const lower = text.toLowerCase();
+  const idx = lower.indexOf(q.toLowerCase());
+  if (idx < 0) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="wa-search-hit">{text.slice(idx, idx + q.length)}</mark>
+      {text.slice(idx + q.length)}
+    </>
+  );
+}
 
 /** Botão placeholder enquanto a mídia não está carregada */
 const MediaPlaceholder: React.FC<{
@@ -38,7 +53,7 @@ const MediaPlaceholder: React.FC<{
   </button>
 );
 
-export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia }) => {
+export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia, searchHighlight }) => {
   // URL resolvida localmente — usada quando conversation-delta não chega
   const [localUrl, setLocalUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -217,5 +232,5 @@ export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia }) => {
       </span>
     );
   }
-  return <span style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{text}</span>;
+  return <span style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{highlightText(text, searchHighlight || '')}</span>;
 };

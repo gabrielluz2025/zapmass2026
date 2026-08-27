@@ -1,8 +1,8 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDown, ArrowLeft, History, Loader2, Lock, MoreVertical, ScanSearch } from 'lucide-react';
+import { ArrowDown, ArrowLeft, History, Loader2, Lock, MoreVertical, ScanSearch, Search, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import type { Conversation, WhatsAppConnection } from '../../types';
+import type { ChatMessage, Conversation, WhatsAppConnection } from '../../types';
 import { WaBubble } from '../chat/wa/WaBubble';
 import { WaComposer } from './WaComposer';
 import { WaMessageContent } from './WaMessageContent';
@@ -11,6 +11,9 @@ import { formatContactPresenceSubtitle } from '../../utils/evolutionPresence';
 import { inboxListTitle } from './lib/conversationDisplay';
 import { formatDayLabel, formatMsgTime, messageDayKey } from './lib/messageTime';
 import type { WaSocketStatus } from './hooks/useWaRealtime';
+import { WaInThreadSearchBar, WaMessageMenu } from './WaMessageTools';
+import { WaCampaignContextBar } from './WaCampaignContextBar';
+import type { getConversationPipelineAgg } from './lib/chatPreview';
 
 type VirtualRow =
   | { kind: 'date'; id: string; label: string }
@@ -61,6 +64,26 @@ type Props = {
   onExport?: () => void;
   onGetAiSuggestions?: () => Promise<string[]>;
   onAnalyzeIntent?: () => void;
+  teamBar?: React.ReactNode;
+  pipelineAgg?: ReturnType<typeof getConversationPipelineAgg>;
+  quoteMessage?: ChatMessage | null;
+  onQuoteChange?: (msg: ChatMessage | null) => void;
+  onForwardMessage?: (msg: ChatMessage) => void;
+  onDeleteLocalMessage?: (msg: ChatMessage) => void;
+  onDeleteConversation?: () => void;
+  onSearchInThread?: () => void;
+  inThreadSearchOpen?: boolean;
+  inThreadQuery?: string;
+  inThreadMatchCount?: number;
+  inThreadMatchIndex?: number;
+  onInThreadQueryChange?: (q: string) => void;
+  onInThreadSearchClose?: () => void;
+  onInThreadPrev?: () => void;
+  onInThreadNext?: () => void;
+  highlightMessageId?: string | null;
+  onPickFileForPreview?: (file: File) => void;
+  focusMode?: boolean;
+  onToggleFocus?: () => void;
 };
 
 function messageShowsTail(messages: Conversation['messages'], index: number): boolean {
@@ -98,12 +121,35 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
   onExport,
   onGetAiSuggestions,
   onAnalyzeIntent,
+  teamBar,
+  pipelineAgg,
+  quoteMessage,
+  onQuoteChange,
+  onForwardMessage,
+  onDeleteLocalMessage,
+  onDeleteConversation,
+  onSearchInThread,
+  inThreadSearchOpen = false,
+  inThreadQuery = '',
+  inThreadMatchCount = 0,
+  inThreadMatchIndex = 0,
+  onInThreadQueryChange,
+  onInThreadSearchClose,
+  onInThreadPrev,
+  onInThreadNext,
+  highlightMessageId,
+  onPickFileForPreview,
+  focusMode,
+  onToggleFocus,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollPreserveRef = useRef<{ id: string; height: number; top: number } | null>(null);
   const prevConvIdRef = useRef<string | null>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [isBotPaused, setIsBotPaused] = useState(false);
+  const [menuMsg, setMenuMsg] = useState<ChatMessage | null>(null);
+  const [menuRect, setMenuRect] = useState<DOMRect | null>(null);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const messages = conversation?.messages ?? [];
   const virtualRows = useMemo(() => buildVirtualRows(messages), [messages]);
 
@@ -284,28 +330,67 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
           </p>
         </div>
         {onAnalyzeIntent && (
-          <button
-            type="button"
-            className="wa-icon-btn flex-shrink-0"
-            onClick={onAnalyzeIntent}
-            aria-label="Analisar intenção da resposta"
-            title="Analisar intenção (quero / sair / cortesia)"
-          >
+          <button type="button" className="wa-icon-btn flex-shrink-0" onClick={onAnalyzeIntent} aria-label="Analisar intenção" title="Analisar intenção">
             <ScanSearch className="w-5 h-5" />
           </button>
         )}
-        {onOpenContactInfo && (
+        {onSearchInThread && (
+          <button type="button" className="wa-icon-btn flex-shrink-0" onClick={onSearchInThread} aria-label="Buscar na conversa" title="Buscar (Ctrl+F)">
+            <Search className="w-5 h-5" />
+          </button>
+        )}
+        {onToggleFocus && (
+          <button type="button" className="wa-icon-btn flex-shrink-0" onClick={onToggleFocus} aria-label="Modo foco" title="Modo foco">
+            {focusMode ? '◧' : '◨'}
+          </button>
+        )}
+        <div className="relative flex-shrink-0">
           <button
             type="button"
-            className="wa-icon-btn flex-shrink-0"
-            onClick={onOpenContactInfo}
-            aria-label="Dados do contato e CRM"
-            title="Ficha do cliente"
+            className="wa-icon-btn"
+            onClick={() => setHeaderMenuOpen((v) => !v)}
+            aria-label="Menu da conversa"
           >
             <MoreVertical className="w-5 h-5" />
           </button>
-        )}
+          {headerMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-[100]" onClick={() => setHeaderMenuOpen(false)} aria-hidden />
+              <div className="wa-msg-menu" style={{ position: 'absolute', right: 0, top: '100%', zIndex: 101 }}>
+                {onOpenContactInfo && (
+                  <button type="button" className="wa-msg-menu__item" onClick={() => { onOpenContactInfo(); setHeaderMenuOpen(false); }}>
+                    Ficha do cliente
+                  </button>
+                )}
+                {onDeleteConversation && (
+                  <button type="button" className="wa-msg-menu__item wa-msg-menu__item--danger" onClick={() => { onDeleteConversation(); setHeaderMenuOpen(false); }}>
+                    <Trash2 className="w-4 h-4" /> Apagar conversa local
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </header>
+
+      <WaInThreadSearchBar
+        open={inThreadSearchOpen}
+        query={inThreadQuery}
+        matchCount={inThreadMatchCount}
+        matchIndex={inThreadMatchIndex}
+        onQueryChange={onInThreadQueryChange ?? (() => undefined)}
+        onClose={onInThreadSearchClose ?? (() => undefined)}
+        onPrev={onInThreadPrev ?? (() => undefined)}
+        onNext={onInThreadNext ?? (() => undefined)}
+      />
+
+      {teamBar}
+
+      <WaCampaignContextBar
+        conversation={conversation}
+        pipelineAgg={pipelineAgg ?? null}
+        connectionName={connectionName}
+      />
 
       <div className="relative flex-1 min-h-0">
         <div
@@ -364,15 +449,17 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
               const isTail = messageShowsTail(messages, vr.index);
 
               return (
-                // NÃO definir height aqui — o measureElement observa a altura real
-                // e atualiza o layout. Forçar height: row.size causa sobreposição
-                // quando mensagens longas ultrapassam a estimativa inicial.
                 <div
                   key={vr.id}
                   ref={virtualizer.measureElement}
                   data-index={row.index}
-                  className="absolute left-0 w-full"
+                  className={`absolute left-0 w-full${highlightMessageId === msg.id ? ' wa-msg-highlight' : ''}`}
                   style={{ transform: `translateY(${row.start}px)` }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenuMsg(msg);
+                    setMenuRect(new DOMRect(e.clientX, e.clientY, 0, 0));
+                  }}
                 >
                   <WaBubble
                     side={side}
@@ -381,7 +468,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
                     time={formatMsgTime(msg)}
                     fromCampaign={msg.fromCampaign}
                   >
-                    <WaMessageContent msg={msg} onLoadMedia={onLoadMedia} />
+                    <WaMessageContent msg={msg} onLoadMedia={onLoadMedia} searchHighlight={inThreadQuery.trim() || undefined} />
                   </WaBubble>
                 </div>
               );
@@ -434,11 +521,15 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
       </div>
 
       <WaComposer
+        conversationId={conversation.id}
         disabled={!canSend}
         disabledHint={canSend ? undefined : 'Conecte um chip WhatsApp para enviar'}
         sendingMedia={sendingMedia}
+        quoteMessage={quoteMessage}
+        onClearQuote={() => onQuoteChange?.(null)}
         onSend={onSend}
         onAttach={canSend ? onAttach : undefined}
+        onPickFileForPreview={canSend ? onPickFileForPreview : undefined}
         onExport={onExport}
         onGetAiSuggestions={onGetAiSuggestions}
         isDraft={isDraft}
@@ -446,6 +537,17 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
         draftChannelId={draftChannelId}
         onDraftChannelChange={onDraftChannelChange}
       />
+
+      {menuMsg && (
+        <WaMessageMenu
+          message={menuMsg}
+          anchorRect={menuRect}
+          onClose={() => setMenuMsg(null)}
+          onReply={(m) => onQuoteChange?.(m)}
+          onForward={(m) => onForwardMessage?.(m)}
+          onDeleteLocal={(m) => onDeleteLocalMessage?.(m)}
+        />
+      )}
     </section>
   );
 });
