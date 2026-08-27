@@ -31,26 +31,23 @@ export const HomologBanner: React.FC = () => {
   if (env !== 'homolog') return null;
 
   return (
-    <>
-      <div
-        className="fixed top-0 left-0 right-0 z-[100] flex items-center justify-center gap-2 border-b border-amber-500/40 bg-amber-950/90 px-3 py-1.5 text-center text-xs font-semibold text-amber-100 backdrop-blur-sm"
-        role="status"
-        aria-live="polite"
-      >
-        <FlaskConical className="h-3.5 w-3.5 shrink-0 text-amber-300" aria-hidden />
-        <span>
-          Ambiente de homologação — chips e dados de teste. Produção:{' '}
-          <a
-            href="https://zap-mass.com"
-            className="underline decoration-amber-400/60 underline-offset-2 hover:text-white"
-            target="_blank"
-            rel="noreferrer"
-          >
-            zap-mass.com
-          </a>
-        </span>
-      </div>
-      <div className="h-8 shrink-0" aria-hidden />
-    </>
+    <div
+      className="homolog-banner flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/35 bg-amber-950/92 px-3 py-1.5 text-center text-[11px] font-medium text-amber-100/95"
+      role="status"
+      aria-live="polite"
+    >
+      <FlaskConical className="h-3.5 w-3.5 shrink-0 text-amber-300" aria-hidden />
+      <span className="truncate">
+        Homologação — dados de teste. Produção:{' '}
+        <a
+          href="https://zap-mass.com"
+          className="underline decoration-amber-400/50 underline-offset-2 hover:text-white"
+          target="_blank"
+          rel="noreferrer"
+        >
+          zap-mass.com
+        </a>
+      </span>
+    </div>
   );
 };

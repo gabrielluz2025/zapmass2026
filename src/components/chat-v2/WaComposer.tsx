@@ -214,7 +214,7 @@ export const WaComposer: React.FC<Props> = ({
         </div>
       )}
 
-      <WaQuickRepliesBar onPick={(t) => submit(t)} />
+      <WaQuickRepliesBar onPick={(t) => submit(t)} maxVisible={3} />
 
       {(aiSuggestions.length > 0 || loadingAi) && (
         <div className="wa-ai-suggestions">
@@ -253,6 +253,12 @@ export const WaComposer: React.FC<Props> = ({
         <div className="wa-composer-row">
           <input ref={fileRef} type="file" className="sr-only" accept={ACCEPT} onChange={onFileChange} tabIndex={-1} />
 
+          {blocked && disabledHint && (
+            <p id="wa-composer-blocked-hint" className="wa-composer-blocked" role="status">
+              {disabledHint}
+            </p>
+          )}
+
           {(onAttach || onPickFileForPreview) && (
             <button type="button" className="wa-composer-btn" disabled={blocked || busy} onClick={pickFile} aria-label="Anexar">
               <Paperclip className="w-5 h-5" />
@@ -266,12 +272,12 @@ export const WaComposer: React.FC<Props> = ({
               rows={1}
               placeholder={
                 busy ? 'Enviando…'
-                  : isDraft && !draftChannelId ? 'Escolha um canal acima'
-                    : blocked && disabledHint ? disabledHint
-                      : 'Digite uma mensagem'
+                  : isDraft && !draftChannelId ? 'Escolha o canal acima'
+                    : 'Digite uma mensagem'
               }
               value={text}
               disabled={blocked || busy}
+              aria-describedby={blocked && disabledHint ? 'wa-composer-blocked-hint' : undefined}
               onChange={(e) => {
                 setText(e.target.value);
                 const el = e.target;

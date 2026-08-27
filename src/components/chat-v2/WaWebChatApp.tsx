@@ -242,6 +242,15 @@ export const WaWebChatApp: React.FC<{
     [sortedConversations, deferredContacts]
   );
 
+  const contactByPhoneKey = useMemo(() => {
+    const map = new Map<string, (typeof deferredContacts)[number]>();
+    for (const ct of deferredContacts) {
+      const nk = normPhoneKey(ct.phone || '');
+      if (nk) map.set(nk, ct);
+    }
+    return map;
+  }, [deferredContacts]);
+
   const profilePicByPhoneKey = useMemo(() => {
     const map = new Map<string, string>();
     for (const ct of deferredContacts) {
@@ -301,7 +310,11 @@ export const WaWebChatApp: React.FC<{
       inboxTab,
       inboxPrefs,
       (id) => crm.get(id),
-      Date.now()
+      Date.now(),
+      (conv) => {
+        const phone = normPhoneKey(phoneRawForContactLookup(conv));
+        return phone ? contactByPhoneKey.get(phone) : undefined;
+      }
     );
     if (unreadOnly && inboxTab === 'all') {
       list = list.filter((c) => unreadCount(c) > 0);
@@ -324,9 +337,11 @@ export const WaWebChatApp: React.FC<{
     inboxTab,
     inboxPrefs,
     crm.get,
+    crm.data,
     unreadOnly,
     deferredSearch,
     displayById,
+    contactByPhoneKey,
   ]);
 
   const selected = useMemo(
@@ -788,15 +803,16 @@ export const WaWebChatApp: React.FC<{
 
   const handleRefresh = useCallback(() => {
     const full = !isGoWebhookInbox;
-    runResync({ full });
+    runResync({ full, force: true });
     requestSync({ full });
+    if (selectedId) void loadMoreHistory(selectedId, true);
     toast.success(
       full
-        ? 'Sincronizando com o WhatsApp…'
+        ? 'Sincronizando conversas e mensagens…'
         : 'Atualizando conversas recentes…',
       { duration: 2500 }
     );
-  }, [runResync, requestSync, isGoWebhookInbox]);
+  }, [runResync, requestSync, isGoWebhookInbox, selectedId, loadMoreHistory]);
 
   const handleAutoClassifyResponses = useCallback(async () => {
     const ok = window.confirm(
@@ -1104,7 +1120,8 @@ export const WaWebChatApp: React.FC<{
         avatarSrc={selected ? avatarById.get(selected.id) || '' : ''}
         loadingHistory={loadingHistory}
         historyExhausted={selected ? !!historyExhausted[selected.id] : true}
-        canSend={!!selected && connectedChannels.length > 0}
+        canSend={!!selected && selectedChipConnected}
+        chipsConnected={connectedChannels.length}
         socketStatus={isBackendConnected ? socketStatus : 'offline'}
         syncing={syncing}
         chipConnected={selectedChipConnected}

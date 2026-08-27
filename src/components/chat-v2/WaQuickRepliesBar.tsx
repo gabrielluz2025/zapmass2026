@@ -5,10 +5,11 @@ import { loadChatQuickReplies, type ChatQuickReply } from '../../utils/chatQuick
 type Props = {
   onPick: (text: string) => void;
   onManage?: () => void;
+  maxVisible?: number;
 };
 
-export const WaQuickRepliesBar: React.FC<Props> = ({ onPick, onManage }) => {
-  const items: ChatQuickReply[] = loadChatQuickReplies().slice(0, 8);
+export const WaQuickRepliesBar: React.FC<Props> = ({ onPick, onManage, maxVisible = 8 }) => {
+  const items: ChatQuickReply[] = loadChatQuickReplies().slice(0, maxVisible);
 
   if (items.length === 0) return null;
 

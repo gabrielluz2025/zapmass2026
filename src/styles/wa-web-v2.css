@@ -43,7 +43,7 @@ html .wa-chat-pro {
 .wa-chat-pro.wa-pipeline-root {
   flex: 1 1 auto;
   min-height: 0;
-  height: clamp(520px, calc(100dvh - 9.5rem), 1200px);
+  height: clamp(480px, calc(100dvh - 11rem), 1200px);
   border-radius: 14px;
   border: 1px solid var(--wa-divider);
   box-shadow: var(--wa-shadow-md);
@@ -1302,4 +1302,51 @@ html .wa-chat-pro .wa-bubble[data-tail='true'][data-side='out']::before {
 .wa-quick-replies__chip:hover {
   background: var(--wa-search);
   color: var(--wa-text);
+}
+
+/* ── Banner homolog (in-flow, não cobre TopBar) ─ */
+.homolog-banner {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+/* ── Inbox status compacto ───────────────────── */
+.wa-inbox-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 11px;
+  color: var(--wa-text-3);
+  border-bottom: 1px solid var(--wa-divider);
+  background: color-mix(in srgb, var(--wa-panel) 92%, transparent);
+}
+.wa-inbox-status[data-state='off'] { color: #f87171; }
+.wa-inbox-status[data-state='slow'] { color: #fbbf24; }
+
+.wa-inbox-header--wa {
+  height: 56px;
+  padding: 0 16px;
+}
+.wa-inbox-title--main {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ── Composer bloqueado (fora do placeholder) ─ */
+.wa-composer-blocked {
+  margin: 0;
+  padding: 6px 14px 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--wa-text-3);
+  text-align: center;
+}
+
+.wa-chat-pro .wa-quick-replies {
+  padding: 4px 10px;
+  border-top: none;
+  background: transparent;
 }

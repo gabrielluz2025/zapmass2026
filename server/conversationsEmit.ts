@@ -36,11 +36,14 @@ export function slimConversationsForBroadcast(list: Conversation[]): Conversatio
       Array.isArray(conv.messages) &&
       conv.messages.some((m) => typeof m.mediaUrl === 'string' && m.mediaUrl.startsWith('data:'))
     ) {
-      slimMessages = conv.messages.map((m) =>
-        typeof m.mediaUrl === 'string' && m.mediaUrl.startsWith('data:')
-          ? { ...m, mediaUrl: undefined }
-          : m
-      );
+      slimMessages = conv.messages.map((m) => {
+        const slim: Conversation['messages'][number] = { ...m };
+        if ('waMediaPayload' in slim) delete (slim as { waMediaPayload?: unknown }).waMediaPayload;
+        if (typeof slim.mediaUrl === 'string' && slim.mediaUrl.startsWith('data:')) {
+          slim.mediaUrl = undefined;
+        }
+        return slim;
+      });
     }
     if (slimPic === pic && slimMessages === conv.messages) return conv;
     return { ...conv, profilePicUrl: slimPic, messages: slimMessages };
