@@ -819,7 +819,52 @@ html[data-mode='dark'] .wa-bubble[data-side='out'] .wa-bubble-meta { color: rgba
   white-space: pre-wrap;
 }
 
-/* Placeholder de mídia */
+/* ── Placeholder thumbnail de imagem/vídeo (quadrado, estilo WA Web) ── */
+.wa-media-thumb-ph {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 260px;
+  height: 200px;
+  max-width: min(260px, 62vw);
+  border: none;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  color: rgba(255,255,255,0.75);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+html[data-mode='dark'] .wa-media-thumb-ph {
+  background: rgba(0, 0, 0, 0.35);
+}
+.wa-media-thumb-ph:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.28);
+}
+.wa-media-thumb-ph:disabled {
+  cursor: wait;
+}
+.wa-media-thumb-ph__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(255,255,255,0.9);
+}
+.wa-media-thumb-ph__label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.7);
+  position: absolute;
+  bottom: 10px;
+}
+
+/* ── Placeholder inline compacto (áudio, documento) ── */
 .wa-media-ph {
   display: flex;
   align-items: center;

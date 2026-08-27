@@ -1,20 +1,15 @@
 /**
  * Renderiza o conteúdo de uma bolha de mensagem.
- *
- * FIX CRÍTICO: o servidor retorna { ok: true, mediaUrl } mas o evento conversation-delta
- * às vezes não chega quando a mensagem não está na RAM da conversa.
- * Solução: guardar a URL retornada em estado local e usar como fallback de msg.mediaUrl.
+ * Visual idêntico ao WhatsApp Web.
  */
 import React, { useState } from 'react';
 import {
   Download,
   FileText,
-  Image as ImageIcon,
   Loader2,
   Mic,
+  Play,
   RefreshCw,
-  Sticker,
-  Video,
 } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import { WaAudioPlayer } from './WaAudioPlayer';
@@ -27,14 +22,6 @@ type Props = {
 };
 
 type MediaKind = 'audio' | 'image' | 'video' | 'document' | 'sticker';
-
-const MEDIA_LABELS: Record<MediaKind, string> = {
-  audio: 'Mensagem de voz',
-  image: 'Foto',
-  video: 'Vídeo',
-  document: 'Documento',
-  sticker: 'Figurinha',
-};
 
 function highlightText(text: string, needle: string): React.ReactNode {
   const q = needle.trim();
@@ -51,39 +38,56 @@ function highlightText(text: string, needle: string): React.ReactNode {
   );
 }
 
-function MediaIcon({ kind }: { kind: MediaKind }) {
-  const cls = 'wa-media-ph__svg';
-  switch (kind) {
-    case 'audio':
-      return <Mic className={cls} strokeWidth={2} />;
-    case 'image':
-      return <ImageIcon className={cls} strokeWidth={2} />;
-    case 'video':
-      return <Video className={cls} strokeWidth={2} />;
-    case 'document':
-      return <FileText className={cls} strokeWidth={2} />;
-    default:
-      return <Sticker className={cls} strokeWidth={2} />;
-  }
-}
-
 function docExtension(name: string): string {
   const dot = name.lastIndexOf('.');
   if (dot < 1 || dot === name.length - 1) return 'DOC';
   return name.slice(dot + 1).slice(0, 4).toUpperCase();
 }
 
-/** Placeholder compacto enquanto a mídia não está carregada */
-const MediaPlaceholder: React.FC<{
-  kind: MediaKind;
-  title?: string;
-  onClick: () => void;
+/** Placeholder visual de imagem/vídeo — quadrado cinza como no WA Web */
+const ImageVideoPlaceholder: React.FC<{
+  kind: 'image' | 'video' | 'sticker';
   loading?: boolean;
   failed?: boolean;
-}> = ({ kind, title, onClick, loading, failed }) => {
-  const label = title?.trim() || MEDIA_LABELS[kind];
-  const hint = loading ? 'Carregando…' : failed ? 'Toque para tentar de novo' : 'Toque para abrir';
+  onClick: () => void;
+}> = ({ kind, loading, failed, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="wa-media-thumb-ph"
+    disabled={loading}
+    title={failed ? 'Falha ao carregar — tentar novamente' : 'Carregar mídia'}
+  >
+    <div className="wa-media-thumb-ph__icon">
+      {loading ? (
+        <Loader2 size={26} className="wa-media-ph__spin" strokeWidth={2} />
+      ) : failed ? (
+        <RefreshCw size={26} strokeWidth={2} />
+      ) : kind === 'video' ? (
+        <Play size={26} strokeWidth={2} fill="currentColor" />
+      ) : (
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21 15 16 10 5 21" />
+        </svg>
+      )}
+    </div>
+    {failed && (
+      <span className="wa-media-thumb-ph__label">Toque para recarregar</span>
+    )}
+  </button>
+);
 
+/** Placeholder inline compacto (áudio, documento) */
+const InlinePlaceholder: React.FC<{
+  kind: 'audio' | 'document';
+  title?: string;
+  loading?: boolean;
+  failed?: boolean;
+  onClick: () => void;
+}> = ({ kind, title, loading, failed, onClick }) => {
+  const label = title?.trim() || (kind === 'audio' ? 'Mensagem de voz' : 'Documento');
   return (
     <button
       type="button"
@@ -91,21 +95,25 @@ const MediaPlaceholder: React.FC<{
       className="wa-media-ph"
       data-kind={kind}
       data-failed={failed ? 'true' : 'false'}
-      title={failed ? 'Falha ao carregar — tentar novamente' : 'Carregar mídia do WhatsApp'}
       disabled={loading}
+      title={failed ? 'Tentar novamente' : 'Carregar mídia'}
     >
       <span className="wa-media-ph__icon">
         {loading ? (
           <Loader2 className="wa-media-ph__svg wa-media-ph__spin" strokeWidth={2} />
         ) : failed ? (
           <RefreshCw className="wa-media-ph__svg" strokeWidth={2} />
+        ) : kind === 'audio' ? (
+          <Mic className="wa-media-ph__svg" strokeWidth={2} />
         ) : (
-          <MediaIcon kind={kind} />
+          <FileText className="wa-media-ph__svg" strokeWidth={2} />
         )}
       </span>
       <span className="wa-media-ph__text">
         <span className="wa-media-ph__title">{label}</span>
-        <span className="wa-media-ph__hint">{hint}</span>
+        <span className="wa-media-ph__hint">
+          {loading ? 'Carregando…' : failed ? 'Toque para tentar' : 'Toque para abrir'}
+        </span>
       </span>
     </button>
   );
@@ -140,10 +148,10 @@ export const WaMessageContent: React.FC<Props> = ({
     }
   };
 
+  // Auto-load silencioso para mensagens sem URL
   React.useEffect(() => {
     if (!mediaUrl && onLoadMedia && !loading && !loadFailed) {
       setLoading(true);
-      setLoadFailed(false);
       onLoadMedia(msg.id, true)
         .then((url) => {
           if (url) setLocalUrl(url);
@@ -154,23 +162,20 @@ export const WaMessageContent: React.FC<Props> = ({
     }
   }, [mediaUrl, msg.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ph = (kind: MediaKind, title?: string) => (
-    <MediaPlaceholder
-      kind={kind}
-      title={title}
-      onClick={handleLoad}
-      loading={loading}
-      failed={loadFailed}
-    />
-  );
-
+  /* ── Sticker ── */
   if (msg.type === 'sticker') {
-    if (mediaUrl) {
-      return <img src={mediaUrl} alt="Figurinha" className="wa-media-sticker" />;
-    }
-    return ph('sticker');
+    if (mediaUrl) return <img src={mediaUrl} alt="Figurinha" className="wa-media-sticker" />;
+    return (
+      <ImageVideoPlaceholder
+        kind="sticker"
+        loading={loading}
+        failed={loadFailed}
+        onClick={handleLoad}
+      />
+    );
   }
 
+  /* ── Imagem ── */
   if (msg.type === 'image') {
     if (mediaUrl) {
       return (
@@ -179,7 +184,7 @@ export const WaMessageContent: React.FC<Props> = ({
             type="button"
             className="wa-media-block__visual"
             onClick={() => window.open(mediaUrl, '_blank')}
-            aria-label="Abrir foto em tamanho real"
+            aria-label="Abrir foto"
           >
             <img src={mediaUrl} alt="Foto" loading="lazy" />
           </button>
@@ -187,9 +192,17 @@ export const WaMessageContent: React.FC<Props> = ({
         </div>
       );
     }
-    return ph('image');
+    return (
+      <ImageVideoPlaceholder
+        kind="image"
+        loading={loading}
+        failed={loadFailed}
+        onClick={handleLoad}
+      />
+    );
   }
 
+  /* ── Vídeo ── */
   if (msg.type === 'video') {
     if (mediaUrl) {
       return (
@@ -199,14 +212,30 @@ export const WaMessageContent: React.FC<Props> = ({
         </div>
       );
     }
-    return ph('video');
+    return (
+      <ImageVideoPlaceholder
+        kind="video"
+        loading={loading}
+        failed={loadFailed}
+        onClick={handleLoad}
+      />
+    );
   }
 
+  /* ── Áudio ── */
   if (msg.type === 'audio') {
     if (mediaUrl) return <WaAudioPlayer src={mediaUrl} side={side} />;
-    return ph('audio');
+    return (
+      <InlinePlaceholder
+        kind="audio"
+        loading={loading}
+        failed={loadFailed}
+        onClick={handleLoad}
+      />
+    );
   }
 
+  /* ── Documento ── */
   if (msg.type === 'document') {
     const name = text && text !== '[Mídia]' ? text : 'Documento';
     if (mediaUrl) {
@@ -221,16 +250,23 @@ export const WaMessageContent: React.FC<Props> = ({
         </a>
       );
     }
-    return ph('document', name);
+    return (
+      <InlinePlaceholder
+        kind="document"
+        title={name}
+        loading={loading}
+        failed={loadFailed}
+        onClick={handleLoad}
+      />
+    );
   }
 
+  /* ── Texto ── */
   if (!text) {
     return <span className="wa-text-body wa-text-body--muted">Mensagem recebida</span>;
   }
 
-  return (
-    <span className="wa-text-body">{highlightText(text, searchHighlight || '')}</span>
-  );
+  return <span className="wa-text-body">{highlightText(text, searchHighlight || '')}</span>;
 };
 
 /** Tipos que usam layout de mídia na bolha (padding reduzido). */

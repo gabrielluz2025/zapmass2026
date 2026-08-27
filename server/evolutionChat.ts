@@ -1393,7 +1393,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue;
 
             let conversationId = buildConversationId(instance, remoteJid);
-            const chatMsg = evolutionRawToChatMessage(msg, true);
+            // skipMedia=false: inclui URL CDN do WhatsApp (https://mmg.whatsapp.net/...)
+            // para fotos/vídeos/áudios aparecerem direto na conversa, sem precisar de downloadmedia.
+            const chatMsg = evolutionRawToChatMessage(msg, false);
             if (!chatMsg) continue;
 
             const pushName = msg.pushName || remoteJid.split('@')[0];
