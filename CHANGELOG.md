@@ -11,6 +11,21 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.18] — 2026-08-27
+
+### Chat redesenhado — layout idêntico ao WhatsApp Desktop
+
+- **Avatares circulares** (border-radius 50%) em toda a inbox e header do chat — exato WA Desktop
+- **Linhas de conversa** 72px de altura, padding 12px — medidas precisas do WA Desktop
+- **Selecionado** = `#2a3942`, **hover** = `#1e2a31` (sem verde), sem accent bar lateral
+- **Filter pills** estilo WA Desktop: fundo `#2a3942` inativo / verde `#00a884` ativo
+- **Header da inbox** com botões Nova Conversa (PenSquare) e Opções (⋮)
+- **Header do chat** com ícones Vídeo e Ligação antes do botão Buscar
+- **Nova aba "Campanhas"** na inbox ao lado de Tudo / Não lidas / Quentes
+- **Separador** entre linhas começa após o avatar (73px), igual ao WA Desktop
+
+---
+
 ## [2.3.17] — 2026-08-27
 
 ### Bate-papo redesenhado — visual WhatsApp Web + mídias funcionando
