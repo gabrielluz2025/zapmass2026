@@ -35,6 +35,8 @@ O script cria `homolog/.env`, bases Postgres, Nginx + SSL e sobe os containers.
 
 ## Fluxo de trabalho
 
+Documento completo: **[FLUXO-MELHORIAS.md](./FLUXO-MELHORIAS.md)** (develop → homolog → main → produção).
+
 ```
 feature/minha-feature → PR → develop → deploy automático homolog
                                     ↓ (testes OK)
@@ -63,6 +65,25 @@ Ou: **GitHub Actions → Deploy homolog (develop) → Run workflow**
 - Use **números de teste** exclusivos em homolog
 - Nunca conecte chips de clientes em homolog
 - Evolution Go homolog é separado — reconnect de teste não afeta produção
+
+### Licença Evolution Go (porta :8082)
+
+Instância homolog é **nova** — a licença da prod (:8081) **não** vale aqui. Se `fetchInstances` retornar `LICENSE_REQUIRED`:
+
+```bash
+# No PC (túnel SSH):
+ssh -L 8082:127.0.0.1:8082 root@IP_DA_VPS
+
+# Browser:
+http://127.0.0.1:8082/manager/login
+```
+
+Depois de ativar:
+
+```bash
+curl -s -H "apikey: zapmass-homolog-key-2026" http://127.0.0.1:8082/license/status
+curl -s -H "apikey: zapmass-homolog-key-2026" http://127.0.0.1:8082/instance/fetchInstances
+```
 
 ## Mercado Pago
 

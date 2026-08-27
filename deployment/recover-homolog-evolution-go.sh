@@ -44,12 +44,28 @@ export POSTGRES_PASSWORD="${PG_PASS:-evolution-secure-pass-2026}"
 docker compose -f "$COMPOSE_FILE" --env-file "$HOMOLOG_ENV" up -d --force-recreate --no-deps evolution-go-homolog
 
 sleep 8
-if curl -sf -H "apikey: ${EVOLUTION_GO_KEY_HOMOLOG:-zapmass-homolog-key-2026}" "http://127.0.0.1:${HOMOLOG_EVOLUTION_PORT:-8082}/instance/fetchInstances" >/dev/null 2>&1; then
-  log "Evolution Go homolog respondeu em :8082"
-else
-  log "AVISO: Evolution Go ainda não responde — verifique logs acima"
+GO_KEY="${EVOLUTION_GO_KEY_HOMOLOG:-zapmass-homolog-key-2026}"
+GO_PORT="${HOMOLOG_EVOLUTION_PORT:-8082}"
+GO_BASE="http://127.0.0.1:${GO_PORT}"
+
+if ! curl -sf -H "apikey: ${GO_KEY}" "${GO_BASE}/server/ok" >/dev/null 2>&1; then
+  log "AVISO: Evolution Go homolog não responde em :${GO_PORT} — verifique logs acima"
   docker logs zapmass-evolution-go-homolog --tail 30 2>&1 || true
   exit 1
+fi
+
+LICENSE_JSON="$(curl -s -H "apikey: ${GO_KEY}" "${GO_BASE}/license/status" 2>/dev/null || true)"
+if echo "$LICENSE_JSON" | grep -qiE '"status"[[:space:]]*:[[:space:]]*"active"|"active"[[:space:]]*:[[:space:]]*true|"licensed"[[:space:]]*:[[:space:]]*true'; then
+  log "Evolution Go homolog OK em :${GO_PORT} (licença ativa)"
+else
+  log "Evolution Go homolog UP em :${GO_PORT} — falta ativar licença Foundation (esperado em instância nova)"
+  echo ""
+  echo "  1. No PC: ssh -L ${GO_PORT}:127.0.0.1:${GO_PORT} root@SEU_IP_VPS"
+  echo "  2. Browser: http://127.0.0.1:${GO_PORT}/manager/login"
+  echo "  3. Ative a licença (instância homolog, separada da prod :8081)"
+  echo "  4. Teste: curl -s -H \"apikey: ${GO_KEY}\" ${GO_BASE}/instance/fetchInstances"
+  echo ""
+  exit 0
 fi
 
 log "OK"
