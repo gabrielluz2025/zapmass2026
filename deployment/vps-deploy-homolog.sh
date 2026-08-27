@@ -50,8 +50,9 @@ while IFS='=' read -r k v; do
   k="${k//$'\r'/}"
   v="${v//$'\r'/}"
   v="${v#\"}"; v="${v%\"}"; v="${v#\'}"; v="${v%\'}"
+  [ -z "$k" ] && continue
   case "$k" in
-    ''|#*) continue ;;
+    \#*) continue ;;
     HOMOLOG_*|EVOLUTION_GO_KEY_HOMOLOG|ZAPMASS_HOMOLOG_*|POSTGRES_PASSWORD|ZAPMASS_SHARED_NETWORK|VITE_*|GEMINI_*|RESEND_*|EMAIL_*|ADMIN_*|ZAPMASS_ADMIN_*)
       export "$k=$v"
       ;;
