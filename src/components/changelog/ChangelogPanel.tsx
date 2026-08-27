@@ -1,10 +1,6 @@
 import React, { useState } from 'react';
 import { Sparkles, Bug, Zap, Shield, ChevronDown, ChevronUp, Tag, FlaskConical, Rocket } from 'lucide-react';
-
-/** Versão mais recente que está em PRODUÇÃO (main). Atualizar ao fazer merge para main. */
-const PROD_VERSION = '2.3.16';
-/** Versão mais recente que está em HOMOLOG (develop). */
-const HOMOLOG_VERSION = '2.3.17';
+import { PROD_VERSION, HOMOLOG_VERSION } from '../../config/appVersion';
 
 interface ChangelogEntry {
   version: string;

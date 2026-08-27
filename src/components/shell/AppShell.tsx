@@ -103,6 +103,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           actions={topBarActions}
           centerSlot={headerCenter}
           nearLatencySlot={headerUpgradeNearLatency}
+          onNavigate={onChangeView}
         />
         {currentView !== 'chat' && <HomologBanner />}
         <ContactsGlobalPreloadBar />
