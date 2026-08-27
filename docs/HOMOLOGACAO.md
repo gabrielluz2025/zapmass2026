@@ -59,6 +59,31 @@ bash deployment/vps-deploy-homolog.sh   # já chama ensure-git-develop antes do 
 
 Ou: **GitHub Actions → Deploy homolog (develop) → Run workflow**
 
+Se push em `develop` não atualizar a UI, confira a versão:
+
+```bash
+curl -s https://homolog.zap-mass.com/api/health
+# "version" deve bater com o commit em develop (ex.: 8b8f4c8)
+```
+
+Causa comum: **GitHub Actions não alcança SSH da VPS** (firewall Hostinger bloqueia runners). O workflow antigo marcava sucesso mesmo sem deploy.
+
+**Deploy manual imediato (VPS):**
+
+```bash
+cd /opt/zapmass
+bash deployment/vps-deploy-homolog.sh
+```
+
+**Deploy automático sem SSH do GitHub** (recomendado — cron a cada 3 min):
+
+```bash
+cd /opt/zapmass
+git pull origin develop
+sudo bash deployment/install-homolog-watch-cron.sh
+tail -f /var/log/zapmass-watch-deploy-homolog.log
+```
+
 ## Chips WhatsApp
 
 - Use **números de teste** exclusivos em homolog

@@ -76,12 +76,19 @@ jobs:
           VPS_PORT: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
         run: |
           set -euo pipefail
+          echo "==> teste TCP ${VPS_HOST}:${VPS_PORT}"
           ok=0
-          for i in $(seq 1 15); do
+          for i in $(seq 1 20); do
             if nc -zvw8 "${VPS_HOST}" "${VPS_PORT}"; then ok=1; break; fi
-            sleep 8
+            echo "tentativa ${i}/20 falhou; aguardando 10s..."
+            sleep 10
           done
           echo "reachable=$([ "$ok" = "1" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          if [ "$ok" != "1" ]; then
+            echo "::error::Runner não alcançou ${VPS_HOST}:${VPS_PORT} — deploy homolog não executado."
+            echo "::warning::Na VPS: cd /opt/zapmass && bash deployment/vps-deploy-homolog.sh"
+            echo "::warning::Ou instale cron: sudo bash deployment/install-homolog-watch-cron.sh"
+          fi
 
       - name: VPS — deploy homolog
         if: steps.ssh_precheck.outputs.reachable == 'true'
@@ -113,7 +120,7 @@ jobs:
             fi
 
       - name: Verificar homolog.zap-mass.com
-        if: always()
+        if: steps.ssh_precheck.outputs.reachable == 'true'
         run: |
           set -euo pipefail
           EXPECTED="${GITHUB_SHA::7}"
@@ -129,14 +136,16 @@ jobs:
             echo "tentativa $i/12..."
             sleep 10
           done
-          if [ "${{ steps.ssh_precheck.outputs.reachable }}" != "true" ]; then
-            echo "## SSH indisponível — rode na VPS: cd /opt/zapmass && bash deployment/vps-deploy-homolog.sh" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          echo "::warning::Homolog não confirmou versão ${EXPECTED} — verifique logs: docker compose -f docker-compose.homolog.yml logs"
+          echo "::error::Homolog não confirmou versão ${EXPECTED} após deploy SSH."
+          exit 1
 
-      - name: Resumo SSH indisponível
+      - name: Falha — SSH indisponível (deploy não rodou)
         if: steps.ssh_precheck.outputs.reachable != 'true'
         run: |
-          echo "## Deploy homolog — SSH bloqueado" >> "$GITHUB_STEP_SUMMARY"
-          echo "Na VPS: \`cd /opt/zapmass && bash deployment/vps-deploy-homolog.sh\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Deploy homolog FALHOU — SSH bloqueado para GitHub Actions" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Homolog continua na versão anterior. Na VPS:" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`cd /opt/zapmass && bash deployment/vps-deploy-homolog.sh\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Para não depender de SSH do Actions: \`sudo bash deployment/install-homolog-watch-cron.sh\`" >> "$GITHUB_STEP_SUMMARY"
+          exit 1

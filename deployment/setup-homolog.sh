@@ -90,6 +90,11 @@ log "Primeiro deploy homolog..."
 export GITHUB_EVENT_NAME=manual
 bash deployment/vps-deploy-homolog.sh
 
+if [ -f deployment/install-homolog-watch-cron.sh ]; then
+  log "Cron watch develop → homolog (sem depender de SSH do GitHub Actions)..."
+  bash deployment/install-homolog-watch-cron.sh || true
+fi
+
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║  Homologação instalada                                       ║"
