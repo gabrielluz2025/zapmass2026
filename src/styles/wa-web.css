@@ -731,6 +731,348 @@ html[data-mode='dark'] .wa-bubble[data-tail='true'][data-side='out']::before {
 .wa-bubble[data-side='out'] .wa-bubble-meta { color: rgba(15, 36, 30, 0.55); }
 html[data-mode='dark'] .wa-bubble[data-side='out'] .wa-bubble-meta { color: rgba(233, 237, 239, 0.6); }
 
+.wa-bubble-body {
+  display: block;
+  min-width: 0;
+}
+
+/* Bolhas com foto/vídeo — padding mínimo, estilo WhatsApp Web */
+.wa-bubble[data-media='visual'] {
+  padding: 3px 3px 6px;
+  overflow: hidden;
+}
+.wa-bubble[data-media='visual'] .wa-bubble-meta {
+  position: absolute;
+  right: 7px;
+  bottom: 6px;
+  margin: 0;
+  padding: 2px 6px 3px;
+  border-radius: 6px;
+  background: rgba(11, 20, 26, 0.58);
+  color: rgba(255, 255, 255, 0.92);
+  float: none;
+  z-index: 1;
+}
+.wa-bubble[data-media='visual'] .wa-bubble-meta .wa-tick {
+  color: rgba(255, 255, 255, 0.92);
+}
+.wa-bubble[data-media='visual'][data-side='out'] .wa-bubble-meta .wa-tick[data-state='read'] {
+  color: #53bdeb;
+}
+
+.wa-bubble[data-media='compact'] {
+  padding: 6px 8px 8px;
+}
+
+.wa-text-body {
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.wa-text-body--muted {
+  opacity: 0.75;
+}
+
+/* ── Mídia nas bolhas ─────────────────────────── */
+
+.wa-media-sticker {
+  width: 128px;
+  height: 128px;
+  object-fit: contain;
+  display: block;
+}
+
+.wa-media-block {
+  max-width: min(330px, 72vw);
+}
+.wa-media-block__visual {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+}
+.wa-media-block__visual img,
+.wa-media-block__visual video {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.wa-media-block--caption .wa-media-block__visual img,
+.wa-media-block--caption .wa-media-block__visual video {
+  border-radius: 6px 6px 0 0;
+}
+.wa-media-block--caption {
+  padding-bottom: 2px;
+}
+
+.wa-media-caption {
+  margin: 0;
+  padding: 4px 6px 2px;
+  font-size: 14.5px;
+  line-height: 19px;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+/* Placeholder de mídia */
+.wa-media-ph {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 200px;
+  max-width: 280px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+html[data-mode='dark'] .wa-media-ph {
+  background: rgba(255, 255, 255, 0.06);
+}
+.wa-media-ph:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.1);
+}
+html[data-mode='dark'] .wa-media-ph:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+.wa-media-ph[data-failed='true'] .wa-media-ph__icon {
+  color: #ef4444;
+}
+.wa-media-ph:disabled {
+  cursor: wait;
+  opacity: 0.85;
+}
+
+.wa-media-ph__icon {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--wa-text-2, #667781);
+}
+html[data-mode='dark'] .wa-media-ph__icon {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(233, 237, 239, 0.75);
+}
+
+.wa-media-ph__svg {
+  width: 18px;
+  height: 18px;
+}
+.wa-media-ph__spin {
+  animation: wa-spin 0.85s linear infinite;
+}
+@keyframes wa-spin {
+  to { transform: rotate(360deg); }
+}
+
+.wa-media-ph__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.wa-media-ph__title {
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-media-ph__hint {
+  font-size: 11.5px;
+  opacity: 0.62;
+  line-height: 1.2;
+}
+
+/* Player de áudio estilo WhatsApp Web */
+.wa-audio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 220px;
+  max-width: 300px;
+  padding: 2px 0;
+}
+.wa-audio__native {
+  display: none;
+}
+
+.wa-audio__play {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+.wa-audio__play:active {
+  transform: scale(0.94);
+}
+.wa-audio--in .wa-audio__play {
+  background: rgba(134, 150, 160, 0.35);
+  color: var(--wa-text, #e9edef);
+}
+.wa-audio--out .wa-audio__play {
+  background: #00a884;
+  color: #fff;
+}
+.wa-audio__play svg {
+  margin-left: 1px;
+}
+.wa-audio[data-playing='true'] .wa-audio__play svg {
+  margin-left: 0;
+}
+
+.wa-audio__track-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wa-audio__wave {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.wa-audio__bar {
+  flex: 1;
+  min-width: 2px;
+  max-width: 3px;
+  border-radius: 2px;
+  background: currentColor;
+  align-self: center;
+  transition: opacity 0.08s linear;
+}
+.wa-audio--in .wa-audio__wave {
+  color: rgba(134, 150, 160, 0.85);
+}
+.wa-audio--out .wa-audio__wave {
+  color: rgba(17, 80, 67, 0.75);
+}
+html[data-mode='dark'] .wa-audio--out .wa-audio__wave {
+  color: rgba(111, 200, 175, 0.75);
+}
+
+.wa-audio__scrub {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: #00a884;
+  box-shadow: 0 0 0 2px rgba(0, 168, 132, 0.25);
+  pointer-events: none;
+  transition: left 0.05s linear;
+}
+.wa-audio--in .wa-audio__scrub {
+  background: #8696a0;
+  box-shadow: 0 0 0 2px rgba(134, 150, 160, 0.25);
+}
+
+.wa-audio__time {
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.65;
+  padding-left: 2px;
+}
+
+/* Documento */
+.wa-doc {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+  max-width: 300px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s ease;
+}
+html[data-mode='dark'] .wa-doc {
+  background: rgba(255, 255, 255, 0.05);
+}
+.wa-doc:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+html[data-mode='dark'] .wa-doc:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.wa-doc__badge {
+  flex-shrink: 0;
+  width: 38px;
+  height: 46px;
+  border-radius: 4px;
+  background: #f0f2f5;
+  color: #54656f;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.06);
+}
+html[data-mode='dark'] .wa-doc__badge {
+  background: #2a3942;
+  color: #aebac1;
+}
+
+.wa-doc__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wa-doc__name {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-doc__meta {
+  font-size: 11px;
+  opacity: 0.6;
+}
+.wa-doc__dl {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  opacity: 0.55;
+}
+
 /* Composer (footer de input) */
 .wa-composer {
   background: var(--wa-header);

@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import type { ChatMessage, Conversation, WhatsAppConnection } from '../../types';
 import { WaBubble } from '../chat/wa/WaBubble';
 import { WaComposer } from './WaComposer';
-import { WaMessageContent } from './WaMessageContent';
+import { WaMessageContent, messageMediaLayout } from './WaMessageContent';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import { formatContactPresenceSubtitle } from '../../utils/evolutionPresence';
 import { inboxListTitle } from './lib/conversationDisplay';
@@ -467,8 +467,14 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
                     status={msg.status}
                     time={formatMsgTime(msg)}
                     fromCampaign={msg.fromCampaign}
+                    mediaLayout={messageMediaLayout(msg)}
                   >
-                    <WaMessageContent msg={msg} onLoadMedia={onLoadMedia} searchHighlight={inThreadQuery.trim() || undefined} />
+                    <WaMessageContent
+                      msg={msg}
+                      side={side}
+                      onLoadMedia={onLoadMedia}
+                      searchHighlight={inThreadQuery.trim() || undefined}
+                    />
                   </WaBubble>
                 </div>
               );

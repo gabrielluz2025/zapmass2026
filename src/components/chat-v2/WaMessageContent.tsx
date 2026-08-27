@@ -6,13 +6,34 @@
  * Solução: guardar a URL retornada em estado local e usar como fallback de msg.mediaUrl.
  */
 import React, { useState } from 'react';
-import { Download, FileText, Loader2 } from 'lucide-react';
+import {
+  Download,
+  FileText,
+  Image as ImageIcon,
+  Loader2,
+  Mic,
+  RefreshCw,
+  Sticker,
+  Video,
+} from 'lucide-react';
 import type { ChatMessage } from '../../types';
+import { WaAudioPlayer } from './WaAudioPlayer';
 
 type Props = {
   msg: ChatMessage;
+  side?: 'in' | 'out';
   onLoadMedia?: (messageId: string, silent?: boolean) => Promise<string | null>;
   searchHighlight?: string;
+};
+
+type MediaKind = 'audio' | 'image' | 'video' | 'document' | 'sticker';
+
+const MEDIA_LABELS: Record<MediaKind, string> = {
+  audio: 'Mensagem de voz',
+  image: 'Foto',
+  video: 'Vídeo',
+  document: 'Documento',
+  sticker: 'Figurinha',
 };
 
 function highlightText(text: string, needle: string): React.ReactNode {
@@ -30,39 +51,78 @@ function highlightText(text: string, needle: string): React.ReactNode {
   );
 }
 
-/** Botão placeholder enquanto a mídia não está carregada */
+function MediaIcon({ kind }: { kind: MediaKind }) {
+  const cls = 'wa-media-ph__svg';
+  switch (kind) {
+    case 'audio':
+      return <Mic className={cls} strokeWidth={2} />;
+    case 'image':
+      return <ImageIcon className={cls} strokeWidth={2} />;
+    case 'video':
+      return <Video className={cls} strokeWidth={2} />;
+    case 'document':
+      return <FileText className={cls} strokeWidth={2} />;
+    default:
+      return <Sticker className={cls} strokeWidth={2} />;
+  }
+}
+
+function docExtension(name: string): string {
+  const dot = name.lastIndexOf('.');
+  if (dot < 1 || dot === name.length - 1) return 'DOC';
+  return name.slice(dot + 1).slice(0, 4).toUpperCase();
+}
+
+/** Placeholder compacto enquanto a mídia não está carregada */
 const MediaPlaceholder: React.FC<{
-  label: string;
-  icon: string;
+  kind: MediaKind;
+  title?: string;
   onClick: () => void;
   loading?: boolean;
-}> = ({ label, icon, onClick, loading }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="wa-media-placeholder"
-    title="Carregar mídia do WhatsApp"
-  >
-    <span className="wa-media-placeholder__icon">
-      {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : icon}
-    </span>
-    <span className="wa-media-placeholder__label">{label}</span>
-    {!loading && (
-      <span style={{ fontSize: 12, opacity: 0.6, marginLeft: 'auto', flexShrink: 0 }}>↓</span>
-    )}
-  </button>
-);
+  failed?: boolean;
+}> = ({ kind, title, onClick, loading, failed }) => {
+  const label = title?.trim() || MEDIA_LABELS[kind];
+  const hint = loading ? 'Carregando…' : failed ? 'Toque para tentar de novo' : 'Toque para abrir';
 
-export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia, searchHighlight }) => {
-  // URL resolvida localmente — usada quando conversation-delta não chega
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="wa-media-ph"
+      data-kind={kind}
+      data-failed={failed ? 'true' : 'false'}
+      title={failed ? 'Falha ao carregar — tentar novamente' : 'Carregar mídia do WhatsApp'}
+      disabled={loading}
+    >
+      <span className="wa-media-ph__icon">
+        {loading ? (
+          <Loader2 className="wa-media-ph__svg wa-media-ph__spin" strokeWidth={2} />
+        ) : failed ? (
+          <RefreshCw className="wa-media-ph__svg" strokeWidth={2} />
+        ) : (
+          <MediaIcon kind={kind} />
+        )}
+      </span>
+      <span className="wa-media-ph__text">
+        <span className="wa-media-ph__title">{label}</span>
+        <span className="wa-media-ph__hint">{hint}</span>
+      </span>
+    </button>
+  );
+};
+
+export const WaMessageContent: React.FC<Props> = ({
+  msg,
+  side = 'in',
+  onLoadMedia,
+  searchHighlight,
+}) => {
   const [localUrl, setLocalUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
 
   const text = (msg.text || '').trim();
   const hasText = Boolean(text && text !== '[Mídia]');
-
-  // URL final: prioridade para msg.mediaUrl (via socket delta), depois local, depois nada
   const mediaUrl = msg.mediaUrl || localUrl;
 
   const handleLoad = async () => {
@@ -71,11 +131,8 @@ export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia, searchHigh
     setLoadFailed(false);
     try {
       const url = await onLoadMedia(msg.id);
-      if (url) {
-        setLocalUrl(url);
-      } else {
-        setLoadFailed(true);
-      }
+      if (url) setLocalUrl(url);
+      else setLoadFailed(true);
     } catch {
       setLoadFailed(true);
     } finally {
@@ -83,13 +140,11 @@ export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia, searchHigh
     }
   };
 
-  // Autocarregamento automático — silencioso para não gerar toasts em massa
   React.useEffect(() => {
     if (!mediaUrl && onLoadMedia && !loading && !loadFailed) {
-      if (!onLoadMedia || loading) return;
       setLoading(true);
       setLoadFailed(false);
-      onLoadMedia(msg.id, true) // silent=true: falha não gera toast
+      onLoadMedia(msg.id, true)
         .then((url) => {
           if (url) setLocalUrl(url);
           else setLoadFailed(true);
@@ -99,138 +154,88 @@ export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia, searchHigh
     }
   }, [mediaUrl, msg.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const failLabel = (base: string) =>
-    loadFailed ? `${base} (falhou — toque para tentar novamente)` : base;
+  const ph = (kind: MediaKind, title?: string) => (
+    <MediaPlaceholder
+      kind={kind}
+      title={title}
+      onClick={handleLoad}
+      loading={loading}
+      failed={loadFailed}
+    />
+  );
 
-  /* ── Sticker ── */
   if (msg.type === 'sticker') {
-    if (mediaUrl) return <img src={mediaUrl} alt="Figurinha" className="w-32 h-32 object-contain" />;
-    return (
-      <MediaPlaceholder
-        label={failLabel('Figurinha')}
-        icon="🌟"
-        onClick={handleLoad}
-        loading={loading}
-      />
-    );
+    if (mediaUrl) {
+      return <img src={mediaUrl} alt="Figurinha" className="wa-media-sticker" />;
+    }
+    return ph('sticker');
   }
 
-  /* ── Imagem ── */
   if (msg.type === 'image') {
     if (mediaUrl) {
       return (
-        <div className="wa-media-image">
-          <img
-            src={mediaUrl}
-            alt="Foto"
-            loading="lazy"
-            style={{ cursor: 'pointer', borderRadius: 8, maxWidth: '100%', display: 'block' }}
+        <div className={`wa-media-block wa-media-block--image${hasText ? ' wa-media-block--caption' : ''}`}>
+          <button
+            type="button"
+            className="wa-media-block__visual"
             onClick={() => window.open(mediaUrl, '_blank')}
-          />
-          {hasText && <p className="wa-media-caption">{text}</p>}
+            aria-label="Abrir foto em tamanho real"
+          >
+            <img src={mediaUrl} alt="Foto" loading="lazy" />
+          </button>
+          {hasText && <p className="wa-media-caption">{highlightText(text, searchHighlight || '')}</p>}
         </div>
       );
     }
-    return (
-      <MediaPlaceholder
-        label={failLabel('Foto — toque para ver')}
-        icon="📷"
-        onClick={handleLoad}
-        loading={loading}
-      />
-    );
+    return ph('image');
   }
 
-  /* ── Vídeo ── */
   if (msg.type === 'video') {
     if (mediaUrl) {
       return (
-        <div className="wa-media-video">
-          <video
-            src={mediaUrl}
-            controls
-            preload="metadata"
-            style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 8, display: 'block' }}
-          />
-          {hasText && <p className="wa-media-caption">{text}</p>}
+        <div className={`wa-media-block wa-media-block--video${hasText ? ' wa-media-block--caption' : ''}`}>
+          <video src={mediaUrl} controls preload="metadata" className="wa-media-block__visual" />
+          {hasText && <p className="wa-media-caption">{highlightText(text, searchHighlight || '')}</p>}
         </div>
       );
     }
-    return (
-      <MediaPlaceholder
-        label={failLabel('Vídeo — toque para ver')}
-        icon="🎥"
-        onClick={handleLoad}
-        loading={loading}
-      />
-    );
+    return ph('video');
   }
 
-  /* ── Áudio — player real quando URL disponível ── */
   if (msg.type === 'audio') {
-    if (mediaUrl) {
-      return (
-        <div className="wa-audio-player">
-          <span className="wa-audio-player__icon">🎙️</span>
-          <audio
-            src={mediaUrl}
-            controls
-            preload="metadata"
-            className="wa-audio-element"
-            style={{ accentColor: '#25d366' }}
-          />
-        </div>
-      );
-    }
-    return (
-      <MediaPlaceholder
-        label={failLabel('Áudio — toque para ouvir')}
-        icon="🎙️"
-        onClick={handleLoad}
-        loading={loading}
-      />
-    );
+    if (mediaUrl) return <WaAudioPlayer src={mediaUrl} side={side} />;
+    return ph('audio');
   }
 
-  /* ── Documento ── */
   if (msg.type === 'document') {
+    const name = text && text !== '[Mídia]' ? text : 'Documento';
     if (mediaUrl) {
       return (
-        <a
-          href={mediaUrl}
-          download
-          target="_blank"
-          rel="noreferrer"
-          className="wa-media-document"
-        >
-          <div className="wa-media-document__icon">
-            <FileText className="w-6 h-6" />
-          </div>
-          <div className="wa-media-document__info">
-            <p className="wa-media-document__name">{text || 'Documento'}</p>
-            <p className="wa-media-document__hint">Toque para baixar</p>
-          </div>
-          <Download className="w-4 h-4 flex-shrink-0 opacity-60" />
+        <a href={mediaUrl} download target="_blank" rel="noreferrer" className="wa-doc">
+          <span className="wa-doc__badge">{docExtension(name)}</span>
+          <span className="wa-doc__info">
+            <span className="wa-doc__name">{name}</span>
+            <span className="wa-doc__meta">Documento</span>
+          </span>
+          <Download className="wa-doc__dl" strokeWidth={2} />
         </a>
       );
     }
-    return (
-      <MediaPlaceholder
-        label={failLabel(text || 'Documento — toque para baixar')}
-        icon="📄"
-        onClick={handleLoad}
-        loading={loading}
-      />
-    );
+    return ph('document', name);
   }
 
-  /* ── Texto simples ── */
   if (!text) {
-    return (
-      <span style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap', opacity: 0.85 }}>
-        💬 Mensagem recebida
-      </span>
-    );
+    return <span className="wa-text-body wa-text-body--muted">Mensagem recebida</span>;
   }
-  return <span style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{highlightText(text, searchHighlight || '')}</span>;
+
+  return (
+    <span className="wa-text-body">{highlightText(text, searchHighlight || '')}</span>
+  );
 };
+
+/** Tipos que usam layout de mídia na bolha (padding reduzido). */
+export function messageMediaLayout(msg: ChatMessage): 'visual' | 'compact' | null {
+  if (msg.type === 'image' || msg.type === 'video' || msg.type === 'sticker') return 'visual';
+  if (msg.type === 'audio' || msg.type === 'document') return 'compact';
+  return null;
+}
