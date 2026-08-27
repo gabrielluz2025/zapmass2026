@@ -30,7 +30,6 @@ import { WaChannelRail } from './WaChannelRail';
 import { WaContextPanel } from './WaContextPanel';
 import { WaForwardModal, WaScheduleModal } from './WaForwardModal';
 import { WaMediaPreviewModal } from './WaMediaPreviewModal';
-import { WaInboxTeamBar } from './WaInboxTeamBar';
 import { ReplyIntentPanel } from './ReplyIntentPanel';
 import { autoApplyReplyIntents } from '../../services/replyIntentApi';
 import { useWaRealtime } from './hooks/useWaRealtime';
@@ -242,6 +241,15 @@ export const WaWebChatApp: React.FC<{
     [sortedConversations, deferredContacts]
   );
 
+  const contactByPhoneKey = useMemo(() => {
+    const map = new Map<string, (typeof deferredContacts)[number]>();
+    for (const ct of deferredContacts) {
+      const nk = normPhoneKey(ct.phone || '');
+      if (nk) map.set(nk, ct);
+    }
+    return map;
+  }, [deferredContacts]);
+
   const profilePicByPhoneKey = useMemo(() => {
     const map = new Map<string, string>();
     for (const ct of deferredContacts) {
@@ -291,6 +299,20 @@ export const WaWebChatApp: React.FC<{
     return map;
   }, [sortedConversations]);
 
+  const hotCount = useMemo(() => {
+    return filterConversationsBySmartTab(
+      sortedConversations,
+      'hot',
+      inboxPrefs,
+      (id) => crm.get(id),
+      Date.now(),
+      (conv) => {
+        const phone = normPhoneKey(phoneRawForContactLookup(conv));
+        return phone ? contactByPhoneKey.get(phone) : undefined;
+      }
+    ).length;
+  }, [sortedConversations, inboxPrefs, crm.data, contactByPhoneKey]);
+
   const filtered = useMemo(() => {
     let list = sortedConversations;
     if (connectionFilterId !== 'ALL') {
@@ -301,7 +323,11 @@ export const WaWebChatApp: React.FC<{
       inboxTab,
       inboxPrefs,
       (id) => crm.get(id),
-      Date.now()
+      Date.now(),
+      (conv) => {
+        const phone = normPhoneKey(phoneRawForContactLookup(conv));
+        return phone ? contactByPhoneKey.get(phone) : undefined;
+      }
     );
     if (unreadOnly && inboxTab === 'all') {
       list = list.filter((c) => unreadCount(c) > 0);
@@ -324,9 +350,11 @@ export const WaWebChatApp: React.FC<{
     inboxTab,
     inboxPrefs,
     crm.get,
+    crm.data,
     unreadOnly,
     deferredSearch,
     displayById,
+    contactByPhoneKey,
   ]);
 
   const selected = useMemo(
@@ -507,6 +535,7 @@ export const WaWebChatApp: React.FC<{
   const requestConversationPicture = useCallback(
     (conversationId: string, force = false) => {
       if (!conversationId) return;
+      if (force) pictureAttemptedRef.current.delete(conversationId);
       if (!force && pictureAttemptedRef.current.has(conversationId)) return;
       pictureAttemptedRef.current.add(conversationId);
       fetchConversationPicture(conversationId);
@@ -514,11 +543,11 @@ export const WaWebChatApp: React.FC<{
     [fetchConversationPicture]
   );
 
-  /** Prefetch leve — só primeiras conversas visíveis. */
+  /** Prefetch — conversas visíveis na lista. */
   useEffect(() => {
-    const MAX = 12;
-    const BATCH = 3;
-    const DELAY_MS = 600;
+    const MAX = 24;
+    const BATCH = 4;
+    const DELAY_MS = 400;
     const queue: string[] = [];
     for (const conv of sortedConversations) {
       if (queue.length >= MAX) break;
@@ -788,15 +817,16 @@ export const WaWebChatApp: React.FC<{
 
   const handleRefresh = useCallback(() => {
     const full = !isGoWebhookInbox;
-    runResync({ full });
+    runResync({ full, force: true });
     requestSync({ full });
+    if (selectedId) void loadMoreHistory(selectedId, true);
     toast.success(
       full
-        ? 'Sincronizando com o WhatsApp…'
+        ? 'Sincronizando conversas e mensagens…'
         : 'Atualizando conversas recentes…',
       { duration: 2500 }
     );
-  }, [runResync, requestSync, isGoWebhookInbox]);
+  }, [runResync, requestSync, isGoWebhookInbox, selectedId, loadMoreHistory]);
 
   const handleAutoClassifyResponses = useCallback(async () => {
     const ok = window.confirm(
@@ -1033,17 +1063,7 @@ export const WaWebChatApp: React.FC<{
     else if (tab === 'all') setUnreadOnly(false);
   }, []);
 
-  const teamBar = selected ? (
-    <WaInboxTeamBar
-      conversation={selected}
-      isDraft={isSelectedDraft}
-      workspaceAuthUid={workspaceAuthUid}
-      isTeamMember={isTeamMember}
-      isWorkspaceOwner={isWorkspaceOwner}
-      patchConversationInboxClaim={patchConversationInboxClaim}
-      socket={socket}
-    />
-  ) : null;
+  const teamBar = null;
 
   const selectedDisplay = selected ? displayById.get(selected.id) : null;
   const selectedTitle = selected
@@ -1056,7 +1076,7 @@ export const WaWebChatApp: React.FC<{
         className={`wa-chat-pro wa-pipeline-root flex min-h-0 flex-1${focusMode ? ' wa-chat-pro--focus' : ''}`}
       >
 
-      {!focusMode && (
+      {!focusMode && connections.length > 2 && (
       <WaChannelRail
         connections={connections}
         conversations={sortedConversations}
@@ -1095,6 +1115,7 @@ export const WaWebChatApp: React.FC<{
         onInboxTabChange={handleInboxTabChange}
         pinnedIds={inboxPrefs.pinnedIds}
         slaByConvId={slaByConvId}
+        hotCount={hotCount}
       />
       )}
 
@@ -1104,7 +1125,8 @@ export const WaWebChatApp: React.FC<{
         avatarSrc={selected ? avatarById.get(selected.id) || '' : ''}
         loadingHistory={loadingHistory}
         historyExhausted={selected ? !!historyExhausted[selected.id] : true}
-        canSend={!!selected && connectedChannels.length > 0}
+        canSend={!!selected && selectedChipConnected}
+        chipsConnected={connectedChannels.length}
         socketStatus={isBackendConnected ? socketStatus : 'offline'}
         syncing={syncing}
         chipConnected={selectedChipConnected}
@@ -1120,7 +1142,7 @@ export const WaWebChatApp: React.FC<{
         onSend={handleSend}
         onAttach={handleSendMedia}
         sendingMedia={sendingMedia}
-        onOpenContactInfo={selected ? () => setShowContactInfo(true) : undefined}
+        onOpenContactInfo={selected ? () => setShowContactInfo((v) => !v) : undefined}
         hideOnMobile={!mobileShowThread}
         onLoadMedia={handleLoadMedia}
         onExport={selected ? handleExportConversation : undefined}
@@ -1163,7 +1185,7 @@ export const WaWebChatApp: React.FC<{
         onToggleFocus={() => setFocusMode((v) => !v)}
       />
 
-      {selected && !focusMode && (
+      {selected && !focusMode && showContactInfo && (
         <WaContextPanel
           conversation={selected}
           display={selectedDisplay ?? null}
@@ -1172,7 +1194,7 @@ export const WaWebChatApp: React.FC<{
           crmData={crm.get(selected.id)}
           pipelineAgg={pipelineAgg}
           displayTitle={selectedTitle}
-          onClose={() => setSelectedId(null)}
+          onClose={() => setShowContactInfo(false)}
           onUpdateCrm={(patch) => crm.update(selected.id, patch)}
           onClearCrm={() => crm.clear(selected.id)}
           onExport={handleExportConversation}

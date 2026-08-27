@@ -69,6 +69,7 @@ import {
 import {
     extractEvolutionMediaUrl,
     parseEvolutionChatContent,
+    pickWaMediaMessageForDownload,
     resolvePhoneDigitsFromEvolutionMessage,
     unwrapEvolutionMessagePayload,
 } from './evolutionWebhookMessages.js';
@@ -312,6 +313,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         const rawMessage = (raw.message || raw.messageContent || {}) as Record<string, unknown>;
         const parsed = parseEvolutionChatContent(rawMessage, { includeMediaUrl: !skipMedia });
+        const waMediaPayload =
+            parsed.type !== 'text' ? pickWaMediaMessageForDownload(rawMessage) : undefined;
         const msgId = String(key.id || raw.id || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
         const tsRaw = Number(raw.messageTimestamp || raw.message?.messageTimestamp || raw.timestamp || Date.now());
         const tsMs = tsRaw > 1_000_000_000_000 ? tsRaw : tsRaw * 1000;
@@ -327,6 +330,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             status: fromMe ? 'sent' : 'delivered',
             type: parsed.type,
             ...(parsed.mediaUrl ? { mediaUrl: parsed.mediaUrl } : {}),
+            ...(waMediaPayload ? { waMediaPayload } : {}),
             timestampMs: tsMs,
             ...(waRemoteJidAlt ? { waRemoteJidAlt } : {}),
             ...(waSenderPn ? { waSenderPn } : {}),
@@ -1389,7 +1393,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue;
 
             let conversationId = buildConversationId(instance, remoteJid);
-            const chatMsg = evolutionRawToChatMessage(msg, true);
+            // skipMedia=false: inclui URL CDN do WhatsApp (https://mmg.whatsapp.net/...)
+            // para fotos/vídeos/áudios aparecerem direto na conversa, sem precisar de downloadmedia.
+            const chatMsg = evolutionRawToChatMessage(msg, false);
             if (!chatMsg) continue;
 
             const pushName = msg.pushName || remoteJid.split('@')[0];
@@ -1732,6 +1738,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 if (m.fromCampaign) existing.fromCampaign = m.fromCampaign;
                 if (m.campaignId) existing.campaignId = m.campaignId;
                 if (m.mediaUrl && !existing.mediaUrl) existing.mediaUrl = m.mediaUrl;
+                if (m.waMediaPayload && !existing.waMediaPayload) {
+                    existing.waMediaPayload = m.waMediaPayload;
+                }
                 if (m.waRemoteJidAlt && !existing.waRemoteJidAlt) existing.waRemoteJidAlt = m.waRemoteJidAlt;
                 if (m.waSenderPn && !existing.waSenderPn) existing.waSenderPn = m.waSenderPn;
             } else {
@@ -1804,12 +1813,33 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         if (!match) return { ok: false, error: 'Mensagem não encontrada.' };
 
+        const mediaBody =
+            local?.waMediaPayload && typeof local.waMediaPayload === 'object'
+                ? {
+                      key: {
+                          remoteJid: parsed.remoteJid,
+                          fromMe: local.sender === 'me',
+                          id: messageId,
+                      },
+                      message: local.waMediaPayload,
+                  }
+                : match;
+
         try {
             const response = await api.post(`/chat/getBase64FromMediaMessage/${evoInst(parsed.connectionId)}`, {
-                message: match,
+                message: mediaBody,
             });
-            const base64 = response.data?.base64 || response.data?.data;
-            const mime = response.data?.mimetype || response.data?.mimeType || 'application/octet-stream';
+            const payload = response.data?.base64 || response.data?.data || response.data?.media;
+            const base64 =
+                typeof payload === 'string' && payload.startsWith('data:')
+                    ? payload.split(',')[1]
+                    : payload;
+            const mime =
+                response.data?.mimetype ||
+                response.data?.mimeType ||
+                (typeof payload === 'string' && payload.startsWith('data:')
+                    ? payload.slice(5, payload.indexOf(';'))
+                    : 'application/octet-stream');
             if (base64) {
                 const mediaUrl = `data:${mime};base64,${base64}`;
                 if (local) {

@@ -21,13 +21,18 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Retry em EAI_AGAIN / DNS / conexão recusada — cobre envio de aniversário no meio do deploy. */
+/** Retry em EAI_AGAIN / DNS / conexão recusada — cobre envio de aniversário no meio do deploy.
+ *  DELETE não é retentado (operação destrutiva — idempotente, mas pode causar efeito duplo). */
 export function attachEvolutionAxiosRetry(api: AxiosInstance): void {
   api.interceptors.response.use(
     (res) => res,
     async (error: unknown) => {
       const cfg = (error as { config?: RetryConfig })?.config;
       if (!cfg || !isTransientEvolutionNetworkError(error)) {
+        return Promise.reject(error);
+      }
+      // Não retentar DELETE — deixa o caller tratar o ENOTFOUND como ausência de instância
+      if (cfg.method === 'delete' || cfg.method === 'DELETE') {
         return Promise.reject(error);
       }
       const n = cfg.__evoRetry ?? 0;

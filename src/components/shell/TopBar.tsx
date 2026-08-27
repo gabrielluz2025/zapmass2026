@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Menu, Activity, Zap, Wifi, WifiOff, LogOut } from 'lucide-react';
+import { Menu, Activity, Zap, Wifi, WifiOff, LogOut, Tag } from 'lucide-react';
 import { useZapMassUiSnapshot } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
 import { ProfileAvatar } from './ProfileAvatar';
+import { APP_VERSION } from '../../config/appVersion';
 
 interface TopBarProps {
   currentView: string;
@@ -12,6 +13,8 @@ interface TopBarProps {
   centerSlot?: React.ReactNode;
   /** Botao Upgrade logo apos o badge de latencia (1ms), a partir de md. */
   nearLatencySlot?: React.ReactNode;
+  /** Navegar para settings ao clicar na versão */
+  onNavigate?: (view: string) => void;
 }
 
 const VIEW_META: Record<string, { title: string; subtitle: string }> = {
@@ -45,7 +48,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenMobileNav,
   actions,
   centerSlot,
-  nearLatencySlot
+  nearLatencySlot,
+  onNavigate,
 }) => {
   const { backendLinkState, systemMetrics } = useZapMassUiSnapshot();
   const { user, signOut } = useAuth();
@@ -130,6 +134,18 @@ export const TopBar: React.FC<TopBarProps> = ({
                 ZapMass Pro
               </span>
             </div>
+            <div className="w-px self-stretch my-1.5 shrink-0" style={{ background: 'var(--border-subtle)' }} />
+            <button
+              type="button"
+              onClick={() => onNavigate?.('settings')}
+              className="flex items-center gap-1 px-2.5 h-full shrink-0 transition-opacity hover:opacity-70"
+              title="Ver novidades e histórico de versões"
+            >
+              <Tag className="w-3 h-3" style={{ color: 'var(--text-3)' }} />
+              <span className="text-[11px] font-mono font-semibold" style={{ color: 'var(--text-2)' }}>
+                v{APP_VERSION}
+              </span>
+            </button>
           </div>
 
         <div

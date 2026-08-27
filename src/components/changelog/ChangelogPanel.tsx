@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Sparkles, Bug, Zap, Shield, ChevronDown, ChevronUp, Tag } from 'lucide-react';
+import { Sparkles, Bug, Zap, Shield, ChevronDown, ChevronUp, Tag, FlaskConical, Rocket } from 'lucide-react';
+import { PROD_VERSION, HOMOLOG_VERSION } from '../../config/appVersion';
 
 interface ChangelogEntry {
   version: string;
@@ -9,62 +10,77 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.17',
+    date: '27/08/2026',
+    highlights: [
+      { type: 'feat', text: 'Bate-papo redesenhado: visual idêntico ao WhatsApp Web (cores, layout, tipografia)' },
+      { type: 'fix', text: 'Fotos e vídeos agora aparecem direto — URL CDN do WhatsApp incluída no webhook' },
+      { type: 'fix', text: 'Placeholder de imagem/vídeo: quadrado cinza com ícone centralizado (igual WA Web)' },
+      { type: 'fix', text: 'Áudio e documentos com player e ícones no estilo WhatsApp' },
+      { type: 'fix', text: 'Banner de homologação não sobrepõe mais a TopBar' },
+      { type: 'perf', text: 'Fotos de contato carregam mais rápido (prefetch aumentado para 24 itens)' },
+      { type: 'fix', text: 'Aba "Quentes" filtra corretamente após tag ser aplicada' },
+    ],
+  },
+  {
+    version: '2.3.16',
+    date: '14/07/2026',
+    highlights: [
+      { type: 'security', text: 'Conversas não se misturam mais entre usuários diferentes (isolamento por tenant)' },
+      { type: 'fix', text: 'Webhook descarta mensagens de canais sem dono — sem poluição cruzada' },
+      { type: 'fix', text: 'claim-connection só vincula canais órfãos — impede roubo de chip' },
+    ],
+  },
+  {
+    version: '2.3.15',
+    date: '14/07/2026',
+    highlights: [
+      { type: 'fix', text: 'CI/CD: testes de dashboard falhavam entre 21h–23h59 (fuso horário incorreto)' },
+      { type: 'fix', text: 'GitHub Actions: TZ=America/Sao_Paulo aplicado no build' },
+    ],
+  },
+  {
+    version: '2.3.14',
+    date: '14/07/2026',
+    highlights: [
+      { type: 'feat', text: 'Evolution sharding (Fase A): 2ª instância para distribuir carga de chips' },
+      { type: 'feat', text: 'Roteamento automático de novos clientes para o shard com menos carga' },
+    ],
+  },
+  {
+    version: '2.3.13',
+    date: '13/07/2026',
+    highlights: [
+      { type: 'fix', text: 'Redis OOM: retenção agressiva de jobs BullMQ (trim a cada 30 min)' },
+      { type: 'perf', text: 'Redis configurado com limite de 2 GB por padrão' },
+      { type: 'feat', text: '/api/health/deep expõe métricas da fila de campanhas' },
+    ],
+  },
+  {
+    version: '2.3.7',
+    date: '29/05/2026',
+    highlights: [
+      { type: 'fix', text: 'Teste grátis: segundo clique não mostra mais erro de trial já ativo' },
+      { type: 'fix', text: 'Painel abre imediatamente após ativar trial (estado otimista)' },
+    ],
+  },
+  {
+    version: '2.3.5',
+    date: '29/05/2026',
+    highlights: [
+      { type: 'fix', text: 'Lista de conversas com 2 linhas (nome + preview), igual ao WhatsApp Web' },
+      { type: 'fix', text: 'Horários corretos: Hoje, Ontem, dd/mm — sem timestamps de sync' },
+      { type: 'fix', text: 'Fotos de perfil espelhadas no servidor para evitar bloqueio no browser' },
+    ],
+  },
+  {
     version: '2.2.0',
     date: '29/05/2026',
     highlights: [
-      { type: 'fix', text: 'Campanhas Evolution agora fecham corretamente na UI após finalizar' },
-      { type: 'fix', text: 'Auto-warmup voltou a funcionar (handlers socket registrados)' },
-      { type: 'fix', text: 'Renomear canal agora persiste após reinício do servidor' },
-      { type: 'fix', text: 'Métricas do dashboard deixaram de mostrar zeros ao conectar' },
-      { type: 'fix', text: 'Progresso de campanha com contadores inconsistentes corrigido' },
-      { type: 'security', text: 'Conversas agora enviadas apenas para o dono — sem risco cross-tenant' },
-      { type: 'feat', text: 'Mapa geográfico de campanhas por estado aparece no Dashboard' },
-      { type: 'feat', text: 'Alerta visual quando canal atinge limite diário de mensagens' },
-    ],
-  },
-  {
-    version: '2.1.0',
-    date: '29/05/2026',
-    highlights: [
-      { type: 'fix', text: 'Etapas de campanha: colisão de jobId entre etapas do mesmo contato corrigida' },
-      { type: 'fix', text: 'Retry do BullMQ não envia mais mensagem duplicada (idempotência)' },
-      { type: 'perf', text: 'Worker de campanha: concorrência 1 → 5 (drenagem de fila mais rápida)' },
-      { type: 'fix', text: 'Reply flow: delay de 3-7s entre resposta e próximo envio' },
-      { type: 'fix', text: 'Campanha não finaliza prematuramente enquanto reply flow está ativo' },
-      { type: 'fix', text: 'Estado de campanha restaurado do Redis após reinício do servidor' },
-      { type: 'fix', text: 'Pausa de campanha: item já enviado não é mais reenfileirado' },
-    ],
-  },
-  {
-    version: '2.0.0',
-    date: '28/05/2026',
-    highlights: [
-      { type: 'feat', text: 'Dashboard redesenhado: Mission Control com gauges SVG e radar animado' },
-      { type: 'feat', text: 'Contatos redesenhados: People HQ com KPIs e temperatura da base' },
-      { type: 'feat', text: 'Campanhas redesenhadas: Launch Pad com missões em voo' },
-      { type: 'feat', text: 'Bate-papo: renomeado de Pipeline; empty state animada com bot' },
-      { type: 'fix', text: 'Números WhatsApp LID não aparecem mais como telefones reais' },
-      { type: 'fix', text: 'Fotos de perfil: URLs blob do Puppeteer filtradas corretamente' },
-      { type: 'perf', text: 'Sync de conversas: segundo ciclo em 90s + limite de mensagens duplicado' },
-    ],
-  },
-  {
-    version: '1.9.0',
-    date: '27/05/2026',
-    highlights: [
-      { type: 'fix', text: 'Erro "Custom Id cannot contain :" em campanhas corrigido' },
-      { type: 'fix', text: 'Deploy VPS: variáveis SWARM_ENABLED e REDIS_URL exportadas corretamente' },
-      { type: 'fix', text: 'Script de migração Swarm→Compose não tentava mais subir serviço inexistente' },
-    ],
-  },
-  {
-    version: '1.8.0',
-    date: '26/05/2026',
-    highlights: [
-      { type: 'feat', text: 'Migração automática de Docker Swarm para Docker Compose' },
-      { type: 'feat', text: 'Healthcheck do Redis no Docker Compose' },
-      { type: 'fix', text: 'Nginx apontando para porta errada corrigido' },
-      { type: 'fix', text: 'Erro session-bus no modo monolith eliminado' },
+      { type: 'fix', text: 'Campanhas Evolution fecham corretamente após finalizar' },
+      { type: 'fix', text: 'Auto-warmup voltou a funcionar' },
+      { type: 'security', text: 'Conversas enviadas apenas para o dono — sem risco cross-tenant' },
+      { type: 'feat', text: 'Mapa geográfico de campanhas por estado no Dashboard' },
     ],
   },
 ];
@@ -81,33 +97,89 @@ interface ChangelogPanelProps {
   showTitle?: boolean;
 }
 
+/** Compara versões semânticas (retorna true se a >= b) */
+function versionGte(a: string, b: string): boolean {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) > (pb[i] ?? 0)) return true;
+    if ((pa[i] ?? 0) < (pb[i] ?? 0)) return false;
+  }
+  return true;
+}
+
 export const ChangelogPanel: React.FC<ChangelogPanelProps> = ({ maxItems, showTitle = true }) => {
   const [expanded, setExpanded] = useState<string | null>(CHANGELOG[0]?.version ?? null);
   const [showAll, setShowAll] = useState(false);
 
   const visibleEntries = showAll || !maxItems ? CHANGELOG : CHANGELOG.slice(0, maxItems);
-  const currentVersion = CHANGELOG[0]?.version ?? '?';
+
+  // Versões que estão no homolog mas ainda não foram para produção
+  const pendingProd = CHANGELOG.filter(
+    (e) => versionGte(e.version, PROD_VERSION) && e.version !== PROD_VERSION
+  );
 
   return (
     <div className="space-y-4">
       {showTitle && (
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-violet-500/20 to-indigo-500/20 border border-violet-500/20">
               <Tag className="w-4 h-4 text-violet-600 dark:text-violet-400" />
             </div>
             <div>
               <h3 className="font-semibold text-slate-800 dark:text-slate-100 text-[15px]">Novidades & Correções</h3>
-              <p className="text-[12px] text-slate-500 dark:text-slate-400">Versão atual: <span className="font-mono font-semibold text-violet-600 dark:text-violet-400">v{currentVersion}</span></p>
+              <p className="text-[12px] text-slate-500 dark:text-slate-400">
+                Histórico de versões do sistema
+              </p>
             </div>
           </div>
+
+          {/* Badges de ambiente */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+              <FlaskConical className="w-3 h-3" />
+              Homolog v{HOMOLOG_VERSION}
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+              <Rocket className="w-3 h-3" />
+              Produção v{PROD_VERSION}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Alerta de versões pendentes em produção */}
+      {pendingProd.length > 0 && (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3">
+          <div className="flex items-center gap-2 mb-2">
+            <FlaskConical className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+            <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-300">
+              {pendingProd.length} versão{pendingProd.length > 1 ? 'ões' : ''} aguardando deploy em produção
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {pendingProd.map((e) => (
+              <span
+                key={e.version}
+                className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-[11px] font-mono font-bold text-amber-700 dark:text-amber-300"
+              >
+                v{e.version}
+              </span>
+            ))}
+          </div>
+          <p className="text-[11px] text-amber-600/70 dark:text-amber-400/60 mt-2">
+            Deploy automático ocorre de madrugada (02h–06h BRT) ou via GitHub Actions → Run workflow.
+          </p>
         </div>
       )}
 
       <div className="space-y-3">
         {visibleEntries.map((entry) => {
           const isOpen = expanded === entry.version;
-          const isLatest = entry.version === CHANGELOG[0]?.version;
+          const isHomolog = entry.version === HOMOLOG_VERSION;
+          const isProd = entry.version === PROD_VERSION;
+          const isPending = versionGte(entry.version, PROD_VERSION) && !isProd;
 
           return (
             <div
@@ -123,19 +195,27 @@ export const ChangelogPanel: React.FC<ChangelogPanelProps> = ({ maxItems, showTi
                 onClick={() => setExpanded(isOpen ? null : entry.version)}
                 className="w-full flex items-center justify-between px-4 py-3 text-left"
               >
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center gap-2 min-w-0 flex-wrap">
                   <span className="font-mono text-[13px] font-bold text-slate-700 dark:text-slate-200 shrink-0">
                     v{entry.version}
                   </span>
-                  {isLatest && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/15 border border-violet-500/20 text-[10px] font-semibold text-violet-700 dark:text-violet-300 shrink-0">
-                      <span className="relative flex h-1.5 w-1.5">
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-75" />
-                        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-violet-500" />
-                      </span>
-                      Atual
+
+                  {isHomolog && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/20 text-[10px] font-semibold text-amber-700 dark:text-amber-300 shrink-0">
+                      <FlaskConical className="w-2.5 h-2.5" /> Homolog
                     </span>
                   )}
+                  {isProd && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/20 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 shrink-0">
+                      <Rocket className="w-2.5 h-2.5" /> Produção
+                    </span>
+                  )}
+                  {isPending && !isHomolog && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/15 text-[10px] text-amber-600 dark:text-amber-400 shrink-0">
+                      aguardando prod
+                    </span>
+                  )}
+
                   <span className="text-[12px] text-slate-400 dark:text-slate-500 shrink-0">{entry.date}</span>
                   {!isOpen && (
                     <span className="text-[12px] text-slate-500 dark:text-slate-400 truncate hidden sm:block">

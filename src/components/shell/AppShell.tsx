@@ -103,8 +103,9 @@ export const AppShell: React.FC<AppShellProps> = ({
           actions={topBarActions}
           centerSlot={headerCenter}
           nearLatencySlot={headerUpgradeNearLatency}
+          onNavigate={onChangeView}
         />
-        <HomologBanner />
+        {currentView !== 'chat' && <HomologBanner />}
         <ContactsGlobalPreloadBar />
         <ReconnectingBanner />
         <SystemAnnouncementBanner />
@@ -121,7 +122,11 @@ export const AppShell: React.FC<AppShellProps> = ({
             </p>
           </div>
         )}
-        <div className="flex-1 p-3 sm:p-5 lg:p-6 relative flex flex-col min-h-0 min-w-0 max-w-full">
+        <div
+          className={`flex-1 relative flex flex-col min-h-0 min-w-0 max-w-full ${
+            currentView === 'chat' ? 'p-0' : 'p-3 sm:p-5 lg:p-6'
+          }`}
+        >
           <div
             className={`flex-1 w-full min-w-0 max-w-full page-enter ${readOnlyBlockMain ? 'pointer-events-none select-none opacity-[0.88]' : ''}`}
             aria-disabled={readOnlyBlockMain}

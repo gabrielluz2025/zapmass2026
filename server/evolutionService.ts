@@ -4927,15 +4927,19 @@ export async function deleteConnection(
         const instanceMissing =
             status === 404 ||
             /record not found|not found|does not exist|instance.*not.*found/i.test(msg);
+        // Evolution Go inacessível (ENOTFOUND/ECONNREFUSED) → limpar localmente sem bloquear
+        const networkUnreachable =
+            !error?.response &&
+            /ENOTFOUND|ECONNREFUSED|EAI_AGAIN|getaddrinfo|socket hang up/i.test(msg);
         if (isEvolutionGoLicenseError(error)) {
-            log('warn', `delete ${id}: Evolution Go sem licença — removendo canal só no ZapMass`, {
-                status,
-            });
+            log('warn', `delete ${id}: Evolution Go sem licença — removendo canal só no ZapMass`, { status });
         } else if (instanceMissing) {
             log('warn', `delete ${id}: instância já ausente na Evolution — limpando ZapMass`, {
                 status,
                 msg: msg.slice(0, 120),
             });
+        } else if (networkUnreachable) {
+            log('warn', `delete ${id}: Evolution Go inacessível (${msg.slice(0, 80)}) — removendo canal localmente`, {});
         } else if (status !== 404) {
             log('error', `Erro ao deletar ${id}`, { error: msg || 'Falha ao remover canal na Evolution', status });
             throw new Error(msg || 'Falha ao remover canal na Evolution');

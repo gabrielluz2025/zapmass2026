@@ -264,6 +264,19 @@ export function parseEvolutionChatContent(
   return { type, text, ...(mediaUrl ? { mediaUrl } : {}) };
 }
 
+/** Payload mínimo waE2E.Message para download de mídia (Evolution Go). */
+export function pickWaMediaMessageForDownload(
+  message: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!message || typeof message !== 'object') return undefined;
+  const unwrapped = unwrapEvolutionMessagePayload(message);
+  const out: Record<string, unknown> = {};
+  for (const key of MEDIA_PART_KEYS) {
+    if (unwrapped[key]) out[key] = unwrapped[key];
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /** Exportado para loadMessageMedia e testes. */
 export { unwrapEvolutionMessagePayload, extractEvolutionMediaUrl };
 

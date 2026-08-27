@@ -35,6 +35,7 @@ import { isPlatformAdminUser } from '../../utils/adminAccess';
 import { canAccessCreatorStudio } from '../../utils/creatorStudioAccess';
 import { useAppProfile } from '../../context/AppProfileContext';
 import { prefetchAppView } from '../../utils/prefetchAppViews';
+import { APP_VERSION } from '../../config/appVersion';
 
 interface SidebarProps {
   currentView: string;
@@ -391,6 +392,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           );
         })()}
+
+        {/* Versão do sistema */}
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={() => onChangeView('settings')}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-colors hover:bg-white/5"
+            title="Ver novidades e histórico de versões"
+          >
+            <span className="text-[10px] font-mono font-semibold" style={{ color: 'rgba(148,163,184,0.5)' }}>
+              v{APP_VERSION}
+            </span>
+          </button>
+        )}
       </div>
     </aside>
   );

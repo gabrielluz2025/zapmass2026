@@ -17,10 +17,10 @@ Ambiente isolado para testar features antes de produção, sem derrubar chips de
 ## Setup inicial (uma vez na VPS)
 
 ```bash
-# Se git pull falhar por "local changes would be overwritten":
+# Se git checkout develop falhar por "local changes would be overwritten":
 cd /opt/zapmass
-bash deployment/ensure-git-main.sh   # alinha com origin/main (descarta edits locais rastreados)
-git log -1 --oneline                 # deve mostrar commit com homolog (ex.: e9c1f4c)
+bash deployment/ensure-git-develop.sh   # alinha com origin/develop (descarta edits locais rastreados)
+git log -1 --oneline
 
 sudo bash deployment/setup-homolog.sh
 ```
@@ -54,11 +54,48 @@ git push -u origin develop
 
 ```bash
 cd /opt/zapmass
-git fetch && git checkout develop && git pull
-bash deployment/vps-deploy-homolog.sh
+bash deployment/vps-deploy-homolog.sh   # já chama ensure-git-develop antes do build
 ```
 
 Ou: **GitHub Actions → Deploy homolog (develop) → Run workflow**
+
+Se push em `develop` não atualizar a UI, confira a versão:
+
+```bash
+curl -s https://homolog.zap-mass.com/api/health
+# "version" deve bater com o commit em develop (ex.: 8b8f4c8)
+```
+
+Causa comum: **GitHub Actions não alcança SSH da VPS** (firewall Hostinger bloqueia runners). O workflow antigo marcava sucesso mesmo sem deploy.
+
+**Deploy manual imediato (VPS):**
+
+```bash
+cd /opt/zapmass
+bash deployment/vps-deploy-homolog.sh
+```
+
+Se `git pull` falhar com *"local changes would be overwritten"* (edits manuais na VPS):
+
+```bash
+cd /opt/zapmass
+git fetch origin develop
+git checkout -f develop 2>/dev/null || git checkout -b develop origin/develop
+git reset --hard origin/develop
+git rev-parse --short HEAD   # deve ser c678cab ou mais recente
+bash deployment/vps-deploy-homolog.sh
+```
+
+Confirme: `curl -s https://homolog.zap-mass.com/api/health` → `"version"` igual ao commit acima.
+
+**Deploy automático sem SSH do GitHub** (recomendado — cron a cada 3 min):
+
+```bash
+cd /opt/zapmass
+git pull origin develop
+sudo bash deployment/install-homolog-watch-cron.sh
+tail -f /var/log/zapmass-watch-deploy-homolog.log
+```
 
 ## Chips WhatsApp
 
@@ -68,7 +105,7 @@ Ou: **GitHub Actions → Deploy homolog (develop) → Run workflow**
 
 ### Licença Evolution Go (porta :8082)
 
-Instância homolog é **nova** — a licença da prod (:8081) **não** vale aqui. Se `fetchInstances` retornar `LICENSE_REQUIRED`:
+Instância homolog é **nova** — a licença da prod (:8081) **não** vale aqui. Se `/instance/all` retornar `LICENSE_REQUIRED` ou HTTP 503:
 
 ```bash
 # No PC (túnel SSH):
@@ -81,9 +118,25 @@ http://127.0.0.1:8082/manager/login
 Depois de ativar:
 
 ```bash
-curl -s -H "apikey: zapmass-homolog-key-2026" http://127.0.0.1:8082/license/status
-curl -s -H "apikey: zapmass-homolog-key-2026" http://127.0.0.1:8082/instance/fetchInstances
+# Evolution Go usa GET /instance/all (não fetchInstances da Evolution API Node)
+KEY="$(grep EVOLUTION_GO_KEY_HOMOLOG homolog/.env | cut -d= -f2-)"
+curl -s -H "apikey: ${KEY}" http://127.0.0.1:8082/license/status
+curl -s -H "apikey: ${KEY}" http://127.0.0.1:8082/instance/all
 ```
+
+Após `register/auto` na Foundation, a `api_key` retornada deve ir em `homolog/.env` como `EVOLUTION_GO_KEY_HOMOLOG` — o Evolution Go valida no boot via `GLOBAL_API_KEY` (`✓ GLOBAL_API_KEY accepted`).
+
+**OAuth Google/GitHub com erro?** O servidor `license.evolutionfoundation.com.br` costuma falhar no OAuth — **não use** Google/GitHub. Opções:
+
+1. **Magic Link** — na página de registro, só preencha nome + e-mail e confirme o link recebido.
+2. **Auto-ativação** (se prod `:8081` já licenciada com o mesmo e-mail):
+
+```bash
+cd /opt/zapmass
+bash deployment/activate-homolog-evolution-license.sh festaimportgabriel@gmail.com
+```
+
+Adicione em `homolog/.env`: `EVOLUTION_OPERATOR_EMAIL=seu@email.com` e recrie `evolution-go-homolog`.
 
 ## Mercado Pago
 
@@ -109,10 +162,31 @@ HOMOLOG_MERCADOPAGO_BACK_URL=https://homolog.zap-mass.com
 | `docker-compose.homolog.yml` | Stack API + Evolution Go homolog |
 | `homolog/.env` | Secrets e URLs (não commitar) |
 | `deployment/setup-homolog.sh` | Instalação inicial |
+| `deployment/ensure-git-develop.sh` | Alinha VPS com `origin/develop` |
 | `deployment/vps-deploy-homolog.sh` | Deploy sem tocar produção |
 | `.github/workflows/deploy-homolog.yml` | CI branch `develop` |
 
 ## Troubleshooting
+
+### GitHub Actions: deploy homolog com X vermelho (SSH)
+
+O job **SSH homolog (VPS)** falha quando o runner do GitHub **não alcança a porta SSH** da VPS (firewall/ufw). O build (Vite) pode estar verde mesmo assim.
+
+**Sintoma:** step `Pré-teste SSH` ~1 min, depois `VPS — deploy homolog` **skipped**.
+
+**Opções:**
+
+1. **Deploy manual ou cron (recomendado hoje):**
+   ```bash
+   cd /opt/zapmass && bash deployment/vps-deploy-homolog.sh
+   # ou cron a cada 3 min:
+   sudo bash deployment/install-homolog-watch-cron.sh
+   ```
+   Com homolog já na versão do commit, o CI passa só verificando `https://homolog.zap-mass.com/api/health`.
+
+2. **Liberar SSH para GitHub Actions** (deploy automático via SSH):
+   - Meta IPs: https://api.github.com/meta (campo `actions`)
+   - Exemplo ufw: allowlist na porta 22 só para esses ranges
 
 ### Evolution Go homolog: `too many clients already`
 

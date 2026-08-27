@@ -76,6 +76,8 @@ export interface ChatMessage {
   /** Metadados WA para resolver @lid → telefone (não exibidos na UI). */
   waRemoteJidAlt?: string;
   waSenderPn?: string;
+  /** Corpo waE2E.Message (só mídia) — servidor; não enviar ao cliente. */
+  waMediaPayload?: Record<string, unknown>;
 }
 
 export interface Conversation {

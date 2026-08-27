@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { MessageCircle, RefreshCw, ScanSearch, Search, Wifi, WifiOff, Zap } from 'lucide-react';
+import { MessageCircle, RefreshCw, Search, Wifi, WifiOff } from 'lucide-react';
 import type { Conversation, WhatsAppConnection } from '../../types';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import {
@@ -47,6 +47,7 @@ type Props = {
   onInboxTabChange?: (tab: InboxSmartTab) => void;
   pinnedIds?: string[];
   slaByConvId?: Map<string, SlaLevel>;
+  hotCount?: number;
 };
 
 export const WaInbox: React.FC<Props> = memo(function WaInbox({
@@ -82,6 +83,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   onInboxTabChange,
   pinnedIds = [],
   slaByConvId,
+  hotCount = 0,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadMoreLockRef = useRef(false);
@@ -158,14 +160,13 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
     return 'Conecte um chip em Conexões';
   }, [syncing, isOffline, isSlow, chipsConnected]);
 
-  const smartTabs: { id: InboxSmartTab; label: string }[] = [
-    { id: 'all', label: 'Todas' },
-    { id: 'unread', label: 'Não lidas' },
-    { id: 'hot', label: 'Quentes' },
-    { id: 'campaign', label: 'Campanha' },
-    { id: 'team', label: 'Equipe' },
-    { id: 'archived', label: 'Arquivo' },
+  const smartTabs: { id: InboxSmartTab; label: string; badge?: number }[] = [
+    { id: 'all', label: 'Tudo' },
+    { id: 'unread', label: 'Não lidas', badge: totalUnread || undefined },
+    { id: 'hot', label: 'Quentes', badge: hotCount || undefined },
   ];
+
+  const moreTabs: { id: InboxSmartTab; label: string }[] = [];
 
   const showAllActive = inboxTab === 'all' && !unreadOnly && !campaignOnly && connectionFilterId === 'ALL';
 
@@ -183,46 +184,15 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   return (
     <aside className="wa-side flex flex-col min-h-0" data-hide-mobile={hideOnMobile ? 'true' : undefined}>
 
-      {/* ── Header redesenhado ─────────────────────── */}
-      <div className="wa-inbox-header">
-        <div className="wa-inbox-header__left">
-          {/* Indicador de status ao vivo */}
-          <div className="wa-live-badge" data-state={syncing ? 'sync' : isOffline ? 'off' : isSlow ? 'slow' : 'on'}>
-            <span className="wa-live-dot" />
-            <span className="wa-live-label">
-              {syncing ? 'SYNC' : isOffline ? 'OFF' : isSlow ? 'LENTO' : 'LIVE'}
-            </span>
-          </div>
-        </div>
-
-        <div className="wa-inbox-header__center">
-          {totalUnread > 0 ? (
-            <div className="wa-unread-hero">
-              <span className="wa-unread-hero__count">{totalUnread > 999 ? '999+' : totalUnread}</span>
-              <span className="wa-unread-hero__label">não lidas</span>
-            </div>
-          ) : (
-            <span className="wa-inbox-title">Bate-papo</span>
-          )}
-        </div>
-
-        <div className="wa-inbox-header__right">
-          {onAutoClassifyResponses && (
-            <button
-              type="button"
-              className="wa-icon-btn"
-              title="Classificar respostas automaticamente (quero → quente; quero depois sair → lista negra)"
-              aria-label="Classificar respostas automaticamente"
-              disabled={autoClassifying}
-              onClick={onAutoClassifyResponses}
-            >
-              <ScanSearch className={`w-[18px] h-[18px] ${autoClassifying ? 'animate-pulse text-emerald-400' : ''}`} />
-            </button>
-          )}
+      {/* ── Header estilo WhatsApp Web ─────────────── */}
+      <div className="wa-inbox-header wa-inbox-header--wa">
+        <h2 className="wa-inbox-title wa-inbox-title--main">Conversas</h2>
+        <div className="wa-inbox-header__actions">
           <button
             type="button"
             className="wa-icon-btn"
-            title="Sincronizar conversas"
+            title="Sincronizar conversas e mensagens abertas"
+            aria-label="Sincronizar"
             onClick={onRefresh}
           >
             <RefreshCw className={`w-[18px] h-[18px] ${syncing ? 'animate-spin' : ''}`} />
@@ -230,17 +200,13 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
         </div>
       </div>
 
-      {/* ── Linha de status contextual ──────────────── */}
-      <div className="wa-inbox-status" data-state={isOffline ? 'off' : isSlow ? 'slow' : 'on'}>
-        {isOffline ? <WifiOff className="w-3 h-3 shrink-0" /> : <Wifi className="w-3 h-3 shrink-0" />}
-        <span className="flex-1 truncate">{statusText}</span>
-        {chipsConnected > 0 && !isOffline && (
-          <span className="wa-inbox-status__chips">
-            <Zap className="w-2.5 h-2.5" />
-            {allConversations.length}
-          </span>
-        )}
-      </div>
+      {/* Status compacto — só quando relevante */}
+      {(isOffline || isSlow || syncing || chipsConnected === 0) && (
+        <div className="wa-inbox-status" data-state={isOffline ? 'off' : isSlow ? 'slow' : 'on'}>
+          {isOffline ? <WifiOff className="w-3 h-3 shrink-0" /> : <Wifi className="w-3 h-3 shrink-0" />}
+          <span className="flex-1 truncate">{statusText}</span>
+        </div>
+      )}
 
       {/* ── Busca ──────────────────────────────────── */}
       <div className="wa-search-wrap">
@@ -249,7 +215,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
           <span className="sr-only">Pesquisar</span>
           <input
             type="search"
-            placeholder="Pesquisar conversa ou número…"
+            placeholder="Pesquisar ou começar nova conversa"
             value={search}
             onChange={(e) => onSearch(e.target.value)}
           />
@@ -258,71 +224,49 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
 
       {/* O seletor de canal foi movido para o WaChannelRail (coluna esquerda) */}
 
-      {/* ── Pills de filtro ─────────────────────────── */}
+      {/* Filtros principais — estilo WA Web */}
       <div className="wa-filter-row flex-shrink-0 wa-filter-row--scroll">
         {smartTabs.map((t) => (
           <button
             key={t.id}
             type="button"
             className="wa-filter-pill"
-            data-active={inboxTab === t.id ? 'true' : 'false'}
-            onClick={() => onInboxTabChange?.(t.id)}
+            data-active={inboxTab === t.id && !campaignOnly ? 'true' : 'false'}
+            onClick={() => {
+              onInboxTabChange?.(t.id);
+              if (t.id === 'all') handleShowAll();
+            }}
           >
             {t.label}
+            {t.badge != null && t.badge > 0 ? (
+              <span className="wa-pill-badge">{t.badge > 999 ? '999+' : t.badge}</span>
+            ) : null}
           </button>
         ))}
       </div>
 
-      <div className="wa-filter-row flex-shrink-0">
-        <button
-          type="button"
-          className="wa-filter-pill"
-          data-active={showAllActive ? 'true' : 'false'}
-          onClick={handleShowAll}
-        >
-          Reset
-        </button>
-        {totalUnread > 0 && (
-          <button
-            type="button"
-            className="wa-filter-pill"
-            data-active={unreadOnly ? 'true' : 'false'}
-            onClick={onToggleUnread}
-          >
-            Não lidas
-            <span className="wa-pill-badge">{totalUnread}</span>
-          </button>
-        )}
-        {totalSystem > 0 && onToggleCampaign && (
-          <button
-            type="button"
-            className="wa-filter-pill"
-            data-active={campaignOnly ? 'true' : 'false'}
-            onClick={onToggleCampaign}
-          >
-            Disparo
-            <span className="wa-pill-badge">{totalSystem}</span>
-          </button>
-        )}
-        {channelPills.map((pill) => (
-          <button
-            key={pill.id}
-            type="button"
-            className="wa-filter-pill wa-filter-pill--channel"
-            data-active={connectionFilterId === pill.id ? 'true' : 'false'}
-            title={pill.label}
-            onClick={() => handleChannelPill(pill.id)}
-          >
-            <span
-              className="wa-filter-pill-dot"
-              aria-hidden
-              style={{ background: `hsl(${pill.hue}, 60%, 50%)` }}
-            />
-            <span className="wa-filter-pill-label">{pill.label}</span>
-            {pill.count > 0 && <span className="wa-pill-badge">{pill.count}</span>}
-          </button>
-        ))}
-      </div>
+      {channelPills.length > 0 && (
+        <div className="wa-filter-row flex-shrink-0 wa-filter-row--scroll">
+          {channelPills.map((pill) => (
+            <button
+              key={pill.id}
+              type="button"
+              className="wa-filter-pill wa-filter-pill--channel"
+              data-active={connectionFilterId === pill.id ? 'true' : 'false'}
+              title={pill.label}
+              onClick={() => handleChannelPill(pill.id)}
+            >
+              <span
+                className="wa-filter-pill-dot"
+                aria-hidden
+                style={{ background: `hsl(${pill.hue}, 60%, 50%)` }}
+              />
+              <span className="wa-filter-pill-label">{pill.label}</span>
+              {pill.count > 0 && <span className="wa-pill-badge">{pill.count}</span>}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── Lista virtualizada ──────────────────────── */}
       <div

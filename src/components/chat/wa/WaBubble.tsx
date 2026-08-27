@@ -12,6 +12,8 @@ interface WaBubbleProps {
   time?: string;
   /** Mensagem originada de disparo de campanha. */
   fromCampaign?: boolean;
+  /** Layout especial para foto/vídeo/figurinha (borda colada na mídia). */
+  mediaLayout?: 'visual' | 'compact' | null;
   children: React.ReactNode;
 }
 
@@ -25,6 +27,7 @@ export const WaBubble: React.FC<WaBubbleProps> = ({
   status,
   time,
   fromCampaign,
+  mediaLayout,
   children
 }) => {
   return (
@@ -34,11 +37,12 @@ export const WaBubble: React.FC<WaBubbleProps> = ({
         data-side={side}
         data-tail={showTail ? 'true' : 'false'}
         data-status={side === 'out' && status ? status : undefined}
+        data-media={mediaLayout || undefined}
       >
         {fromCampaign && side === 'out' ? (
           <span className="wa-campaign-tag">Campanha</span>
         ) : null}
-        <span>{children}</span>
+        <div className="wa-bubble-body">{children}</div>
         <span className="wa-bubble-meta">
           {time}
           {side === 'out' && status === 'pending' && (

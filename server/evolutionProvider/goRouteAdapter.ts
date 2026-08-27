@@ -43,6 +43,29 @@ function evolutionWebhookUrlForGo(): string {
     return url;
 }
 
+function pickGoDownloadMediaBody(data: unknown): Record<string, unknown> | undefined {
+    const body = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+    const msg = body.message;
+    if (!msg || typeof msg !== 'object') return undefined;
+    const record = msg as Record<string, unknown>;
+    const inner = record.message;
+    if (inner && typeof inner === 'object') {
+        return { message: inner };
+    }
+    const mediaKeys = [
+        'imageMessage',
+        'videoMessage',
+        'audioMessage',
+        'pttMessage',
+        'documentMessage',
+        'stickerMessage',
+    ];
+    for (const key of mediaKeys) {
+        if (record[key]) return { message: { [key]: record[key] } };
+    }
+    return undefined;
+}
+
 /** Traduz request Evolution API v2 → Evolution Go. */
 export function adaptEvolutionApiRequestToGo(
     config: InternalAxiosRequestConfig,
@@ -175,7 +198,12 @@ export function adaptEvolutionApiRequestToGo(
     }
 
     if (url.includes('/chat/getBase64FromMediaMessage/')) {
-        return { url: '/message/downloadmedia', data, headers: instH };
+        const goBody = pickGoDownloadMediaBody(data);
+        return {
+            url: '/message/downloadmedia',
+            data: goBody ?? data,
+            headers: instH,
+        };
     }
 
     if (url.includes('/chat/findContacts/')) {
@@ -377,6 +405,40 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
             messageId: inner?.id || inner?.messageId,
             status: inner?.status || 'PENDING',
         };
+    }
+
+    if (path.includes('/message/downloadmedia')) {
+        const wrapped = data as { data?: unknown };
+        const inner = wrapped?.data ?? data;
+        const parseDataUrl = (raw: string) => {
+            const t = raw.trim();
+            if (!t.startsWith('data:')) return null;
+            const semi = t.indexOf(';');
+            const comma = t.indexOf(',');
+            if (semi < 0 || comma < 0) return null;
+            return {
+                mimetype: t.slice(5, semi),
+                base64: t.slice(comma + 1),
+            };
+        };
+        if (typeof inner === 'string') {
+            const parsed = parseDataUrl(inner);
+            if (parsed) return parsed;
+        }
+        if (inner && typeof inner === 'object') {
+            const obj = inner as Record<string, unknown>;
+            for (const key of ['data', 'base64', 'media', 'url']) {
+                const val = obj[key];
+                if (typeof val === 'string') {
+                    const parsed = parseDataUrl(val);
+                    if (parsed) return parsed;
+                    if (val.length > 80 && !val.startsWith('http')) {
+                        return { base64: val, mimetype: String(obj.mimetype || obj.mimeType || 'application/octet-stream') };
+                    }
+                }
+            }
+        }
+        return data;
     }
 
     return data;

@@ -67,6 +67,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      EXPECTED_SHA: ${{ github.sha }}
+      EXPECTED_SHORT: ${{ github.sha }}
     steps:
       - name: Pré-teste SSH
         id: ssh_precheck
@@ -76,12 +79,19 @@ jobs:
           VPS_PORT: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
         run: |
           set -euo pipefail
+          echo "==> teste TCP ${VPS_HOST}:${VPS_PORT}"
           ok=0
-          for i in $(seq 1 15); do
-            if nc -zvw8 "${VPS_HOST}" "${VPS_PORT}"; then ok=1; break; fi
-            sleep 8
+          for i in $(seq 1 10); do
+            if nc -zvw5 "${VPS_HOST}" "${VPS_PORT}"; then ok=1; break; fi
+            echo "tentativa ${i}/10 falhou; aguardando 5s..."
+            sleep 5
           done
           echo "reachable=$([ "$ok" = "1" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          if [ "$ok" != "1" ]; then
+            echo "::warning::Runner não alcançou ${VPS_HOST}:${VPS_PORT} — deploy SSH ignorado."
+            echo "::warning::Use cron na VPS: sudo bash deployment/install-homolog-watch-cron.sh"
+            echo "::warning::Ou deploy manual: cd /opt/zapmass && bash deployment/vps-deploy-homolog.sh"
+          fi
 
       - name: VPS — deploy homolog
         if: steps.ssh_precheck.outputs.reachable == 'true'
@@ -97,12 +107,14 @@ jobs:
             set -euo pipefail
             export GITHUB_EVENT_NAME="${{ github.event_name }}"
             export GITHUB_ACTIONS=true
-            GHA_SHA="${{ github.sha }}"
+            export GHA_SHA="${{ github.sha }}"
             cd /opt/zapmass
             git fetch --all --prune
             git checkout -f "${GHA_SHA}"
             export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo '')"
-            chmod +x deployment/vps-deploy-homolog.sh deployment/ensure-homolog-dbs.sh deployment/setup-homolog.sh
+            chmod +x deployment/vps-deploy-homolog.sh deployment/ensure-homolog-dbs.sh deployment/setup-homolog.sh \
+              deployment/ensure-git-develop.sh deployment/fix-postgres-connections.sh \
+              deployment/recover-homolog-evolution-go.sh deployment/activate-homolog-evolution-license.sh
             if [ ! -f homolog/.env ]; then
               echo "==> homolog/.env ausente — executando setup-homolog.sh"
               bash deployment/setup-homolog.sh
@@ -111,30 +123,44 @@ jobs:
             fi
 
       - name: Verificar homolog.zap-mass.com
-        if: always()
+        id: health_check
         run: |
           set -euo pipefail
           EXPECTED="${GITHUB_SHA::7}"
-          for i in $(seq 1 12); do
-            resp=$(curl -sf --max-time 15 https://homolog.zap-mass.com/api/health 2>/dev/null || echo "")
+          SSH_OK="${{ steps.ssh_precheck.outputs.reachable }}"
+          echo "Esperado: ${EXPECTED} (commit ${GITHUB_SHA})"
+          for i in $(seq 1 24); do
+            resp=$(curl -sf --max-time 20 https://homolog.zap-mass.com/api/health 2>/dev/null || echo "")
             if [ -n "$resp" ] && echo "$resp" | grep -q '"environment"[[:space:]]*:[[:space:]]*"homolog"'; then
               ver=$(echo "$resp" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
-              echo "## Homolog OK (version=${ver:-?} environment=homolog)" >> "$GITHUB_STEP_SUMMARY"
-              if [ -n "$ver" ] && { [ "$ver" = "$EXPECTED" ] || [ "$ver" = "${{ github.sha }}" ]; }; then
+              echo "health version=${ver:-?} (tentativa ${i}/24)"
+              if [ -n "$ver" ] && { [ "$ver" = "$EXPECTED" ] || [ "${ver}" = "${GITHUB_SHA}" ] || [ "${GITHUB_SHA#"$ver"}" != "${GITHUB_SHA}" ]; }; then
+                echo "matched=true" >> "$GITHUB_OUTPUT"
+                echo "version=${ver}" >> "$GITHUB_OUTPUT"
+                if [ "$SSH_OK" = "true" ]; then
+                  echo "## Homolog OK via SSH (version=${ver})" >> "$GITHUB_STEP_SUMMARY"
+                else
+                  echo "## Homolog OK — versão confirmada sem SSH (version=${ver})" >> "$GITHUB_STEP_SUMMARY"
+                  echo "" >> "$GITHUB_STEP_SUMMARY"
+                  echo "Deploy provavelmente via **cron** ou **manual na VPS**. Para CI fazer SSH:" >> "$GITHUB_STEP_SUMMARY"
+                  echo "- Liberar porta SSH para IPs do GitHub Actions (ufw/security group)" >> "$GITHUB_STEP_SUMMARY"
+                  echo "- Ou manter \`install-homolog-watch-cron.sh\` (a cada 3 min)" >> "$GITHUB_STEP_SUMMARY"
+                fi
                 exit 0
               fi
             fi
-            echo "tentativa $i/12..."
             sleep 10
           done
-          if [ "${{ steps.ssh_precheck.outputs.reachable }}" != "true" ]; then
-            echo "## SSH indisponível — rode na VPS: cd /opt/zapmass && git pull && bash deployment/vps-deploy-homolog.sh" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          echo "matched=false" >> "$GITHUB_OUTPUT"
+          echo "## Deploy homolog FALHOU" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$SSH_OK" != "true" ]; then
+            echo "- SSH bloqueado para GitHub Actions" >> "$GITHUB_STEP_SUMMARY"
           fi
-          echo "::warning::Homolog não confirmou versão ${EXPECTED} — verifique logs: docker compose -f docker-compose.homolog.yml logs"
-
-      - name: Resumo SSH indisponível
-        if: steps.ssh_precheck.outputs.reachable != 'true'
-        run: |
-          echo "## Deploy homolog — SSH bloqueado" >> "$GITHUB_STEP_SUMMARY"
-          echo "Na VPS: \`cd /opt/zapmass && git fetch && git checkout develop && bash deployment/vps-deploy-homolog.sh\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Homolog não está em \`${EXPECTED}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Na VPS:** \`cd /opt/zapmass && bash deployment/vps-deploy-homolog.sh\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Cron:** \`sudo bash deployment/install-homolog-watch-cron.sh\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Homolog não confirmou versão ${EXPECTED}."
+          exit 1

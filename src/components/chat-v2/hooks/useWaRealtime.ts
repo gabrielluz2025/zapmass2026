@@ -38,9 +38,10 @@ export function useWaRealtime(
   const offlineGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runResync = useCallback(
-    (opts?: { full?: boolean }) => {
+    (opts?: { full?: boolean; force?: boolean }) => {
       if (!socket?.connected) return;
       if (
+        !opts?.force &&
         !opts?.full &&
         lastRealtimeActivityRef.current > 0 &&
         Date.now() - lastRealtimeActivityRef.current < RECENT_REALTIME_SKIP_MS

@@ -1,19 +1,27 @@
 /**
  * Renderiza o conteúdo de uma bolha de mensagem.
- *
- * FIX CRÍTICO: o servidor retorna { ok: true, mediaUrl } mas o evento conversation-delta
- * às vezes não chega quando a mensagem não está na RAM da conversa.
- * Solução: guardar a URL retornada em estado local e usar como fallback de msg.mediaUrl.
+ * Visual idêntico ao WhatsApp Web.
  */
 import React, { useState } from 'react';
-import { Download, FileText, Loader2 } from 'lucide-react';
+import {
+  Download,
+  FileText,
+  Loader2,
+  Mic,
+  Play,
+  RefreshCw,
+} from 'lucide-react';
 import type { ChatMessage } from '../../types';
+import { WaAudioPlayer } from './WaAudioPlayer';
 
 type Props = {
   msg: ChatMessage;
+  side?: 'in' | 'out';
   onLoadMedia?: (messageId: string, silent?: boolean) => Promise<string | null>;
   searchHighlight?: string;
 };
+
+type MediaKind = 'audio' | 'image' | 'video' | 'document' | 'sticker';
 
 function highlightText(text: string, needle: string): React.ReactNode {
   const q = needle.trim();
@@ -30,39 +38,99 @@ function highlightText(text: string, needle: string): React.ReactNode {
   );
 }
 
-/** Botão placeholder enquanto a mídia não está carregada */
-const MediaPlaceholder: React.FC<{
-  label: string;
-  icon: string;
-  onClick: () => void;
+function docExtension(name: string): string {
+  const dot = name.lastIndexOf('.');
+  if (dot < 1 || dot === name.length - 1) return 'DOC';
+  return name.slice(dot + 1).slice(0, 4).toUpperCase();
+}
+
+/** Placeholder visual de imagem/vídeo — quadrado cinza como no WA Web */
+const ImageVideoPlaceholder: React.FC<{
+  kind: 'image' | 'video' | 'sticker';
   loading?: boolean;
-}> = ({ label, icon, onClick, loading }) => (
+  failed?: boolean;
+  onClick: () => void;
+}> = ({ kind, loading, failed, onClick }) => (
   <button
     type="button"
     onClick={onClick}
-    className="wa-media-placeholder"
-    title="Carregar mídia do WhatsApp"
+    className="wa-media-thumb-ph"
+    disabled={loading}
+    title={failed ? 'Falha ao carregar — tentar novamente' : 'Carregar mídia'}
   >
-    <span className="wa-media-placeholder__icon">
-      {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : icon}
-    </span>
-    <span className="wa-media-placeholder__label">{label}</span>
-    {!loading && (
-      <span style={{ fontSize: 12, opacity: 0.6, marginLeft: 'auto', flexShrink: 0 }}>↓</span>
+    <div className="wa-media-thumb-ph__icon">
+      {loading ? (
+        <Loader2 size={26} className="wa-media-ph__spin" strokeWidth={2} />
+      ) : failed ? (
+        <RefreshCw size={26} strokeWidth={2} />
+      ) : kind === 'video' ? (
+        <Play size={26} strokeWidth={2} fill="currentColor" />
+      ) : (
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21 15 16 10 5 21" />
+        </svg>
+      )}
+    </div>
+    {failed && (
+      <span className="wa-media-thumb-ph__label">Toque para recarregar</span>
     )}
   </button>
 );
 
-export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia, searchHighlight }) => {
-  // URL resolvida localmente — usada quando conversation-delta não chega
+/** Placeholder inline compacto (áudio, documento) */
+const InlinePlaceholder: React.FC<{
+  kind: 'audio' | 'document';
+  title?: string;
+  loading?: boolean;
+  failed?: boolean;
+  onClick: () => void;
+}> = ({ kind, title, loading, failed, onClick }) => {
+  const label = title?.trim() || (kind === 'audio' ? 'Mensagem de voz' : 'Documento');
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="wa-media-ph"
+      data-kind={kind}
+      data-failed={failed ? 'true' : 'false'}
+      disabled={loading}
+      title={failed ? 'Tentar novamente' : 'Carregar mídia'}
+    >
+      <span className="wa-media-ph__icon">
+        {loading ? (
+          <Loader2 className="wa-media-ph__svg wa-media-ph__spin" strokeWidth={2} />
+        ) : failed ? (
+          <RefreshCw className="wa-media-ph__svg" strokeWidth={2} />
+        ) : kind === 'audio' ? (
+          <Mic className="wa-media-ph__svg" strokeWidth={2} />
+        ) : (
+          <FileText className="wa-media-ph__svg" strokeWidth={2} />
+        )}
+      </span>
+      <span className="wa-media-ph__text">
+        <span className="wa-media-ph__title">{label}</span>
+        <span className="wa-media-ph__hint">
+          {loading ? 'Carregando…' : failed ? 'Toque para tentar' : 'Toque para abrir'}
+        </span>
+      </span>
+    </button>
+  );
+};
+
+export const WaMessageContent: React.FC<Props> = ({
+  msg,
+  side = 'in',
+  onLoadMedia,
+  searchHighlight,
+}) => {
   const [localUrl, setLocalUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
 
   const text = (msg.text || '').trim();
   const hasText = Boolean(text && text !== '[Mídia]');
-
-  // URL final: prioridade para msg.mediaUrl (via socket delta), depois local, depois nada
   const mediaUrl = msg.mediaUrl || localUrl;
 
   const handleLoad = async () => {
@@ -71,11 +139,8 @@ export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia, searchHigh
     setLoadFailed(false);
     try {
       const url = await onLoadMedia(msg.id);
-      if (url) {
-        setLocalUrl(url);
-      } else {
-        setLoadFailed(true);
-      }
+      if (url) setLocalUrl(url);
+      else setLoadFailed(true);
     } catch {
       setLoadFailed(true);
     } finally {
@@ -83,13 +148,11 @@ export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia, searchHigh
     }
   };
 
-  // Autocarregamento automático — silencioso para não gerar toasts em massa
+  // Auto-load silencioso para mensagens sem URL
   React.useEffect(() => {
     if (!mediaUrl && onLoadMedia && !loading && !loadFailed) {
-      if (!onLoadMedia || loading) return;
       setLoading(true);
-      setLoadFailed(false);
-      onLoadMedia(msg.id, true) // silent=true: falha não gera toast
+      onLoadMedia(msg.id, true)
         .then((url) => {
           if (url) setLocalUrl(url);
           else setLoadFailed(true);
@@ -99,18 +162,15 @@ export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia, searchHigh
     }
   }, [mediaUrl, msg.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const failLabel = (base: string) =>
-    loadFailed ? `${base} (falhou — toque para tentar novamente)` : base;
-
   /* ── Sticker ── */
   if (msg.type === 'sticker') {
-    if (mediaUrl) return <img src={mediaUrl} alt="Figurinha" className="w-32 h-32 object-contain" />;
+    if (mediaUrl) return <img src={mediaUrl} alt="Figurinha" className="wa-media-sticker" />;
     return (
-      <MediaPlaceholder
-        label={failLabel('Figurinha')}
-        icon="🌟"
-        onClick={handleLoad}
+      <ImageVideoPlaceholder
+        kind="sticker"
         loading={loading}
+        failed={loadFailed}
+        onClick={handleLoad}
       />
     );
   }
@@ -119,24 +179,25 @@ export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia, searchHigh
   if (msg.type === 'image') {
     if (mediaUrl) {
       return (
-        <div className="wa-media-image">
-          <img
-            src={mediaUrl}
-            alt="Foto"
-            loading="lazy"
-            style={{ cursor: 'pointer', borderRadius: 8, maxWidth: '100%', display: 'block' }}
+        <div className={`wa-media-block wa-media-block--image${hasText ? ' wa-media-block--caption' : ''}`}>
+          <button
+            type="button"
+            className="wa-media-block__visual"
             onClick={() => window.open(mediaUrl, '_blank')}
-          />
-          {hasText && <p className="wa-media-caption">{text}</p>}
+            aria-label="Abrir foto"
+          >
+            <img src={mediaUrl} alt="Foto" loading="lazy" />
+          </button>
+          {hasText && <p className="wa-media-caption">{highlightText(text, searchHighlight || '')}</p>}
         </div>
       );
     }
     return (
-      <MediaPlaceholder
-        label={failLabel('Foto — toque para ver')}
-        icon="📷"
-        onClick={handleLoad}
+      <ImageVideoPlaceholder
+        kind="image"
         loading={loading}
+        failed={loadFailed}
+        onClick={handleLoad}
       />
     );
   }
@@ -145,92 +206,72 @@ export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia, searchHigh
   if (msg.type === 'video') {
     if (mediaUrl) {
       return (
-        <div className="wa-media-video">
-          <video
-            src={mediaUrl}
-            controls
-            preload="metadata"
-            style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 8, display: 'block' }}
-          />
-          {hasText && <p className="wa-media-caption">{text}</p>}
+        <div className={`wa-media-block wa-media-block--video${hasText ? ' wa-media-block--caption' : ''}`}>
+          <video src={mediaUrl} controls preload="metadata" className="wa-media-block__visual" />
+          {hasText && <p className="wa-media-caption">{highlightText(text, searchHighlight || '')}</p>}
         </div>
       );
     }
     return (
-      <MediaPlaceholder
-        label={failLabel('Vídeo — toque para ver')}
-        icon="🎥"
-        onClick={handleLoad}
+      <ImageVideoPlaceholder
+        kind="video"
         loading={loading}
+        failed={loadFailed}
+        onClick={handleLoad}
       />
     );
   }
 
-  /* ── Áudio — player real quando URL disponível ── */
+  /* ── Áudio ── */
   if (msg.type === 'audio') {
-    if (mediaUrl) {
-      return (
-        <div className="wa-audio-player">
-          <span className="wa-audio-player__icon">🎙️</span>
-          <audio
-            src={mediaUrl}
-            controls
-            preload="metadata"
-            className="wa-audio-element"
-            style={{ accentColor: '#25d366' }}
-          />
-        </div>
-      );
-    }
+    if (mediaUrl) return <WaAudioPlayer src={mediaUrl} side={side} />;
     return (
-      <MediaPlaceholder
-        label={failLabel('Áudio — toque para ouvir')}
-        icon="🎙️"
-        onClick={handleLoad}
+      <InlinePlaceholder
+        kind="audio"
         loading={loading}
+        failed={loadFailed}
+        onClick={handleLoad}
       />
     );
   }
 
   /* ── Documento ── */
   if (msg.type === 'document') {
+    const name = text && text !== '[Mídia]' ? text : 'Documento';
     if (mediaUrl) {
       return (
-        <a
-          href={mediaUrl}
-          download
-          target="_blank"
-          rel="noreferrer"
-          className="wa-media-document"
-        >
-          <div className="wa-media-document__icon">
-            <FileText className="w-6 h-6" />
-          </div>
-          <div className="wa-media-document__info">
-            <p className="wa-media-document__name">{text || 'Documento'}</p>
-            <p className="wa-media-document__hint">Toque para baixar</p>
-          </div>
-          <Download className="w-4 h-4 flex-shrink-0 opacity-60" />
+        <a href={mediaUrl} download target="_blank" rel="noreferrer" className="wa-doc">
+          <span className="wa-doc__badge">{docExtension(name)}</span>
+          <span className="wa-doc__info">
+            <span className="wa-doc__name">{name}</span>
+            <span className="wa-doc__meta">Documento</span>
+          </span>
+          <Download className="wa-doc__dl" strokeWidth={2} />
         </a>
       );
     }
     return (
-      <MediaPlaceholder
-        label={failLabel(text || 'Documento — toque para baixar')}
-        icon="📄"
-        onClick={handleLoad}
+      <InlinePlaceholder
+        kind="document"
+        title={name}
         loading={loading}
+        failed={loadFailed}
+        onClick={handleLoad}
       />
     );
   }
 
-  /* ── Texto simples ── */
+  /* ── Texto ── */
   if (!text) {
-    return (
-      <span style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap', opacity: 0.85 }}>
-        💬 Mensagem recebida
-      </span>
-    );
+    return <span className="wa-text-body wa-text-body--muted">Mensagem recebida</span>;
   }
-  return <span style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{highlightText(text, searchHighlight || '')}</span>;
+
+  return <span className="wa-text-body">{highlightText(text, searchHighlight || '')}</span>;
 };
+
+/** Tipos que usam layout de mídia na bolha (padding reduzido). */
+export function messageMediaLayout(msg: ChatMessage): 'visual' | 'compact' | null {
+  if (msg.type === 'image' || msg.type === 'video' || msg.type === 'sticker') return 'visual';
+  if (msg.type === 'audio' || msg.type === 'document') return 'compact';
+  return null;
+}

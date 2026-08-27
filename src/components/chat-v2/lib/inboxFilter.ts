@@ -1,4 +1,4 @@
-import type { Conversation } from '../../../types';
+import type { Contact, Conversation } from '../../../types';
 import type { ChatInboxPrefsState, InboxSmartTab } from '../../../utils/chatInboxPrefs';
 import {
   isConversationArchived,
@@ -11,9 +11,33 @@ export function conversationHasCampaignMessages(conv: Conversation): boolean {
   return (conv.messages || []).some((m) => m.fromCampaign) || conv.tags?.includes('Campanha');
 }
 
-export function conversationIsHot(crm: ClientCrmData | undefined): boolean {
-  const status = crm?.status;
-  return status === 'lead' || crm?.tags?.includes('quente') || crm?.tags?.includes('hot');
+/** Tag ou status que classifica conversa como "quente" na inbox. */
+export function tagIndicatesHot(tag: string): boolean {
+  const t = tag.trim().toLowerCase();
+  if (!t) return false;
+  return (
+    t === 'quente' ||
+    t === 'hot' ||
+    t === 'lead:quente' ||
+    t.endsWith(':quente') ||
+    t.includes('quente')
+  );
+}
+
+export function conversationIsHot(
+  crm: ClientCrmData | undefined,
+  conv?: Conversation,
+  contact?: Pick<Contact, 'tags' | 'marketingOptIn'>
+): boolean {
+  if (crm?.status === 'lead') return true;
+  if (contact?.marketingOptIn) return true;
+
+  const tags = [
+    ...(crm?.tags ?? []),
+    ...(conv?.tags ?? []),
+    ...(contact?.tags ?? []),
+  ];
+  return tags.some(tagIndicatesHot);
 }
 
 export function filterConversationsBySmartTab(
@@ -21,7 +45,8 @@ export function filterConversationsBySmartTab(
   tab: InboxSmartTab,
   prefs: ChatInboxPrefsState,
   crmByConvId: (id: string) => ClientCrmData | undefined,
-  now = Date.now()
+  now = Date.now(),
+  contactForConv?: (conv: Conversation) => Pick<Contact, 'tags' | 'marketingOptIn'> | undefined
 ): Conversation[] {
   return list.filter((c) => {
     const archived = isConversationArchived(prefs, c.id);
@@ -36,7 +61,7 @@ export function filterConversationsBySmartTab(
       case 'unread':
         return unreadCount(c) > 0;
       case 'hot':
-        return conversationIsHot(crmByConvId(c.id));
+        return conversationIsHot(crmByConvId(c.id), c, contactForConv?.(c));
       case 'campaign':
         return conversationHasCampaignMessages(c);
       case 'team':

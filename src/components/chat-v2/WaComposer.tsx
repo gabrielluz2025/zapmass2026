@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Download, Loader2, Mic, MicOff, Paperclip, Send, Smile, Sparkles, Square, X } from 'lucide-react';
+import { Loader2, Mic, MicOff, Paperclip, Send, Smile, Square, X } from 'lucide-react';
 import type { WhatsAppConnection } from '../../types';
 import { ConnectionStatus } from '../../types';
 import { WaEmojiPicker } from './WaEmojiPicker';
-import { WaQuickRepliesBar } from './WaQuickRepliesBar';
 import { WaQuotePreview } from './WaMessageTools';
 import type { ChatMessage } from '../../types';
 import {
@@ -214,29 +213,6 @@ export const WaComposer: React.FC<Props> = ({
         </div>
       )}
 
-      <WaQuickRepliesBar onPick={(t) => submit(t)} />
-
-      {(aiSuggestions.length > 0 || loadingAi) && (
-        <div className="wa-ai-suggestions">
-          {loadingAi ? (
-            <div className="wa-ai-suggestions__loading">
-              <Sparkles className="w-3.5 h-3.5 animate-pulse" />
-              <span>Gemini pensando…</span>
-            </div>
-          ) : (
-            <>
-              <Sparkles className="w-3 h-3 flex-shrink-0" style={{ color: '#818cf8' }} />
-              {aiSuggestions.map((s, i) => (
-                <button key={i} type="button" className="wa-ai-chip" onClick={() => submit(s)}>{s}</button>
-              ))}
-              <button type="button" className="wa-ai-suggestions__close" onClick={() => setAiSuggestions([])}>
-                <X className="w-3 h-3" />
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
       <WaQuotePreview quote={quoteMessage ?? null} onClear={() => onClearQuote?.()} />
 
       {recording && (
@@ -253,6 +229,12 @@ export const WaComposer: React.FC<Props> = ({
         <div className="wa-composer-row">
           <input ref={fileRef} type="file" className="sr-only" accept={ACCEPT} onChange={onFileChange} tabIndex={-1} />
 
+          {blocked && disabledHint && (
+            <p id="wa-composer-blocked-hint" className="wa-composer-blocked" role="status">
+              {disabledHint}
+            </p>
+          )}
+
           {(onAttach || onPickFileForPreview) && (
             <button type="button" className="wa-composer-btn" disabled={blocked || busy} onClick={pickFile} aria-label="Anexar">
               <Paperclip className="w-5 h-5" />
@@ -266,12 +248,12 @@ export const WaComposer: React.FC<Props> = ({
               rows={1}
               placeholder={
                 busy ? 'Enviando…'
-                  : isDraft && !draftChannelId ? 'Escolha um canal acima'
-                    : blocked && disabledHint ? disabledHint
-                      : 'Digite uma mensagem'
+                  : isDraft && !draftChannelId ? 'Escolha o canal acima'
+                    : 'Digite uma mensagem'
               }
               value={text}
               disabled={blocked || busy}
+              aria-describedby={blocked && disabledHint ? 'wa-composer-blocked-hint' : undefined}
               onChange={(e) => {
                 setText(e.target.value);
                 const el = e.target;
@@ -288,19 +270,13 @@ export const WaComposer: React.FC<Props> = ({
 
           <button
             type="button"
-            className="wa-composer-btn"
+            className="wa-composer-btn wa-composer-btn--emoji"
             disabled={blocked || busy}
             onClick={() => setEmojiOpen((v) => !v)}
             aria-label="Emoji"
           >
             <Smile className="w-5 h-5" />
           </button>
-
-          {onGetAiSuggestions && !hasText && !blocked && !busy && (
-            <button type="button" className="wa-composer-btn wa-composer-btn--ai" onClick={() => void handleAiSuggest()} disabled={loadingAi}>
-              {loadingAi ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            </button>
-          )}
 
           {!hasText && onAttach && !blocked && !busy ? (
             <button type="button" className="wa-composer-btn wa-composer-btn--mic" onClick={startRecording} aria-label="Gravar áudio">
@@ -309,12 +285,6 @@ export const WaComposer: React.FC<Props> = ({
           ) : (
             <button type="button" className="wa-composer-send" data-mode={hasText ? 'send' : undefined} disabled={blocked || busy || !hasText} onClick={() => submit()}>
               {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-            </button>
-          )}
-
-          {onExport && (
-            <button type="button" className="wa-composer-btn" onClick={onExport} aria-label="Exportar">
-              <Download className="w-4 h-4" />
             </button>
           )}
         </div>

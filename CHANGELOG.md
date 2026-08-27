@@ -11,6 +11,20 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.17] — 2026-08-27
+
+### Bate-papo redesenhado — visual WhatsApp Web + mídias funcionando
+
+- **Fotos/vídeos/áudios** aparecem diretamente ao receber — URL CDN do WhatsApp agora incluída no webhook (`skipMedia=false`)
+- **Placeholder de imagem/vídeo** redesenhado: quadrado cinza 260×200 com ícone centralizado, igual ao WhatsApp Web
+- **Layout geral** do bate-papo alinhado ao WA Web: cores, tipografia, espaçamentos
+- **Banner de homologação** não sobrepõe mais a TopBar
+- **Aba "Quentes"** filtra corretamente após aplicar tag
+- **Fotos de perfil** carregam mais rápido (prefetch aumentado para 24 itens)
+- **ChangelogPanel**: badges de ambiente (Homolog / Produção) + alerta de versões pendentes
+
+---
+
 ## [2.3.16] — 2026-07-14
 
 ### Corrigido — Segurança: conversas misturadas entre usuários

@@ -1,11 +1,10 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown, ArrowLeft, History, Loader2, Lock, MoreVertical, ScanSearch, Search, Trash2 } from 'lucide-react';
-import toast from 'react-hot-toast';
 import type { ChatMessage, Conversation, WhatsAppConnection } from '../../types';
 import { WaBubble } from '../chat/wa/WaBubble';
 import { WaComposer } from './WaComposer';
-import { WaMessageContent } from './WaMessageContent';
+import { WaMessageContent, messageMediaLayout } from './WaMessageContent';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import { formatContactPresenceSubtitle } from '../../utils/evolutionPresence';
 import { inboxListTitle } from './lib/conversationDisplay';
@@ -43,6 +42,7 @@ type Props = {
   loadingHistory: boolean;
   historyExhausted: boolean;
   canSend: boolean;
+  chipsConnected?: number;
   socketStatus: WaSocketStatus;
   syncing?: boolean;
   chipConnected: boolean;
@@ -100,6 +100,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
   loadingHistory,
   historyExhausted,
   canSend,
+  chipsConnected = 0,
   socketStatus,
   syncing = false,
   chipConnected,
@@ -146,7 +147,6 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
   const scrollPreserveRef = useRef<{ id: string; height: number; top: number } | null>(null);
   const prevConvIdRef = useRef<string | null>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
-  const [isBotPaused, setIsBotPaused] = useState(false);
   const [menuMsg, setMenuMsg] = useState<ChatMessage | null>(null);
   const [menuRect, setMenuRect] = useState<DOMRect | null>(null);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -300,9 +300,14 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
         <img
           src={avatarSrc}
           alt=""
-          className="wa-conv-avatar"
+          className="wa-conv-avatar wa-chat-header-avatar cursor-pointer"
           width={40}
           height={40}
+          role="button"
+          tabIndex={0}
+          title="Dados do contato"
+          onClick={() => onOpenContactInfo?.()}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenContactInfo?.(); } }}
           onError={(e) => {
             const el = e.currentTarget;
             el.onerror = null;
@@ -330,7 +335,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
           </p>
         </div>
         {onAnalyzeIntent && (
-          <button type="button" className="wa-icon-btn flex-shrink-0" onClick={onAnalyzeIntent} aria-label="Analisar intenção" title="Analisar intenção">
+          <button type="button" className="wa-icon-btn flex-shrink-0 hidden" onClick={onAnalyzeIntent} aria-hidden tabIndex={-1}>
             <ScanSearch className="w-5 h-5" />
           </button>
         )}
@@ -340,7 +345,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
           </button>
         )}
         {onToggleFocus && (
-          <button type="button" className="wa-icon-btn flex-shrink-0" onClick={onToggleFocus} aria-label="Modo foco" title="Modo foco">
+          <button type="button" className="wa-icon-btn flex-shrink-0 hidden" onClick={onToggleFocus} aria-hidden tabIndex={-1}>
             {focusMode ? '◧' : '◨'}
           </button>
         )}
@@ -386,11 +391,13 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
 
       {teamBar}
 
-      <WaCampaignContextBar
-        conversation={conversation}
-        pipelineAgg={pipelineAgg ?? null}
-        connectionName={connectionName}
-      />
+      {pipelineAgg && pipelineAgg.sent > 0 ? (
+        <WaCampaignContextBar
+          conversation={conversation}
+          pipelineAgg={pipelineAgg ?? null}
+          connectionName={connectionName}
+        />
+      ) : null}
 
       <div className="relative flex-1 min-h-0">
         <div
@@ -467,8 +474,14 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
                     status={msg.status}
                     time={formatMsgTime(msg)}
                     fromCampaign={msg.fromCampaign}
+                    mediaLayout={messageMediaLayout(msg)}
                   >
-                    <WaMessageContent msg={msg} onLoadMedia={onLoadMedia} searchHighlight={inThreadQuery.trim() || undefined} />
+                    <WaMessageContent
+                      msg={msg}
+                      side={side}
+                      onLoadMedia={onLoadMedia}
+                      searchHighlight={inThreadQuery.trim() || undefined}
+                    />
                   </WaBubble>
                 </div>
               );
@@ -489,41 +502,16 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
         )}
       </div>
 
-      {/* Banner de Handoff do Robô de Atendimento */}
-      <div className="px-4 py-2 bg-gradient-to-r from-emerald-950/25 to-blue-950/25 border-t border-b border-emerald-500/10 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-1 duration-300">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="relative flex h-2 w-2">
-            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isBotPaused ? 'bg-amber-400' : 'bg-emerald-400'} opacity-75`}></span>
-            <span className={`relative inline-flex rounded-full h-2 w-2 ${isBotPaused ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
-          </span>
-          <p className="text-[10px] md:text-xs text-slate-300 truncate">
-            {isBotPaused ? (
-              <span>⚠️ Atendimento Automático <strong>pausado</strong> para esta conversa.</span>
-            ) : (
-              <span>🤖 Atendimento Automático <strong>ativo</strong>. O robô responderá de forma inteligente.</span>
-            )}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            setIsBotPaused(!isBotPaused);
-            toast.success(
-              isBotPaused 
-                ? 'Atendimento Automático reativado para este contato!' 
-                : 'Atendimento Automático pausado por 60 minutos para você assumir manualmente.'
-            );
-          }}
-          className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider transition ${isBotPaused ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25' : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'}`}
-        >
-          {isBotPaused ? 'Reativar' : 'Pausar'}
-        </button>
-      </div>
-
       <WaComposer
         conversationId={conversation.id}
         disabled={!canSend}
-        disabledHint={canSend ? undefined : 'Conecte um chip WhatsApp para enviar'}
+        disabledHint={
+          !canSend
+            ? chipsConnected === 0
+              ? 'Conecte um chip em Conexões para enviar'
+              : 'Chip desta conversa offline — reconecte em Conexões'
+            : undefined
+        }
         sendingMedia={sendingMedia}
         quoteMessage={quoteMessage}
         onClearQuote={() => onQuoteChange?.(null)}
