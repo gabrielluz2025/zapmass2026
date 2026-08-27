@@ -4918,18 +4918,27 @@ export async function deleteConnection(
         await api.delete(`/instance/delete/${evoInst(id)}`);
     } catch (error: any) {
         const status = error?.response?.status;
+        const msg = String(
+            error?.response?.data?.message ||
+                error?.response?.data?.error ||
+                error?.message ||
+                ''
+        );
+        const instanceMissing =
+            status === 404 ||
+            /record not found|not found|does not exist|instance.*not.*found/i.test(msg);
         if (isEvolutionGoLicenseError(error)) {
             log('warn', `delete ${id}: Evolution Go sem licença — removendo canal só no ZapMass`, {
                 status,
             });
+        } else if (instanceMissing) {
+            log('warn', `delete ${id}: instância já ausente na Evolution — limpando ZapMass`, {
+                status,
+                msg: msg.slice(0, 120),
+            });
         } else if (status !== 404) {
-            const msg =
-                error?.response?.data?.message ||
-                error?.response?.data?.error ||
-                error?.message ||
-                'Falha ao remover canal na Evolution';
-            log('error', `Erro ao deletar ${id}`, { error: msg, status });
-            throw new Error(String(msg));
+            log('error', `Erro ao deletar ${id}`, { error: msg || 'Falha ao remover canal na Evolution', status });
+            throw new Error(msg || 'Falha ao remover canal na Evolution');
         }
     }
 

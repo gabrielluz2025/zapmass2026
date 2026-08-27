@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import {
   Loader2, Save, Shield, Users, Lock, Unlock, Clock3, Search, RefreshCw, History, Sparkles,
   TrendingUp, KeyRound, Copy, BarChart3, Lightbulb, Send, Mail, MessageCircle, CheckCircle2, XCircle, Megaphone,
@@ -9,6 +9,7 @@ import { useAppConfig } from '../../context/AppConfigContext';
 import { useAuth } from '../../context/AuthContext';
 import { Button, Card, CardHeader, Badge, StatCard, SectionHeader, EmptyState, Modal, Textarea } from '../ui';
 import { AdminAnnouncementsTab } from './AdminAnnouncementsTab';
+import { AdminAccessTab } from './access/AdminAccessTab';
 import {
   LANDING_TRIAL_BODY_MAX_CHARS,
   LANDING_TRIAL_TITLE_MAX_CHARS
@@ -22,8 +23,8 @@ function suggestionCategoryPt(code: string | undefined): string {
   const m: Record<string, string> = {
     usability: 'Telas / usabilidade',
     campaigns: 'Campanhas',
-    reports: 'Relatórios',
-    integrations: 'Integrações',
+    reports: 'RelatÃ³rios',
+    integrations: 'IntegraÃ§Ãµes',
     other: 'Outro'
   };
   if (!code) return '';
@@ -149,35 +150,35 @@ type PlatformStats = {
 };
 
 const toPtDateTime = (iso: string | null | undefined): string => {
-  if (!iso) return '—';
+  if (!iso) return 'â€”';
   try {
     return new Date(iso).toLocaleString('pt-BR');
   } catch {
-    return '—';
+    return 'â€”';
   }
 };
 
 const formatBrl = (value: number): string => {
-  if (!Number.isFinite(value)) return '—';
+  if (!Number.isFinite(value)) return 'â€”';
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
 
-/** Duração legível a partir de ms (tempo no app). */
+/** DuraÃ§Ã£o legÃ­vel a partir de ms (tempo no app). */
 const formatAppUsageMs = (ms: number): string => {
-  if (!Number.isFinite(ms) || ms <= 0) return '—';
-  if (ms < 60_000) return `≈ ${Math.max(1, Math.round(ms / 1000))} s`;
+  if (!Number.isFinite(ms) || ms <= 0) return 'â€”';
+  if (ms < 60_000) return `â‰ˆ ${Math.max(1, Math.round(ms / 1000))} s`;
   const h = Math.floor(ms / 3_600_000);
   const m = Math.floor((ms % 3_600_000) / 60_000);
   if (h > 0) return `${h}h ${m}min`;
   return `${m} min`;
 };
 
-const copyToClipboard = async (text: string, okMessage = 'Copiado para a área de transferência.') => {
+const copyToClipboard = async (text: string, okMessage = 'Copiado para a Ã¡rea de transferÃªncia.') => {
   try {
     await navigator.clipboard.writeText(text);
     toast.success(okMessage);
   } catch {
-    toast.error('Não foi possível copiar.');
+    toast.error('NÃ£o foi possÃ­vel copiar.');
   }
 };
 
@@ -198,32 +199,32 @@ const SUPPORT_SNIPPETS: Array<{ id: string; title: string; text: string }> = [
   {
     id: 'approved',
     title: 'Pagamento aprovado',
-    text: 'Seu pagamento foi aprovado e seu plano já foi atualizado. Se a tela ainda não refletiu, atualize a página em 10-20 segundos.'
+    text: 'Seu pagamento foi aprovado e seu plano jÃ¡ foi atualizado. Se a tela ainda nÃ£o refletiu, atualize a pÃ¡gina em 10-20 segundos.'
   },
   {
     id: 'pending',
     title: 'Pagamento pendente',
-    text: 'Seu pagamento está pendente. Assim que for confirmado pelo provedor, os canais são liberados automaticamente.'
+    text: 'Seu pagamento estÃ¡ pendente. Assim que for confirmado pelo provedor, os canais sÃ£o liberados automaticamente.'
   },
   {
     id: 'rejected',
     title: 'Pagamento recusado',
-    text: 'O pagamento foi recusado pelo emissor. Você pode tentar outro cartão ou Pix para concluir o upgrade.'
+    text: 'O pagamento foi recusado pelo emissor. VocÃª pode tentar outro cartÃ£o ou Pix para concluir o upgrade.'
   },
   {
     id: 'limit',
     title: 'Limite atingido',
-    text: 'Você atingiu o limite de canais do seu plano atual. Abra Minha assinatura e escolha um plano com mais canais.'
+    text: 'VocÃª atingiu o limite de canais do seu plano atual. Abra Minha assinatura e escolha um plano com mais canais.'
   },
   {
     id: 'prorata',
-    title: 'Upgrade pró-rata',
-    text: 'No upgrade durante ciclo ativo, cobramos só a diferença proporcional ao período restante (pró-rata).'
+    title: 'Upgrade prÃ³-rata',
+    text: 'No upgrade durante ciclo ativo, cobramos sÃ³ a diferenÃ§a proporcional ao perÃ­odo restante (prÃ³-rata).'
   },
   {
     id: 'no-update',
-    title: 'Sem atualização após pagamento',
-    text: 'Me passe o e-mail da conta e o horário do pagamento para eu verificar o webhook e atualizar manualmente, se necessário.'
+    title: 'Sem atualizaÃ§Ã£o apÃ³s pagamento',
+    text: 'Me passe o e-mail da conta e o horÃ¡rio do pagamento para eu verificar o webhook e atualizar manualmente, se necessÃ¡rio.'
   }
 ];
 
@@ -320,7 +321,7 @@ export const AdminPanel: React.FC = () => {
   };
 
   const authHeaders = async () => {
-    if (!user) throw new Error('Faça login.');
+    if (!user) throw new Error('FaÃ§a login.');
     const idToken = await user.getIdToken();
     return {
       'Content-Type': 'application/json',
@@ -339,11 +340,11 @@ export const AdminPanel: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao listar usuários.');
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao listar usuÃ¡rios.');
       }
       setUsers(Array.isArray(data.users) ? data.users : []);
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível carregar acessos.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel carregar acessos.');
     } finally {
       setUsersLoading(false);
     }
@@ -370,7 +371,7 @@ export const AdminPanel: React.FC = () => {
       }
       setPlatformStats(data.stats as PlatformStats);
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Não foi possível carregar estatísticas.');
+      toast.error(e instanceof Error ? e.message : 'NÃ£o foi possÃ­vel carregar estatÃ­sticas.');
     } finally {
       setPlatformStatsLoading(false);
     }
@@ -392,11 +393,11 @@ export const AdminPanel: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar sugestões.');
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar sugestÃµes.');
       }
       setProductSuggestions(Array.isArray(data.items) ? data.items : []);
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao carregar sugestões.');
+      toast.error(e instanceof Error ? e.message : 'Erro ao carregar sugestÃµes.');
     } finally {
       setSuggestionsLoading(false);
     }
@@ -424,11 +425,11 @@ export const AdminPanel: React.FC = () => {
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar histórico.');
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar histÃ³rico.');
       }
       setRepliesByKey((prev) => ({ ...prev, [k]: Array.isArray(data.items) ? data.items : [] }));
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao carregar histórico.');
+      toast.error(e instanceof Error ? e.message : 'Erro ao carregar histÃ³rico.');
     } finally {
       setRepliesLoadingKey(null);
     }
@@ -488,16 +489,16 @@ export const AdminPanel: React.FC = () => {
         const detail =
           emailErr.length > 0
             ? emailErr
-            : 'Sem detalhe — verifique RESEND_API_KEY e EMAIL_FROM no servidor (Docker/.env) e os logs do Node.';
-        toast(`Resposta registada. ${detail}`, { icon: '⚠️', duration: 12000, style: { maxWidth: 560 } });
+            : 'Sem detalhe â€” verifique RESEND_API_KEY e EMAIL_FROM no servidor (Docker/.env) e os logs do Node.';
+        toast(`Resposta registada. ${detail}`, { icon: 'âš ï¸', duration: 12000, style: { maxWidth: 560 } });
       } else {
         toast(
-          'Resposta registada — o cliente não tem email vinculado, então só o histórico ficou guardado.',
-          { icon: 'ℹ️', duration: 6000 }
+          'Resposta registada â€” o cliente nÃ£o tem email vinculado, entÃ£o sÃ³ o histÃ³rico ficou guardado.',
+          { icon: 'â„¹ï¸', duration: 6000 }
         );
       }
       const k = replyKey(replyTarget);
-      // Recarrega o histórico para refletir o novo item.
+      // Recarrega o histÃ³rico para refletir o novo item.
       await loadRepliesFor(replyTarget);
       setRepliesOpenKey(k);
       setReplyTarget(null);
@@ -602,7 +603,7 @@ export const AdminPanel: React.FC = () => {
       }
       setAuditRows(Array.isArray(data.audit) ? data.audit : []);
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível carregar auditoria.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel carregar auditoria.');
     } finally {
       setAuditLoading(false);
     }
@@ -610,7 +611,7 @@ export const AdminPanel: React.FC = () => {
 
   const handleGrantByEmail = async () => {
     if (!grantEmail.trim()) {
-      toast.error('Informe o e-mail do usuário.');
+      toast.error('Informe o e-mail do usuÃ¡rio.');
       return;
     }
     const days = Math.max(0, Math.round(Number(grantDays) || 0));
@@ -626,12 +627,12 @@ export const AdminPanel: React.FC = () => {
       });
       setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
       toast.success(
-        `Acesso liberado com ${channels} canal(is). Peça ao cliente para atualizar a página (Ctrl+F5).`
+        `Acesso liberado com ${channels} canal(is). PeÃ§a ao cliente para atualizar a pÃ¡gina (Ctrl+F5).`
       );
       setGrantEmail('');
       setGrantNote('');
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível liberar acesso.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel liberar acesso.');
     } finally {
       setAccessActionBusy(false);
     }
@@ -639,7 +640,7 @@ export const AdminPanel: React.FC = () => {
 
   const handleGrantChannelsByEmail = async () => {
     if (!grantEmail.trim()) {
-      toast.error('Informe o e-mail do usuário.');
+      toast.error('Informe o e-mail do usuÃ¡rio.');
       return;
     }
     const slots = Math.max(0, Math.min(3, Math.floor(Number(channelGrantSlots) || 0)));
@@ -660,9 +661,9 @@ export const AdminPanel: React.FC = () => {
         adminNote: grantNote.trim()
       });
       setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
-      toast.success('Canais extras liberados. Peça ao cliente para atualizar a página (Ctrl+F5).');
+      toast.success('Canais extras liberados. PeÃ§a ao cliente para atualizar a pÃ¡gina (Ctrl+F5).');
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível liberar canais extras.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel liberar canais extras.');
     } finally {
       setAccessActionBusy(false);
     }
@@ -670,7 +671,7 @@ export const AdminPanel: React.FC = () => {
 
   const handleSetIncludedChannelsByEmail = async () => {
     if (!grantEmail.trim()) {
-      toast.error('Informe o e-mail do usuário.');
+      toast.error('Informe o e-mail do usuÃ¡rio.');
       return;
     }
     const n = Math.max(1, Math.min(5, Math.floor(Number(includedChannelsGrant) || 0)));
@@ -682,9 +683,9 @@ export const AdminPanel: React.FC = () => {
         adminNote: grantNote.trim() || `Canais do plano definidos para ${n}`
       });
       setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
-      toast.success(`Plano atualizado para ${n} canal(is). Peça ao cliente para atualizar a página (Ctrl+F5).`);
+      toast.success(`Plano atualizado para ${n} canal(is). PeÃ§a ao cliente para atualizar a pÃ¡gina (Ctrl+F5).`);
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível definir os canais do plano.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel definir os canais do plano.');
     } finally {
       setAccessActionBusy(false);
     }
@@ -697,15 +698,15 @@ export const AdminPanel: React.FC = () => {
         blocked: !u.blocked
       });
       setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
-      toast.success(updated.blocked ? 'Usuário bloqueado.' : 'Usuário desbloqueado.');
+      toast.success(updated.blocked ? 'UsuÃ¡rio bloqueado.' : 'UsuÃ¡rio desbloqueado.');
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível atualizar bloqueio.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel atualizar bloqueio.');
     }
   };
 
   const handleSetPasswordByEmail = async () => {
     if (!grantEmail.trim()) {
-      toast.error('Informe o e-mail do usuário.');
+      toast.error('Informe o e-mail do usuÃ¡rio.');
       return;
     }
     if (grantPassword.trim().length < 8) {
@@ -719,10 +720,10 @@ export const AdminPanel: React.FC = () => {
         newPassword: grantPassword.trim(),
         adminNote: grantNote.trim() || 'Senha definida pelo admin (sem e-mail)'
       });
-      toast.success('Senha definida. O cliente já pode entrar com ela.');
+      toast.success('Senha definida. O cliente jÃ¡ pode entrar com ela.');
       setGrantPassword('');
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível definir a senha.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel definir a senha.');
     } finally {
       setAccessActionBusy(false);
     }
@@ -730,7 +731,7 @@ export const AdminPanel: React.FC = () => {
 
   const copyResetLinkForEmail = async (email: string) => {
     if (!email.trim()) {
-      toast.error('Informe o e-mail do usuário.');
+      toast.error('Informe o e-mail do usuÃ¡rio.');
       return;
     }
     setAccessActionBusy(true);
@@ -747,18 +748,18 @@ export const AdminPanel: React.FC = () => {
       await navigator.clipboard.writeText(data.resetUrl);
       toast.success(
         data.mailerConfigured
-          ? 'Link copiado. Se o e-mail estiver configurado, o cliente também recebe na caixa.'
-          : 'Link copiado (válido 1h). Envie no WhatsApp — o e-mail automático ainda está desligado.'
+          ? 'Link copiado. Se o e-mail estiver configurado, o cliente tambÃ©m recebe na caixa.'
+          : 'Link copiado (vÃ¡lido 1h). Envie no WhatsApp â€” o e-mail automÃ¡tico ainda estÃ¡ desligado.'
       );
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível gerar o link.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel gerar o link.');
     } finally {
       setAccessActionBusy(false);
     }
   };
 
   const setPasswordForUser = async (u: AccessUser) => {
-    const pw = window.prompt(`Nova senha para ${u.email} (mínimo 8 caracteres):`);
+    const pw = window.prompt(`Nova senha para ${u.email} (mÃ­nimo 8 caracteres):`);
     if (pw == null) return;
     if (pw.trim().length < 8) {
       toast.error('Senha deve ter ao menos 8 caracteres.');
@@ -771,9 +772,9 @@ export const AdminPanel: React.FC = () => {
         newPassword: pw.trim(),
         adminNote: 'Senha definida pelo admin (sem e-mail)'
       });
-      toast.success('Senha definida. O cliente já pode entrar.');
+      toast.success('Senha definida. O cliente jÃ¡ pode entrar.');
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível definir a senha.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel definir a senha.');
     }
   };
 
@@ -784,9 +785,9 @@ export const AdminPanel: React.FC = () => {
         manualGrant: false
       });
       setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
-      toast.success('Liberação manual revogada.');
+      toast.success('LiberaÃ§Ã£o manual revogada.');
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível revogar liberação.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel revogar liberaÃ§Ã£o.');
     }
   };
 
@@ -801,7 +802,7 @@ export const AdminPanel: React.FC = () => {
       setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
       toast.success(`Acesso estendido por +${days} dia(s).`);
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível estender acesso.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel estender acesso.');
     }
   };
 
@@ -818,7 +819,7 @@ export const AdminPanel: React.FC = () => {
       const suffix = months > 0 ? `+${months}m` : `+${days}d`;
       toast.success(`Canais extras estendidos (${suffix}).`);
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível estender canais extras.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel estender canais extras.');
     }
   };
 
@@ -831,7 +832,7 @@ export const AdminPanel: React.FC = () => {
       setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
       toast.success('Canais extras manuais revogados.');
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível revogar canais extras.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel revogar canais extras.');
     }
   };
 
@@ -845,11 +846,11 @@ export const AdminPanel: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar perfil do usuário.');
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar perfil do usuÃ¡rio.');
       }
       setInsights(data.insights as AccessUserInsights);
     } catch (e: any) {
-      toast.error(e?.message || 'Não foi possível abrir o perfil analítico.');
+      toast.error(e?.message || 'NÃ£o foi possÃ­vel abrir o perfil analÃ­tico.');
     } finally {
       setInsightsLoading(false);
     }
@@ -886,7 +887,7 @@ export const AdminPanel: React.FC = () => {
                   Painel do criador
                 </h2>
                 <p className="text-sm mt-2 max-w-2xl leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                  Ajuste preços e trial na aba <strong className="text-[var(--text-2)]">Comercial</strong>; em{' '}
+                  Ajuste preÃ§os e trial na aba <strong className="text-[var(--text-2)]">Comercial</strong>; em{' '}
                   <strong className="text-[var(--text-2)]">Ganhos</strong> acompanhe MRR, cadastros e canais; em{' '}
                   <strong className="text-[var(--text-2)]">Acesso</strong> libere planos e bloqueie abusos.
                 </p>
@@ -951,7 +952,7 @@ export const AdminPanel: React.FC = () => {
                 }`}
               >
                 <Lightbulb className="w-3.5 h-3.5" />
-                Sugestões
+                SugestÃµes
               </button>
             </div>
           </div>
@@ -987,7 +988,7 @@ export const AdminPanel: React.FC = () => {
           {platformStatsLoading && !platformStats ? (
             <div className="flex items-center justify-center py-16 gap-2" style={{ color: 'var(--text-3)' }}>
               <Loader2 className="w-5 h-5 animate-spin" />
-              A carregar estatísticas…
+              A carregar estatÃ­sticasâ€¦
             </div>
           ) : platformStats ? (
             <>
@@ -996,28 +997,28 @@ export const AdminPanel: React.FC = () => {
                   label="MRR estimado"
                   value={formatBrl(platformStats.revenue.estimatedMrrBrl)}
                   icon={<CircleDollarSign className="w-4 h-4 text-emerald-600" />}
-                  helper={`${platformStats.revenue.activeMonthlyPlans} mensais · ${platformStats.revenue.activeAnnualPlans} anuais`}
+                  helper={`${platformStats.revenue.activeMonthlyPlans} mensais Â· ${platformStats.revenue.activeAnnualPlans} anuais`}
                   accent="default"
                 />
                 <StatCard
                   label="Contas na plataforma"
                   value={platformStats.users.total}
                   icon={<Users className="w-4 h-4 text-sky-600" />}
-                  helper={`+${platformStats.users.newLast7Days} (7d) · +${platformStats.users.newLast30Days} (30d)`}
+                  helper={`+${platformStats.users.newLast7Days} (7d) Â· +${platformStats.users.newLast30Days} (30d)`}
                   accent="info"
                 />
                 <StatCard
                   label="Assinaturas ativas"
                   value={platformStats.subscriptions.active}
                   icon={<CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                  helper={`${platformStats.subscriptions.trialing} em trial · ${platformStats.subscriptions.manualGrant} manual`}
+                  helper={`${platformStats.subscriptions.trialing} em trial Â· ${platformStats.subscriptions.manualGrant} manual`}
                   accent="default"
                 />
                 <StatCard
                   label="Canais conectados"
                   value={platformStats.connections.connected}
                   icon={<Smartphone className="w-4 h-4 text-cyan-600" />}
-                  helper={`${platformStats.connections.tenantsWithConnection} contas com WhatsApp · ${platformStats.connections.total} total`}
+                  helper={`${platformStats.connections.tenantsWithConnection} contas com WhatsApp Â· ${platformStats.connections.total} total`}
                   accent="warning"
                 />
               </div>
@@ -1025,8 +1026,8 @@ export const AdminPanel: React.FC = () => {
               <div className="grid lg:grid-cols-2 gap-6">
                 <Card>
                   <CardHeader
-                    title="Preços configurados (Mercado Pago)"
-                    subtitle="Valores usados no cálculo do MRR estimado."
+                    title="PreÃ§os configurados (Mercado Pago)"
+                    subtitle="Valores usados no cÃ¡lculo do MRR estimado."
                     icon={<TrendingUp className="w-4 h-4 text-emerald-600" />}
                   />
                   <div className="mt-4 space-y-2 text-sm" style={{ color: 'var(--text-2)' }}>
@@ -1036,21 +1037,21 @@ export const AdminPanel: React.FC = () => {
                     <p>
                       Plano anual: <strong>{formatBrl(platformStats.revenue.priceAnnualBrl)}</strong>{' '}
                       <span className="text-xs" style={{ color: 'var(--text-3)' }}>
-                        (÷12 no MRR)
+                        (Ã·12 no MRR)
                       </span>
                     </p>
                     <p>
                       Add-ons de canal pagos: <strong>{platformStats.revenue.channelAddonSlots}</strong> slot(s)
                     </p>
                     <p className="text-xs pt-2" style={{ color: 'var(--text-3)' }}>
-                      Atualizado em {toPtDateTime(platformStats.generatedAt)}. O MRR é estimativa — confira também o painel do Mercado Pago.
+                      Atualizado em {toPtDateTime(platformStats.generatedAt)}. O MRR Ã© estimativa â€” confira tambÃ©m o painel do Mercado Pago.
                     </p>
                   </div>
                 </Card>
                 <Card>
                   <CardHeader
                     title="Resumo de assinaturas"
-                    subtitle="Distribuição de status em todas as contas."
+                    subtitle="DistribuiÃ§Ã£o de status em todas as contas."
                     icon={<BarChart3 className="w-4 h-4 text-sky-600" />}
                   />
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -1081,11 +1082,11 @@ export const AdminPanel: React.FC = () => {
               <Card>
                 <CardHeader
                   title="Cadastros recentes"
-                  subtitle="Últimas 25 contas criadas — com plano e canais conectados."
+                  subtitle="Ãšltimas 25 contas criadas â€” com plano e canais conectados."
                   icon={<Users className="w-4 h-4 text-emerald-600" />}
                 />
                 {platformStats.recentSignups.length === 0 ? (
-                  <EmptyState title="Nenhum cadastro ainda" description="Novos registos aparecerão aqui." />
+                  <EmptyState title="Nenhum cadastro ainda" description="Novos registos aparecerÃ£o aqui." />
                 ) : (
                   <div className="mt-4 overflow-x-auto">
                     <table className="w-full text-left text-[12.5px]">
@@ -1106,7 +1107,7 @@ export const AdminPanel: React.FC = () => {
                             style={{ borderColor: 'var(--border-subtle)' }}
                           >
                             <td className="py-2.5 pr-3 font-medium" style={{ color: 'var(--text-1)' }}>
-                              {row.email || '—'}
+                              {row.email || 'â€”'}
                             </td>
                             <td className="py-2.5 pr-3" style={{ color: 'var(--text-2)' }}>
                               {toPtDateTime(row.createdAt)}
@@ -1131,7 +1132,7 @@ export const AdminPanel: React.FC = () => {
                                   {row.connectionsConnected}
                                 </span>
                               ) : (
-                                '—'
+                                'â€”'
                               )}
                             </td>
                             <td className="py-2.5">
@@ -1141,7 +1142,7 @@ export const AdminPanel: React.FC = () => {
                                 style={{ color: 'var(--text-3)' }}
                                 onClick={() => void copyToClipboard(row.uid, 'UID copiado.')}
                               >
-                                {row.uid.slice(0, 8)}…
+                                {row.uid.slice(0, 8)}â€¦
                                 <Copy className="w-3 h-3" />
                               </button>
                             </td>
@@ -1154,14 +1155,14 @@ export const AdminPanel: React.FC = () => {
               </Card>
 
               <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-                Novos cadastros e assinaturas também chegam no sino de notificações (categoria admin) e por e-mail, se{' '}
+                Novos cadastros e assinaturas tambÃ©m chegam no sino de notificaÃ§Ãµes (categoria admin) e por e-mail, se{' '}
                 <code className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800/80">RESEND_API_KEY</code> estiver configurado.
               </p>
             </>
           ) : (
             <EmptyState
               title="Sem dados"
-              description="Não foi possível carregar as estatísticas. Clique em Atualizar."
+              description="NÃ£o foi possÃ­vel carregar as estatÃ­sticas. Clique em Atualizar."
             />
           )}
         </div>
@@ -1170,14 +1171,14 @@ export const AdminPanel: React.FC = () => {
       {tab === 'config' && (
         <div className="space-y-6">
           <SectionHeader
-            title="Exibição comercial e trial"
-            description="Estes textos e números alimentam modais, landing e API de teste. Publicação leva alguns segundos para replicar."
+            title="ExibiÃ§Ã£o comercial e trial"
+            description="Estes textos e nÃºmeros alimentam modais, landing e API de teste. PublicaÃ§Ã£o leva alguns segundos para replicar."
           />
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader
-                title="Preços (marketing)"
-                subtitle="O que o cliente lê no upgrade. Vazio cai no fallback do front."
+                title="PreÃ§os (marketing)"
+                subtitle="O que o cliente lÃª no upgrade. Vazio cai no fallback do front."
                 icon={<TrendingUp className="w-4 h-4 text-emerald-600" />}
               />
               <div className="mt-4 space-y-3">
@@ -1187,7 +1188,7 @@ export const AdminPanel: React.FC = () => {
                     className="ui-input mt-1"
                     value={marketingPriceMonthly}
                     onChange={(e) => setMarketingPriceMonthly(e.target.value)}
-                    placeholder="Ex.: R$ 49,90 / mês"
+                    placeholder="Ex.: R$ 49,90 / mÃªs"
                   />
                 </div>
                 <div>
@@ -1204,11 +1205,11 @@ export const AdminPanel: React.FC = () => {
             <Card>
               <CardHeader
                 title="Janela de teste"
-                subtitle="1–168 h. Aplicada em POST /api/billing/trial/start."
+                subtitle="1â€“168 h. Aplicada em POST /api/billing/trial/start."
                 icon={<Clock3 className="w-4 h-4 text-sky-600" />}
               />
               <div className="mt-4">
-                <label className="ui-eyebrow text-[10px]">Duração (horas)</label>
+                <label className="ui-eyebrow text-[10px]">DuraÃ§Ã£o (horas)</label>
                 <input
                   type="number"
                   min={1}
@@ -1222,14 +1223,14 @@ export const AdminPanel: React.FC = () => {
           </div>
           <Card>
             <CardHeader
-              title="Landing — bloco de teste grátis"
-              subtitle={`Opcional; máximo ${LANDING_TRIAL_TITLE_MAX_CHARS} caracteres no título e ${LANDING_TRIAL_BODY_MAX_CHARS} no texto. Eventos para GA4/GTM (com VITE_GA_MEASUREMENT_ID ou snippet próprio): landing_cta_click, landing_login_click, login_success, trial_started.`}
+              title="Landing â€” bloco de teste grÃ¡tis"
+              subtitle={`Opcional; mÃ¡ximo ${LANDING_TRIAL_TITLE_MAX_CHARS} caracteres no tÃ­tulo e ${LANDING_TRIAL_BODY_MAX_CHARS} no texto. Eventos para GA4/GTM (com VITE_GA_MEASUREMENT_ID ou snippet prÃ³prio): landing_cta_click, landing_login_click, login_success, trial_started.`}
               icon={<Sparkles className="w-4 h-4 text-amber-600" />}
             />
             <div className="mt-4 space-y-3">
               <div>
                 <div className="flex items-center justify-between gap-2">
-                  <label className="ui-eyebrow text-[10px]">Título</label>
+                  <label className="ui-eyebrow text-[10px]">TÃ­tulo</label>
                   <span className="text-[10px] tabular-nums" style={{ color: 'var(--text-3)' }}>
                     {landingTrialTitle.length}/{LANDING_TRIAL_TITLE_MAX_CHARS}
                   </span>
@@ -1239,7 +1240,7 @@ export const AdminPanel: React.FC = () => {
                   value={landingTrialTitle}
                   maxLength={LANDING_TRIAL_TITLE_MAX_CHARS}
                   onChange={(e) => setLandingTrialTitle(e.target.value)}
-                  placeholder="Vazio = título automático a partir das horas"
+                  placeholder="Vazio = tÃ­tulo automÃ¡tico a partir das horas"
                 />
               </div>
               <div>
@@ -1255,7 +1256,7 @@ export const AdminPanel: React.FC = () => {
                   className="ui-input mt-1 resize-y min-h-[100px]"
                   value={landingTrialBody}
                   onChange={(e) => setLandingTrialBody(e.target.value)}
-                  placeholder="Vazio = texto padrão da landing"
+                  placeholder="Vazio = texto padrÃ£o da landing"
                 />
               </div>
               <div
@@ -1263,7 +1264,7 @@ export const AdminPanel: React.FC = () => {
                 style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
               >
                 <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-                  Pré-visualização (como na landing)
+                  PrÃ©-visualizaÃ§Ã£o (como na landing)
                 </p>
                 <p className="text-[13px] font-bold leading-snug" style={{ color: 'var(--text-1)' }}>
                   {landingTrialPreview.title}
@@ -1285,711 +1286,20 @@ export const AdminPanel: React.FC = () => {
               Salvar e publicar
             </Button>
             <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-              Recomenda-se validar o modal Pro e a landing após publicar.
+              Recomenda-se validar o modal Pro e a landing apÃ³s publicar.
             </p>
           </div>
         </div>
       )}
 
-      {tab === 'access' && (
-        <div className="space-y-8">
-          <SectionHeader
-            title="Comando de acessos"
-            description="KPIs em tempo quase real, busca, filtros com contagem, liberação manual e trilha de auditoria. No desktop o painel analítico acompanha a rolagem (fixo à direita)."
-          />
+      {tab === 'access' && <AdminAccessTab />}
 
-          <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            <StatCard
-              label="Contas (não bloqueadas)"
-              value={activeCount}
-              icon={<Users className="w-4 h-4 text-emerald-600" />}
-              helper="Inclui trial, manual e ativos"
-              accent="default"
-            />
-            <StatCard
-              label="Bloqueados"
-              value={blockedCount}
-              icon={<Lock className="w-4 h-4 text-red-500" />}
-              helper="Não acessam o app"
-              accent="danger"
-            />
-            <StatCard
-              label="Liberação manual"
-              value={manualCount}
-              icon={<KeyRound className="w-4 h-4 text-sky-600" />}
-              helper="Acesso concedido por você"
-              accent="info"
-            />
-            <StatCard
-              label="Expira em 7 dias"
-              value={expiringSoonCount}
-              icon={<Clock3 className="w-4 h-4 text-amber-600" />}
-              helper="Trial, pago ou manual"
-              accent="warning"
-            />
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-3">
-            {[
-              {
-                t: 'Bloqueio',
-                d: 'Use para cortar acesso imediato (ex.: fraude, chargeback). O usuário vê tela de bloqueio no login.',
-                i: <Lock className="w-4 h-4" />
-              },
-              {
-                t: 'Extensão rápida',
-                d: '+7d, +30d e +90d somam ao prazo de liberação manual (modo extensão) sem sobrescrever tudo.',
-                i: <Clock3 className="w-4 h-4" />
-              },
-              {
-                t: 'Perfil analítico',
-                d: 'Clique no e-mail e veja contatos, campanhas, conexões e listas. Ideal para suporte e cobrança.',
-                i: <BarChart3 className="w-4 h-4" />
-              }
-            ].map((tip) => (
-              <div
-                key={tip.t}
-                className="flex gap-3 p-4 rounded-xl border text-left"
-                style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}
-              >
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 brand-soft text-emerald-600">{tip.i}</div>
-                <div>
-                  <p className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>{tip.t}</p>
-                  <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-3)' }}>{tip.d}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <Card>
-            <CardHeader
-              title="Liberar acesso sem contratação"
-              subtitle="Um clique libera o app e os canais do plano (padrão 5). Não depende do Mercado Pago. Dias 0 = sem prazo."
-              icon={<KeyRound className="w-4 h-4 text-emerald-600" />}
-            />
-            <div className="mt-4 grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className="ui-eyebrow text-[10px]">E-mail do usuário</label>
-                <input
-                  className="ui-input mt-1"
-                  placeholder="exemplo@email.com"
-                  value={grantEmail}
-                  onChange={(e) => setGrantEmail(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="ui-eyebrow text-[10px]">Dias (0 = ver servidor)</label>
-                <input
-                  type="number"
-                  min={0}
-                  className="ui-input mt-1"
-                  placeholder="30"
-                  value={grantDays}
-                  onChange={(e) => setGrantDays(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="mt-3">
-              <label className="ui-eyebrow text-[10px]">Observação (auditoria)</label>
-              <textarea
-                rows={2}
-                className="ui-input mt-1 resize-y"
-                placeholder="Opcional: motivo, ticket interno, etc."
-                value={grantNote}
-                onChange={(e) => setGrantNote(e.target.value)}
-              />
-            </div>
-            <div className="mt-4">
-              <Button
-                variant="primary"
-                size="sm"
-                leftIcon={<Clock3 className="w-4 h-4" />}
-                disabled={accessActionBusy}
-                loading={accessActionBusy}
-                onClick={() => void handleGrantByEmail()}
-              >
-                Conceder acesso e canais
-              </Button>
-            </div>
-            <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-              <p className="text-[12px] font-bold mb-1" style={{ color: 'var(--text-1)' }}>
-                Definir senha (sem e-mail)
-              </p>
-              <p className="text-[11px] mb-2" style={{ color: 'var(--text-3)' }}>
-                O envio de “esqueci a senha” só funciona com RESEND_API_KEY. Enquanto isso, defina a senha aqui e envie ao cliente.
-              </p>
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="min-w-[200px] flex-1">
-                  <label className="ui-eyebrow text-[10px]">Nova senha (mín. 8)</label>
-                  <input
-                    type="password"
-                    autoComplete="new-password"
-                    className="ui-input mt-1"
-                    value={grantPassword}
-                    onChange={(e) => setGrantPassword(e.target.value)}
-                  />
-                </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={accessActionBusy}
-                  onClick={() => void handleSetPasswordByEmail()}
-                >
-                  Aplicar senha no e-mail acima
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={accessActionBusy}
-                  onClick={() => void copyResetLinkForEmail(grantEmail)}
-                >
-                  Copiar link de redefinição
-                </Button>
-              </div>
-            </div>
-            <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-              <p className="text-[12px] font-bold mb-2" style={{ color: 'var(--text-1)' }}>
-                Liberar canais extras (3.o ao 5.o)
-              </p>
-              <div className="grid sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="ui-eyebrow text-[10px]">Quantidade de canais extras (+1 a +3)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={3}
-                    className="ui-input mt-1"
-                    value={channelGrantSlots}
-                    onChange={(e) => setChannelGrantSlots(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="ui-eyebrow text-[10px]">Validade em dias</label>
-                  <input
-                    type="number"
-                    min={0}
-                    className="ui-input mt-1"
-                    value={channelGrantDays}
-                    onChange={(e) => setChannelGrantDays(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="ui-eyebrow text-[10px]">Validade em meses</label>
-                  <input
-                    type="number"
-                    min={0}
-                    className="ui-input mt-1"
-                    value={channelGrantMonths}
-                    onChange={(e) => setChannelGrantMonths(e.target.value)}
-                  />
-                </div>
-              </div>
-              <p className="text-[11px] mt-2" style={{ color: 'var(--text-3)' }}>
-                O prazo final pode combinar meses + dias (ex.: 1 mes e 15 dias). Se ambos forem 0, fica sem prazo.
-              </p>
-              <div className="mt-3">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  leftIcon={<Users className="w-4 h-4" />}
-                  disabled={accessActionBusy}
-                  onClick={() => void handleGrantChannelsByEmail()}
-                >
-                  Liberar canais extras para este usuario
-                </Button>
-              </div>
-              <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-                <p className="text-[12px] font-bold mb-2" style={{ color: 'var(--text-1)' }}>
-                  Definir canais do plano (1–5)
-                </p>
-                <p className="text-[11px] mb-2" style={{ color: 'var(--text-3)' }}>
-                  Ajusta o que aparece em Minha assinatura (Gestão manual). Ex.: 5 = teto máximo do produto.
-                </p>
-                <div className="flex flex-wrap items-end gap-3">
-                  <div>
-                    <label className="ui-eyebrow text-[10px]">Canais do plano</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={5}
-                      className="ui-input mt-1 w-28"
-                      value={includedChannelsGrant}
-                      onChange={(e) => setIncludedChannelsGrant(e.target.value)}
-                    />
-                  </div>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    disabled={accessActionBusy}
-                    onClick={() => void handleSetIncludedChannelsByEmail()}
-                  >
-                    Aplicar no e-mail acima
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card>
-            <CardHeader
-              title="Respostas rápidas de suporte"
-              subtitle="Textos prontos para atendimento sobre pagamento, limite e upgrade."
-              icon={<Copy className="w-4 h-4 text-sky-600" />}
-            />
-            <div className="mt-4 grid gap-2">
-              {SUPPORT_SNIPPETS.map((s) => (
-                <div
-                  key={s.id}
-                  className="rounded-lg border px-3 py-2.5 flex items-start justify-between gap-3"
-                  style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
-                >
-                  <div className="min-w-0">
-                    <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
-                      {s.title}
-                    </p>
-                    <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                      {s.text}
-                    </p>
-                  </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    leftIcon={<Copy className="w-3.5 h-3.5" />}
-                    onClick={() => void copyToClipboard(s.text, `Mensagem "${s.title}" copiada.`)}
-                  >
-                    Copiar
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <div className="lg:grid lg:grid-cols-[1fr_400px] gap-6 items-start">
-            <div className="space-y-6 min-w-0">
-              <div className="rounded-xl border p-4 sm:p-5 space-y-4" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div>
-                    <h3 className="text-[15px] font-bold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-                      <Search className="w-4 h-4 text-emerald-500" />
-                      Base de assinaturas
-                    </h3>
-                    <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                      {usersLoading ? 'Carregando…' : `Exibindo ${filteredUsers.length} de ${users.length} usuário(s) nesta busca.`}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="secondary" size="sm" onClick={() => void loadAccessUsers(search)}>
-                      Buscar
-                    </Button>
-                    <Button variant="secondary" size="sm" leftIcon={<RefreshCw className="w-3.5 h-3.5" />} onClick={() => void loadAccessUsers(search)}>
-                      Atualizar
-                    </Button>
-                  </div>
-                </div>
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    className="ui-input pl-10"
-                    placeholder="E-mail, parte do e-mail ou UID…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && void loadAccessUsers(search)}
-                  />
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {(
-                    [
-                      ['all', 'Todos', 'all'] as const,
-                      ['manual', 'Manual', 'manual'] as const,
-                      ['blocked', 'Bloqueados', 'blocked'] as const,
-                      ['active', 'Ativos', 'active'] as const,
-                      ['trialing', 'Trial', 'trialing'] as const,
-                      ['expiring7', '7 dias', 'expiring7'] as const
-                    ] as const
-                  ).map(([id, label, countKey]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => setFilter(id as AccessFilter)}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${
-                        filter === id
-                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800'
-                          : 'bg-[var(--surface-1)] text-[var(--text-2)] border-[var(--border-subtle)] hover:border-slate-300 dark:hover:border-slate-600'
-                      }`}
-                    >
-                      {label}
-                      <span className="tabular-nums text-[10px] opacity-70">{filterCounts[countKey]}</span>
-                    </button>
-                  ))}
-                </div>
-                <div className="space-y-2 max-h-[min(56vh,520px)] overflow-y-auto pr-1 -mr-1">
-                  {usersLoading ? (
-                    <div className="flex items-center justify-center gap-2 py-10 text-sm" style={{ color: 'var(--text-3)' }}>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Carregando usuários…
-                    </div>
-                  ) : users.length === 0 ? (
-                    <EmptyState
-                      icon={<Users className="w-7 h-7" />}
-                      title="Nenhum registro"
-                      description="Ajuste a busca ou importe/acesse com outro filtro. Administradores podem não aparecer nesta lista."
-                    />
-                  ) : filteredUsers.length === 0 ? (
-                    <p className="text-center text-sm py-8" style={{ color: 'var(--text-3)' }}>
-                      Nenhum usuário com este filtro. Tente <strong className="text-[var(--text-2)]">Todos</strong>.
-                    </p>
-                  ) : (
-                    filteredUsers.map((u) => (
-                      <div
-                        key={u.uid}
-                        className="group rounded-xl border p-3 sm:p-4 transition-shadow hover:shadow-md"
-                        style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
-                      >
-                        <div className="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between">
-                          <div className="flex gap-3 min-w-0">
-                            <div
-                              className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 text-sm font-bold text-white shadow-inner"
-                              style={{
-                                background: 'linear-gradient(135deg, #059669, #0d9488)',
-                                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15)'
-                              }}
-                            >
-                              {userInitial(u.email || u.uid)}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <button
-                                  type="button"
-                                  className="text-[14px] font-semibold truncate text-left hover:underline"
-                                  style={{ color: 'var(--text-1)' }}
-                                  onClick={() => void openInsights(u)}
-                                >
-                                  {u.email || 'Sem e-mail'}
-                                </button>
-                                <Badge variant={statusBadgeVariant(u.status, u.blocked)} dot>
-                                  {u.blocked ? 'Bloqueado' : u.status}
-                                </Badge>
-                                {u.manualGrant ? <Badge variant="info">Manual</Badge> : null}
-                              </div>
-                              <div className="flex items-center gap-1 mt-1">
-                                <p className="text-[10px] font-mono truncate" style={{ color: 'var(--text-3)' }} title={u.uid}>
-                                  {u.uid}
-                                </p>
-                                <button
-                                  type="button"
-                                  className="p-0.5 rounded hover:bg-slate-200/50 dark:hover:bg-slate-700/50"
-                                  title="Copiar UID"
-                                  onClick={() => void copyToClipboard(u.uid)}
-                                >
-                                  <Copy className="w-3 h-3 text-slate-400" />
-                                </button>
-                              </div>
-                              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 text-[11px]" style={{ color: 'var(--text-3)' }}>
-                                <span>Plano: <strong style={{ color: 'var(--text-2)' }}>{u.plan || '—'}</strong></span>
-                                  <span>Provedor: <strong style={{ color: 'var(--text-2)' }}>{u.provider}</strong></span>
-                                <span>Trial: <strong style={{ color: 'var(--text-2)' }}>{toPtDateTime(u.trialEndsAt)}</strong></span>
-                                <span>Pago: <strong style={{ color: 'var(--text-2)' }}>{toPtDateTime(u.accessEndsAt)}</strong></span>
-                                <span className="sm:col-span-2">Manual: <strong style={{ color: 'var(--text-2)' }}>{toPtDateTime(u.manualAccessEndsAt)}</strong></span>
-                                <span className="sm:col-span-2">
-                                  Canais do plano:{' '}
-                                  <strong style={{ color: 'var(--text-2)' }}>
-                                    {Math.max(0, Math.min(5, Math.floor(Number(u.includedChannels) || 0))) || '—'}
-                                  </strong>
-                                  {' · '}
-                                  Canais extra (manual):{' '}
-                                  <strong style={{ color: 'var(--text-2)' }}>
-                                    +{Math.max(0, Math.min(3, Math.floor(Number(u.manualExtraChannelSlots) || 0)))} até {toPtDateTime(u.manualExtraChannelSlotsEndsAt)}
-                                  </strong>
-                                </span>
-                              </div>
-                              {u.adminNote ? (
-                                <p className="text-[11px] mt-2 p-2 rounded-lg bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/30 dark:border-amber-800/30" style={{ color: 'var(--text-2)' }}>
-                                  <Lightbulb className="w-3 h-3 inline mr-1 text-amber-600" />
-                                  {u.adminNote}
-                                </p>
-                              ) : null}
-                            </div>
-                          </div>
-                          <div className="flex flex-col gap-1.5 sm:items-end shrink-0 w-full sm:w-auto">
-                            <div className="flex flex-wrap gap-1.5 sm:justify-end">
-                              <Button
-                                variant={u.blocked ? 'secondary' : 'danger'}
-                                size="sm"
-                                leftIcon={u.blocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                                onClick={() => void toggleBlock(u)}
-                              >
-                                {u.blocked ? 'Desbloquear' : 'Bloquear'}
-                              </Button>
-                              {u.manualGrant && (
-                                <Button variant="secondary" size="sm" onClick={() => void revokeManual(u)}>
-                                  Revogar manual
-                                </Button>
-                              )}
-                              <Button variant="secondary" size="sm" onClick={() => void setPasswordForUser(u)}>
-                                Definir senha
-                              </Button>
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                disabled={accessActionBusy}
-                                onClick={() => void copyResetLinkForEmail(u.email)}
-                              >
-                                Copiar link senha
-                              </Button>
-                              {Number(u.manualExtraChannelSlots || 0) > 0 && (
-                                <Button variant="secondary" size="sm" onClick={() => void revokeExtraChannels(u)}>
-                                  Revogar canais
-                                </Button>
-                              )}
-                            </div>
-                            <p className="text-[9px] uppercase font-bold text-slate-400 text-right w-full sm:w-auto">Extensão manual</p>
-                            <div className="grid grid-cols-3 gap-1 w-full sm:w-[168px]">
-                              {[7, 30, 90].map((d) => (
-                                <button
-                                  key={d}
-                                  type="button"
-                                  onClick={() => void quickExtend(u, d)}
-                                  className="text-[10px] font-semibold px-1.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:border-emerald-300"
-                                  title={`+${d} dias`}
-                                >
-                                  +{d}d
-                                </button>
-                              ))}
-                            </div>
-                            <p className="text-[9px] uppercase font-bold text-slate-400 text-right w-full sm:w-auto mt-1">Canais extras (prazo rapido)</p>
-                            <div className="grid grid-cols-3 gap-1 w-full sm:w-[168px]">
-                              {[
-                                { label: '+1 canal / 7d', days: 7, months: 0, slots: 1 },
-                                { label: '+1 canal / 30d', days: 30, months: 0, slots: 1 },
-                                { label: '+1 canal / 1m', days: 0, months: 1, slots: 1 }
-                              ].map((x) => (
-                                <button
-                                  key={x.label}
-                                  type="button"
-                                  onClick={() =>
-                                    void quickExtendChannels(
-                                      u,
-                                      x.slots,
-                                      x.days,
-                                      x.months
-                                    )
-                                  }
-                                  className="text-[9px] leading-tight font-semibold px-1.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-sky-950/30 hover:border-sky-300"
-                                  title={`Estender canais extras ${x.label}`}
-                                >
-                                  {x.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-xl border p-4 sm:p-5 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-[15px] font-bold inline-flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-                    <History className="w-4 h-4 text-cyan-500" />
-                    Trilha de auditoria
-                  </h3>
-                  <Button variant="secondary" size="sm" onClick={() => void loadAudit()}>
-                    Atualizar
-                  </Button>
-                </div>
-                <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                  Registro de bloqueios, liberações e ajustes feitos por administradores.
-                </p>
-                <div className="relative pl-2 space-y-0 max-h-[280px] overflow-y-auto pr-1">
-                  <div className="absolute left-2 top-2 bottom-2 w-px bg-gradient-to-b from-cyan-400/50 via-slate-300/40 to-transparent dark:from-cyan-500/40" />
-                  {auditLoading ? (
-                    <p className="text-[12px] pl-4" style={{ color: 'var(--text-3)' }}>Carregando…</p>
-                  ) : auditRows.length === 0 ? (
-                    <p className="text-[12px] pl-4" style={{ color: 'var(--text-3)' }}>Nenhuma ação registrada ainda.</p>
-                  ) : (
-                    auditRows.map((r) => (
-                      <div key={r.id} className="relative pl-6 pb-3 last:pb-0">
-                        <div className="absolute left-0 top-1.5 w-2 h-2 rounded-full bg-cyan-500 ring-2 ring-white dark:ring-slate-900" />
-                        <p className="text-[12px] font-medium" style={{ color: 'var(--text-1)' }}>
-                          <span className="text-cyan-600 dark:text-violet-400">{r.action}</span>
-                          {' · '}
-                          <span>{r.targetEmail || r.targetUid}</span>
-                        </p>
-                        <p className="text-[10.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                          {r.adminEmail || r.adminUid} · {toPtDateTime(r.createdAt)}
-                        </p>
-                        {r.note ? <p className="text-[10.5px] mt-1 italic" style={{ color: 'var(--text-2)' }}>“{r.note}”</p> : null}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <aside className="space-y-4 lg:sticky lg:top-4 self-start w-full min-w-0">
-              <div className="rounded-xl border p-4 sm:p-5 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-[15px] font-bold inline-flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-                    <BarChart3 className="w-4 h-4 text-sky-500" />
-                    Perfil analítico
-                  </h3>
-                  {insights && (
-                    <Button variant="ghost" size="sm" onClick={() => setInsights(null)}>
-                      Limpar
-                    </Button>
-                  )}
-                </div>
-                {insightsLoading ? (
-                  <div className="text-[12px] flex items-center gap-2 py-6 justify-center" style={{ color: 'var(--text-3)' }}>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Carregando…
-                  </div>
-                ) : !insights ? (
-                  <div className="text-center py-6 px-2 space-y-3">
-                    <div className="w-12 h-12 rounded-2xl mx-auto flex items-center justify-center brand-soft">
-                      <BarChart3 className="w-6 h-6 text-sky-500 opacity-60" />
-                    </div>
-                    <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                      Selecione um <strong className="text-[var(--text-2)]">e-mail</strong> na lista para ver contatos, campanhas, conexões e listas.
-                    </p>
-                    <p className="text-[11px] leading-relaxed text-left rounded-lg p-2.5 border" style={{ color: 'var(--text-3)', borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                      <strong className="text-[var(--text-2)]">Sobre o login admin:</strong> o seu e-mail de administrador é removido da &quot;Base de assinaturas&quot; de propósito. Para ver
-                      <em> seus </em> dados (mesmo Firestore de quando você usa o app), clique abaixo.
-                    </p>
-                    <Button type="button" variant="primary" size="sm" className="w-full" onClick={openMyLoginInsights} leftIcon={<BarChart3 className="w-3.5 h-3.5" />}>
-                      Ver métricas do meu login
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                      <p className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>{insights.email || insights.uid}</p>
-                      <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
-                        <strong className="text-[var(--text-2)]">{insights.daysSinceFirstActivity}</strong> dia(s) desde a primeira atividade
-                      </p>
-                      <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                        Conta: {toPtDateTime(insights.accountCreatedAt)} · Login: {toPtDateTime(insights.lastSignInAt)}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                      <p className="text-[10px] uppercase font-bold tracking-wide mb-2 flex items-center gap-1.5" style={{ color: 'var(--text-3)' }}>
-                        <Clock3 className="w-3.5 h-3.5 shrink-0" aria-hidden />
-                        Uso no sistema (estimado)
-                      </p>
-                      {!insights.usage || insights.usage.totalActiveMs < 1 ? (
-                        <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                          Ainda sem medição para esta conta. O contador inicia quando alguém usa o app com a{' '}
-                          <strong className="text-[var(--text-2)]">aba em primeiro plano</strong> e o socket ligado ao servidor
-                          (após esta actualização).
-                        </p>
-                      ) : (
-                        <>
-                          <p className="text-[20px] font-extrabold leading-tight tabular-nums" style={{ color: 'var(--text-1)' }}>
-                            {formatAppUsageMs(insights.usage.totalActiveMs)}
-                          </p>
-                          <p className="text-[10px] mt-1.5" style={{ color: 'var(--text-3)' }}>
-                            Última actividade: {toPtDateTime(insights.usage.lastActiveAt)}
-                          </p>
-                          <p
-                            className="text-[10px] mt-2 leading-snug border-t pt-2"
-                            style={{ color: 'var(--text-3)', borderColor: 'var(--border-subtle)' }}
-                          >
-                            Acumulado por intervalos (~30s) enquanto o separador está visível. Inclui dono e membros da
-                            equipa na mesma conta ZapMass.
-                          </p>
-                        </>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Metric label="Contatos" value={insights.counts.contactsTotal} />
-                      <Metric label="Válidos" value={insights.counts.contactsValid} />
-                      <Metric label="Listas" value={insights.counts.contactLists} />
-                      <Metric label="Campanhas" value={insights.counts.campaignsTotal} />
-                    </div>
-                    <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                      <p className="text-[10px] uppercase font-bold tracking-wide mb-2" style={{ color: 'var(--text-3)' }}>Entrega de campanhas</p>
-                      <div className="grid grid-cols-2 gap-2 text-[11px]">
-                        <span style={{ color: 'var(--text-3)' }}>Alvo <strong className="text-[var(--text-1)]">{insights.campaignTotals.targeted}</strong></span>
-                        <span style={{ color: 'var(--text-3)' }}>Sucesso <strong className="text-emerald-600">{insights.campaignTotals.success}</strong></span>
-                        <span style={{ color: 'var(--text-3)' }}>Falhas <strong className="text-red-500">{insights.campaignTotals.failed}</strong></span>
-                        <span style={{ color: 'var(--text-3)' }}>Processados <strong className="text-[var(--text-1)]">{insights.campaignTotals.processed}</strong></span>
-                      </div>
-                      {insights.campaignTotals.targeted > 0 && (
-                        <div className="mt-2">
-                          <div className="h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                            <div
-                              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400"
-                              style={{
-                                width: `${Math.min(100, Math.round((100 * insights.campaignTotals.success) / Math.max(1, insights.campaignTotals.targeted)))}%`
-                              }}
-                            />
-                          </div>
-                          <p className="text-[10px] mt-1 text-slate-500">
-                            ≈{Math.round((100 * insights.campaignTotals.success) / Math.max(1, insights.campaignTotals.targeted))}% do alvo com envio OK
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-1 gap-2">
-                      <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                        <p className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--text-3)' }}>Listas (top)</p>
-                        {insights.listSegmentsTop.length === 0 ? (
-                          <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Nenhuma.</p>
-                        ) : (
-                          insights.listSegmentsTop.map((s) => (
-                            <div key={s.listName} className="flex justify-between text-[11px] py-0.5" style={{ color: 'var(--text-2)' }}>
-                              <span className="truncate pr-2">{s.listName}</span>
-                              <span className="font-semibold text-emerald-600">{s.contacts}</span>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                      <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                        <p className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--text-3)' }}>Tags (top)</p>
-                        {insights.contactTagsTop.length === 0 ? (
-                          <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Nenhuma.</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1">
-                            {insights.contactTagsTop.map((t) => (
-                              <span key={t.tag} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800" style={{ color: 'var(--text-2)' }}>
-                                {t.tag} <strong className="text-emerald-600">{t.count}</strong>
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                      <p className="text-[10px] font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>Campanhas recentes</p>
-                      {insights.recentCampaigns.length === 0 ? (
-                        <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Nenhuma.</p>
-                      ) : (
-                        <ul className="space-y-1.5">
-                          {insights.recentCampaigns.map((c) => (
-                            <li key={c.id} className="text-[11px] border-l-2 border-sky-400/50 pl-2" style={{ color: 'var(--text-2)' }}>
-                              <span className="font-medium" style={{ color: 'var(--text-1)' }}>{c.name}</span>
-                              <span className="text-slate-400"> · {c.status}</span>
-                              <br />
-                              <span className="text-[10px] text-slate-500">Alvo {c.totalContacts} · ✓{c.successCount} · ✗{c.failedCount}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </aside>
-          </div>
-        </div>
-      )}
 
       {tab === 'suggestions' && (
         <div className="space-y-6">
           <SectionHeader
-            title="Sugestões dos utilizadores"
-            description="Envios feitos pelo botão «Sugestão» na barra superior. No Firestore: cada conta em «users», subcoleção «suggestions»."
+            title="SugestÃµes dos utilizadores"
+            description="Envios feitos pelo botÃ£o Â«SugestÃ£oÂ» na barra superior. No Firestore: cada conta em Â«usersÂ», subcoleÃ§Ã£o Â«suggestionsÂ»."
           />
           <div className="flex flex-wrap items-center gap-3">
             <Button
@@ -2002,7 +1312,7 @@ export const AdminPanel: React.FC = () => {
               Atualizar lista
             </Button>
             <span className="text-xs" style={{ color: 'var(--text-3)' }}>
-              Mostrando as {productSuggestions.length} mais recentes (até 120 pedidas à API).
+              Mostrando as {productSuggestions.length} mais recentes (atÃ© 120 pedidas Ã  API).
             </span>
           </div>
 
@@ -2014,8 +1324,8 @@ export const AdminPanel: React.FC = () => {
             </Card>
           ) : productSuggestions.length === 0 ? (
             <EmptyState
-              title="Ainda sem sugestões"
-              description="Quando utilizadores enviarem texto pelo botão de sugestões, aparecem aqui."
+              title="Ainda sem sugestÃµes"
+              description="Quando utilizadores enviarem texto pelo botÃ£o de sugestÃµes, aparecem aqui."
             />
           ) : (
             <div className="space-y-3">
@@ -2039,7 +1349,7 @@ export const AdminPanel: React.FC = () => {
                           ) : null}
                         </div>
                         <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-1)' }}>
-                          {row.text || '—'}
+                          {row.text || 'â€”'}
                         </p>
                       </div>
                     </div>
@@ -2054,7 +1364,7 @@ export const AdminPanel: React.FC = () => {
                         title={
                           hasEmail
                             ? 'Enviar uma resposta por email para o cliente'
-                            : 'Cliente sem email vinculado — não é possível responder por email'
+                            : 'Cliente sem email vinculado â€” nÃ£o Ã© possÃ­vel responder por email'
                         }
                         onClick={() => openReplyModal(row)}
                       >
@@ -2067,12 +1377,12 @@ export const AdminPanel: React.FC = () => {
                         leftIcon={<MessageCircle className="w-3.5 h-3.5" />}
                         onClick={() => toggleRepliesPanel(row)}
                       >
-                        {open ? 'Ocultar histórico' : 'Ver histórico'}
+                        {open ? 'Ocultar histÃ³rico' : 'Ver histÃ³rico'}
                       </Button>
                       {hasEmail ? (
                         <a
                           href={`mailto:${row.userEmail}?subject=${encodeURIComponent(
-                            'Sobre a sua sugestão no ZapMass'
+                            'Sobre a sua sugestÃ£o no ZapMass'
                           )}`}
                           className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300 hover:underline"
                           title="Abrir no cliente de email instalado (Outlook, Mail, etc.)"
@@ -2091,7 +1401,7 @@ export const AdminPanel: React.FC = () => {
                         {repliesLoading ? (
                           <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--text-3)' }}>
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            A carregar histórico…
+                            A carregar histÃ³ricoâ€¦
                           </div>
                         ) : replies.length === 0 ? (
                           <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
@@ -2112,16 +1422,16 @@ export const AdminPanel: React.FC = () => {
                                   <span className="font-semibold" style={{ color: 'var(--text-2)' }}>
                                     {rep.adminEmail || rep.adminUid || 'admin'}
                                   </span>
-                                  <span>·</span>
+                                  <span>Â·</span>
                                   <span>{toPtDateTime(rep.createdAt)}</span>
-                                  <span>·</span>
+                                  <span>Â·</span>
                                   {rep.emailSent ? (
                                     <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                                       <CheckCircle2 className="w-3 h-3" /> email enviado
                                     </span>
                                   ) : (
                                     <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                                      <XCircle className="w-3 h-3" /> só registado (sem email)
+                                      <XCircle className="w-3 h-3" /> sÃ³ registado (sem email)
                                     </span>
                                   )}
                                 </div>
@@ -2152,10 +1462,10 @@ export const AdminPanel: React.FC = () => {
                       style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-3)' }}
                     >
                       <span>
-                        <strong style={{ color: 'var(--text-2)' }}>E-mail:</strong> {row.userEmail || '—'}
+                        <strong style={{ color: 'var(--text-2)' }}>E-mail:</strong> {row.userEmail || 'â€”'}
                       </span>
                       <span className="inline-flex items-center gap-1 font-mono">
-                        <strong style={{ color: 'var(--text-2)' }}>UID:</strong> {row.uid || '—'}
+                        <strong style={{ color: 'var(--text-2)' }}>UID:</strong> {row.uid || 'â€”'}
                         {row.uid ? (
                           <button
                             type="button"
@@ -2183,7 +1493,7 @@ export const AdminPanel: React.FC = () => {
         subtitle={
           replyTarget?.userEmail
             ? `Vai por email para ${replyTarget.userEmail}. Quando ele responder, chega no seu Reply-To.`
-            : 'O cliente desta sugestão não tem email vinculado.'
+            : 'O cliente desta sugestÃ£o nÃ£o tem email vinculado.'
         }
         icon={<Send className="w-5 h-5 text-emerald-500" />}
         size="lg"
@@ -2199,7 +1509,7 @@ export const AdminPanel: React.FC = () => {
               leftIcon={<Send className="w-4 h-4" />}
               onClick={() => void submitReply()}
             >
-              {replySending ? 'A enviar…' : 'Enviar resposta por email'}
+              {replySending ? 'A enviarâ€¦' : 'Enviar resposta por email'}
             </Button>
           </div>
         }
@@ -2211,15 +1521,15 @@ export const AdminPanel: React.FC = () => {
               style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
             >
               <p className="text-[10.5px] uppercase font-bold tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>
-                Sugestão original
+                SugestÃ£o original
               </p>
               <p className="text-[13px] whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-1)' }}>
-                {replyTarget.text || '—'}
+                {replyTarget.text || 'â€”'}
               </p>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] mt-2" style={{ color: 'var(--text-3)' }}>
                 <span>{toPtDateTime(replyTarget.createdAt)}</span>
-                {replyTarget.category ? <span>· {suggestionCategoryPt(replyTarget.category)}</span> : null}
-                {replyTarget.screen ? <span>· {replyTarget.screen}</span> : null}
+                {replyTarget.category ? <span>Â· {suggestionCategoryPt(replyTarget.category)}</span> : null}
+                {replyTarget.screen ? <span>Â· {replyTarget.screen}</span> : null}
               </div>
             </div>
 
@@ -2233,13 +1543,13 @@ export const AdminPanel: React.FC = () => {
               <Textarea
                 value={replyText}
                 onChange={(e) => setReplyText(e.target.value.slice(0, 8000))}
-                placeholder="Escreva uma resposta direta. Pode dizer o status (em estudo, planejado, já feito), perguntar mais detalhes ou agradecer…"
+                placeholder="Escreva uma resposta direta. Pode dizer o status (em estudo, planejado, jÃ¡ feito), perguntar mais detalhes ou agradecerâ€¦"
                 style={{ minHeight: '160px', fontSize: '13.5px', lineHeight: 1.55 }}
                 disabled={replySending}
                 autoFocus
               />
               <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-3)' }}>
-                Quando o cliente responder, vai cair direto no seu email ({user?.email || '—'}).
+                Quando o cliente responder, vai cair direto no seu email ({user?.email || 'â€”'}).
               </p>
             </div>
           </div>
