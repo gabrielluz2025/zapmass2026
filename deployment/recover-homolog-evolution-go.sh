@@ -12,6 +12,11 @@ log() { echo "==> $*"; }
 
 [ -f "$COMPOSE_FILE" ] || { echo "ERRO: docker-compose.homolog.yml não encontrado"; exit 1; }
 
+if [ -f deployment/fix-postgres-connections.sh ]; then
+  chmod +x deployment/fix-postgres-connections.sh 2>/dev/null || true
+  bash deployment/fix-postgres-connections.sh || true
+fi
+
 bash deployment/ensure-homolog-dbs.sh
 
 PG_PASS="$(grep -E '^POSTGRES_PASSWORD=' "$HOMOLOG_ENV" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' || true)"

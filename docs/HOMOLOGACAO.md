@@ -93,6 +93,24 @@ HOMOLOG_MERCADOPAGO_BACK_URL=https://homolog.zap-mass.com
 
 ## Troubleshooting
 
+### Evolution Go homolog: `too many clients already`
+
+Postgres compartilhado entre prod + clientes + homolog. Limpeza imediata:
+
+```bash
+cd /opt/zapmass
+bash deployment/fix-postgres-connections.sh
+bash deployment/recover-homolog-evolution-go.sh
+```
+
+Para aplicar `max_connections=300` permanente (reinicia Postgres ~5s):
+
+```bash
+git pull && bash deployment/ensure-git-main.sh
+bash deployment/fix-postgres-connections.sh --restart-postgres
+bash deployment/recover-homolog-evolution-go.sh
+```
+
 ```bash
 # Logs
 docker compose -f docker-compose.homolog.yml logs -f zapmass-homolog
