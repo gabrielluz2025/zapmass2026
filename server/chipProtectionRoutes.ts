@@ -8,7 +8,7 @@ import {
   setChipQuietMode
 } from './chipProtectionService.js';
 import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
-import { listConnectionsForOwner } from './evolutionService.js';
+import { getConnectionsForTenant } from './evolutionService.js';
 
 export function registerChipProtectionRoutes(app: Express): void {
   app.get('/api/chip-protection', async (req: Request, res: Response) => {
@@ -71,7 +71,7 @@ export function registerChipProtectionRoutes(app: Express): void {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
     try {
-      const connections = await listConnectionsForOwner(ctx.tenantId);
+      const connections = getConnectionsForTenant(ctx.tenantId);
       const breaker = getChipCircuitBreaker();
       await breaker.resetMany(connections.map((c) => c.id));
       console.log(`[ChipProtection] Circuit breaker resetado para ${connections.length} chips tenant=${ctx.tenantId}`);

@@ -11,6 +11,18 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.24] — 2026-08-28
+
+### Fix: crash do homolog por import inexistente em chipProtectionRoutes
+
+**Root cause:** O endpoint `POST /api/chip-protection/reset-circuit` importava `listConnectionsForOwner` de `evolutionService.ts`, mas essa função não existe — o nome correto é `getConnectionsForTenant`. Isso causava crash do processo Node.js na inicialização (SyntaxError de módulo ESM), derrubando o homolog com 502 Bad Gateway.
+
+**Correção:**
+
+- **`server/chipProtectionRoutes.ts`**: Substituído import `listConnectionsForOwner` por `getConnectionsForTenant` (função síncrona correta).
+
+---
+
 ## [2.3.23] — 2026-08-28
 
 ### Fix: proteção de chips travava campanhas após reinstalação do Evolution Go

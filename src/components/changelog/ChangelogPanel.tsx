@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.24',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'chipProtectionRoutes: import listConnectionsForOwner → getConnectionsForTenant (crash SyntaxError ESM corrigido)' },
+      { type: 'fix', text: 'Homolog voltou ao ar após crash causado por função inexistente no módulo evolutionService' },
+    ],
+  },
+  {
     version: '2.3.23',
     date: '28/08/2026',
     highlights: [
