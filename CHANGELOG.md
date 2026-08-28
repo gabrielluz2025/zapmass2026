@@ -11,6 +11,19 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.32] — 2026-08-28
+
+### Fix: loop de sync/hydrate 4×/segundo — sobrecarga no Evolution Go
+
+**Problema:** browser com chip offline reconectava Socket.IO repetidamente, disparando `hydrateInstancesFromEvolution` + `ensureGoInstanceWebhook` 4+ vezes por segundo, gerando flood de `GET /instance/all` e `POST /instance/connect` no Evolution Go e causando reinicializações em cadeia dos containers.
+
+**Correções:**
+- `hydrateInstancesFromEvolution` agora tem debounce de 2s: chamadas simultâneas ou em rápida sequência reutilizam o mesmo Promise em andamento.
+- `ensureGoInstanceWebhook` agora tem debounce de 30s por instância: o webhook não é re-registrado no mesmo chip antes de 30 segundos.
+- Essas duas proteções reduzem a carga de ~4 req/s para no máximo 1 req/2s no hydrate e 1 req/30s por chip no webhook.
+
+---
+
 ## [2.3.31] — 2026-08-28
 
 ### Fix: bugs críticos no Pool de chips — disparos travados/saindo do pool

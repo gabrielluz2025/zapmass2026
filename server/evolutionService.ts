@@ -2168,7 +2168,24 @@ async function pollConnectQr(
     return null;
 }
 
+// Debounce do hydrate: impede que reconexões rápidas de Socket.IO (browser com chip offline)
+// disparem N hydrações por segundo. O hydrate completo (fetch + webhooks) é caro — limit 1/2s.
+let _hydrateInflight: Promise<void> | null = null;
+let _hydrateLastRun = 0;
+const HYDRATE_MIN_INTERVAL_MS = 2_000;
+
 async function hydrateInstancesFromEvolution() {
+    const now = Date.now();
+    if (_hydrateInflight) return _hydrateInflight;
+    if (now - _hydrateLastRun < HYDRATE_MIN_INTERVAL_MS) return;
+    _hydrateInflight = _doHydrateInstancesFromEvolution().finally(() => {
+        _hydrateInflight = null;
+        _hydrateLastRun = Date.now();
+    });
+    return _hydrateInflight;
+}
+
+async function _doHydrateInstancesFromEvolution() {
     try {
         const response = await api.get('/instance/fetchInstances');
         const raw = response.data;
@@ -4561,17 +4578,26 @@ async function createConnectionInternal(
     }
 }
 
+// Evita re-registrar webhook no mesmo chip mais de 1x a cada 30s.
+// Sem este cache, reconexões rápidas de Socket.IO disparam N chamadas por segundo.
+const _webhookEnsureLastRun = new Map<string, number>();
+const WEBHOOK_ENSURE_MIN_INTERVAL_MS = 30_000;
+
 /**
  * Configura webhook para receber eventos da instância
  */
 async function ensureGoInstanceWebhook(instanceName: string): Promise<void> {
     if (!isEvolutionGoEngine()) return;
     if (!connections.has(instanceName) && !getGoInstanceUuid(instanceName)) return;
+    const last = _webhookEnsureLastRun.get(instanceName) ?? 0;
+    if (Date.now() - last < WEBHOOK_ENSURE_MIN_INTERVAL_MS) return;
+    _webhookEnsureLastRun.set(instanceName, Date.now());
     try {
         await api.post(`/instance/connect/${evoInst(instanceName)}`, {});
         log('info', `Webhook Go aplicado via connect: ${instanceName}`);
     } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
+        _webhookEnsureLastRun.delete(instanceName); // permite retry em falha
         log('warn', `ensureGoInstanceWebhook falhou: ${instanceName}`, { error: msg });
     }
 }
