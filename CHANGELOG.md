@@ -11,6 +11,27 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.26] — 2026-08-28
+
+### Fix: disparo por fluxo (replyFlow) bloqueado por guards de proteção
+
+**Root cause:** Mensagens de continuação de fluxo por resposta (`replyFlowResponse: true`) passavam pelos mesmos guards de chip protection, sleep mode, tier daily cap e limite diário do canal que mensagens outbound regulares. Como resultado:
+- Um contato que respondia a uma campanha de fluxo durante a noite (modo silêncio ativo) recebia a próxima etapa somente às 8h da manhã.
+- Se o chip atingia o cap diário do tier, as respostas de fluxo ficavam presas na fila.
+- Se havia proteção anti-ban ativa, as respostas eram atrasadas ou pausadas indefinidamente.
+- Se a campanha estava manualmente pausada, as etapas de fluxo nunca avançavam.
+
+**Correção:** Adicionados guards `!item.replyFlowResponse` em todos os pontos de bloqueio:
+1. `runCampaignDispatchGuard` — chip protection guard
+2. `pausedCampaigns` — pause manual
+3. Tier daily cap (ramp-up)
+4. Sleep mode noturno (20h–8h)
+5. Limite diário de mensagens por canal
+
+`replyFlowResponse` é resposta direta a um contato que já interagiu — deve ser enviada imediatamente independente de horário, caps ou proteções.
+
+---
+
 ## [2.3.25] — 2026-08-28
 
 ### Fix: crash unhandledRejection em campaign_logs por violação de FK
