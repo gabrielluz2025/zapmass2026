@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.37',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'feat', text: 'Botão Editar nos cards de campanhas pausadas/agendadas — abre o wizard pré-preenchido com nome, mensagens, fluxos e canais' },
+      { type: 'feat', text: 'Modo edição restaura chip individual ou pool original; salva via PATCH e remapeia jobs pendentes para novos chips' },
+      { type: 'feat', text: 'Audiência da campanha é preservada no edit por padrão; aviso no passo 1 orienta quando alterar' },
+    ],
+  },
+  {
     version: '2.3.36',
     date: '28/08/2026',
     highlights: [

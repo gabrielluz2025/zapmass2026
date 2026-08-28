@@ -13,7 +13,7 @@ import { useZapMassCore } from '../context/ZapMassContext';
 import { useAuth } from '../context/AuthContext';
 import { isWhatsAppRiskAcknowledged, saveWhatsAppRiskAck } from '../utils/whatsappRiskStorage';
 import { appendAudit } from '../utils/campaignMissionStorage';
-import { buildDraftFromCampaign } from '../utils/campaignDraft';
+import { buildDraftFromCampaign, buildEditDraftFromCampaign } from '../utils/campaignDraft';
 import {
   clearCampaignWizardDraft,
   loadCampaignWizardSession,
@@ -37,7 +37,7 @@ import { CampaignInsightsBanner } from './campaigns/CampaignInsightsBanner';
 import { WhatsAppRiskAcceptModal } from './legal/WhatsAppRiskAcceptModal';
 import { CampaignPreviewModal } from './campaigns/CampaignPreviewModal';
 import { CampaignChangeChannelsDialog } from './campaigns/CampaignChangeChannelsDialog';
-import { updateCampaignChannels } from '../services/campaignsApi';
+import { apiUpdateCampaign, updateCampaignChannels } from '../services/campaignsApi';
 import type { Campaign } from '../types';
 
 interface CampaignsTabProps {
@@ -433,8 +433,50 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     }
   };
 
-  /** Intercepta o disparo — mostra preview antes de executar. */
+  /** Salva alterações de uma campanha existente (modo edição do wizard). */
+  const handleEditCampaignSubmit = async (payload: Parameters<typeof executeSubmitCampaign>[0]) => {
+    const editId = wizardDraft?.editCampaignId;
+    if (!editId) return;
+
+    const patch: Record<string, unknown> = {
+      name: payload.name,
+      message: payload.message,
+      messageStages: payload.messageStages,
+      replyFlow: payload.replyFlow ?? null,
+      delaySeconds: payload.delaySeconds,
+      delaySecondsMax: payload.delaySecondsMax,
+      humanizedPauses: payload.humanizedPauses,
+      channelWeights: payload.channelWeights,
+      poolStrategy: payload.poolStrategy,
+      poolId: payload.poolId,
+      dailySchedule: payload.dailySchedule,
+    };
+
+    try {
+      await apiUpdateCampaign(editId, patch);
+
+      // Remapeia jobs pendentes para os novos chips (mesma lógica de "trocar chips")
+      if (payload.connectedIds.length > 0) {
+        await updateCampaignChannels(editId, payload.connectedIds);
+      }
+
+      toast.success('Campanha atualizada com sucesso.');
+      muteWizardAutosaveBriefly();
+      setViewState('list');
+      setSubTab('campaigns');
+      if (user?.uid) clearCampaignWizardDraft(user.uid);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Falha ao atualizar campanha.';
+      toast.error(msg, { duration: 9000 });
+    }
+  };
+
+  /** Intercepta o disparo — mostra preview antes de executar (ou salva edição direto). */
   const handleSubmitCampaign = async (payload: Parameters<typeof executeSubmitCampaign>[0]) => {
+    if (wizardDraft?.editMode) {
+      await handleEditCampaignSubmit(payload);
+      return;
+    }
     setPreviewPayload(payload);
   };
 
@@ -794,6 +836,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 onDelete={handleDeleteCampaign}
                 onDeleteMany={handleDeleteManyCampaigns}
                 onClone={(c) => openWizardWithDraft(buildDraftFromCampaign(c))}
+                onEdit={(c) => openWizardWithDraft(buildEditDraftFromCampaign(c))}
                 onChangeChannels={setChangeChannelsCampaign}
               />
             </div>

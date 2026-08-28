@@ -252,6 +252,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [afternoonStartHour, setAfternoonStartHour] = useState(13);
   const [afternoonEndHour, setAfternoonEndHour] = useState(18);
   const [limitPerChannelGlobal, setLimitPerChannelGlobal] = useState<number>(100);
+  const isEditMode = Boolean(initialDraft?.editMode);
   const [duplicatedContacts, setDuplicatedContacts] = useState<Array<{ phone: string; campaignName: string; campaignId: string }>>([]);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
   const [showDuplicateWarningModal, setShowDuplicateWarningModal] = useState(false);
@@ -917,6 +918,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         ? { ...initialDraft.channelWeights }
         : {}
     );
+    if (initialDraft.initialChipSelectionMode) {
+      setChipSelectionMode(initialDraft.initialChipSelectionMode);
+    }
+    if (initialDraft.initialPoolId) {
+      setSelectedPoolId(initialDraft.initialPoolId);
+    }
     const stageIdx = Number(initialDraft.activeStageIdx);
     setActiveStageIdx(
       Number.isFinite(stageIdx) && stageIdx >= 0 ? Math.floor(stageIdx) : 0
@@ -1231,8 +1238,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     scheduleTimeZone
   ]);
   const scheduleOk = launchMode === 'now' || scheduleSlots.length > 0;
+  // Em modo edição não exige público preenchido — a audiência já existe na campanha
   const canSubmit =
-    canGoFromAudience &&
+    (isEditMode || canGoFromAudience) &&
     canGoFromMessage &&
     canGoFromChannels &&
     !isSubmitting &&
@@ -1387,8 +1395,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
   const handleNextStep = async () => {
     if (step === 1) {
-      if (numbers.length === 0) {
+      if (numbers.length === 0 && !isEditMode) {
         toast.error('Selecione pelo menos um contato antes de avançar.');
+        return;
+      }
+      if (isEditMode && numbers.length === 0) {
+        setStep(2);
         return;
       }
       setCheckingDuplicates(true);
@@ -1701,10 +1713,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           </button>
           <div className="min-w-0">
             <h1 className="text-[16px] font-bold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
-              Nova campanha · Broadcast Studio
+              {isEditMode ? 'Editar campanha · Broadcast Studio' : 'Nova campanha · Broadcast Studio'}
             </h1>
             <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
-              Configure passo a passo: público, mensagem, canais e revisão
+              {isEditMode ? 'Edite público, mensagem, canais e salve as alterações' : 'Configure passo a passo: público, mensagem, canais e revisão'}
             </p>
           </div>
         </div>
@@ -1744,11 +1756,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           {STEPS.map((s) => {
             const isActive = step === s.id;
             const isDone = step > s.id;
+            const audienceOk = isEditMode || canGoFromAudience;
             const canJump =
               s.id <= step ||
-              (s.id === 2 && canGoFromAudience) ||
-              (s.id === 3 && canGoFromAudience && canGoFromMessage) ||
-              (s.id === 4 && canGoFromAudience && canGoFromMessage && canGoFromChannels);
+              (s.id === 2 && audienceOk) ||
+              (s.id === 3 && audienceOk && canGoFromMessage) ||
+              (s.id === 4 && audienceOk && canGoFromMessage && canGoFromChannels);
             return (
               <button
                 key={s.id}
@@ -1822,6 +1835,15 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   </p>
                 </div>
               </div>
+
+              {isEditMode && (
+                <div
+                  className="mb-4 rounded-lg px-4 py-3 text-[12px]"
+                  style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: '#b45309' }}
+                >
+                  <strong>Modo edição:</strong> o público já está definido na campanha. Altere apenas se quiser substituir a lista de contatos dos <em>disparos pendentes</em>. Caso contrário, avance para as próximas etapas.
+                </div>
+              )}
 
               {/* Cards de modo */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
@@ -3683,7 +3705,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   variant="primary"
                   rightIcon={<ChevronRight className="w-4 h-4" />}
                   disabled={
-                    (step === 1 && !canGoFromAudience) ||
+                    (step === 1 && !isEditMode && !canGoFromAudience) ||
                     (step === 2 && !canGoFromMessage) ||
                     (step === 3 && !canGoFromChannels)
                   }
@@ -3699,7 +3721,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   loading={isSubmitting}
                   disabled={!canSubmit}
                 >
-                  {launchMode === 'schedule' ? 'Agendar campanha' : 'Iniciar disparo'}
+                  {isEditMode ? 'Salvar alterações' : launchMode === 'schedule' ? 'Agendar campanha' : 'Iniciar disparo'}
                 </Button>
               )}
             </div>

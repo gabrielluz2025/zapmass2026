@@ -59,8 +59,7 @@ function singleMessageStage(body: string): CampaignWizardStageDraft {
   };
 }
 
-/** Monta rascunho para o assistente a partir de uma campanha existente (público deve ser conferido). */
-export function buildDraftFromCampaign(c: Campaign): CampaignWizardDraft {
+function buildCommonDraftFields(c: Campaign): Omit<CampaignWizardDraft, 'name' | 'editMode' | 'editCampaignId' | 'initialPoolId' | 'initialChipSelectionMode'> {
   const replyFlow = resolveCampaignReplyFlow(c);
 
   let campaignFlowMode: CampaignWizardDraft['campaignFlowMode'];
@@ -78,16 +77,18 @@ export function buildDraftFromCampaign(c: Campaign): CampaignWizardDraft {
   }
 
   const globalOptOutKeywords = replyFlow?.globalOptOutKeywords || [];
+  const snapshot = c.scheduleStartSnapshot;
 
   return {
-    name: `${c.name} (cópia)`,
     sendMode: c.contactListId ? 'list' : 'manual',
     selectedListId: c.contactListId || '',
     manualNumbers: '',
     selectedConnectionIds: [...(c.selectedConnectionIds || [])],
-    channelWeightMode: 'equal',
+    channelWeightMode: Object.keys(c.channelWeights || {}).length > 0 ? 'custom' : 'equal',
     channelWeights: { ...(c.channelWeights || {}) },
-    delaySeconds: c.delaySeconds ?? 45,
+    delaySeconds: c.delaySeconds ?? snapshot?.delaySeconds ?? 45,
+    delaySecondsMax: snapshot?.delaySecondsMax,
+    humanizedPauses: snapshot?.humanizedPauses,
     campaignFlowMode,
     messageStages,
     replyFlowGlobalOptOutEnabled: replyFlow?.globalOptOutEnabled !== false,
@@ -101,6 +102,30 @@ export function buildDraftFromCampaign(c: Campaign): CampaignWizardDraft {
     filterSearch: '',
     selectedContactPhones: [],
     manualSelection: false
+  };
+}
+
+/** Monta rascunho para o assistente a partir de uma campanha existente (público deve ser conferido). */
+export function buildDraftFromCampaign(c: Campaign): CampaignWizardDraft {
+  return {
+    name: `${c.name} (cópia)`,
+    ...buildCommonDraftFields(c)
+  };
+}
+
+/** Monta rascunho em modo edição — aponta para a campanha existente pelo ID. */
+export function buildEditDraftFromCampaign(c: Campaign): CampaignWizardDraft {
+  const snapshot = c.scheduleStartSnapshot;
+  const poolId = snapshot?.poolId ?? (c as unknown as Record<string, unknown>).poolId as string | undefined;
+  const hasPool = Boolean(poolId);
+
+  return {
+    name: c.name,
+    editMode: true,
+    editCampaignId: c.id,
+    initialChipSelectionMode: hasPool ? 'pool' : 'manual',
+    initialPoolId: poolId || '',
+    ...buildCommonDraftFields(c)
   };
 }
 

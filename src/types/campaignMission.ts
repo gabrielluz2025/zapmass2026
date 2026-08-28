@@ -54,6 +54,14 @@ export interface CampaignWizardDraft {
   /** Passo do assistente (1–4) para retomar ao voltar da aba. */
   step?: 1 | 2 | 3 | 4;
   activeStageIdx?: number;
+  /** Modo de edição: true = atualizar campanha existente (não criar nova). */
+  editMode?: boolean;
+  /** ID da campanha sendo editada (só presente quando editMode = true). */
+  editCampaignId?: string;
+  /** Pool selecionado na campanha original (para restaurar o seletor de chips). */
+  initialPoolId?: string;
+  /** Modo de seleção de chips da campanha original. */
+  initialChipSelectionMode?: 'manual' | 'pool';
 }
 
 export interface SavedCampaignTemplate {

@@ -8,6 +8,7 @@ import {
   LayoutGrid,
   List,
   Pause,
+  Pencil,
   Play,
   Rows3,
   Search,
@@ -30,6 +31,7 @@ interface CampaignsListProps {
   onDelete?: (id: string) => Promise<void> | void;
   onDeleteMany?: (ids: string[]) => Promise<void> | void;
   onClone?: (campaign: Campaign) => void;
+  onEdit?: (campaign: Campaign) => void;
   onChangeChannels?: (campaign: Campaign) => void;
 }
 
@@ -137,6 +139,7 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
   onDelete,
   onDeleteMany,
   onClone,
+  onEdit,
   onChangeChannels,
 }) => {
   const [search, setSearch] = useState('');
@@ -474,6 +477,7 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
               }}
               onTogglePause={() => onTogglePause(camp.id)}
               onClone={onClone ? () => onClone(camp) : undefined}
+              onEdit={onEdit ? () => onEdit(camp) : undefined}
               onChangeChannels={onChangeChannels ? () => onChangeChannels(camp) : undefined}
               onDelete={onDelete ? () => askDelete([camp.id]) : undefined}
             />
@@ -494,6 +498,7 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
               }}
               onTogglePause={() => onTogglePause(camp.id)}
               onClone={onClone ? () => onClone(camp) : undefined}
+              onEdit={onEdit ? () => onEdit(camp) : undefined}
               onDelete={onDelete ? () => askDelete([camp.id]) : undefined}
             />
           ))}
@@ -628,6 +633,17 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                               {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                             </button>
                           )}
+                          {onEdit && (camp.status === CampaignStatus.PAUSED || camp.status === CampaignStatus.DRAFT || camp.status === CampaignStatus.SCHEDULED) && (
+                            <button
+                              type="button"
+                              onClick={() => onEdit(camp)}
+                              className="w-7 h-7 rounded-md flex items-center justify-center transition-colors hover:bg-[var(--surface-2)]"
+                              style={{ color: 'var(--brand-600,#10b981)' }}
+                              title="Editar campanha"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           {onClone && (
                             <button
                               type="button"
@@ -731,6 +747,7 @@ type CampaignCardExtendedProps = {
   onOpen: () => void;
   onTogglePause: () => void;
   onClone?: () => void;
+  onEdit?: () => void;
   onChangeChannels?: () => void;
   onDelete?: () => void;
 };
@@ -743,6 +760,7 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
   onOpen,
   onTogglePause,
   onClone,
+  onEdit,
   onChangeChannels,
   onDelete
 }) {
@@ -902,6 +920,20 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
                 <Smartphone className="w-3.5 h-3.5" />
               </button>
             )}
+            {onEdit && (isPaused || campaign.status === CampaignStatus.DRAFT || campaign.status === CampaignStatus.SCHEDULED) && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+                className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
+                style={{ background: 'rgba(16,185,129,0.12)', color: 'var(--brand-600,#10b981)' }}
+                title="Editar campanha"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+            )}
             {onClone && (
               <button
                 type="button"
@@ -1037,6 +1069,7 @@ type CampaignCompactRowProps = {
   onOpen: () => void;
   onTogglePause: () => void;
   onClone?: () => void;
+  onEdit?: () => void;
   onDelete?: () => void;
 };
 const CampaignCompactRow: React.FC<CampaignCompactRowProps> = memo(function CampaignCompactRowInner({
@@ -1047,6 +1080,7 @@ const CampaignCompactRow: React.FC<CampaignCompactRowProps> = memo(function Camp
   onOpen,
   onTogglePause,
   onClone,
+  onEdit,
   onDelete
 }) {
   const m = getCampaignProgressMetrics(campaign);
@@ -1126,6 +1160,17 @@ const CampaignCompactRow: React.FC<CampaignCompactRowProps> = memo(function Camp
               title={isRunning ? 'Pausar' : 'Retomar'}
             >
               {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+            </button>
+          )}
+          {onEdit && (isPaused || campaign.status === CampaignStatus.DRAFT || campaign.status === CampaignStatus.SCHEDULED) && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              className="w-7 h-7 rounded-md flex items-center justify-center transition-colors hover:bg-[var(--surface-2)]"
+              style={{ color: 'var(--brand-600,#10b981)' }}
+              title="Editar campanha"
+            >
+              <Pencil className="w-3.5 h-3.5" />
             </button>
           )}
           {onClone && (

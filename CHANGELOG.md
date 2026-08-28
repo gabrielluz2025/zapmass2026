@@ -11,6 +11,20 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.37] — 2026-08-28
+
+### Feature: Edição de campanhas existentes
+
+Adicionado botão **Editar** (ícone de lápis) nos cards de campanhas pausadas, agendadas e em rascunho. Ao clicar, o wizard de campanha abre em modo edição com todos os campos pré-preenchidos:
+
+- Nome, mensagens, fluxos de resposta (reply flow com etapas, tokens e opções condicionais)
+- Modo de canais: chip individual ou pool (com o pool original pré-selecionado)
+- Pesos de canais, delay e pausas humanizadas
+- Ao confirmar, salva via `PATCH /api/campaigns/:id` e remapeia os jobs pendentes para os novos chips via `POST /api/campaigns/:id/channels`
+- Aviso na etapa de público indicando que a audiência é preservada a menos que seja alterada explicitamente
+
+---
+
 ## [2.3.36] — 2026-08-28
 
 ### Fix: healthcheck do Evolution Go homolog
