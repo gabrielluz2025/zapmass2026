@@ -11,6 +11,20 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.27] — 2026-08-28
+
+### Fix: aba de acompanhamento do disparo e fluxo por resposta
+
+**Bugs corrigidos:**
+
+1. **Status `WAITING_REPLY` sobrescrito por `RUNNING`** (`ZapMassContext.tsx`): eventos tardios de `campaign-progress` (socket) forçavam o status de volta para `RUNNING`, mesmo quando a campanha já havia transitado para `WAITING_REPLY`. A tela mostrava "Aguardando respostas" por um frame e depois voltava para "Em andamento". Corrigido: evento `campaign-progress` agora preserva `WAITING_REPLY` se for o status atual.
+
+2. **Sem polling de logs durante `RUNNING`** (`CampaignDetails.tsx`): logs persistidos, relatório por contato e respostas inbound só eram sincronizados após a campanha concluir ou entrar em `WAITING_REPLY`. Em disparos grandes o relatório ficava incompleto durante o envio. Corrigido: polling a cada 30s durante `RUNNING` (12s nas outras fases).
+
+3. **Banner do fluxo por resposta estático** (`CampaignDetails.tsx`): o banner sempre exibia "etapa 1 enviada. Etapa 2 dispara ao receber resposta" mesmo em campanhas com 3+ etapas ou sem etapas adicionais. Agora exibe o total de etapas configuradas, quantas respostas já foram recebidas e quantas aguardam resposta.
+
+---
+
 ## [2.3.26] — 2026-08-28
 
 ### Fix: disparo por fluxo (replyFlow) bloqueado por guards de proteção

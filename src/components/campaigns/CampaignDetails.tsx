@@ -656,16 +656,18 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       (isRunning || isPaused ||
         (campaignLive.status === CampaignStatus.DRAFT && (campaignLive.processedCount ?? 0) > 0)));
 
-  /** Campanha concluída ou aguardando respostas: sincroniza logs persistidos com ACK/respostas tardias. */
+  /** Sincroniza logs persistidos em todas as fases ativas (RUNNING, WAITING_REPLY, DONE). */
   useEffect(() => {
-    if (!isDone && !isWaitingForReplies) return;
+    if (!isDone && !isWaitingForReplies && !isRunning) return;
+    // Durante RUNNING usa intervalo maior para não sobrecarregar; nas demais fases 12s.
+    const interval = isRunning && !isWaitingForReplies ? 30_000 : 12_000;
     const id = setInterval(() => {
       reloadPersistedLogs().catch(() => {});
       reloadServerReport().catch(() => {});
       reloadInboundReplies().catch(() => {});
-    }, 12_000);
+    }, interval);
     return () => clearInterval(id);
-  }, [isDone, isWaitingForReplies, reloadPersistedLogs, reloadServerReport, reloadInboundReplies]);
+  }, [isDone, isWaitingForReplies, isRunning, reloadPersistedLogs, reloadServerReport, reloadInboundReplies]);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -1989,23 +1991,46 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         </div>
       )}
 
-      {campaign.replyFlow?.enabled && (isRunning || isWaitingForReplies) && (campaign.replyFlow.steps?.length || 0) > 1 && (
-        <div
-          className="rounded-xl px-4 py-2.5 flex items-center gap-3"
-          style={{
-            background: 'rgba(245,158,11,0.08)',
-            border: '1px solid rgba(245,158,11,0.22)'
-          }}
-        >
-          <Reply className="w-4 h-4 shrink-0" style={{ color: '#d97706' }} />
-          <p className="text-[12.5px]" style={{ color: 'var(--text-2)' }}>
-            <strong style={{ color: 'var(--text-1)' }}>Fluxo ativo —</strong>{' '}
-            etapa 1 enviada. Etapa 2 dispara ao receber resposta
-            {campaign.replyFlow.steps?.[0]?.acceptAnyReply ? ' (qualquer mensagem)' : ' com palavra-chave'}.
-            Use <strong>Pausar</strong> para interromper.
-          </p>
-        </div>
-      )}
+      {campaign.replyFlow?.enabled && (isRunning || isWaitingForReplies) && (campaign.replyFlow.steps?.length || 0) >= 1 && (() => {
+        const totalSteps = campaign.replyFlow?.steps?.length ?? 1;
+        const repliesCount = Object.keys(serverInboundReplies).length;
+        const waitingReplies = isWaitingForReplies ? (campaignLive.successCount ?? 0) : 0;
+        const anyReply = campaign.replyFlow?.steps?.[0]?.acceptAnyReply;
+        return (
+          <div
+            className="rounded-xl px-4 py-3 flex items-start gap-3"
+            style={{
+              background: 'rgba(245,158,11,0.08)',
+              border: '1px solid rgba(245,158,11,0.22)'
+            }}
+          >
+            <Reply className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#d97706' }} />
+            <div className="flex-1 min-w-0">
+              <p className="text-[12.5px]" style={{ color: 'var(--text-2)' }}>
+                <strong style={{ color: 'var(--text-1)' }}>Fluxo por resposta ativo</strong>
+                {totalSteps > 1 && (
+                  <span style={{ color: 'var(--text-2)' }}> — {totalSteps} etapas configuradas</span>
+                )}
+              </p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                {isWaitingForReplies && waitingReplies > 0 && (
+                  <span className="text-[11.5px]" style={{ color: '#d97706' }}>
+                    ⏳ {waitingReplies} aguardando resposta
+                  </span>
+                )}
+                {repliesCount > 0 && (
+                  <span className="text-[11.5px]" style={{ color: '#10b981' }}>
+                    ✓ {repliesCount} {repliesCount === 1 ? 'resposta recebida' : 'respostas recebidas'}
+                  </span>
+                )}
+                <span className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
+                  Gatilho: {anyReply ? 'qualquer mensagem' : 'palavra-chave'}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ============================ JORNADA DA MENSAGEM ============================ */}
       <div>
