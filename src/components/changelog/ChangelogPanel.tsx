@@ -10,6 +10,18 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.22',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'Campanhas: disparos não enviavam — chips em RAM stale após restart do Evolution Go' },
+      { type: 'fix', text: 'filterActiveConnections: Evolution Go sempre faz probe HTTP (não confia em RAM)' },
+      { type: 'fix', text: 'goRouteAdapter: status connected/online/CONNECTED reconhecidos como open' },
+      { type: 'fix', text: 'goRouteAdapter: sendMedia traduz campos corretamente para Evolution Go' },
+      { type: 'fix', text: 'startCampaign: verifica saúde do Evolution Go antes de enfileirar — erro imediato' },
+      { type: 'fix', text: 'sendText: QUEUED/SENT/DELIVERED reconhecidos como sucesso no Evolution Go' },
+    ],
+  },
+  {
     version: '2.3.21',
     date: '28/08/2026',
     highlights: [
