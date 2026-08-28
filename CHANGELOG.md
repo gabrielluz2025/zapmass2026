@@ -11,6 +11,24 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.31] — 2026-08-28
+
+### Fix: bugs críticos no Pool de chips — disparos travados/saindo do pool
+
+**Varredura de 20 bugs no sistema de pool. Corrigidos os 5 mais críticos:**
+
+1. **BUG-03 — Circuit OPEN sem failover continuava enviando** (`evolutionService.ts`): quando um chip era isolado pelo circuit breaker e não havia alternativo no pool, o código **continuava** para o envio, gerando mais falhas e risco de ban no WhatsApp. **Corrigido:** aborta com delay de 5 minutos.
+
+2. **BUG-01 — Limite diário não usava o pool** (`evolutionService.ts`): ao atingir `dailyLimit`, buscava qualquer chip do tenant (fora do pool) ou adormecia até meia-noite. **Corrigido:** agora tenta primeiro redirecionar para outro chip do pool da campanha com cota disponível; só depois faz fallback genérico ou adia.
+
+3. **BUG-02 — Cap de tier não usava o pool** (`evolutionService.ts`): chip novo atingia o cap de ramp-up e adormecia até amanhã mesmo com chips maduros no pool. **Corrigido:** tenta redirecionar para chip do pool sem cap antes de adiar.
+
+4. **BUG-04 — `preferCurrent: true` no failover devolvia chip problemático** (`pickHealthyFailoverChannel`): em estado de RAM stale, o failover podia retornar o mesmo chip com circuit OPEN. **Corrigido:** `preferCurrent: false`.
+
+5. **BUG-13 — Redirect de limite ignorava `alternateChannelIds`** e saía do pool. **Corrigido:** pool da campanha é verificado primeiro.
+
+---
+
 ## [2.3.30] — 2026-08-28
 
 ### Fix: flood de 30+ req/s em /instance/all derrubando Evolution Go

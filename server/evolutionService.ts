@@ -5476,7 +5476,9 @@ async function pickHealthyFailoverChannel(
         currentId,
         alternateIds,
         rotationIndex,
-        preferCurrent: true,
+        // preferCurrent:false garante que o failover nunca devolve o chip problemático,
+        // mesmo que ele ainda passe na checagem de RAM (estado stale).
+        preferCurrent: false,
         isChannelUsable: isCampaignChannelUsable,
     });
 }
@@ -5832,6 +5834,30 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         if (tierConn && isTierDailyCapReached(tierConn.messagesSentToday || 0, tierProfile)) {
             checkAndResetDailyLimits(tierConn);
             if (isTierDailyCapReached(tierConn.messagesSentToday || 0, tierProfile)) {
+                // Tenta redirecionar para outro chip do pool com cota disponível antes de adiar.
+                const tierPoolId = await pickHealthyFailoverChannel(
+                    item.connectionId,
+                    item.alternateChannelIds,
+                    item.campaignId,
+                    item.rotationIndex
+                );
+                if (tierPoolId && tierPoolId !== item.connectionId) {
+                    const tierPoolConn = connections.get(tierPoolId);
+                    const tierPoolProfile = resolveChipTier(getConnectionConnectedSince(tierPoolId));
+                    if (tierPoolConn && !isTierDailyCapReached(tierPoolConn.messagesSentToday || 0, tierPoolProfile)) {
+                        emitCampaignLog(
+                            'WARN',
+                            `Chip ${item.connectionId} no cap do tier ${tierProfile.label} — alternando para ${tierPoolId} (pool da campanha).`,
+                            { campaignId: item.campaignId, connectionId: item.connectionId },
+                            campaignState?.ownerUid
+                        );
+                        item.connectionId = tierPoolId;
+                        item._tierDelayApplied = false;
+                        await job.updateData(item).catch(() => {});
+                        await job.moveToDelayed(Date.now() + 1000, token);
+                        throw new DelayedError();
+                    }
+                }
                 const nowBr = new Date(Date.now() - 3 * 3600_000);
                 const msBrMidnight =
                     (24 - nowBr.getUTCHours()) * 3600_000 -
@@ -5839,7 +5865,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                     nowBr.getUTCSeconds() * 1000;
                 emitCampaignLog(
                     'WARN',
-                    `Chip ${item.connectionId} atingiu cap diário do tier ${tierProfile.label} (${tierProfile.suggestedDailyCap}/dia). Reagendado para amanhã.`,
+                    `Chip ${item.connectionId} atingiu cap diário do tier ${tierProfile.label} (${tierProfile.suggestedDailyCap}/dia). Sem alternativo no pool — reagendado para amanhã.`,
                     { campaignId: item.campaignId, connectionId: item.connectionId, tier: tierProfile.tier },
                     campaignState?.ownerUid
                 );
@@ -5906,6 +5932,17 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             await job.updateData(item).catch(() => {});
             await job.moveToDelayed(Date.now() + 2000, token);
             throw new DelayedError();
+        } else {
+            // Chip com circuit OPEN e sem alternativo disponível — não enviar.
+            // Continuar causaria mais falhas e risco de ban no WhatsApp.
+            emitCampaignLog(
+                'WARN',
+                `Chip ${item.connectionId} isolado por circuit breaker e sem alternativo no pool — aguardando 5min`,
+                { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
+                campaignState?.ownerUid
+            );
+            await job.moveToDelayed(Date.now() + 5 * 60_000, token);
+            throw new DelayedError();
         }
     }
 
@@ -5935,8 +5972,38 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         if (dailyLimit > 0 && sentToday >= dailyLimit && !conn.limitExceededApproved) {
             log('info', `[Limits] Conexão ${item.connectionId} atingiu o limite diário de ${dailyLimit} mensagens.`);
 
+            // Tenta redirecionar para outro chip do POOL da campanha primeiro.
+            // Isso garante que o failover respeite os chips escolhidos pelo usuário para a campanha.
+            const poolFailoverId = await pickHealthyFailoverChannel(
+                item.connectionId,
+                item.alternateChannelIds,
+                item.campaignId,
+                item.rotationIndex
+            );
+            const poolAlt = poolFailoverId && poolFailoverId !== item.connectionId
+                ? connections.get(poolFailoverId)
+                : null;
+            if (poolAlt) {
+                checkAndResetDailyLimits(poolAlt);
+                const poolAltLimit = poolAlt.dailyLimit || 0;
+                const poolAltSent = poolAlt.messagesSentToday || 0;
+                if (poolAltLimit === 0 || poolAltSent < poolAltLimit) {
+                    emitCampaignLog(
+                        'WARN',
+                        `Limite diário atingido no canal ${conn.friendlyName || item.connectionId}. Redirecionando para ${poolAlt.friendlyName || poolFailoverId} (pool da campanha).`,
+                        { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
+                        campaignState?.ownerUid
+                    );
+                    item.connectionId = poolFailoverId!;
+                    await job.updateData(item).catch(() => {});
+                    await job.moveToDelayed(Date.now() + 2000, token);
+                    throw new DelayedError();
+                }
+            }
+
             if (conn.limitAction === 'redirect') {
                 const owner = resolveOwnerUid(item.connectionId);
+                // Fallback: busca qualquer chip do tenant com cota (fora do pool)
                 const altConn = Array.from(connections.values()).find((c) => {
                     if (c.instanceName === item.connectionId) return false;
                     if (c.status !== 'open') return false;
