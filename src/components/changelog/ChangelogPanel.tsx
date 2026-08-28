@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.34',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'isConnectionOpen: erros 4xx/rede agora cacheados — chip inválido não gera flood de requests' },
+      { type: 'fix', text: 'fetchConnectQr: polling aborta ao receber 400 (chip deletado) — sem mais loop de 2s infinito' },
+    ],
+  },
+  {
     version: '2.3.33',
     date: '28/08/2026',
     highlights: [

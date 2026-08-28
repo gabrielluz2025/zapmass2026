@@ -11,6 +11,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.34] — 2026-08-28
+
+### Fix: polling de QR e probe de estado não paravam em erro 400 (chip inválido)
+
+- `isConnectionOpen`: captura exceções de rede/4xx e cacheia o resultado como `false` por 30s — sem isso, chip deletado causava flood de requisições ao Evolution Go (sem cache de falha)
+- `fetchConnectQr`: ao receber 400 do Evolution Go para `GET /instance/connect/{id}`, o polling é abortado imediatamente — sem isso, o poll continuava indefinidamente repetindo a chamada a cada 2s
+
+---
+
 ## [2.3.33] — 2026-08-28
 
 ### Fix: Pool não fazia rodízio ao retomar campanha — tudo indo para um só chip

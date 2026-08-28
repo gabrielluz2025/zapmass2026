@@ -1249,8 +1249,16 @@ async function isConnectionOpen(instanceName: string): Promise<boolean> {
     }
 
     const mem = connections.get(instanceName);
-    const apiState = (await getConnectionState(instanceName, { skipCache: true, timeoutMs: CONNECTION_STATE_PROBE_TIMEOUT_MS }))
-        .toLowerCase();
+    let apiState: string;
+    try {
+        apiState = (await getConnectionState(instanceName, { skipCache: true, timeoutMs: CONNECTION_STATE_PROBE_TIMEOUT_MS }))
+            .toLowerCase();
+    } catch (err: unknown) {
+        // Falha de rede ou 4xx: chip provavelmente inexistente/inválido.
+        // Cacheamos como false por 30s para evitar flood de requisições repetidas.
+        lastConnectionStateCheck.set(instanceName, { state: false, at: now - 15_000 + 30_000 });
+        return false;
+    }
     
     const isOpen = isEvolutionOpenState(apiState);
     lastConnectionStateCheck.set(instanceName, { state: isOpen, at: now });
@@ -2057,6 +2065,12 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
                     publishOwnerEvent(ownerUid, 'socket-operation-error', { op: 'force-qr', error: msg });
                 }
                 log('warn', `connect/${instanceName} — licença Go inativa`, { msg });
+                return null;
+            }
+            // 400 = instância não existe/inválida no Evolution Go — parar polling imediatamente.
+            // Sem este guard, o polling repete a cada 2s indefinidamente gerando flood.
+            if (error?.response?.status === 400) {
+                log('warn', `GET connect/${instanceName} retornou 400 (instância inválida) — abortando polling`, {});
                 return null;
             }
             log('warn', `GET connect/${instanceName} falhou`, {
