@@ -27,7 +27,9 @@ import {
     evolutionGoLicenseUserMessage,
     isEvolutionGoLicenseError,
     isEvolutionGoNetworkError,
+    probeEvolutionGoLicenseActive,
     EVOLUTION_GO_UNREACHABLE_HINT,
+    EVOLUTION_GO_LICENSE_HINT,
 } from './evolutionGoLicense.js';
 import { attachEvolutionAxiosRetry } from './evolutionAxiosRetry.js';
 import { notifyTenant } from './tenantNotifyService.js';
@@ -4405,7 +4407,10 @@ function ensureNurtureEnqueue() {
 async function filterActiveConnections(connectionIds: string[]): Promise<string[]> {
     const active: string[] = [];
     for (const connId of connectionIds) {
-        if (connections.get(connId)?.status === 'open') {
+        // Evolution Go: sempre probar HTTP — RAM pode estar desatualizada após restart do container
+        // Evolution API: aceitar RAM 'open' para evitar latência
+        const openByRam = !isEvolutionGoEngine() && connections.get(connId)?.status === 'open';
+        if (openByRam) {
             active.push(connId);
             continue;
         }
@@ -4637,7 +4642,8 @@ export async function getConnectionState(
     options?: { timeoutMs?: number; skipCache?: boolean; maxCacheAgeMs?: number }
 ): Promise<string> {
     const mem = connections.get(instanceName);
-    if (mem?.status === 'open') return 'open';
+    // skipCache=true deve bypassar também a RAM — garante probe HTTP real no Evolution Go
+    if (mem?.status === 'open' && !options?.skipCache) return 'open';
 
     if (!options?.skipCache) {
         const cached = readCachedConnectionState(instanceName, options?.maxCacheAgeMs);
@@ -5164,12 +5170,14 @@ async function attemptEvolutionSendText(
         const messageId = responseData?.key?.id || responseData?.key?._serialized;
 
         if (responseData?.key) {
-            log('info', `✅ Mensagem aceita pela Evolution API`, {
+            // Aceita key.id='go-queued' (sentinel que o goRouteAdapter coloca quando Go confirma sem id)
+            const isGoQueued = messageId === 'go-queued';
+            log('info', `✅ Mensagem aceita pela Evolution API${isGoQueued ? ' (Evolution Go queued)' : ''}`, {
                 toNormalized: number,
-                messageId,
+                messageId: isGoQueued ? undefined : messageId,
                 status: responseData?.status,
             });
-            return { ok: true, messageId: messageId ? String(messageId) : undefined };
+            return { ok: true, messageId: (messageId && messageId !== 'go-queued') ? String(messageId) : undefined };
         }
 
         if (responseData?.message === 'Message Sent' || responseData?.id) {
@@ -5183,11 +5191,12 @@ async function attemptEvolutionSendText(
             return { ok: true, messageId: String(responseData.messageId) };
         }
 
-        const statusOk = typeof responseData?.status === 'string' &&
-            ['PENDING', 'SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'sent', 'delivered'].includes(responseData.status);
+        const statusStr = String(responseData?.status || '').toUpperCase();
+        const statusOk = ['PENDING', 'QUEUED', 'SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'SENT', 'DELIVERED']
+            .includes(statusStr);
         if (statusOk) {
-            log('info', `✅ Mensagem aceita (Evolution — status ${responseData.status})`, { toNormalized: number });
-            return { ok: true, isPending: responseData.status === 'PENDING' };
+            log('info', `✅ Mensagem aceita (status ${statusStr})`, { toNormalized: number });
+            return { ok: true, isPending: statusStr === 'PENDING' || statusStr === 'QUEUED' };
         }
 
         const isExplicitError =
@@ -7136,6 +7145,23 @@ export async function startCampaign(
         emitCampaignLog('ERROR', redisErr, { campaignId: cid }, ownerUid);
         log('error', 'startCampaign abortado: Redis não respondeu ao ping', { campaignId: cid });
         throw new Error(redisErr);
+    }
+
+    // Verificar saúde do Evolution Go antes de iniciar disparo
+    if (isEvolutionGoEngine()) {
+        const lic = await probeEvolutionGoLicenseActive();
+        if (lic.unreachable) {
+            const goErr = EVOLUTION_GO_UNREACHABLE_HINT;
+            emitCampaignLog('ERROR', goErr, { campaignId: cid }, ownerUid);
+            log('error', 'startCampaign abortado: Evolution Go inacessível', { campaignId: cid });
+            throw new Error(goErr);
+        }
+        if (!lic.active) {
+            const goErr = EVOLUTION_GO_LICENSE_HINT;
+            emitCampaignLog('ERROR', goErr, { campaignId: cid }, ownerUid);
+            log('error', 'startCampaign abortado: Evolution Go sem licença', { campaignId: cid });
+            throw new Error(goErr);
+        }
     }
 
     if (useReplyFlow) {

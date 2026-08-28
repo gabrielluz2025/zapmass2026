@@ -11,6 +11,22 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.22] — 2026-08-28
+
+### Fix crítico: disparos de campanhas não enviavam mensagens (Evolution Go)
+
+**Root causes corrigidos:**
+
+- **`getConnectionState`**: `skipCache:true` agora bypassa também a RAM — evitava probe HTTP real no Evolution Go
+- **`filterActiveConnections`**: no Evolution Go sempre faz probe HTTP antes de aprovar um chip para campanha (RAM era stale após restart do container)
+- **`goRouteAdapter` — status**: aceita `connected/CONNECTED/online/available` além de `open` — whatsmeow pode reportar estado em formatos diferentes
+- **`goRouteAdapter` — sendMedia**: traduz campos Evolution API v2 → Evolution Go (`mediaType`, `mimeType`, `url`/`base64`)
+- **`goRouteAdapter` — sendText response**: detecta `QUEUED/SENT` além de `PENDING` como sucesso; usa sentinel `go-queued` quando Go não retorna id
+- **`attemptEvolutionSendText`**: aceita `QUEUED/SENT/DELIVERED` como status de sucesso
+- **`startCampaign`**: verifica saúde do Evolution Go (licença + rede) antes de enfileirar jobs — erro mostrado imediatamente ao invés de jobs falhando silenciosamente
+
+---
+
 ## [2.3.21] — 2026-08-28
 
 ### Fix: deploy VPS travado em commit antigo + .env syntax error

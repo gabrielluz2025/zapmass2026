@@ -180,7 +180,27 @@ export function adaptEvolutionApiRequestToGo(
     }
 
     if (url.includes('/message/sendMedia/')) {
-        return { url: '/send/media', data, headers: instH };
+        // Traduz campos Evolution API v2 → Evolution Go
+        const body = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+        const mediaUrl = body.media || body.url || body.mediaUrl;
+        const base64 = body.base64 || body.mediaBase64;
+        const goMedia: Record<string, unknown> = {
+            number: body.number,
+            caption: body.caption ?? '',
+            // Evolution Go aceita mediaType (camelCase) OU mediatype (lowercase)
+            mediaType: body.mediatype || body.mediaType || 'image',
+            mimeType: body.mimetype || body.mimeType || 'application/octet-stream',
+            fileName: body.fileName || body.filename || '',
+        };
+        if (typeof mediaUrl === 'string' && mediaUrl.startsWith('http')) {
+            goMedia.url = mediaUrl;
+        } else if (typeof base64 === 'string' && base64.length > 0) {
+            goMedia.base64 = base64;
+        } else if (typeof mediaUrl === 'string' && mediaUrl.length > 0) {
+            // Pode ser base64 direto no campo media
+            goMedia.base64 = mediaUrl;
+        }
+        return { url: '/send/media', data: goMedia, headers: instH };
     }
 
     if (url.includes('/chat/sendPresence/')) {
@@ -307,20 +327,31 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
     if (path.includes('/instance/all')) {
         const wrapped = data as { data?: unknown[] };
         const list = Array.isArray(wrapped?.data) ? wrapped.data : Array.isArray(data) ? data : [];
-        return list.map((row: Record<string, unknown>) => ({
-            name: row.name || row.instanceName,
-            instanceName: row.name || row.instanceName,
-            id: row.id,
-            token: row.token,
-            jid: row.jid,
-            connected: row.connected,
-            connectionStatus: row.connected ? 'open' : 'close',
-            instance: {
+        return list.map((row: Record<string, unknown>) => {
+            const rowStateStr = String(row.state || row.status || row.connectionStatus || '').toLowerCase().trim();
+            const rowConnected =
+                row.connected === true ||
+                String(row.connected).toLowerCase() === 'true' ||
+                rowStateStr === 'open' ||
+                rowStateStr === 'connected' ||
+                rowStateStr === 'online' ||
+                rowStateStr === 'available';
+            const rowState = rowConnected ? 'open' : 'close';
+            return {
+                name: row.name || row.instanceName,
                 instanceName: row.name || row.instanceName,
-                owner: row.owner || row.jid,
-                status: row.connected ? 'open' : 'close',
-            },
-        }));
+                id: row.id,
+                token: row.token,
+                jid: row.jid,
+                connected: rowConnected,
+                connectionStatus: rowState,
+                instance: {
+                    instanceName: row.name || row.instanceName,
+                    owner: row.owner || row.jid,
+                    status: rowState,
+                },
+            };
+        });
     }
 
     if (path.includes('/instance/create')) {
@@ -350,7 +381,15 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
     if (path.includes('/instance/status')) {
         const wrapped = data as { data?: Record<string, unknown> };
         const st = wrapped?.data || (data as Record<string, unknown>);
-        const connected = st?.connected === true || st?.state === 'open' || st?.status === 'open';
+        // Aceita todas as variações de estado "conectado" do Evolution Go / whatsmeow
+        const stateStr = String(st?.state || st?.status || st?.connectionStatus || '').toLowerCase().trim();
+        const connected =
+            st?.connected === true ||
+            String(st?.connected).toLowerCase() === 'true' ||
+            stateStr === 'open' ||
+            stateStr === 'connected' ||
+            stateStr === 'online' ||
+            stateStr === 'available';
         const state = connected ? 'open' : 'close';
         return {
             state,
@@ -400,10 +439,15 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
     if (path.includes('/send/text') || path.includes('/send/media')) {
         const wrapped = data as { data?: Record<string, unknown> };
         const inner = wrapped?.data || (data as Record<string, unknown>);
+        const msgId = inner?.id || inner?.messageId || inner?.ID || inner?.message_id;
+        // Se Go respondeu sem id mas com status OK-like, ainda consideramos sucesso
+        const statusStr = String(inner?.status || inner?.Status || '').toUpperCase();
+        const statusOk = statusStr === 'PENDING' || statusStr === 'QUEUED' || statusStr === 'SENT' ||
+            statusStr === 'SERVER_ACK' || statusStr === 'DELIVERY_ACK' || statusStr === 'READ';
         return {
-            key: { id: inner?.id || inner?.messageId },
-            messageId: inner?.id || inner?.messageId,
-            status: inner?.status || 'PENDING',
+            key: { id: msgId || (statusOk ? 'go-queued' : undefined) },
+            messageId: msgId || undefined,
+            status: statusStr || 'PENDING',
         };
     }
 
