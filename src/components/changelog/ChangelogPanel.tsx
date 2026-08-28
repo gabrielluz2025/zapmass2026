@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.25',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'addCampaignLog: captura FK violation (23503) em vez de crashar o processo Node.js' },
+      { type: 'fix', text: 'Produção: Evolution Go ENOTFOUND — reiniciar container resolve disparos' },
+    ],
+  },
+  {
     version: '2.3.24',
     date: '28/08/2026',
     highlights: [

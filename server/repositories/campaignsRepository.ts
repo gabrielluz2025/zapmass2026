@@ -171,11 +171,20 @@ export async function addCampaignLog(
 ): Promise<void> {
   const pool = getZapmassPool();
   if (!pool) return;
-  await pool.query(
-    `INSERT INTO zapmass.campaign_logs (campaign_id, tenant_id, level, message, payload)
-     VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb)`,
-    [campaignId, tenantId, level.toUpperCase(), message.slice(0, 4000), JSON.stringify(payload)]
-  );
+  try {
+    await pool.query(
+      `INSERT INTO zapmass.campaign_logs (campaign_id, tenant_id, level, message, payload)
+       VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb)`,
+      [campaignId, tenantId, level.toUpperCase(), message.slice(0, 4000), JSON.stringify(payload)]
+    );
+  } catch (err: unknown) {
+    const pg = err as { code?: string };
+    if (pg?.code === '23503') {
+      console.warn(`[CampaignLog] FK violation ignorada — campanha ${campaignId} não encontrada no banco.`);
+      return;
+    }
+    throw err;
+  }
 }
 
 export type CampaignLogRow = {
