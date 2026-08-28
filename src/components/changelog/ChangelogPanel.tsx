@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.26',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'Fluxo por resposta: replyFlowResponse agora ignora chip protection, sleep mode, tier cap e limite diário' },
+      { type: 'fix', text: 'Contato que responde à noite recebia próxima etapa somente às 8h — corrigido' },
+      { type: 'fix', text: 'Campanha manualmente pausada não bloqueava mais as respostas automáticas de fluxo' },
+      { type: 'fix', text: 'Homolog: container force-recreate após falha de ID stale no docker compose up' },
+    ],
+  },
+  {
     version: '2.3.25',
     date: '28/08/2026',
     highlights: [

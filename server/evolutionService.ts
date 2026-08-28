@@ -5689,7 +5689,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
     const campaignStateEarly = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
 
-    if (item.campaignId && campaignStateEarly?.ownerUid && campaignStateEarly.isRunning) {
+    // replyFlowResponse = resposta a mensagem recebida do contato — não bloquear por chip protection
+    // nem por pause manual, pois deixar o contato sem resposta quebra o fluxo.
+    if (!item.replyFlowResponse && item.campaignId && campaignStateEarly?.ownerUid && campaignStateEarly.isRunning) {
         const guard = await runCampaignDispatchGuard(item, campaignStateEarly);
         if (guard?.action === 'pause') {
             await job.moveToDelayed(Date.now() + 3000, token);
@@ -5701,7 +5703,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
     }
 
-    if (item.campaignId && pausedCampaigns.has(item.campaignId)) {
+    if (!item.replyFlowResponse && item.campaignId && pausedCampaigns.has(item.campaignId)) {
         await job.moveToDelayed(Date.now() + 3000, token);
         throw new DelayedError();
     }
@@ -5788,7 +5790,8 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const dispatchSettings = getTenantDispatchSettings(campaignState?.ownerUid);
 
     // Trust score: chips novos recebem delay extra antes do envio (ramp-up).
-    if (!item.nurtureFollowUp && !item._tierDelayApplied) {
+    // replyFlowResponse é resposta imediata a contato que já respondeu — não atrasar.
+    if (!item.nurtureFollowUp && !item.replyFlowResponse && !item._tierDelayApplied) {
         const tierProfile = resolveChipTier(getConnectionConnectedSince(item.connectionId));
         const tierConn = connections.get(item.connectionId);
         if (tierConn && isTierDailyCapReached(tierConn.messagesSentToday || 0, tierProfile)) {
@@ -5820,7 +5823,8 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
     }
 
-    if (dispatchSettings.sleepMode && isBrazilNightHour() && !hasSleepModeOverride(item.campaignId)) {
+    // replyFlowResponse: contato já respondeu — enviar imediatamente independente do horário.
+    if (!item.replyFlowResponse && dispatchSettings.sleepMode && isBrazilNightHour() && !hasSleepModeOverride(item.campaignId)) {
         const ownerUid = campaignState?.ownerUid;
         if (item.campaignId && ownerUid && markSleepModeNotified(item.campaignId)) {
             publishOwnerEvent(ownerUid, 'campaign-sleep-mode-pause', {
@@ -5887,7 +5891,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     const conn = connections.get(item.connectionId);
-    if (conn && !item.nurtureFollowUp) {
+    if (conn && !item.nurtureFollowUp && !item.replyFlowResponse) {
         checkAndResetDailyLimits(conn);
 
         const dailyLimit = conn.dailyLimit || 0;
