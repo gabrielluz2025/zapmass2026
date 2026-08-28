@@ -1,0 +1,16 @@
+---
+description: Bump de versão obrigatório a cada release no ZapMass
+alwaysApply: true
+---
+
+# Versionamento obrigatório a cada release
+
+**A cada commit que vai para produção (main) OU para homologação (develop):**
+
+1. Incrementar `APP_VERSION` em `src/config/appVersion.ts` (patch: 2.3.X → 2.3.X+1).
+2. Atualizar `PROD_VERSION` quando o merge for para `main`.
+3. Adicionar entrada no topo de `CHANGELOG.md` com data, versão e lista de mudanças.
+4. Adicionar a mesma entrada no array `CHANGELOG` de `src/components/changelog/ChangelogPanel.tsx`.
+5. Atualizar o arquivo `VERSION` (raiz do repo) com o novo número.
+
+Nunca deixar o usuário pedir "bumpa a versão" — faça automaticamente ao finalizar qualquer tarefa.
