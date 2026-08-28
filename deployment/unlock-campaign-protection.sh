@@ -6,7 +6,9 @@ set -euo pipefail
 cd /opt/zapmass 2>/dev/null || { echo "Erro: /opt/zapmass não encontrado."; exit 1; }
 
 echo "==> Liberando chipProtectionLockUntil e reconnect_storm no banco..."
-docker compose exec -T postgres psql -U zapmass -d zapmass -c "
+PG_USER="postgres"
+PG_DB="zapmass_db"
+docker compose exec -T postgres psql -U "$PG_USER" -d "$PG_DB" -c "
   UPDATE zapmass.tenant_dispatch_settings
      SET doc = jsonb_set(
            jsonb_set(doc, '{chipProtectionLockUntil}', '\"\"', true),
@@ -18,8 +20,7 @@ docker compose exec -T postgres psql -U zapmass -d zapmass -c "
          doc->>'chipProtectionLockUntil' AS lock_until,
          doc->>'chipProtectionLockReason' AS lock_reason
     FROM zapmass.tenant_dispatch_settings
-   WHERE doc ? 'chipProtectionLockUntil'
-   LIMIT 20;
+   LIMIT 10;
 "
 
 echo ""
