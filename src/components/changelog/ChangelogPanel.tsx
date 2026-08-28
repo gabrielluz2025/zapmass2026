@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.27',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'Acompanhamento: status WAITING_REPLY não é mais sobrescrito por eventos tardios de progresso' },
+      { type: 'fix', text: 'Acompanhamento: logs e relatório agora sincronizam a cada 30s durante o disparo ativo' },
+      { type: 'fix', text: 'Banner fluxo por resposta: exibe total de etapas, respostas recebidas e aguardando' },
+    ],
+  },
+  {
     version: '2.3.26',
     date: '28/08/2026',
     highlights: [

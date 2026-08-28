@@ -2199,7 +2199,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               processedCount: d.processedCount,
               successCount: d.successCount,
               failedCount: d.failedCount,
-              status: CampaignStatus.RUNNING
+              // Não sobrescrever WAITING_REPLY com RUNNING — campanha de fluxo
+              // pode estar aguardando respostas enquanto ainda chegam progresso tardios.
+              status: c.status === CampaignStatus.WAITING_REPLY
+                ? CampaignStatus.WAITING_REPLY
+                : CampaignStatus.RUNNING
             };
           });
           const u = currentUidRef.current;
