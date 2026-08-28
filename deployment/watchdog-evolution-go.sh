@@ -39,6 +39,18 @@ check_and_fix() {
     # Garante política restart=always sem recriar
     docker update --restart=always "$container" >/dev/null 2>&1 || true
 
+    # Respeitar período de inicialização: Evolution Go leva até 90s para subir completamente.
+    # Não reiniciar containers que acabaram de iniciar — evita loop de restarts.
+    local started_at uptime_sec
+    started_at="$(docker inspect --format '{{.State.StartedAt}}' "$container" 2>/dev/null || echo '')"
+    if [ -n "$started_at" ]; then
+      uptime_sec=$(( $(date +%s) - $(date -d "$started_at" +%s 2>/dev/null || echo "$(date +%s)") ))
+      if [ "${uptime_sec:-0}" -lt 90 ]; then
+        _log "SKIP $container — iniciando há ${uptime_sec}s (aguarda 90s antes de reiniciar)"
+        return 0
+      fi
+    fi
+
     # Probe HTTP rápido
     local http_ok=0
     if curl -sf --max-time 5 "http://127.0.0.1:${port}/" >/dev/null 2>&1; then
@@ -52,7 +64,7 @@ check_and_fix() {
       return 0
     fi
 
-    _log "WARN $container está rodando mas não responde na porta $port — restart"
+    _log "WARN $container está rodando há ${uptime_sec:-?}s mas não responde na porta $port — restart"
     docker restart "$container" >/dev/null 2>&1 || true
     sleep 10
     return 0

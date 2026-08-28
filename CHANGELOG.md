@@ -11,6 +11,19 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.30] — 2026-08-28
+
+### Fix: flood de 30+ req/s em /instance/all derrubando Evolution Go
+
+**Root cause confirmado nos logs:** 30 requisições `GET /instance/all` no mesmo segundo — todos os chips verificando status simultaneamente sem compartilhar o resultado, causando carga explosiva no Evolution Go logo após o restart.
+
+**Correções:**
+- `probeGoConnectionStateFromInstanceList`: adicionado cache compartilhado de 5s com deduplicação de request em-voo (`_instanceListInflight`). N chips verificando status no mesmo segundo fazem **1 único HTTP** para `/instance/all` e compartilham o resultado.
+- `filterActiveConnections`: stagger de 50ms entre probes de chips no Evolution Go evita bursts simultâneos.
+- `watchdog-evolution-go.sh`: adicionado check de uptime — não reinicia containers que iniciaram há menos de 90s, prevenindo loop de restarts durante o período de inicialização.
+
+---
+
 ## [2.3.29] — 2026-08-28
 
 ### Fix: causa raiz do crash recorrente do Evolution Go (produção + homologação)
