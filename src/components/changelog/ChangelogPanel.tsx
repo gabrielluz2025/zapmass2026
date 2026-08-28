@@ -10,6 +10,17 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.31',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'Pool: chip com circuit OPEN sem alternativo não envia mais — aborta com delay 5min (evita ban)' },
+      { type: 'fix', text: 'Pool: limite diário agora redistribui para outro chip do pool antes de adiar até meia-noite' },
+      { type: 'fix', text: 'Pool: cap de tier ramp-up agora redistribui para chip maduro do pool antes de adiar' },
+      { type: 'fix', text: 'Pool: failover com preferCurrent:false — nunca devolve o chip problemático' },
+      { type: 'fix', text: 'Pool: redirect de limite respeita alternateChannelIds (chips do pool da campanha)' },
+    ],
+  },
+  {
     version: '2.3.30',
     date: '28/08/2026',
     highlights: [
