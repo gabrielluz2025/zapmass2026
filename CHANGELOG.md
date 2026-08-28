@@ -11,6 +11,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.19] — 2026-08-28
+
+### Regra de versionamento automático
+
+- **Regra permanente criada**: bump de versão + changelog obrigatório em todo release (homolog e produção)
+- Arquivo `VERSION` na raiz do projeto atualizado junto com cada release
+- Regra salva em `.cursor/rules/versioning.mdc` para garantir aplicação automática
+
+---
+
 ## [2.3.18] — 2026-08-27
 
 ### Chat redesenhado — layout idêntico ao WhatsApp Desktop

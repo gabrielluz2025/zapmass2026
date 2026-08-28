@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.19',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'feat', text: 'Regra permanente: bump de versão + changelog automático em todo release' },
+      { type: 'feat', text: 'Arquivo VERSION na raiz do projeto atualizado junto com cada release' },
+      { type: 'feat', text: 'Regra salva em .cursor/rules para garantir versionamento sempre aplicado' },
+    ],
+  },
+  {
     version: '2.3.18',
     date: '27/08/2026',
     highlights: [
