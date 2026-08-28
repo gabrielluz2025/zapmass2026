@@ -4,6 +4,18 @@ import { evolutionEngineConfig, isEvolutionGoEngine } from './evolutionEngineCon
 export const EVOLUTION_GO_LICENSE_HINT =
     'Evolution Go exige licença Foundation ativa. Na VPS: abra http://127.0.0.1:8081/manager (túnel SSH), faça login e conclua a ativação. Depois use Forçar QR novamente.';
 
+export const EVOLUTION_GO_UNREACHABLE_HINT =
+    'Motor WhatsApp (Evolution Go) está fora do ar. Na VPS execute: docker compose restart evolution-go && docker compose ps';
+
+/** Erros de rede — container offline ou DNS falhou (ENOTFOUND/ECONNREFUSED). */
+export function isEvolutionGoNetworkError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const ax = error as { code?: string; message?: string; response?: unknown };
+    if (ax?.response) return false; // Chegou resposta HTTP → não é erro de rede
+    const blob = `${ax?.code || ''} ${ax?.message || ''}`;
+    return /ENOTFOUND|ECONNREFUSED|EAI_AGAIN|getaddrinfo|socket hang up|ETIMEDOUT|ECONNABORTED/i.test(blob);
+}
+
 /** Resposta 503 / LICENSE_REQUIRED ou mensagem contendo "license". */
 export function isEvolutionGoLicenseError(error: unknown): boolean {
     if (!error || typeof error !== 'object') return false;
@@ -24,6 +36,10 @@ export function isEvolutionGoLicenseError(error: unknown): boolean {
 
 export function evolutionGoLicenseUserMessage(error?: unknown): string {
     if (error && typeof error === 'object') {
+        // Erro de rede (container offline) — mensagem diferente
+        if (isEvolutionGoNetworkError(error)) {
+            return EVOLUTION_GO_UNREACHABLE_HINT;
+        }
         const data = (error as { response?: { data?: unknown } }).response?.data;
         if (data && typeof data === 'object') {
             const d = data as Record<string, unknown>;
@@ -38,6 +54,7 @@ export function evolutionGoLicenseUserMessage(error?: unknown): string {
 
 export async function probeEvolutionGoLicenseActive(): Promise<{
     active: boolean;
+    unreachable?: boolean;
     registerUrl?: string;
     raw?: unknown;
 }> {
@@ -68,7 +85,11 @@ export async function probeEvolutionGoLicenseActive(): Promise<{
             return { active: false, registerUrl, raw: data };
         }
         return { active: Boolean(active), registerUrl, raw: data };
-    } catch {
+    } catch (e: unknown) {
+        // Distingue erro de rede (container offline) de licença inválida
+        if (isEvolutionGoNetworkError(e)) {
+            return { active: false, unreachable: true };
+        }
         return { active: false };
     }
 }
@@ -76,11 +97,14 @@ export async function probeEvolutionGoLicenseActive(): Promise<{
 export async function assertEvolutionGoLicensed(operation: string): Promise<void> {
     if (!isEvolutionGoEngine()) return;
     const lic = await probeEvolutionGoLicenseActive();
+    if (lic.unreachable) {
+        throw new Error(
+            `${EVOLUTION_GO_UNREACHABLE_HINT} (${operation})`
+        );
+    }
     if (!lic.active) {
         throw new Error(
-            lic.registerUrl
-                ? `${EVOLUTION_GO_LICENSE_HINT} (${operation})`
-                : `${EVOLUTION_GO_LICENSE_HINT} (${operation})`
+            `${EVOLUTION_GO_LICENSE_HINT} (${operation})`
         );
     }
 }

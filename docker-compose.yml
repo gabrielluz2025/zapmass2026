@@ -118,10 +118,11 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      evolution-go:
-        condition: service_started
       postgres:
         condition: service_started
+      evolution-go:
+        condition: service_started
+        required: false
 
   evolution:
     profiles: ["evolution-api"]
@@ -215,7 +216,7 @@ services:
   evolution-go:
     container_name: zapmass-evolution-go
     image: ${EVOLUTION_GO_IMAGE:-evoapicloud/evolution-go:latest}
-    restart: unless-stopped
+    restart: always
     logging:
       driver: json-file
       options:
@@ -233,8 +234,15 @@ services:
       - WEBHOOK_URL=${ZAPMASS_WEBHOOK_URL:-http://zapmass:3001/webhook/evolution}
       - WADEBUG=${EVOLUTION_GO_WADEBUG:-INFO}
       - LOGTYPE=console
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null 2>&1 || curl -sf http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     depends_on:
-      - postgres
+      postgres:
+        condition: service_started
 
   postgres:
     image: postgres:15-alpine

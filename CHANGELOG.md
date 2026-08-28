@@ -11,6 +11,21 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.20] — 2026-08-28
+
+### Fix crítico: Evolution Go ENOTFOUND + licença — produção e homologação
+
+- **Root cause corrigido**: `probeEvolutionGoLicenseActive` não distinguia container offline (ENOTFOUND) de licença inválida — agora retorna `unreachable: true` para erros de rede
+- **Mensagem de erro correta**: container offline mostra "Motor WhatsApp fora do ar, execute docker compose restart" em vez de "licença inativa"
+- **Docker Compose**: `restart: always` (era `unless-stopped`) + `healthcheck` adicionado ao `evolution-go` e `evolution-go-homolog`
+- **depends_on** do zapmass: evolution-go marcado como `required: false` — ZapMass sobe mesmo com Evolution Go fora
+- **createConnectionInternal**: erro de rede → mensagem amigável em vez de ENOTFOUND cru
+- **Script novo**: `deployment/fix-evolution-go-vps.sh` — diagnóstico e recuperação automática na VPS
+- **isEvolutionGoNetworkError**: nova função para detectar ENOTFOUND/ECONNREFUSED/EAI_AGAIN
+- **EVOLUTION_GO_UNREACHABLE_HINT**: nova constante com instrução de recuperação
+
+---
+
 ## [2.3.19] — 2026-08-28
 
 ### Regra de versionamento automático
