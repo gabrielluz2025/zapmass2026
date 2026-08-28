@@ -10,6 +10,17 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.23',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'Proteção reconnect_storm: botão "Liberar proteção agora" agora visível para qualquer lock' },
+      { type: 'fix', text: 'ChipCircuitBreaker: novos métodos resetChip/resetMany para limpar Redis após instabilidade' },
+      { type: 'feat', text: 'Novo endpoint POST /api/chip-protection/reset-circuit para zerar CB via API' },
+      { type: 'feat', text: 'Botão "Resetar circuit breaker" na UI quando chips estão com estado OPEN' },
+      { type: 'feat', text: 'Script deployment/unlock-campaign-protection.sh para emergência sem deploy' },
+    ],
+  },
+  {
     version: '2.3.22',
     date: '28/08/2026',
     highlights: [

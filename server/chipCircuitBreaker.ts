@@ -141,6 +141,20 @@ export class ChipCircuitBreaker {
     if (score.state === 'HALF_OPEN') return 1.6;
     return 1;
   }
+
+  /** Remove todos os contadores Redis do circuit breaker para um chip. */
+  async resetChip(chipId: string): Promise<void> {
+    const redis = getSharedRedis();
+    const id = String(chipId || '').trim();
+    if (!redis || !id) return;
+    const keys = this.keys(id);
+    await redis.del(...keys);
+  }
+
+  /** Remove todos os contadores Redis de uma lista de chips. */
+  async resetMany(chipIds: string[]): Promise<void> {
+    for (const id of chipIds) await this.resetChip(id);
+  }
 }
 
 let defaultBreaker: ChipCircuitBreaker | null = null;
