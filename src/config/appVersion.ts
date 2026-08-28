@@ -1,5 +1,5 @@
 /** Versão semântica atual do ZapMass (atualizar a cada release). */
-export const APP_VERSION = '2.3.23';
+export const APP_VERSION = '2.3.24';
 
 /** Última versão que foi para produção (main). Atualizar ao fazer merge. */
 export const PROD_VERSION = '2.3.22';
