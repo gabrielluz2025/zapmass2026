@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.32',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'perf', text: 'Debounce 2s no hydrateInstances — browser com chip offline não gera mais flood 4×/s no Evolution Go' },
+      { type: 'fix', text: 'ensureGoInstanceWebhook: debounce 30s por chip — sem re-registro desnecessário em reconexões rápidas de Socket.IO' },
+    ],
+  },
+  {
     version: '2.3.31',
     date: '28/08/2026',
     highlights: [
