@@ -10,6 +10,17 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.20',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'ENOTFOUND evolution-go: container offline não mostra mais "licença inativa"' },
+      { type: 'fix', text: 'Docker: restart:always + healthcheck em evolution-go e evolution-go-homolog' },
+      { type: 'fix', text: 'ZapMass sobe mesmo com Evolution Go offline (depends_on required:false)' },
+      { type: 'fix', text: 'createConnection: erro de rede mostra mensagem amigável ao usuário' },
+      { type: 'feat', text: 'Script fix-evolution-go-vps.sh: diagnóstico e recuperação automática na VPS' },
+    ],
+  },
+  {
     version: '2.3.19',
     date: '28/08/2026',
     highlights: [

@@ -26,6 +26,8 @@ import {
     assertEvolutionGoLicensed,
     evolutionGoLicenseUserMessage,
     isEvolutionGoLicenseError,
+    isEvolutionGoNetworkError,
+    EVOLUTION_GO_UNREACHABLE_HINT,
 } from './evolutionGoLicense.js';
 import { attachEvolutionAxiosRetry } from './evolutionAxiosRetry.js';
 import { notifyTenant } from './tenantNotifyService.js';
@@ -1999,7 +2001,8 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
             if (ownerUid) {
                 publishOwnerEvent(ownerUid, 'socket-operation-error', { op: 'force-qr', error: msg });
             }
-            log('warn', `fetchConnectQr bloqueado — licença Go inativa: ${instanceName}`, { msg });
+            const isNetErr = msg.includes('fora do ar') || msg.includes('inacessível') || msg.includes('ENOTFOUND');
+            log('warn', `fetchConnectQr bloqueado — ${isNetErr ? 'Evolution Go offline' : 'licença Go inativa'}: ${instanceName}`, { msg });
             return null;
         }
     }
@@ -4533,6 +4536,13 @@ async function createConnectionInternal(
             error: error.message,
             response: error.response?.data,
         });
+        // Mensagens amigáveis para erros comuns
+        if (isEvolutionGoNetworkError(error)) {
+            return { error: EVOLUTION_GO_UNREACHABLE_HINT };
+        }
+        if (isEvolutionGoLicenseError(error)) {
+            return { error: evolutionGoLicenseUserMessage(error) };
+        }
         return { error: error.message };
     }
 }

@@ -14,7 +14,7 @@ services:
   evolution-go-homolog:
     container_name: zapmass-evolution-go-homolog
     image: ${EVOLUTION_GO_IMAGE:-evoapicloud/evolution-go:latest}
-    restart: unless-stopped
+    restart: always
     logging:
       driver: json-file
       options:
@@ -38,6 +38,12 @@ services:
       LOGTYPE: console
       # Ativa licença homolog sem browser (requer e-mail já registrado na Foundation — ex.: prod :8081)
       EVOLUTION_OPERATOR_EMAIL: ${EVOLUTION_OPERATOR_EMAIL:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null 2>&1 || curl -sf http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     networks:
       - zapmass_shared
 
@@ -116,6 +122,7 @@ services:
     depends_on:
       evolution-go-homolog:
         condition: service_started
+        required: false
     networks:
       - zapmass_shared
 
