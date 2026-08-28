@@ -11,6 +11,23 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.23] — 2026-08-28
+
+### Fix: proteção de chips travava campanhas após reinstalação do Evolution Go
+
+**Root cause:** Quando o Evolution Go reiniciava/caía várias vezes durante troubleshooting, o sistema de proteção detectava `reconnect_storm` e ativava um lock de **6 horas** bloqueando todos os disparos. O botão "Encerrar cooldown" só aparecia para `ban_cooldown`, deixando o usuário sem saída na UI para `reconnect_storm`.
+
+**Correções:**
+
+- **`ChipProtectionPanel.tsx`**: Botão **"Liberar proteção agora"** agora aparece para **qualquer** motivo de lock (`ban_cooldown` ou `reconnect_storm`), não apenas ban. Adicionado texto explicativo para cada motivo.
+- **`chipCircuitBreaker.ts`**: Novos métodos `resetChip(chipId)` e `resetMany(chipIds[])` para limpar contadores Redis de falhas.
+- **`chipProtectionRoutes.ts`**: Novo endpoint `POST /api/chip-protection/reset-circuit` que zera o circuit breaker de todos os chips do tenant. Ideal para usar após resolver problema de infraestrutura.
+- **`chipProtectionApi.ts`**: Novo método `resetChipCircuitBreaker()` no serviço frontend.
+- **`ChipProtectionPanel.tsx`**: Botão **"Resetar circuit breaker"** aparece na UI quando algum chip está com estado `OPEN` no Redis.
+- **`deployment/unlock-campaign-protection.sh`**: Script de emergência para liberar o lock e zerar o Redis diretamente na VPS sem precisar de deploy.
+
+---
+
 ## [2.3.22] — 2026-08-28
 
 ### Fix crítico: disparos de campanhas não enviavam mensagens (Evolution Go)

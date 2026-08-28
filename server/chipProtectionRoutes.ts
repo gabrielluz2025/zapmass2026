@@ -7,6 +7,8 @@ import {
   setChipProtectionPolicy,
   setChipQuietMode
 } from './chipProtectionService.js';
+import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
+import { listConnectionsForOwner } from './evolutionService.js';
 
 export function registerChipProtectionRoutes(app: Express): void {
   app.get('/api/chip-protection', async (req: Request, res: Response) => {
@@ -58,6 +60,26 @@ export function registerChipProtectionRoutes(app: Express): void {
     } catch (e) {
       console.error('[chip-protection/clear-lock]', e);
       return res.status(500).json({ ok: false, error: 'Não foi possível encerrar o cooldown.' });
+    }
+  });
+
+  /**
+   * Reseta os contadores do circuit breaker (Redis) de todos os chips do tenant.
+   * Use após resolver instabilidade de infraestrutura para destravar disparos imediatamente.
+   */
+  app.post('/api/chip-protection/reset-circuit', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    try {
+      const connections = await listConnectionsForOwner(ctx.tenantId);
+      const breaker = getChipCircuitBreaker();
+      await breaker.resetMany(connections.map((c) => c.id));
+      console.log(`[ChipProtection] Circuit breaker resetado para ${connections.length} chips tenant=${ctx.tenantId}`);
+      const snapshot = await getChipActivitySnapshot(ctx.tenantId);
+      return res.json({ ok: true, chipsReset: connections.length, ...snapshot });
+    } catch (e) {
+      console.error('[chip-protection/reset-circuit]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível resetar o circuit breaker.' });
     }
   });
 }

@@ -21,6 +21,7 @@ import {
   fetchChipProtection,
   setChipProtectionPolicy,
   clearChipProtectionLock,
+  resetChipCircuitBreaker,
   type ChipProtectionConnectionRow,
   type ChipProtectionFeedItem,
   type ChipProtectionPolicy,
@@ -321,18 +322,37 @@ export const ChipProtectionPanel: React.FC = () => {
   };
 
   const clearLock = async () => {
-    if (!data?.protectionReason || data.protectionReason !== 'ban_cooldown') return;
-    const ok = window.confirm(
-      'Encerrar o cooldown pós-ban manualmente?\n\nCampanhas e jornada voltam antes do prazo. Use só se o chip banido já foi resolvido e os demais estão saudáveis.'
-    );
+    const reason = data?.protectionReason;
+    const msg =
+      reason === 'ban_cooldown'
+        ? 'Encerrar o cooldown pós-ban manualmente?\n\nUse só se o chip banido já foi resolvido e os demais estão saudáveis.'
+        : 'Liberar o lock de instabilidade (reconnect storm)?\n\nUse apenas se a infraestrutura já estabilizou (Evolution Go rodando normalmente).';
+    const ok = window.confirm(msg);
     if (!ok) return;
     setSaving(true);
     try {
       const snap = await clearChipProtectionLock();
       setData(snap);
-      toast.success('Cooldown encerrado. Campanhas podem retomar quando você iniciar.');
+      toast.success('Proteção liberada. Inicie as campanhas para retomar os disparos.');
     } catch (err) {
       toast.error((err as Error).message || 'Erro ao encerrar cooldown.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetCircuit = async () => {
+    const ok = window.confirm(
+      'Resetar o circuit breaker dos chips?\n\nIsso limpa os contadores de falhas recentes no Redis. Use após resolver um problema de infraestrutura (ex.: Evolution Go reiniciado).'
+    );
+    if (!ok) return;
+    setSaving(true);
+    try {
+      const snap = await resetChipCircuitBreaker();
+      setData(snap);
+      toast.success('Circuit breaker resetado. Os contadores de falha foram zerados.');
+    } catch (err) {
+      toast.error((err as Error).message || 'Erro ao resetar circuit breaker.');
     } finally {
       setSaving(false);
     }
@@ -395,21 +415,38 @@ export const ChipProtectionPanel: React.FC = () => {
                   )}
                   {data.protectionReason === 'ban_cooldown' && (
                     <p className="text-xs text-zinc-400 mt-2 max-w-md">
-                      O chip banido fica em quarentena. Você pode aquecer os chips saudáveis (Comercial 03 e comercial 4)
-                      em Aquecimento — deixe o Comercial 01 desligado.
+                      O chip banido fica em quarentena. Você pode aquecer os chips saudáveis em Aquecimento.
                     </p>
                   )}
-                  {data.protectionReason === 'ban_cooldown' && lockRemaining != null && lockRemaining > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="mt-3 text-amber-300 border border-amber-500/30"
-                      disabled={saving}
-                      onClick={() => void clearLock()}
-                    >
-                      Encerrar cooldown manualmente
-                    </Button>
+                  {data.protectionReason === 'reconnect_storm' && (
+                    <p className="text-xs text-zinc-400 mt-2 max-w-md">
+                      Instabilidade detectada por quedas consecutivas. O lock expira automaticamente. Se a infraestrutura já estabilizou, libere manualmente.
+                    </p>
                   )}
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {lockRemaining != null && lockRemaining > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-amber-300 border border-amber-500/30"
+                        disabled={saving}
+                        onClick={() => void clearLock()}
+                      >
+                        Liberar proteção agora
+                      </Button>
+                    )}
+                    {data.connections?.some((c) => c.circuitState === 'OPEN') && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-blue-300 border border-blue-500/30"
+                        disabled={saving}
+                        onClick={() => void resetCircuit()}
+                      >
+                        Resetar circuit breaker
+                      </Button>
+                    )}
+                  </div>
                   {data.fetchedAt && (
                     <p className="ui-caption mt-2 opacity-70">
                       Atualizado {formatAgo(data.fetchedAt)} · próxima checagem em {POLL_MS / 1000}s
