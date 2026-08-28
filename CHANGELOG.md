@@ -11,6 +11,20 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.25] — 2026-08-28
+
+### Fix: crash unhandledRejection em campaign_logs por violação de FK
+
+**Root cause:** Quando um job BullMQ tentava registrar o log de envio de uma campanha inexistente/deletada no banco, o `INSERT` em `campaign_logs` lançava `error code 23503` (foreign key violation). Sem try/catch, o erro virava `unhandledRejection` e derrubava o processo Node.js.
+
+**Correção:**
+
+- **`server/repositories/campaignsRepository.ts`** (`addCampaignLog`): Captura `pg.code === '23503'` e loga aviso silencioso em vez de relançar — impede crash do worker sem perder rastreabilidade.
+
+**Produção:** Evolution Go estava com `ENOTFOUND evolution-go` — container fora da rede Docker. Reiniciar com `docker compose restart evolution-go`.
+
+---
+
 ## [2.3.24] — 2026-08-28
 
 ### Fix: crash do homolog por import inexistente em chipProtectionRoutes
