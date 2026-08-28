@@ -11,6 +11,17 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.21] — 2026-08-28
+
+### Fix: deploy VPS travado em commit antigo + .env syntax error
+
+- **ensure-git-main.sh**: fetch com refspec explícito `+refs/heads/main:refs/remotes/origin/main` — garante que origin/main seja atualizado corretamente
+- **deploy-completo.sh**: "Já em produção" agora verifica se COMMIT local == origin/main antes de pular deploy — impede falso-positivo (ex.: local=b627148, API=b627148, mas origin=v2.3.20)
+- **fix-evolution-go-vps.sh**: `source .env` substituído por parser seguro linha-a-linha — tolerante a erros de sintaxe no .env
+- **emergency-update-vps.sh**: script novo para forçar atualização sem depender do .env, reiniciar evolution-go (prod + homolog) e build em um só comando
+
+---
+
 ## [2.3.20] — 2026-08-28
 
 ### Fix crítico: Evolution Go ENOTFOUND + licença — produção e homologação

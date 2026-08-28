@@ -22,9 +22,15 @@ header(){ echo -e "\n\033[1;37m=== $* ===\033[0m"; }
 
 cd "$ZAPMASS_DIR" || { err "Diretório $ZAPMASS_DIR não encontrado"; exit 1; }
 
-# ─── Carrega .env ────────────────────────────────────────
+# ─── Carrega .env (tolerante a erros de sintaxe) ─────────
 if [[ -f .env ]]; then
-  set -a; source .env; set +a
+  # Lê apenas linhas KEY=VALUE simples — ignora multi-line e sintaxe inválida
+  while IFS='=' read -r key val; do
+    [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
+    key="${key//[[:space:]]/}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    export "$key"="$val" 2>/dev/null || true
+  done < .env
 fi
 
 EVO_GO_KEY="${EVOLUTION_GO_KEY:-${EVOLUTION_API_KEY:-zapmass-secure-key-2026}}"
