@@ -11,6 +11,22 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.29] — 2026-08-28
+
+### Fix: causa raiz do crash recorrente do Evolution Go (produção + homologação)
+
+**Varredura minuciosa identificou 4 causas raiz:**
+
+1. **Tempestade de `/instance/connect` com `immediate:true` no boot** (`goRouteAdapter.ts`): ao iniciar o ZapMass, `hydrateInstancesFromEvolution` chamava `ensureGoInstanceWebhook` em todos os chips, que enviava `POST /instance/connect` com `immediate:true` para o Evolution Go. Em sistemas com vários chips conectados, isso forçava N reconexões WhatsApp simultâneas, sobrecarregando e crashando o Evolution Go. **Corrigido:** `immediate:true` agora só é enviado quando explicitamente solicitado (`forceReconnect:true` no body), o que só ocorre em operações reais de connect (Forçar QR, auto-reconnect, logout+reconnect). O re-registro de webhook no boot não força mais reconexão.
+
+2. **Hydrate duplo no boot** (`evolutionService.ts`): `hydrateInstancesFromEvolution` era chamado 2 vezes consecutivas no startup, dobrando a tempestade descrita acima. **Corrigido:** segunda chamada removida.
+
+3. **Poll de status a cada 2s sem backoff** (`watchConnectionUntilOpen`): chips em estado "connecting" causavam até 30 req/min cada no Evolution Go. Com 5+ chips conectando simultaneamente, a carga HTTP era suficiente para derrubar o motor. **Corrigido:** backoff crescente: 2s → 3s → 4s → ... → máx 10s, reduzindo para ~8 req/min.
+
+4. **"Fora do ar" com 1 falha de rede** (`assertEvolutionGoLicensed`): qualquer blip DNS ou restart momentâneo do container disparava o erro para o usuário antes do motor ter chance de subir. **Corrigido:** aguarda 2s e tenta 1 vez novamente antes de declarar unreachable.
+
+---
+
 ## [2.3.28] — 2026-08-28
 
 ### Fix: Evolution Go cai e não sobe automaticamente na produção

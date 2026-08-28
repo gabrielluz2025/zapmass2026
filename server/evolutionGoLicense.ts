@@ -96,7 +96,13 @@ export async function probeEvolutionGoLicenseActive(): Promise<{
 
 export async function assertEvolutionGoLicensed(operation: string): Promise<void> {
     if (!isEvolutionGoEngine()) return;
-    const lic = await probeEvolutionGoLicenseActive();
+    let lic = await probeEvolutionGoLicenseActive();
+    if (lic.unreachable) {
+        // 1 falha de rede pode ser blip DNS/Docker momentâneo. Aguarda 2s e tenta novamente
+        // antes de declarar o motor fora do ar — evita falsos alertas durante restart do container.
+        await new Promise(r => setTimeout(r, 2000));
+        lic = await probeEvolutionGoLicenseActive();
+    }
     if (lic.unreachable) {
         throw new Error(
             `${EVOLUTION_GO_UNREACHABLE_HINT} (${operation})`
