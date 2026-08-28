@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.21',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'ensure-git-main.sh: fetch explícito garante que origin/main seja atualizado na VPS' },
+      { type: 'fix', text: 'deploy-completo.sh: impede falso "Já em produção" quando local está desatualizado' },
+      { type: 'fix', text: 'fix-evolution-go-vps.sh: tolerante a erros de sintaxe no .env da VPS' },
+      { type: 'feat', text: 'emergency-update-vps.sh: atualiza + reinicia evolution-go (prod+homolog) em 1 comando' },
+    ],
+  },
+  {
     version: '2.3.20',
     date: '28/08/2026',
     highlights: [

@@ -62,14 +62,17 @@ if [ -f deployment/vps-safe-pull.sh ]; then
 fi
 
 COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo '?')"
-log "Código em main @ ${COMMIT}"
+ORIGIN_COMMIT="$(git rev-parse --short refs/remotes/origin/main 2>/dev/null || echo '?')"
+log "Código em main @ ${COMMIT} (origin/main = ${ORIGIN_COMMIT})"
 
-# --- Já em produção? (evita deploy duplicado quando CI/cron acabou de aplicar) ---
+# --- Já em produção? ---
+# Só pula o deploy se TANTO o código local QUANTO a API já estão na versão mais recente de origin/main.
+# Isso evita o falso-positivo onde local=b627148 e API=b627148 mas origin/main=68bef29.
 HP="$(grep -E '^HOST_PORT=' .env 2>/dev/null | tail -1 | sed 's/^HOST_PORT=//' | tr -d $'\r"\'')" || true
 HP="${HP:-3001}"
 LIVE_VER="$(curl -sf "http://127.0.0.1:${HP}/api/health" 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || echo '')"
-if [ -n "${LIVE_VER}" ] && [ "${LIVE_VER}" = "${COMMIT}" ]; then
-  log "4/4 — Já em produção @ ${COMMIT} (nada a fazer)"
+if [ -n "${LIVE_VER}" ] && [ "${LIVE_VER}" = "${COMMIT}" ] && [ "${COMMIT}" = "${ORIGIN_COMMIT}" ]; then
+  log "4/4 — Já em produção @ ${COMMIT} (igual a origin/main — nada a fazer)"
   echo ""
   echo "╔══════════════════════════════════════════════════════════════╗"
   echo "║  Servidor já está na versão ${COMMIT}                          "
@@ -77,6 +80,11 @@ if [ -n "${LIVE_VER}" ] && [ "${LIVE_VER}" = "${COMMIT}" ]; then
   echo "╚══════════════════════════════════════════════════════════════╝"
   echo ""
   exit 0
+elif [ "${COMMIT}" != "${ORIGIN_COMMIT}" ]; then
+  log "ATENÇÃO: HEAD local (${COMMIT}) difere de origin/main (${ORIGIN_COMMIT}) — usando origin/main"
+  git reset --hard refs/remotes/origin/main
+  COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo '?')"
+  log "Código atualizado para origin/main @ ${COMMIT}"
 fi
 
 # --- Lock: outro deploy (CI/cron) em paralelo ---

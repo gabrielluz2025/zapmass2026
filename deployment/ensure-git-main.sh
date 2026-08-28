@@ -8,18 +8,26 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
   echo "Erro: $ROOT nao e um repositorio git." >&2
   exit 1
 fi
-git fetch origin
-echo "==> origin/main apos fetch: $(git rev-parse --short refs/remotes/origin/main 2>/dev/null) $(git log -1 --pretty=format:%s refs/remotes/origin/main 2>/dev/null | head -c 80)"
+
+# Fetch com refspec explícito para garantir que refs/remotes/origin/main seja atualizado
+git fetch origin +refs/heads/main:refs/remotes/origin/main
+
 if ! git show-ref -q --verify refs/remotes/origin/main; then
-  echo "Erro: origin/main nao encontrado. Confira: git remote -v" >&2
+  echo "Erro: origin/main nao encontrado apos fetch. Confira: git remote -v" >&2
   exit 1
 fi
-# Evita falhas tipo "local changes would be overwritten" (ex.: vps-deploy.sh editado na VPS).
-# -f descarta alterações locais em ficheiros rastreados antes de alinhar com origin/main.
-if git show-ref -q --verify refs/heads/main; then
-  git checkout -f main
-else
-  git checkout -b main origin/main
+
+ORIGIN_HASH=$(git rev-parse --short refs/remotes/origin/main 2>/dev/null || echo '?')
+ORIGIN_MSG=$(git log -1 --pretty=format:%s refs/remotes/origin/main 2>/dev/null | head -c 80)
+echo "==> origin/main apos fetch: ${ORIGIN_HASH} ${ORIGIN_MSG}"
+
+# Descarta alterações locais + alinha com origin/main
+# Funciona em detached HEAD, branch diferente ou branch main desatualizada
+git checkout -f -B main refs/remotes/origin/main
+git reset --hard refs/remotes/origin/main
+
+LOCAL_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo '?')
+echo "==> Agora em main @ ${LOCAL_HASH} (origin/main = ${ORIGIN_HASH})"
+if [[ "$LOCAL_HASH" != "$ORIGIN_HASH" ]]; then
+  echo "AVISO: HEAD (${LOCAL_HASH}) difere de origin/main (${ORIGIN_HASH}) — relatorio apenas, nao e erro." >&2
 fi
-git reset --hard origin/main
-echo "==> Agora em main @ $(git rev-parse --short HEAD) (igual a origin/main)."
