@@ -11,6 +11,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.35] — 2026-08-28
+
+### Fix: healthcheck do Evolution Go preso em `health: starting`
+
+O healthcheck usava `GET /` que retorna 404, fazendo o container ficar em `starting` permanentemente mesmo estando 100% funcional. Evolution Go exige autenticação em todos os endpoints — `GET /instance/all` retorna 200 (autenticado) ou 401 (sem auth), ambos indicam que o servidor está online. Agora o healthcheck verifica `/instance/all` e aceita 200 ou 401 como "healthy". `start_period` aumentado para 90s.
+
+---
+
 ## [2.3.34] — 2026-08-28
 
 ### Fix: polling de QR e probe de estado não paravam em erro 400 (chip inválido)

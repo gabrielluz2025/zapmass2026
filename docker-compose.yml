@@ -235,11 +235,13 @@ services:
       - WADEBUG=${EVOLUTION_GO_WADEBUG:-INFO}
       - LOGTYPE=console
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null 2>&1 || curl -sf http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1"]
+      # Evolution Go requer auth em todos os endpoints — 401 = servidor online (aceito como saudável).
+      # GET / retorna 404, por isso usa /instance/all que retorna 200 ou 401 (ambos = online).
+      test: ["CMD-SHELL", "STATUS=$(wget -qSO- http://127.0.0.1:8080/instance/all 2>&1 | grep 'HTTP/' | awk '{print $2}'); [ \"$STATUS\" = '200' ] || [ \"$STATUS\" = '401' ]"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 90s
     depends_on:
       postgres:
         condition: service_started

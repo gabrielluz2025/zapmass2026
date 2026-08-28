@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.35',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'Evolution Go healthcheck: aceita 401 como saudável — container não fica mais preso em "starting"' },
+    ],
+  },
+  {
     version: '2.3.34',
     date: '28/08/2026',
     highlights: [
