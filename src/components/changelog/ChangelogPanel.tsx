@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.36',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'Healthcheck do Evolution Go homolog corrigido — mesmo fix do v2.3.35 aplicado ao docker-compose.homolog.yml' },
+    ],
+  },
+  {
     version: '2.3.35',
     date: '28/08/2026',
     highlights: [

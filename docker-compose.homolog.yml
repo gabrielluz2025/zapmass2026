@@ -39,11 +39,11 @@ services:
       # Ativa licença homolog sem browser (requer e-mail já registrado na Foundation — ex.: prod :8081)
       EVOLUTION_OPERATOR_EMAIL: ${EVOLUTION_OPERATOR_EMAIL:-}
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null 2>&1 || curl -sf http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      test: ["CMD-SHELL", "wget -SO- http://127.0.0.1:8080/instance/all 2>&1 | grep -qE 'HTTP/[0-9.]+ (200|401)'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     networks:
       - zapmass_shared
 

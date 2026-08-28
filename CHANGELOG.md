@@ -11,6 +11,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.36] — 2026-08-28
+
+### Fix: healthcheck do Evolution Go homolog
+
+Aplicado o mesmo fix do v2.3.35 ao `docker-compose.homolog.yml`: healthcheck agora aponta para `/instance/all` e aceita 200 ou 401 como "healthy". O container `zapmass-evolution-go-homolog` estava preso em `health: starting` pelo mesmo motivo.
+
+---
+
 ## [2.3.35] — 2026-08-28
 
 ### Fix: healthcheck do Evolution Go preso em `health: starting`
