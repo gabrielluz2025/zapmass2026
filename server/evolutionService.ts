@@ -4422,6 +4422,11 @@ async function filterActiveConnections(connectionIds: string[]): Promise<string[
         else {
             emitCampaignLog('WARN', `Canal excluído do disparo (indisponível): ${connId}`, { connectionId: connId });
         }
+        // Stagger mínimo entre probes: evita burst de N requests simultâneos ao Evolution Go.
+        // Com cache 5s em fetchGoInstanceList, o custo real é 1 HTTP por janela de 5s.
+        if (isEvolutionGoEngine() && connectionIds.length > 1) {
+            await new Promise(r => setTimeout(r, 50));
+        }
     }
     return active;
 }
@@ -4618,14 +4623,40 @@ async function setupWebhook(instanceName: string) {
     }
 }
 
+// Cache compartilhado do /instance/fetchInstances (= /instance/all no Go).
+// Impede flood: N chips verificando status ao mesmo tempo fazem apenas 1 HTTP request por janela.
+let _instanceListCache: { data: unknown[]; expiresAt: number } | null = null;
+let _instanceListInflight: Promise<unknown[]> | null = null;
+
+async function fetchGoInstanceList(): Promise<unknown[]> {
+    const now = Date.now();
+    if (_instanceListCache && _instanceListCache.expiresAt > now) {
+        return _instanceListCache.data;
+    }
+    // Deduplicar: se já há uma requisição em voo, aguarda o mesmo resultado
+    if (_instanceListInflight) return _instanceListInflight;
+    _instanceListInflight = (async () => {
+        try {
+            const response = await api.get('/instance/fetchInstances', { timeout: 8_000 });
+            const list = Array.isArray(response.data) ? response.data : [];
+            _instanceListCache = { data: list, expiresAt: Date.now() + 5_000 }; // TTL 5s
+            return list;
+        } catch {
+            return [];
+        } finally {
+            _instanceListInflight = null;
+        }
+    })();
+    return _instanceListInflight;
+}
+
 /**
- * Obtém status da conexão
+ * Obtém status da conexão via lista global de instâncias (com cache 5s).
  */
 async function probeGoConnectionStateFromInstanceList(instanceName: string): Promise<string | null> {
     if (!isEvolutionGoEngine()) return null;
     try {
-        const response = await api.get('/instance/fetchInstances', { timeout: 8_000 });
-        const list = Array.isArray(response.data) ? response.data : [];
+        const list = await fetchGoInstanceList();
         for (const item of list) {
             if (!item || typeof item !== 'object') continue;
             const row = item as Record<string, unknown>;

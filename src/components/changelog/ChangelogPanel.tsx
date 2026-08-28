@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.30',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'Flood /instance/all: cache 5s compartilhado entre chips — 30 req/s → 1 req/5s no Evolution Go' },
+      { type: 'fix', text: 'filterActiveConnections: stagger 50ms entre chips evita burst simultâneo de probes' },
+      { type: 'fix', text: 'Watchdog: não reinicia container com menos de 90s de uptime — previne loop durante inicialização' },
+    ],
+  },
+  {
     version: '2.3.29',
     date: '28/08/2026',
     highlights: [
