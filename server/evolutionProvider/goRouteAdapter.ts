@@ -141,12 +141,17 @@ export function adaptEvolutionApiRequestToGo(
     if (url.includes('/instance/connect/')) {
         const goUuid = tokenStore.getGoInstanceUuid?.(instanceId!) || instanceId;
         if (method === 'POST') {
+            const body = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+            // immediate:true força reconexão WhatsApp imediata. Usar apenas em connect explícito
+            // (novo canal / Forçar QR). Re-registro de webhook no boot NÃO deve forçar reconnect
+            // pois gera tempestade sob muitos chips e pode crashar o Evolution Go.
+            const shouldReconnect = body.forceReconnect === true;
             return {
                 url: '/instance/connect',
                 data: {
                     webhookUrl: evolutionWebhookUrlForGo(),
                     subscribe: ['ALL'],
-                    immediate: true,
+                    immediate: shouldReconnect,
                 },
                 // Go exige apikey = token da instância (global key → not authorized).
                 headers: { ...instH, instanceId: goUuid! },

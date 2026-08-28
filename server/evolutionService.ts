@@ -1538,7 +1538,7 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
                     await api.post(`/instance/restart/${evoInst(connectionId)}`, {});
                     await sleep(3000);
                 } catch {
-                    await api.post(`/instance/connect/${evoInst(connectionId)}`, {});
+                    await api.post(`/instance/connect/${evoInst(connectionId)}`, { forceReconnect: true });
                     await sleep(2000);
                 }
                 const state = (await getConnectionState(connectionId)).toLowerCase();
@@ -1930,7 +1930,11 @@ function watchConnectionUntilOpen(connectionId: string) {
             }
             return;
         }
-        connectionWatchTimers.set(connectionId, setTimeout(() => void poll(), 2000));
+        // Backoff crescente: começa em 2s, sobe 1s por tentativa até 10s.
+        // Reduz de ~30 req/min (poll fixo 2s) para ~8 req/min sob chips em connecting,
+        // aliviando carga no Evolution Go durante tempestades de reconnect.
+        const delayMs = Math.min(2000 + (attempts - 1) * 1000, 10_000);
+        connectionWatchTimers.set(connectionId, setTimeout(() => void poll(), delayMs));
     };
 
     connectionWatchTimers.set(connectionId, setTimeout(() => void poll(), 2000));
@@ -1983,7 +1987,7 @@ async function tryRecoverCountZeroInstance(instanceName: string): Promise<boolea
     try {
         await api.delete(`/instance/logout/${evoInst(instanceName)}`);
         await sleep(1500);
-        await api.post(`/instance/connect/${evoInst(instanceName)}`, {});
+        await api.post(`/instance/connect/${evoInst(instanceName)}`, { forceReconnect: true });
         await sleep(2000);
         return true;
     } catch (error: any) {
@@ -2062,7 +2066,7 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
         }
 
         try {
-            const postResp = await api.post(`/instance/connect/${evoInst(instanceName)}`, {});
+            const postResp = await api.post(`/instance/connect/${evoInst(instanceName)}`, { forceReconnect: true });
             const parsed = tryParse(postResp.data, 'POST');
             if (parsed.extracted) return parsed.extracted;
             if (parsed.countZero) sawCountZero = true;
@@ -7523,7 +7527,8 @@ export function init(socketIO: SocketIOServer) {
                 errors: reconciled.errors,
             });
         }
-        await hydrateInstancesFromEvolution();
+        // Segundo hydrate removido: chamada duplicada causava pico de POST /instance/connect
+        // (ensureGoInstanceWebhook) em todos os chips do boot — candidato #1 ao crash do Evolution Go.
         healAllGenericConnectionFriendlyNames();
         return reconcileConnectionHealth();
     });

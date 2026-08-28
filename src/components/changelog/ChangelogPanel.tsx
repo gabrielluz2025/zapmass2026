@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.29',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'Causa raiz do crash Evolution Go: immediate:true no boot enviava N reconexões WhatsApp simultâneas — removido do re-registro de webhook' },
+      { type: 'fix', text: 'Hydrate duplo no startup: segunda chamada duplicava a tempestade de connect — removida' },
+      { type: 'perf', text: 'Poll de status chips: backoff crescente 2s→10s em vez de fixo 2s, reduz carga HTTP 75%' },
+      { type: 'fix', text: 'Falso alarme "fora do ar": agora aguarda 2s e tenta 2x antes de declarar Evolution Go offline' },
+    ],
+  },
+  {
     version: '2.3.28',
     date: '28/08/2026',
     highlights: [
