@@ -11,6 +11,23 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.33] — 2026-08-28
+
+### Fix: Pool não fazia rodízio ao retomar campanha — tudo indo para um só chip
+
+**3 bugs corrigidos que causavam o comportamento de "só o Comercial 04 envia":**
+
+**BUG-A — resumeCampaign não redistribuía jobs:**
+Quando uma campanha era iniciada com apenas 1 chip ativo (ex.: Comercial 04), todos os jobs ficavam com `connectionId=conn04`. Ao conectar mais chips e clicar em "Retomar", os jobs não eram redistribuídos. Agora `resumeCampaign` chama `refreshCampaignPoolOnResume` que detecta novos chips disponíveis via probe HTTP, reconfigura o pool no Redis e redistribui os jobs pendentes via `updateCampaignChannels`.
+
+**BUG-B — isCampaignChannelUsable rejeitava chips saudáveis com RAM desatualizada:**
+A verificação de saúde do chip antes do envio lia apenas o estado em RAM (`connections.get(id)?.status`). Após o loop de hydrate (corrigido em v2.3.32) a RAM podia estar temporariamente desatualizada, fazendo conn02 e conn03 parecerem offline mesmo estando online. Todos os jobs para esses chips faziam failover para conn04. Agora aceita chips com prova HTTP positiva nos últimos 60s (`lastConnectionStateCheck`).
+
+**BUG-C — Pool config expirava após 24h:**
+`POOL_TTL_SECS` no Redis era de 24h. Campanhas longas ou pausadas por mais de 1 dia perdiam a configuração do pool, impossibilitando failover correto. Agora o TTL é de 7 dias.
+
+---
+
 ## [2.3.32] — 2026-08-28
 
 ### Fix: loop de sync/hydrate 4×/segundo — sobrecarga no Evolution Go

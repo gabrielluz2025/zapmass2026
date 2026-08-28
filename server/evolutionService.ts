@@ -5454,7 +5454,14 @@ function isCampaignChannelUsable(connectionId: string): boolean {
     const id = String(connectionId || '').trim();
     if (!id) return false;
     const conn = connections.get(id);
-    if (conn?.status !== 'open') return false;
+    // Aceita o chip se a RAM diz 'open' OU se tivemos prova HTTP positiva recente (últimos 60s).
+    // Isso evita que um RAM desatualizado (após restart/debounce do hydrate) cause failover falso.
+    const ramOpen = conn?.status === 'open';
+    if (!ramOpen) {
+        const recent = lastConnectionStateCheck.get(id);
+        const recentlyProvedOpen = recent && recent.state && (Date.now() - recent.at < 60_000);
+        if (!recentlyProvedOpen) return false;
+    }
     return !getConnectionBanInfo(id).inQuarantine;
 }
 
@@ -9052,6 +9059,16 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
     if (!campaignsById.has(campaignId)) {
         void ensureCampaignRuntimeInMemory(campaignId, ou);
     }
+
+    // Redistribui jobs pendentes se novos chips estão agora disponíveis no pool.
+    // Isso corrige o caso em que a campanha foi iniciada quando apenas 1 chip estava ativo,
+    // mas o usuário conectou mais chips e retomou — sem isso, tudo vai para o chip original.
+    if (ou) {
+        void refreshCampaignPoolOnResume(campaignId, ou).catch((e) =>
+            log('warn', 'refreshCampaignPoolOnResume falhou (não crítico)', { campaignId, error: (e as Error)?.message })
+        );
+    }
+
     // Garante status RUNNING no Firestore ao retomar (corrige campanhas presas em DRAFT/PENDENTE).
     const stateAfter = campaignsById.get(campaignId);
     if (ou) {
@@ -9065,6 +9082,58 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
     }
     publishOwnerEvent(ou, 'campaign-resumed', { campaignId });
     ensureCampaignWorker();
+}
+
+/**
+ * Ao retomar uma campanha, verifica se há mais chips ativos do que quando ela foi iniciada.
+ * Se sim, redistribui os jobs pendentes entre todos os chips disponíveis via updateCampaignChannels.
+ *
+ * Cenário que resolve:
+ *   1. Campanha criada com chip A (único ativo) → todos jobs ficam com connectionId=A
+ *   2. Usuário conecta chips B e C
+ *   3. Usuário retoma campanha → sem esta função, tudo continuaria indo para A
+ */
+async function refreshCampaignPoolOnResume(campaignId: string, ownerUid: string): Promise<void> {
+    const { getCampaign } = await import('./repositories/campaignsRepository.js');
+    const campaign = await getCampaign(ownerUid, campaignId).catch(() => null);
+    if (!campaign) return;
+
+    const docIds: string[] = Array.isArray(campaign.selectedConnectionIds)
+        ? campaign.selectedConnectionIds.filter((id) => typeof id === 'string' && id.trim())
+        : [];
+    if (docIds.length === 0) return;
+
+    // Verifica quais chips do pool original estão agora ativos via probe HTTP
+    const nowActive = await filterActiveConnections(docIds);
+    if (nowActive.length === 0) return;
+
+    // Pega o estado atual dos chips registrados nos jobs em execução
+    const runtimeState = campaignsById.get(campaignId);
+    const runtimeIds = runtimeState?.connectionIds ?? [];
+
+    // Só redistribui se o conjunto de chips ativos mudou (novos chips disponíveis)
+    const runtimeSet = new Set(runtimeIds);
+    const hasNewChips = nowActive.some((id) => !runtimeSet.has(id));
+    const moreChipsAvailable = nowActive.length > Math.max(1, runtimeIds.length);
+
+    if (!hasNewChips && !moreChipsAvailable) return;
+
+    log('info', `▶️ refreshCampaignPoolOnResume: redistribuindo jobs entre ${nowActive.length} chips`, {
+        campaignId,
+        ownerUid,
+        antes: runtimeIds,
+        agora: nowActive,
+    });
+
+    await updateCampaignChannels(ownerUid, campaignId, {
+        connectionIds: nowActive,
+        remigratePendingJobs: true,
+    }).catch((e) =>
+        log('warn', 'refreshCampaignPoolOnResume: updateCampaignChannels falhou', {
+            campaignId,
+            error: (e as Error)?.message,
+        })
+    );
 }
 
 /** Carrega instâncias Evolution na RAM (sem sync de chats). */

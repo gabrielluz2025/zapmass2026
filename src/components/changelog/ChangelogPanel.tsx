@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.33',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'Pool: retomar campanha agora redistribui jobs entre todos os chips ativos — fim do "só chip X envia"' },
+      { type: 'fix', text: 'Pool: chip saudável com RAM temporariamente desatualizada não causa failover falso para chip único' },
+      { type: 'fix', text: 'Pool: config no Redis expira em 7 dias (era 24h) — campanhas longas não perdem distribuição' },
+    ],
+  },
+  {
     version: '2.3.32',
     date: '28/08/2026',
     highlights: [

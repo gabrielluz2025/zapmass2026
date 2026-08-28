@@ -11,8 +11,8 @@ export type CampaignPoolConfig = {
 };
 
 const POOL_KEY_PREFIX = 'campaign:pool:';
-/** Alinhado ao TTL do runtime de campanha (24h). */
-const POOL_TTL_SECS = 24 * 3600;
+/** 7 dias: campanhas longas ou pausadas não perdem configuração do pool após 24h. */
+const POOL_TTL_SECS = 7 * 24 * 3600;
 
 function poolKey(campaignId: string): string {
   return `${POOL_KEY_PREFIX}${String(campaignId || '').trim()}`;
