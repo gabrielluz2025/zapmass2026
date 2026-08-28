@@ -130,6 +130,8 @@ export interface CampaignScheduleStartSnapshot {
   recipients?: Array<{ phone: string; vars: Record<string, string> }>;
   replyFlow?: CampaignReplyFlow;
   channelWeights?: Record<string, number>;
+  poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+  poolId?: string;
   dailySchedule?: CampaignDailySchedule;
   /** Usuário confirmou envio mesmo com contatos no limite de 24 h. */
   skipFrequencyCap?: boolean;

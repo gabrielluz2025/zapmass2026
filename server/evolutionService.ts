@@ -4163,25 +4163,25 @@ async function runBootInboundReplay(lastHeartbeat: number | undefined): Promise<
         const hbRef = lastHeartbeat ?? (Date.now() - HEARTBEAT_INTERVAL_MS * 2);
         const candidates = [...connections.values()].filter((c) => {
             if (c.status !== 'open') return false;
-            const lc = connectionsSettingsCache[c.id]?.lastClosedAt;
+            const lc = connectionsSettingsCache[c.instanceName]?.lastClosedAt;
             return !lc || lc < hbRef;
         });
 
         if (candidates.length === 0) return;
 
         log('info', `[BootReplay] ${candidates.length} conexão(ões) ativa(s) durante downtime — verificando respostas perdidas`, {
-            connections: candidates.map((c) => c.id),
+            connections: candidates.map((c) => c.instanceName),
             lastHeartbeat: lastHeartbeat ? new Date(lastHeartbeat).toISOString() : 'desconhecido',
         });
 
         for (const conn of candidates) {
-            const ownerUid = resolveOwnerUid(conn.id);
+            const ownerUid = resolveOwnerUid(conn.instanceName);
             // Janela: a partir do último heartbeat com margem de 2× o intervalo
             const windowStart = lastHeartbeat
                 ? lastHeartbeat - HEARTBEAT_INTERVAL_MS * 2
                 : Date.now() - 72 * 3600_000;
 
-            await replayMissedInboundForConnection(conn.id, ownerUid, {
+            await replayMissedInboundForConnection(conn.instanceName, ownerUid, {
                 getConversations: () => chatStore.getConversations(),
                 loadChatHistory: (conversationId, limit) =>
                     chatStore.loadChatHistory(conversationId, limit, true),

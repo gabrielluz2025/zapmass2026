@@ -116,7 +116,7 @@ export function buildDraftFromCampaign(c: Campaign): CampaignWizardDraft {
 /** Monta rascunho em modo edição — aponta para a campanha existente pelo ID. */
 export function buildEditDraftFromCampaign(c: Campaign): CampaignWizardDraft {
   const snapshot = c.scheduleStartSnapshot;
-  const poolId = snapshot?.poolId ?? (c as unknown as Record<string, unknown>).poolId as string | undefined;
+  const poolId = snapshot?.poolId;
   const hasPool = Boolean(poolId);
 
   return {
