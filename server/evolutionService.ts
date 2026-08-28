@@ -922,6 +922,8 @@ function ensureCachedConnectionsInRamForOwner(ownerUid: string): string[] {
     for (const [connId, row] of Object.entries(connectionsSettingsCache)) {
         if (!row?.ownerUid || !tenantOwnsConnection(uid, connId)) continue;
         if (connections.has(connId)) continue;
+        // Tombstone: não restaurar conexões explicitamente deletadas
+        if (deletedConnectionIds.has(connId)) continue;
         const friendlyName = resolveDisplayFriendlyName(connId, undefined, row);
         const instance: EvolutionInstance = {
             instanceName: connId,
@@ -2169,14 +2171,17 @@ async function hydrateInstancesFromEvolution() {
                 row.name || row.instanceName || (row.instance as Record<string, unknown> | undefined)?.instanceName || ''
             ).trim();
             if (!instanceName) continue;
-            syncGoInstanceCredentials(instanceName, row);
 
             const existing = connections.get(instanceName);
             // Shard Evolution compartilhado: não hidratar instâncias de outros clientes
             // que não constam no settings local deste container.
+            // IMPORTANTE: o guard precisa vir ANTES de syncGoInstanceCredentials para não
+            // recriar entradas no cache de conexões deletadas (causa de "conexões fantasmas").
             if (!connectionsSettingsCache[instanceName] && !existing) {
                 continue;
             }
+            // Só sincroniza credenciais se a instância já pertence a este container.
+            syncGoInstanceCredentials(instanceName, row);
 
             const prevStatus = existing?.status;
             let mappedState = mapEvolutionState(row.connectionStatus ?? row.state ?? row.status);
@@ -2523,6 +2528,25 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 const dataDir = path.resolve(projectRoot, process.env.DATA_DIR || 'data');
 const connectionsSettingsFile = path.join(dataDir, 'connections_settings.json');
+/** IDs de conexões explicitamente deletadas — impede ressurreição por hydrateInstancesFromEvolution. */
+const deletedConnectionIds = new Set<string>();
+const deletedConnectionsFile = path.join(dataDir, 'deleted_connections.json');
+
+function loadDeletedConnections(): void {
+    try {
+        if (fs.existsSync(deletedConnectionsFile)) {
+            const ids = JSON.parse(fs.readFileSync(deletedConnectionsFile, 'utf8'));
+            if (Array.isArray(ids)) ids.forEach((id: unknown) => { if (typeof id === 'string') deletedConnectionIds.add(id); });
+        }
+    } catch { /* ignora */ }
+}
+
+function saveDeletedConnections(): void {
+    try {
+        if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+        fs.writeFileSync(deletedConnectionsFile, JSON.stringify([...deletedConnectionIds]), 'utf8');
+    } catch { /* ignora */ }
+}
 
 interface ConnectionSettingsPayload {
     dailyLimit?: number;
@@ -2670,6 +2694,8 @@ let connectionsSettingsCache: Record<string, ConnectionSettingsPayload> = {};
 
 /** Persiste settings sem apagar ownerUid/friendlyName (evita canais sumirem do escopo estrito). */
 function mergeConnectionSettingsCache(connectionId: string, patch: ConnectionSettingsPayload): void {
+    // Tombstone: nunca reescrever cache de conexão explicitamente deletada
+    if (deletedConnectionIds.has(connectionId)) return;
     const prev = connectionsSettingsCache[connectionId] ?? {};
     const mem = connections.get(connectionId);
     const ownerUid = pickNonEmptyUid(
@@ -2711,9 +2737,16 @@ function loadConnectionsSettings() {
         if (!fs.existsSync(dataDir)) {
             fs.mkdirSync(dataDir, { recursive: true });
         }
+        loadDeletedConnections();
         if (fs.existsSync(connectionsSettingsFile)) {
             const raw = fs.readFileSync(connectionsSettingsFile, 'utf8');
-            connectionsSettingsCache = JSON.parse(raw);
+            const parsed = JSON.parse(raw) as Record<string, unknown>;
+            // Remove do cache qualquer entrada que esteja no tombstone (conexões deletadas)
+            for (const [connId, val] of Object.entries(parsed)) {
+                if (!deletedConnectionIds.has(connId) && val && typeof val === 'object') {
+                    connectionsSettingsCache[connId] = val as ConnectionSettingsPayload;
+                }
+            }
         }
         let bootHealed = 0;
         for (const connId of Object.keys(connectionsSettingsCache)) {
@@ -4948,6 +4981,9 @@ export async function deleteConnection(
 
     connections.delete(id);
     connectionQueueSizes.delete(id);
+    // Tombstone: registrar deleção antes de limpar cache para evitar ressurreição
+    deletedConnectionIds.add(id);
+    saveDeletedConnections();
     if (connectionsSettingsCache[id]) {
         delete connectionsSettingsCache[id];
         saveConnectionsSettings();
