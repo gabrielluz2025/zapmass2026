@@ -4118,6 +4118,87 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
     return recovered;
 }
 
+// ──── Heartbeat do servidor + Boot replay de mensagens perdidas ───────────────
+const SERVER_HEARTBEAT_KEY = 'zapmass:server:last_heartbeat';
+const HEARTBEAT_INTERVAL_MS = 5 * 60_000; // 5 min
+const HEARTBEAT_TTL_SECS = 48 * 3600;     // 48h TTL para sobreviver restarts
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+async function updateServerHeartbeat(): Promise<void> {
+    const redis = getRedisConnection();
+    if (!redis) return;
+    try { await redis.setex(SERVER_HEARTBEAT_KEY, HEARTBEAT_TTL_SECS, String(Date.now())); }
+    catch { /* silencioso */ }
+}
+
+async function readLastServerHeartbeat(): Promise<number | undefined> {
+    const redis = getRedisConnection();
+    if (!redis) return undefined;
+    try {
+        const raw = await redis.get(SERVER_HEARTBEAT_KEY);
+        if (!raw) return undefined;
+        const ts = Number(raw);
+        return Number.isFinite(ts) && ts > 0 ? ts : undefined;
+    } catch { return undefined; }
+}
+
+function startHeartbeatTimer(): void {
+    if (heartbeatTimer) return;
+    heartbeatTimer = setInterval(() => void updateServerHeartbeat(), HEARTBEAT_INTERVAL_MS);
+}
+
+/**
+ * Roda na inicialização do servidor para processar respostas recebidas durante
+ * downtime do ZapMass (chip continuou open, webhooks falharam).
+ * Não duplica o replay de reconexão de chip — só cobre conexões cujo chip
+ * permaneceu open enquanto o ZapMass estava offline.
+ */
+async function runBootInboundReplay(lastHeartbeat: number | undefined): Promise<void> {
+    try {
+        const { replayMissedInboundForConnection } = await import('./inboundMissedReplay.js');
+
+        // Chips open que estavam online durante a queda do ZapMass.
+        // Exclui chips cujo lastClosedAt é POSTERIOR ao último heartbeat — nesses
+        // o handler de reconexão (reconnecting = true) já disparou o replay.
+        const hbRef = lastHeartbeat ?? (Date.now() - HEARTBEAT_INTERVAL_MS * 2);
+        const candidates = [...connections.values()].filter((c) => {
+            if (c.status !== 'open') return false;
+            const lc = connectionsSettingsCache[c.id]?.lastClosedAt;
+            return !lc || lc < hbRef;
+        });
+
+        if (candidates.length === 0) return;
+
+        log('info', `[BootReplay] ${candidates.length} conexão(ões) ativa(s) durante downtime — verificando respostas perdidas`, {
+            connections: candidates.map((c) => c.id),
+            lastHeartbeat: lastHeartbeat ? new Date(lastHeartbeat).toISOString() : 'desconhecido',
+        });
+
+        for (const conn of candidates) {
+            const ownerUid = resolveOwnerUid(conn.id);
+            // Janela: a partir do último heartbeat com margem de 2× o intervalo
+            const windowStart = lastHeartbeat
+                ? lastHeartbeat - HEARTBEAT_INTERVAL_MS * 2
+                : Date.now() - 72 * 3600_000;
+
+            await replayMissedInboundForConnection(conn.id, ownerUid, {
+                getConversations: () => chatStore.getConversations(),
+                loadChatHistory: (conversationId, limit) =>
+                    chatStore.loadChatHistory(conversationId, limit, true),
+                getLastClosedAt: () => windowStart,
+                processInbound: processInboundAutomationMessage,
+                log: (msg, payload) => log('info', msg, payload),
+            });
+        }
+
+        log('info', '[BootReplay] Boot replay concluído');
+    } catch (e: unknown) {
+        log('warn', '[BootReplay] Erro no boot replay', {
+            error: e instanceof Error ? e.message : String(e),
+        });
+    }
+}
+
 // ──── Persistência de Runtime de Campanha no Redis ────────────────────────────
 const CAMPAIGN_RUNTIME_TTL_SECS = 24 * 3600; // 24h
 
@@ -7650,6 +7731,11 @@ export function init(socketIO: SocketIOServer) {
         webhookUrl: evolutionConfig.webhookUrl,
     });
 
+    // Lê o heartbeat antes de atualizar para saber quando o servidor foi visto pela última vez.
+    const lastHeartbeatP = readLastServerHeartbeat();
+    void updateServerHeartbeat();
+    startHeartbeatTimer();
+
     void normalizeConnectionOwnersInSettings().then(async () => {
         healAllOrphanConnectionOwners();
         const pruned = chatStore.pruneConversationsWithoutResolvableOwner(resolveOwnerUid);
@@ -7675,6 +7761,11 @@ export function init(socketIO: SocketIOServer) {
         // Segundo hydrate removido: chamada duplicada causava pico de POST /instance/connect
         // (ensureGoInstanceWebhook) em todos os chips do boot — candidato #1 ao crash do Evolution Go.
         healAllGenericConnectionFriendlyNames();
+
+        // Boot replay: processa respostas recebidas enquanto o ZapMass estava offline
+        // (chip permaneceu open, webhooks não foram entregues)
+        void lastHeartbeatP.then((lh) => runBootInboundReplay(lh));
+
         return reconcileConnectionHealth();
     });
     if (!connectionHealthTimer) {

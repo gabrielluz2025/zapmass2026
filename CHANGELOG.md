@@ -11,6 +11,19 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.38] — 2026-08-28
+
+### Fix: boot replay — respostas perdidas durante downtime do ZapMass
+
+Quando o servidor ZapMass caía enquanto o chip WhatsApp permanecia `open`, os webhooks de respostas dos contatos não eram reenviados pela Evolution. Ao voltar, nenhum replay era disparado pois o chip nunca ficou `close`.
+
+Corrigido com dois mecanismos:
+- **Heartbeat Redis** (`zapmass:server:last_heartbeat`): atualizado a cada 5 min; TTL 48h para sobreviver restarts
+- **Boot replay**: ao inicializar, lê o último heartbeat e para cada chip `open` durante o downtime (cujo `lastClosedAt` é anterior ao heartbeat), executa `replayMissedInboundForConnection` com janela a partir do último heartbeat − 10 min
+- Chips que sofreram reconexão (própria queda do WA) já eram cobertos pelo replay de reconexão — não há duplicidade
+
+---
+
 ## [2.3.37] — 2026-08-28
 
 ### Feature: Edição de campanhas existentes

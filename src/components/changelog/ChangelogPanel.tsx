@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.38',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'Boot replay: ao reiniciar o servidor, respostas recebidas durante o downtime são reprocessadas automaticamente no fluxo de resposta' },
+      { type: 'fix', text: 'Heartbeat Redis salvo a cada 5 min — permite calcular a janela exata de mensagens perdidas durante queda do ZapMass' },
+    ],
+  },
+  {
     version: '2.3.37',
     date: '28/08/2026',
     highlights: [
