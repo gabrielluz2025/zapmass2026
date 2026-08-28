@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.28',
+    date: '28/08/2026',
+    highlights: [
+      { type: 'fix', text: 'Evolution Go cai sem reiniciar: container antigo mantinha restart:unless-stopped — agora corrigido via docker update no deploy' },
+      { type: 'feat', text: 'Watchdog do Evolution Go: cron a cada 2min reinicia container automaticamente se cair' },
+      { type: 'feat', text: 'deploy/vps-deploy.sh: aplica restart=always e instala watchdog em todo deploy' },
+    ],
+  },
+  {
     version: '2.3.27',
     date: '28/08/2026',
     highlights: [

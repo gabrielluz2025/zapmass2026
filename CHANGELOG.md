@@ -11,6 +11,19 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.28] — 2026-08-28
+
+### Fix: Evolution Go cai e não sobe automaticamente na produção
+
+**Root cause:** O container `zapmass-evolution-go` foi criado com política `restart: unless-stopped` antes da correção em `docker-compose.yml` (que mudou para `restart: always`). Como o `docker compose up -d --build` só recria serviços que mudaram de imagem, o container antigo manteve a política desatualizada — ao cair, Docker não reiniciava.
+
+**Correções:**
+- `deployment/watchdog-evolution-go.sh`: novo script que monitora `zapmass-evolution-go` e `zapmass-evolution-go-homolog`, reinicia via `docker start` ou `docker compose up` se cair.
+- `deployment/install-evolution-go-watchdog.sh`: instala o watchdog no cron do sistema a cada **2 minutos**.
+- `deployment/vps-deploy.sh`: após o deploy, aplica `restart: always` nos containers existentes via `docker update` (sem recriar) e instala o watchdog automaticamente.
+
+---
+
 ## [2.3.27] — 2026-08-28
 
 ### Fix: aba de acompanhamento do disparo e fluxo por resposta
