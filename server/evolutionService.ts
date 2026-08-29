@@ -1269,9 +1269,10 @@ async function isConnectionOpen(instanceName: string): Promise<boolean> {
         }
         return true;
     } else {
-        if (mem && mem.status === 'open') {
-            applyConnectionStateUpdate(instanceName, 'close', {});
-        }
+        // Não chamar applyConnectionStateUpdate('close') aqui: uma falha isolada de probe
+        // (Evolution Go sobrecarregado, timeout, etc.) NÃO é suficiente para marcar o chip
+        // como offline e disparar auto-reconnect. O reconcileConnectionHealth e os webhooks
+        // CONNECTION_UPDATE cuidam da transição open→close de forma mais confiável.
         return false;
     }
 }
@@ -7666,13 +7667,30 @@ async function reconcileConnectionHealth() {
     );
     await Promise.all(
         entries.map(async ([id, conn]) => {
+            const memState = conn.status;
+            const paired = Boolean(conn.phoneNumber?.trim());
+
+            // ── Chips OPEN: nunca usar cache de probe — pode estar obsoleto (close falso). ──
+            // Um cache de 'close' de segundos atrás dispararia applyStateUpdate(close) → reconnect
+            // desnecessário. Faz probe fresco; em erro de rede/timeout confia na RAM (não baixa).
+            if (memState === 'open') {
+                const freshState = await getConnectionState(id, {
+                    timeoutMs: CONNECTION_STATE_PROBE_TIMEOUT_MS,
+                    skipCache: true,
+                }).catch(() => 'open'); // erro de rede ≠ chip offline → confia na RAM
+                if (!isEvolutionOpenState(freshState)) {
+                    log('info', `Health reconcile ${id}: mem=open probe=${freshState} — rebaixando`);
+                    applyConnectionStateUpdate(id, freshState === 'connecting' ? 'connecting' : 'close', {});
+                }
+                return;
+            }
+
+            // ── Chips não-open: usa cache para evitar flood de probes ──
             const cached = readCachedConnectionState(id, 12_000);
             const apiState = (
                 cached ??
                 (await getConnectionState(id, { timeoutMs: CONNECTION_STATE_PROBE_TIMEOUT_MS }))
             ).toLowerCase();
-            const memState = conn.status;
-            const paired = Boolean(conn.phoneNumber?.trim());
 
             if (isEvolutionOpenState(apiState) && memState !== 'open') {
                 applyConnectionStateUpdate(id, 'open', {});
@@ -7690,12 +7708,6 @@ async function reconcileConnectionHealth() {
                     applyConnectionStateUpdate(id, 'close', {});
                     if (paired) scheduleEvolutionAutoReconnect(id);
                 }
-                return;
-            }
-
-            if (memState === 'open' && !isEvolutionOpenState(apiState)) {
-                log('info', `Health reconcile ${id}: mem=open api=${apiState}`);
-                applyConnectionStateUpdate(id, apiState === 'connecting' ? 'connecting' : 'close', {});
                 return;
             }
 

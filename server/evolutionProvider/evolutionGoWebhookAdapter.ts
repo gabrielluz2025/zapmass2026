@@ -175,9 +175,11 @@ function normalizeGoEventData(eventName: string, data: unknown): unknown {
             };
         case 'Connected':
         case 'PairSuccess':
+            // Ambos os eventos significam que o chip ESTÁ conectado — sempre 'open'.
+            // Antes: row.status !== 'open' mapeava Connected → 'close', causando reconnect loop.
             return {
-                state: row.status === 'open' || eventName === 'PairSuccess' ? 'open' : 'close',
-                status: row.status ?? (eventName === 'PairSuccess' ? 'open' : 'close'),
+                state: 'open',
+                status: 'open',
                 instance: { state: 'open' },
                 jid: row.jid ?? row.ID,
                 owner: row.jid ?? row.ID,

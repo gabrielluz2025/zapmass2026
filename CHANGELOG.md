@@ -11,6 +11,21 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.39] — 2026-08-29
+
+### Fix crítico: conexões caindo e voltando em loop (3 causas raiz)
+
+**Causa 1 — Go adapter: evento `Connected` mapeava para `close`**
+O adaptador do Evolution Go convertia o evento `Connected` para estado `close` quando `row.status` não era exatamente `'open'`. Como `Connected` semanticamente significa "chip conectado", o estado correto é sempre `open`. Isso causava: webhook Connected → close → auto-reconnect → reconnect → Connected → loop.
+
+**Causa 2 — `reconcileConnectionHealth` usava cache de probe obsoleto para derrubar chips `open`**
+O reconcile rodava a cada 120s e lia o cache de último probe (TTL 12s). Se um probe anterior tinha retornado `close` (erro transitório, Evolution Go lento), o cache era usado para marcar o chip como `close` sem nova verificação HTTP — disparando auto-reconnect desnecessário. Fix: para chips com `memState === 'open'`, o reconcile agora sempre faz um probe fresco; em erro de rede/timeout, confia na RAM (não baixa o estado).
+
+**Causa 3 — `isConnectionOpen` chamava `applyConnectionStateUpdate('close')` por falha isolada**
+Durante o dispatch de campanhas, `isConnectionOpen` fazia um probe HTTP. Se o Evolution Go estivesse sobrecarregado por 1 segundo, o probe falhava → chip marcado `close` → auto-reconnect disparado. Fix: `isConnectionOpen` não altera mais o estado do chip para `close`; a transição `open→close` fica exclusivamente sob responsabilidade dos webhooks `CONNECTION_UPDATE` e do `reconcileConnectionHealth`.
+
+---
+
 ## [2.3.38] — 2026-08-28
 
 ### Fix: boot replay — respostas perdidas durante downtime do ZapMass

@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.39',
+    date: '29/08/2026',
+    highlights: [
+      { type: 'fix', text: 'Go adapter: evento Connected agora sempre mapeia para open — eliminado loop de reconexão causado por Connected→close→reconnect' },
+      { type: 'fix', text: 'reconcileConnectionHealth: chips open usam probe fresco (skip cache) — cache de probe obsoleto não derruba mais chips conectados' },
+      { type: 'fix', text: 'isConnectionOpen: falha isolada de probe não marca mais o chip como offline — transição open→close exclusiva de webhooks e reconcile' },
+    ],
+  },
+  {
     version: '2.3.38',
     date: '28/08/2026',
     highlights: [
