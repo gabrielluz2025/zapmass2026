@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.40',
+    date: '29/08/2026',
+    highlights: [
+      { type: 'fix', text: 'reconcileConnectionHealth: double-probe antes de rebaixar chip open — estado transitório do Evolution Go (keep-alive, OfflineSync) não gera mais reconexão falsa' },
+      { type: 'fix', text: 'ensureGoInstanceWebhook: POST /instance/connect ignorado se chip já está open — eliminada transição connecting falsa que acionava o probe acima' },
+    ],
+  },
+  {
     version: '2.3.39',
     date: '29/08/2026',
     highlights: [

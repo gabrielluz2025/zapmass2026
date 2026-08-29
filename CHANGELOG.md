@@ -11,6 +11,18 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.40] — 2026-08-29
+
+### Fix crítico: conexões continuavam oscilando após v2.3.39 (2 causas raiz adicionais)
+
+**Causa 4 — `reconcileConnectionHealth` rebaixava chip por probe único transitório**
+O reconcile fazia um único probe HTTP com `skipCache:true` para chips `open`. Se o Evolution Go retornasse `connecting` ou `close` por motivo transitório (keep-alive do WA, janela pós-`/instance/connect`, OfflineSyncCompleted), o chip era imediatamente rebaixado → auto-reconnect disparava → chip reconectava → UI mostrava "caindo e voltando". Fix: implementado double-probe com 8s de intervalo. Só rebaixa se DOIS probes consecutivos concordam; se o segundo retornar `open`, descarta o false-close.
+
+**Causa 5 — `ensureGoInstanceWebhook` chamava `POST /instance/connect` em chips já conectados**
+A cada hydrate (debounce 30s/chip), `ensureGoInstanceWebhook` chamava `POST /instance/connect` mesmo para chips com `status === 'open'`. No Evolution Go, esse endpoint pode causar uma transição breve para `connecting` antes de retornar ao estado `open`. Nessa janela transitória, o probe do reconcile capturava `connecting` e desencadeava o ciclo de oscilação. Fix: `ensureGoInstanceWebhook` retorna imediatamente se `memStatus === 'open'`.
+
+---
+
 ## [2.3.39] — 2026-08-29
 
 ### Fix crítico: conexões caindo e voltando em loop (3 causas raiz)

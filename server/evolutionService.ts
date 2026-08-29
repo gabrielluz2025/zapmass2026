@@ -4687,6 +4687,14 @@ async function ensureGoInstanceWebhook(instanceName: string): Promise<void> {
     if (!connections.has(instanceName) && !getGoInstanceUuid(instanceName)) return;
     const last = _webhookEnsureLastRun.get(instanceName) ?? 0;
     if (Date.now() - last < WEBHOOK_ENSURE_MIN_INTERVAL_MS) return;
+
+    // Não chamar /instance/connect em chips já conectados: no Evolution Go, esse endpoint
+    // pode causar transição breve para 'connecting' → o reconcileConnectionHealth captura
+    // o estado intermediário e dispara um reconnect desnecessário (oscilação abrir/fechar).
+    // Chips open já têm webhook registrado; só precisamos reaplicar após close/restart.
+    const memStatus = connections.get(instanceName)?.status;
+    if (memStatus === 'open') return;
+
     _webhookEnsureLastRun.set(instanceName, Date.now());
     try {
         await api.post(`/instance/connect/${evoInst(instanceName)}`, {});
@@ -7670,18 +7678,35 @@ async function reconcileConnectionHealth() {
             const memState = conn.status;
             const paired = Boolean(conn.phoneNumber?.trim());
 
-            // ── Chips OPEN: nunca usar cache de probe — pode estar obsoleto (close falso). ──
-            // Um cache de 'close' de segundos atrás dispararia applyStateUpdate(close) → reconnect
-            // desnecessário. Faz probe fresco; em erro de rede/timeout confia na RAM (não baixa).
+            // ── Chips OPEN: double-probe antes de rebaixar ──
+            // Um único probe pode retornar 'connecting'/'close' por razão transitória:
+            // • POST /instance/connect (ensureGoInstanceWebhook) brevemente altera estado interno
+            // • keep-alive do WA, OfflineSync, restart parcial do Evolution Go
+            // Só rebaixamos se DOIS probes consecutivos (intervalo ≥8s) concordam que não é open.
+            // Erro de rede/timeout em qualquer dos dois → confia na RAM, não baixa.
             if (memState === 'open') {
-                const freshState = await getConnectionState(id, {
+                const probe1 = await getConnectionState(id, {
                     timeoutMs: CONNECTION_STATE_PROBE_TIMEOUT_MS,
                     skipCache: true,
-                }).catch(() => 'open'); // erro de rede ≠ chip offline → confia na RAM
-                if (!isEvolutionOpenState(freshState)) {
-                    log('info', `Health reconcile ${id}: mem=open probe=${freshState} — rebaixando`);
-                    applyConnectionStateUpdate(id, freshState === 'connecting' ? 'connecting' : 'close', {});
+                }).catch(() => 'open');
+                if (isEvolutionOpenState(probe1)) return; // chip confirmado open
+
+                // Primeiro probe retornou não-open — aguarda e confirma antes de rebaixar
+                await sleep(8_000);
+                // Verifica se outro caminho (webhook CONNECTION_UPDATE) já restaurou o estado
+                const memAfterWait = connections.get(id)?.status;
+                if (memAfterWait === 'open') return; // webhook chegou enquanto aguardávamos
+
+                const probe2 = await getConnectionState(id, {
+                    timeoutMs: CONNECTION_STATE_PROBE_TIMEOUT_MS,
+                    skipCache: true,
+                }).catch(() => 'open');
+                if (isEvolutionOpenState(probe2)) {
+                    log('info', `Health reconcile ${id}: probe1=${probe1} probe2=open — descartando false-close`);
+                    return;
                 }
+                log('info', `Health reconcile ${id}: mem=open probe1=${probe1} probe2=${probe2} — rebaixando`);
+                applyConnectionStateUpdate(id, probe2 === 'connecting' ? 'connecting' : 'close', {});
                 return;
             }
 
