@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.45',
+    date: '01/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Watchdog do Evolution Go não reinicia mais o container saudável (404/401 sem API key) — chips deixam de cair a cada ~2 min após o deploy' },
+    ],
+  },
+  {
     version: '2.3.44',
     date: '01/09/2026',
     highlights: [

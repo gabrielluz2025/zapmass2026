@@ -11,6 +11,17 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.45] — 2026-09-01
+
+### Fix: watchdog reiniciava o Evolution Go saudável e derrubava os chips
+
+O healthcheck do Docker já trata `401` em `/instance/all` como “online” (sem API key). O watchdog fazia `curl -f` em `/`, que devolve `404`, e interpretava isso como queda — restart a cada ~2 minutos depois dos 90s de graça.
+
+- Probe alinhado ao compose: `/instance/all` com HTTP 200/401/403 = vivo.
+- Evita loop de restart que disparava anti-ban e toast de queda na aba Conexões.
+
+---
+
 ## [2.3.44] — 2026-09-01
 
 ### Fix: toast `invalid UUID format: invalid UUID length: 20` na aba Conexões

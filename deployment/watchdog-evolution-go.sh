@@ -51,12 +51,20 @@ check_and_fix() {
       fi
     fi
 
-    # Probe HTTP rápido
+    # Mesmo critério do healthcheck do compose: GET /instance/all.
+    # GET / devolve 404 e /instance/all sem API key devolve 401 — os dois significam
+    # que o processo está no ar. curl -f trata 4xx como falha e reiniciava o Go
+    # (chips WhatsApp caíam a cada ~2 min após o grace de 90s).
     local http_ok=0
-    if curl -sf --max-time 5 "http://127.0.0.1:${port}/" >/dev/null 2>&1; then
-      http_ok=1
-    elif wget -qO- --timeout=5 "http://127.0.0.1:${port}/" >/dev/null 2>&1; then
-      http_ok=1
+    local code=""
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${port}/instance/all" 2>/dev/null || true)"
+    case "$code" in
+      200|401|403) http_ok=1 ;;
+    esac
+    if [ "$http_ok" != "1" ]; then
+      if wget -SO- --timeout=5 "http://127.0.0.1:${port}/instance/all" 2>&1 | grep -qE 'HTTP/[0-9.]+ (200|401|403)'; then
+        http_ok=1
+      fi
     fi
 
     if [ "$http_ok" = "1" ]; then
