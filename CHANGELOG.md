@@ -11,6 +11,18 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.42] — 2026-09-01
+
+### Fix: disparo recusava chips visivelmente online ("Evolution sem conexão ativa")
+
+A tela de Conexões marca o chip **Online** pelo webhook `Connected`, mas o início da campanha ignorava esse estado e consultava de novo o Evolution Go. O payload Go usa `Connected`/`LoggedIn` (PascalCase) e envelopes `status: "success"` — o parser lia `"success"` como se fosse o estado da sessão e concluía que nenhum chip estava ativo.
+
+- Parser agora ignora envelopes HTTP e reconhece `Connected` / `LoggedIn` / `online`.
+- Se o webhook já disse `open`, o disparo não descarta o chip só porque o probe HTTP falhou ou veio ambíguo.
+- Lista `/instance/all` também casa instância pelo UUID Go, não só pelo nome `conn_*`.
+
+---
+
 ## [2.3.41] — 2026-09-01
 
 ### Feature: bônus de canais configurável pelo admin (acima do teto de 5)

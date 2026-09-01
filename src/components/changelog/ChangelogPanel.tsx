@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.42',
+    date: '01/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Disparo não recusa mais chips Online: parser Go reconhece Connected/LoggedIn e ignora status:success' },
+      { type: 'fix', text: 'Se o webhook já marcou o canal open, falha isolada do probe HTTP não bloqueia a campanha' },
+    ],
+  },
+  {
     version: '2.3.41',
     date: '01/09/2026',
     highlights: [

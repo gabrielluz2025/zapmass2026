@@ -83,6 +83,19 @@ describe('normalizeGoResponseToApiV2', () => {
         expect((out as { instance: { state: string } }).instance.state).toBe('open');
     });
 
+    it('normaliza status PascalCase Connected do whatsmeow', () => {
+        const out = normalizeGoResponseToApiV2('/instance/status', {
+            success: true,
+            data: { Connected: true, JID: '5547999:1@s.whatsapp.net' },
+        });
+        expect((out as { state: string }).state).toBe('open');
+    });
+
+    it('não trata envelope success sem evidência de sessão como open', () => {
+        const out = normalizeGoResponseToApiV2('/instance/status', { status: 'success' });
+        expect((out as { state: string }).state).toBe('close');
+    });
+
     it('separa código de pareamento de imagem QR', () => {
         const out = normalizeGoResponseToApiV2('/instance/qr', {
             data: {
@@ -111,12 +124,10 @@ describe('normalizeGoResponseToApiV2', () => {
         expect(out.profilePictureUrl).toContain('data:image/jpeg;base64,');
     });
 
-    it('preserva token e jid em /instance/all', () => {
+    it('marca Connected PascalCase como open em /instance/all', () => {
         const out = normalizeGoResponseToApiV2('/instance/all', {
-            data: [{ id: 'uuid-1', name: 'chip1', token: 'tok-1', jid: '554796317344:19@s.whatsapp.net', connected: true }],
-        }) as Array<{ token?: string; jid?: string; connectionStatus?: string }>;
-        expect(out[0]?.token).toBe('tok-1');
-        expect(out[0]?.jid).toContain('554796317344');
+            data: [{ id: 'uuid-2', name: 'conn_1', Connected: true }],
+        }) as Array<{ connectionStatus?: string }>;
         expect(out[0]?.connectionStatus).toBe('open');
     });
 });

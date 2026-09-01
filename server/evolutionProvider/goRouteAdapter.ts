@@ -1,5 +1,6 @@
 import type { InternalAxiosRequestConfig } from 'axios';
 import { evolutionEngineConfig } from '../evolutionEngineConfig.js';
+import { goPayloadLooksConnected } from '../evolutionOpenState.js';
 
 export type InstanceTokenStore = {
     getToken: (instanceId: string) => string | undefined;
@@ -333,14 +334,7 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
         const wrapped = data as { data?: unknown[] };
         const list = Array.isArray(wrapped?.data) ? wrapped.data : Array.isArray(data) ? data : [];
         return list.map((row: Record<string, unknown>) => {
-            const rowStateStr = String(row.state || row.status || row.connectionStatus || '').toLowerCase().trim();
-            const rowConnected =
-                row.connected === true ||
-                String(row.connected).toLowerCase() === 'true' ||
-                rowStateStr === 'open' ||
-                rowStateStr === 'connected' ||
-                rowStateStr === 'online' ||
-                rowStateStr === 'available';
+            const rowConnected = goPayloadLooksConnected(row);
             const rowState = rowConnected ? 'open' : 'close';
             return {
                 name: row.name || row.instanceName,
@@ -386,15 +380,8 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
     if (path.includes('/instance/status')) {
         const wrapped = data as { data?: Record<string, unknown> };
         const st = wrapped?.data || (data as Record<string, unknown>);
-        // Aceita todas as variações de estado "conectado" do Evolution Go / whatsmeow
-        const stateStr = String(st?.state || st?.status || st?.connectionStatus || '').toLowerCase().trim();
-        const connected =
-            st?.connected === true ||
-            String(st?.connected).toLowerCase() === 'true' ||
-            stateStr === 'open' ||
-            stateStr === 'connected' ||
-            stateStr === 'online' ||
-            stateStr === 'available';
+        // Aceita camelCase e PascalCase (Connected / LoggedIn) do Evolution Go / whatsmeow
+        const connected = goPayloadLooksConnected(st) || goPayloadLooksConnected(data);
         const state = connected ? 'open' : 'close';
         return {
             state,

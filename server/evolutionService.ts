@@ -206,7 +206,7 @@ import {
     buildCampaignOwnerLookupUids,
 } from './campaignTenantScope.js';
 import type { Server as SocketIOServer } from 'socket.io';
-import { isEvolutionOpenState } from './evolutionOpenState.js';
+import { isEvolutionOpenState, parseConnectionStatePayload } from './evolutionOpenState.js';
 import { formatEvolutionHttpError } from './evolutionChatSend.js';
 import type { CampaignStageConfig } from '../src/types.js';
 import {
@@ -1163,35 +1163,6 @@ function resolveInstanceName(raw: unknown): string {
     return '';
 }
 
-function parseConnectionStatePayload(data: unknown): string {
-    if (!data || typeof data !== 'object') return 'close';
-    const row = data as Record<string, unknown>;
-    if (row.connected === true) return 'open';
-    for (const key of ['state', 'connectionStatus', 'status'] as const) {
-        const v = row[key];
-        if (typeof v === 'string' && v.trim()) return v;
-    }
-    const nested = row.instance;
-    if (nested && typeof nested === 'object') {
-        const inst = nested as Record<string, unknown>;
-        if (inst.connected === true) return 'open';
-        for (const key of ['state', 'connectionStatus', 'status'] as const) {
-            const v = inst[key];
-            if (typeof v === 'string' && v.trim()) return v;
-        }
-    }
-    const wrapped = row.data;
-    if (wrapped && typeof wrapped === 'object') {
-        const inner = wrapped as Record<string, unknown>;
-        if (inner.connected === true) return 'open';
-        for (const key of ['state', 'status'] as const) {
-            const v = inner[key];
-            if (typeof v === 'string' && v.trim()) return v;
-        }
-    }
-    return 'close';
-}
-
 const connectionStateCache = new Map<string, { state: string; at: number }>();
 const CONNECTION_STATE_CACHE_TTL_MS = 15_000;
 /** Probe curto em health checks — evita bloquear o event loop por 30s × N canais. */
@@ -1253,28 +1224,32 @@ async function isConnectionOpen(instanceName: string): Promise<boolean> {
     try {
         apiState = (await getConnectionState(instanceName, { skipCache: true, timeoutMs: CONNECTION_STATE_PROBE_TIMEOUT_MS }))
             .toLowerCase();
-    } catch (err: unknown) {
-        // Falha de rede ou 4xx: chip provavelmente inexistente/inválido.
-        // Cacheamos como false por 30s para evitar flood de requisições repetidas.
-        lastConnectionStateCheck.set(instanceName, { state: false, at: now - 15_000 + 30_000 });
+    } catch {
+        // Erro de rede: se a RAM (webhook) já diz open, o chip está ativo — não bloquear disparo.
+        if (mem?.status === 'open') {
+            lastConnectionStateCheck.set(instanceName, { state: true, at: now });
+            return true;
+        }
+        lastConnectionStateCheck.set(instanceName, { state: false, at: now });
         return false;
     }
-    
-    const isOpen = isEvolutionOpenState(apiState);
-    lastConnectionStateCheck.set(instanceName, { state: isOpen, at: now });
 
+    const isOpen = isEvolutionOpenState(apiState);
     if (isOpen) {
+        lastConnectionStateCheck.set(instanceName, { state: true, at: now });
         if (mem && mem.status !== 'open') {
             applyConnectionStateUpdate(instanceName, 'open', {});
         }
         return true;
-    } else {
-        // Não chamar applyConnectionStateUpdate('close') aqui: uma falha isolada de probe
-        // (Evolution Go sobrecarregado, timeout, etc.) NÃO é suficiente para marcar o chip
-        // como offline e disparar auto-reconnect. O reconcileConnectionHealth e os webhooks
-        // CONNECTION_UPDATE cuidam da transição open→close de forma mais confiável.
-        return false;
     }
+    // Probe HTTP não confirmou open. Webhook/RAM ainda pode estar certo (parser Go
+    // às vezes devolve envelope "success" ou Connected em PascalCase).
+    if (mem?.status === 'open') {
+        lastConnectionStateCheck.set(instanceName, { state: true, at: now });
+        return true;
+    }
+    lastConnectionStateCheck.set(instanceName, { state: false, at: now });
+    return false;
 }
 
 function parseConnectionStateFromData(data: unknown): string {
@@ -4524,15 +4499,16 @@ function ensureNurtureEnqueue() {
 async function filterActiveConnections(connectionIds: string[]): Promise<string[]> {
     const active: string[] = [];
     for (const connId of connectionIds) {
-        // Evolution Go: sempre probar HTTP — RAM pode estar desatualizada após restart do container
-        // Evolution API: aceitar RAM 'open' para evitar latência
-        const openByRam = !isEvolutionGoEngine() && connections.get(connId)?.status === 'open';
-        if (openByRam) {
+        const ramOpen = connections.get(connId)?.status === 'open';
+        // Webhook Connected já marcou o chip na RAM: incluir sem esperar probe HTTP
+        // (o parser Go costumava recusar chips visivelmente Online).
+        if (ramOpen) {
             active.push(connId);
             continue;
         }
-        if (await isConnectionOpen(connId)) active.push(connId);
-        else {
+        if (await isConnectionOpen(connId)) {
+            active.push(connId);
+        } else {
             emitCampaignLog('WARN', `Canal excluído do disparo (indisponível): ${connId}`, { connectionId: connId });
         }
         // Stagger mínimo entre probes: evita burst de N requests simultâneos ao Evolution Go.
@@ -4787,12 +4763,16 @@ async function probeGoConnectionStateFromInstanceList(instanceName: string): Pro
     if (!isEvolutionGoEngine()) return null;
     try {
         const list = await fetchGoInstanceList();
+        const goUuid = getGoInstanceUuid(instanceName);
         for (const item of list) {
             if (!item || typeof item !== 'object') continue;
             const row = item as Record<string, unknown>;
             const name = String(row.name || row.instanceName || '').trim();
-            if (name !== instanceName) continue;
-            if (row.connected === true || row.connectionStatus === 'open') return 'open';
+            const id = String(row.id || row.instanceId || '').trim();
+            if (name !== instanceName && id !== instanceName && !(goUuid && id === goUuid)) continue;
+            if (row.connected === true || row.connectionStatus === 'open' || isEvolutionOpenState(row.connectionStatus)) {
+                return 'open';
+            }
             const parsed = parseConnectionStatePayload(row);
             return parsed || 'close';
         }
@@ -7413,7 +7393,8 @@ export async function startCampaign(
 
     const activeConnectionIds = await filterActiveConnections(connectionIds);
     if (activeConnectionIds.length === 0) {
-        const connErr = 'Nenhum chip respondeu — reconecte o WhatsApp no painel de Conexões e tente de novo.';
+        const connErr =
+            'Nenhum chip ativo no Evolution. Abra Conexões, confirme o status Online (F5) e tente de novo. Se os canais já estão verdes, aguarde 10s e dispare novamente.';
         emitCampaignLog('ERROR', connErr, { campaignId: cid }, ownerUid);
         throw new Error(connErr);
     }
