@@ -48,6 +48,7 @@ import { isPlatformAdminUser } from '../utils/adminAccess';
 import {
   getMaxConnectionSlotsForUser,
   countAccountScopedConnections,
+  adminGrantedBonusChannelSlots,
   MAX_CHANNELS_TOTAL
 } from '../utils/connectionLimitPolicy';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
@@ -122,6 +123,10 @@ export const ConnectionsTab: React.FC = () => {
   const maxConnectionSlots = useMemo(
     () => getMaxConnectionSlotsForUser(subscription, isAdmin),
     [subscription, isAdmin]
+  );
+  const adminChannelBonus = useMemo(
+    () => adminGrantedBonusChannelSlots(subscription),
+    [subscription]
   );
   const scopedCount = useMemo(
     () => countAccountScopedConnections(connections, user?.uid ?? null),
@@ -608,7 +613,9 @@ export const ConnectionsTab: React.FC = () => {
             <p className="ui-caption">
               {isAdmin
                 ? `Conta admin: teto de ${MAX_CHANNELS_TOTAL} canais.`
-                : `Seu plano libera até ${maxConnectionSlots} (máximo do produto: ${MAX_CHANNELS_TOTAL}).`}
+                : adminChannelBonus > 0
+                  ? `Seu plano libera até ${maxConnectionSlots} canais (inclui bônus de +${adminChannelBonus} concedido pelo suporte).`
+                  : `Seu plano libera até ${maxConnectionSlots} (máximo do produto: ${MAX_CHANNELS_TOTAL}).`}
             </p>
           </div>
           {needChannelExtraPurchase && (

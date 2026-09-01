@@ -24,6 +24,8 @@ export type AdminUserAccessRow = {
   includedChannels: number;
   manualExtraChannelSlots: number;
   manualExtraChannelSlotsEndsAt: string | null;
+  /** Bônus permanente de canais (admin) — soma acima do teto de 5. */
+  adminBonusChannelSlots: number;
   adminNote: string;
   updatedAt: string | null;
 };
@@ -52,6 +54,8 @@ export type AdminAccessUserPutBody = {
   channelGrantMode?: 'set' | 'extend';
   /** Canais do plano (1–5). Usado em Gestão manual / ajuste administrativo. */
   includedChannels?: number | null;
+  /** Bônus permanente de canais (0–100). Soma acima do teto de 5 do produto. */
+  adminBonusChannelSlots?: number | null;
   adminNote?: string;
   /** Admin define senha do cliente sem e-mail de reset (quando Resend está off). */
   newPassword?: string;
@@ -95,6 +99,10 @@ export function docToAdminAccessRow(
       Math.min(3, Math.floor(Number(data?.manualExtraChannelSlots) || 0))
     ),
     manualExtraChannelSlotsEndsAt: tsToIso(data?.manualExtraChannelSlotsEndsAt),
+    adminBonusChannelSlots: Math.max(
+      0,
+      Math.min(100, Math.floor(Number(data?.adminBonusChannelSlots) || 0))
+    ),
     adminNote: typeof data?.adminNote === 'string' ? data.adminNote : '',
     updatedAt: tsToIso(data?.updatedAt)
   };
@@ -237,6 +245,7 @@ export async function listAdminAccessUsers(
           includedChannels: 0,
           manualExtraChannelSlots: 0,
           manualExtraChannelSlotsEndsAt: null,
+          adminBonusChannelSlots: 0,
           adminNote: '',
           updatedAt: null
         });
@@ -382,6 +391,13 @@ export function buildAdminAccessUpdates(
     if (curN <= 1) updates.includedChannels = 5;
   }
 
+  if (body.adminBonusChannelSlots != null) {
+    updates.adminBonusChannelSlots = Math.max(
+      0,
+      Math.min(100, Math.floor(Number(body.adminBonusChannelSlots) || 0))
+    );
+  }
+
   return updates;
 }
 
@@ -394,6 +410,9 @@ function inferAdminAccessAction(body: AdminAccessUserPutBody): string {
   }
   if (body.includedChannels != null) {
     return 'set-included-channels';
+  }
+  if (body.adminBonusChannelSlots != null) {
+    return Number(body.adminBonusChannelSlots) > 0 ? 'grant-admin-channel-bonus' : 'revoke-admin-channel-bonus';
   }
   if (typeof body.manualGrant === 'boolean') {
     return body.manualGrant

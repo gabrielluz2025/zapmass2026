@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.41',
+    date: '01/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Admin pode conceder bônus permanente de canais por usuário (acima do teto de 5) — Centro de acessos → Ações → Bônus de canais' },
+      { type: 'feat', text: 'Campo adminBonusChannelSlots: plano 5 + bônus 10 = até 15 canais para o cliente selecionado' },
+    ],
+  },
+  {
     version: '2.3.40',
     date: '29/08/2026',
     highlights: [

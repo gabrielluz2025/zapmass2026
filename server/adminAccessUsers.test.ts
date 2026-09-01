@@ -67,4 +67,24 @@ describe('buildAdminAccessUpdates', () => {
     expect(u.manualGrant).toBe(false);
     expect(u.includedChannels).toBeUndefined();
   });
+
+  it('define bônus permanente de canais acima do teto de 5', () => {
+    const u = buildAdminAccessUpdates(
+      { adminBonusChannelSlots: 15 },
+      { status: 'active', includedChannels: 5 },
+      'admin@zap-mass.com',
+      true
+    );
+    expect(u.adminBonusChannelSlots).toBe(15);
+  });
+
+  it('revoga bônus de canais com zero', () => {
+    const u = buildAdminAccessUpdates(
+      { adminBonusChannelSlots: 0 },
+      { status: 'active', adminBonusChannelSlots: 10 },
+      'admin@zap-mass.com',
+      true
+    );
+    expect(u.adminBonusChannelSlots).toBe(0);
+  });
 });

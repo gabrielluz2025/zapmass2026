@@ -11,6 +11,17 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.41] — 2026-09-01
+
+### Feature: bônus de canais configurável pelo admin (acima do teto de 5)
+
+- Novo campo `adminBonusChannelSlots` na assinatura do usuário — soma permanente acima do teto padrão de 5 canais do produto.
+- Painel Admin → Centro de acessos → aba **Ações** do usuário: campo **Bônus de canais (admin)** (0–100).
+- Exemplo: plano 5 + bônus 10 = até 15 canais WhatsApp para aquele cliente.
+- Limite padrão do produto (5) permanece inalterado para todos os demais usuários.
+
+---
+
 ## [2.3.40] — 2026-08-29
 
 ### Fix crítico: conexões continuavam oscilando após v2.3.39 (2 causas raiz adicionais)

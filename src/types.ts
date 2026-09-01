@@ -414,6 +414,8 @@ export interface UserSubscription {
   manualExtraChannelSlots?: number;
   /** Vencimento da liberação manual de canais extras. */
   manualExtraChannelSlotsEndsAt?: unknown;
+  /** Bônus permanente de canais concedido pelo admin (acima do teto de 5 do produto). */
+  adminBonusChannelSlots?: number;
   updatedAt?: unknown;
 }
 

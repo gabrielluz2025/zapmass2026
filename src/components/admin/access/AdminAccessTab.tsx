@@ -137,6 +137,7 @@ export const AdminAccessTab: React.FC = () => {
   const [channelGrantDays, setChannelGrantDays] = useState('30');
   const [channelGrantMonths, setChannelGrantMonths] = useState('0');
   const [includedChannelsGrant, setIncludedChannelsGrant] = useState('5');
+  const [adminBonusChannelsGrant, setAdminBonusChannelsGrant] = useState('0');
   const [accessActionBusy, setAccessActionBusy] = useState(false);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditRows, setAuditRows] = useState<AccessAudit[]>([]);
@@ -213,6 +214,7 @@ export const AdminAccessTab: React.FC = () => {
       channelGrantMonths?: number | null;
       channelGrantMode?: 'set' | 'extend';
       includedChannels?: number | null;
+      adminBonusChannelSlots?: number | null;
       newPassword?: string;
     }
   ) => {
@@ -252,6 +254,8 @@ export const AdminAccessTab: React.FC = () => {
   const selectUser = (u: AccessUser) => {
     setSelectedUid(u.uid);
     setDetailTab('resumo');
+    setIncludedChannelsGrant(String(Math.max(1, Math.min(5, u.includedChannels || 5))));
+    setAdminBonusChannelsGrant(String(Math.max(0, u.adminBonusChannelSlots || 0)));
     void loadInsightsForUid(u.uid);
   };
 
@@ -481,8 +485,11 @@ export const AdminAccessTab: React.FC = () => {
                             {h.daysRemaining != null ? ` · ${h.daysRemaining}d` : ''}
                           </span>
                           <span className="text-slate-500 tabular-nums">
-                            {Math.max(0, Math.min(5, Math.floor(Number(u.includedChannels) || 0))) || '—'} canais
-                            {Number(u.manualExtraChannelSlots) > 0 ? ` +${u.manualExtraChannelSlots}` : ''}
+                            {Math.max(0, Math.min(5, Math.floor(Number(u.includedChannels) || 0))) || '—'} plano
+                            {Number(u.manualExtraChannelSlots) > 0 ? ` +${u.manualExtraChannelSlots} temp` : ''}
+                            {Number(u.adminBonusChannelSlots) > 0 ? (
+                              <span className="text-amber-400"> +{u.adminBonusChannelSlots} bônus</span>
+                            ) : null}
                           </span>
                         </div>
                       </div>
@@ -680,6 +687,7 @@ export const AdminAccessTab: React.FC = () => {
                       ))}
                     </div>
                     <p className="text-[10px] uppercase font-bold text-slate-500 pt-2">Canais do plano</p>
+                    <p className="text-[10px] text-slate-500">Teto padrão do produto: 5 canais. Ajuste o plano (1–5) abaixo.</p>
                     <div className="flex gap-2 items-end">
                       <input
                         type="number"
@@ -698,15 +706,62 @@ export const AdminAccessTab: React.FC = () => {
                             const n = Math.max(1, Math.min(5, Math.floor(Number(includedChannelsGrant) || 5)));
                             const updated = await updateAccessUser({ uid: selectedUser.uid, includedChannels: n });
                             setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
-                            toast.success(`${n} canal(is) aplicados.`);
+                            toast.success(`${n} canal(is) de plano aplicados.`);
                           } catch (e: unknown) {
                             toast.error(e instanceof Error ? e.message : 'Erro.');
                           }
                         }}
                       >
-                        Aplicar
+                        Aplicar plano
                       </Button>
                     </div>
+                    <p className="text-[10px] uppercase font-bold text-slate-500 pt-2">Bônus de canais (admin)</p>
+                    <p className="text-[10px] text-slate-500">
+                      Soma acima do teto de 5. Ex.: plano 5 + bônus 10 = até 15 canais. Sem prazo — permanente até revogar.
+                    </p>
+                    <div className="flex flex-wrap gap-2 items-end">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        className="ui-input w-24"
+                        value={adminBonusChannelsGrant}
+                        onChange={(e) => setAdminBonusChannelsGrant(e.target.value)}
+                        placeholder="0"
+                      />
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            const bonus = Math.max(0, Math.min(100, Math.floor(Number(adminBonusChannelsGrant) || 0)));
+                            const updated = await updateAccessUser({
+                              uid: selectedUser.uid,
+                              adminBonusChannelSlots: bonus,
+                              adminNote: bonus > 0 ? `Bônus admin: +${bonus} canal(is)` : 'Bônus de canais revogado'
+                            });
+                            setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
+                            toast.success(
+                              bonus > 0
+                                ? `Bônus de ${bonus} canal(is) aplicado. Total máx: ${Math.min(5, selectedUser.includedChannels || 5) + bonus}.`
+                                : 'Bônus de canais revogado.'
+                            );
+                          } catch (e: unknown) {
+                            toast.error(e instanceof Error ? e.message : 'Erro.');
+                          }
+                        }}
+                      >
+                        {Number(adminBonusChannelsGrant) > 0 ? 'Aplicar bônus' : 'Zerar bônus'}
+                      </Button>
+                    </div>
+                    {(selectedUser.includedChannels > 0 || selectedUser.adminBonusChannelSlots > 0) && (
+                      <p className="text-[11px] text-emerald-400/90 tabular-nums">
+                        Teto atual:{' '}
+                        {Math.max(1, Math.min(5, selectedUser.includedChannels || 5)) + (selectedUser.adminBonusChannelSlots || 0)}{' '}
+                        canais ({Math.min(5, selectedUser.includedChannels || 5)} plano
+                        {selectedUser.adminBonusChannelSlots > 0 ? ` + ${selectedUser.adminBonusChannelSlots} bônus` : ''})
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

@@ -10,9 +10,11 @@ import { isUuid } from './auth/firebaseUidMap.js';
 
 /** Incluídos no plano. */
 export const BASE_CONNECTION_SLOTS = 2;
-/** Máximo de canais (2 base + 3 extras). */
+/** Máximo de canais do produto (2 base + 3 extras pagos). */
 export const MAX_CONNECTIONS_TOTAL = 5;
 export const MAX_EXTRA_CHANNEL_SLOTS = 3;
+/** Teto de segurança para bônus administrativo (acima do teto do produto). */
+export const MAX_ADMIN_BONUS_CHANNEL_SLOTS = 100;
 
 export async function isUidTreatedAsServerAdmin(uid: string): Promise<boolean> {
   if (!uid || uid === 'anonymous') return false;
@@ -91,23 +93,16 @@ function manualGrantedExtraSlots(sub: UserSubscriptionDoc | null | undefined): n
   return endMs > Date.now() ? raw : 0;
 }
 
-function paidIncludedChannels(sub: UserSubscriptionDoc | null | undefined): number {
-  const n = Math.floor(Number(sub?.includedChannels) || 0);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  return Math.max(1, Math.min(MAX_CONNECTIONS_TOTAL, n));
+/** Bônus permanente concedido pelo admin — soma acima do teto do produto (5). */
+function adminGrantedBonusSlots(sub: UserSubscriptionDoc | null | undefined): number {
+  if (!sub) return 0;
+  return Math.max(
+    0,
+    Math.min(MAX_ADMIN_BONUS_CHANNEL_SLOTS, Math.floor(Number(sub.adminBonusChannelSlots) || 0))
+  );
 }
 
-/**
- * Cada slot extra pago = +1 acima de BASE (até 3 extras).
- * Firestore: `extraChannelSlots` 0..3
- *
- * Nunca confia so em `extraChannelSlots`: sem prova (preapproval, pagamento one-time do add-on ou
- * `manualGrant`) o teto fica em 2, mesmo com `active` e numero errado no documento.
- *
- * Contas de administrador da plataforma (ADMIN_EMAILS / ADMIN_UIDS) usam o teto máximo
- * do produto (5), alinhado à UI — a liberação manual de extras continua a valer para clientes.
- */
-export function getMaxConnectionSlots(
+function getPlanMaxConnectionSlots(
   sub: UserSubscriptionDoc | null | undefined,
   options: { serverAdmin: boolean }
 ): number {
@@ -133,6 +128,31 @@ export function getMaxConnectionSlots(
   const manualExtras = manualGrantedExtraSlots(sub);
   const effective = Math.max(paidExtras, manualExtras);
   return Math.min(MAX_CONNECTIONS_TOTAL, BASE_CONNECTION_SLOTS + effective);
+}
+
+function paidIncludedChannels(sub: UserSubscriptionDoc | null | undefined): number {
+  const n = Math.floor(Number(sub?.includedChannels) || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.max(1, Math.min(MAX_CONNECTIONS_TOTAL, n));
+}
+
+/**
+ * Cada slot extra pago = +1 acima de BASE (até 3 extras).
+ * Firestore: `extraChannelSlots` 0..3
+ *
+ * Nunca confia so em `extraChannelSlots`: sem prova (preapproval, pagamento one-time do add-on ou
+ * `manualGrant`) o teto fica em 2, mesmo com `active` e numero errado no documento.
+ *
+ * Contas de administrador da plataforma (ADMIN_EMAILS / ADMIN_UIDS) usam o teto máximo
+ * do produto (5), alinhado à UI — a liberação manual de extras continua a valer para clientes.
+ */
+export function getMaxConnectionSlots(
+  sub: UserSubscriptionDoc | null | undefined,
+  options: { serverAdmin: boolean }
+): number {
+  const planMax = getPlanMaxConnectionSlots(sub, options);
+  if (options.serverAdmin) return planMax;
+  return planMax + adminGrantedBonusSlots(sub);
 }
 
 /**
@@ -199,9 +219,11 @@ export async function evaluateMayCreateWaConnection(
       current: count,
       max: maxAllowed,
       message:
-        maxAllowed <= BASE_CONNECTION_SLOTS
-          ? `Limite de ${maxAllowed} canal(is) do plano atual. Ajuste o plano em Minha assinatura para liberar mais canais (ate 5).`
-          : `Voce atingiu o maximo de ${maxAllowed} canal(is) do plano contratado. Em Minha assinatura, selecione um plano com mais canais (ate 5).`
+        maxAllowed > MAX_CONNECTIONS_TOTAL
+          ? `Voce atingiu o maximo de ${maxAllowed} canal(is) liberados para sua conta.`
+          : maxAllowed <= BASE_CONNECTION_SLOTS
+            ? `Limite de ${maxAllowed} canal(is) do plano atual. Ajuste o plano em Minha assinatura para liberar mais canais (ate 5).`
+            : `Voce atingiu o maximo de ${maxAllowed} canal(is) do plano contratado. Em Minha assinatura, selecione um plano com mais canais (ate 5).`
     };
   }
   return { ok: true };

@@ -12,6 +12,7 @@ export type AccessUser = {
   includedChannels: number;
   manualExtraChannelSlots: number;
   manualExtraChannelSlotsEndsAt: string | null;
+  adminBonusChannelSlots: number;
   adminNote: string;
   updatedAt: string | null;
 };
