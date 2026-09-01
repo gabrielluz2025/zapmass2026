@@ -340,6 +340,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     };
     skipFrequencyCap?: boolean;
     dailySchedule?: import('../types').CampaignDailySchedule;
+    prospecting?: import('../types').CampaignProspecting;
   }) => {
     if (payload.connectedIds.length === 0) {
       toast.error('Selecione pelo menos um chip conectado para disparar.');
@@ -372,7 +373,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 poolStrategy: payload.poolStrategy,
                 poolId: payload.poolId,
                 skipFrequencyCap: payload.skipFrequencyCap,
-                dailySchedule: payload.dailySchedule
+                dailySchedule: payload.dailySchedule,
+                prospecting: payload.prospecting
               }
             )
           : await startCampaign(
@@ -396,7 +398,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 mediaAttachment: payload.mediaAttachment,
                 followUpMediaAttachment: payload.followUpMediaAttachment,
                 skipFrequencyCap: payload.skipFrequencyCap,
-                dailySchedule: payload.dailySchedule
+                dailySchedule: payload.dailySchedule,
+                prospecting: payload.prospecting
               }
             );
       appendAudit({

@@ -11,6 +11,20 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.46] — 2026-09-01
+
+### Feature: campanha Prospecção da base (produção e homologação)
+
+Novo preset no assistente de campanhas para disparar a **base inteira** (exceto opt-out), com fluxo automático:
+
+- **Onda 0:** mensagem inicial para todos.
+- **Quem responde:** entra em jornada nurture semanal dedicada à campanha.
+- **Quem não responde:** recebe lembrete semanal só dos silenciosos, até N semanas configuráveis.
+
+Inclui painel na ficha da campanha (enviados / responderam / silenciosos / próxima onda) e job no servidor (`prospectingSilentBumpJob`) para os lembretes.
+
+---
+
 ## [2.3.45] — 2026-09-01
 
 ### Fix: watchdog reiniciava o Evolution Go saudável e derrubava os chips

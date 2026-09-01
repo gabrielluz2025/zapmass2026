@@ -1,4 +1,4 @@
-import type { CampaignReplyFlow } from '../types';
+import type { CampaignProspectingResponderStep, CampaignReplyFlow } from '../types';
 import type { ContactTemperature } from '../utils/contactTemperature';
 
 /** Etapa do assistente (mensagem + gatilhos do fluxo por resposta). */
@@ -62,6 +62,13 @@ export interface CampaignWizardDraft {
   initialPoolId?: string;
   /** Modo de seleção de chips da campanha original. */
   initialChipSelectionMode?: 'manual' | 'pool';
+  /** standard = campanha comum; prospecting = prospecção da base inteira. */
+  campaignKind?: 'standard' | 'prospecting';
+  prospectingSilentWeeks?: number;
+  prospectingSilentBody?: string;
+  prospectingBumpWeekday?: number;
+  prospectingBumpTime?: string;
+  prospectingResponderSteps?: CampaignProspectingResponderStep[];
 }
 
 export interface SavedCampaignTemplate {

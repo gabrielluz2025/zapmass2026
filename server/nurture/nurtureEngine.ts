@@ -8,10 +8,12 @@ import {
   bumpNurtureMetricPg,
   findActiveEnrollmentPg,
   findEnrollmentByPhonePg,
+  getNurtureJourneyByIdPg,
   getOrCreatePrimaryJourneyPg,
   loadNurtureEnrollmentDispatchRowsPg,
   listNurtureEnrollmentsPg,
   refreshActiveEnrollmentCountPg,
+  saveNurtureJourneyPg,
   updateEnrollmentStatusPg,
   upsertEnrollmentPg
 } from './nurtureRepository.js';
@@ -206,16 +208,24 @@ export async function enrollContactInNurture(params: {
   const phone = params.contactPhone.replace(/\D/g, '');
   if (phone.length < 8) return { ok: false, error: 'Telefone inválido.' };
 
-  let journey = await getOrCreatePrimaryJourneyPg(params.tenantId);
-  if (params.journeyId && journey.id !== params.journeyId) {
-    return { ok: false, error: 'Jornada não encontrada.' };
-  }
-
-  if (params.autoEnableJourney) {
+  let journey: Awaited<ReturnType<typeof getOrCreatePrimaryJourneyPg>>;
+  if (params.journeyId) {
+    const found = await getNurtureJourneyByIdPg(params.tenantId, params.journeyId);
+    if (!found) return { ok: false, error: 'Jornada não encontrada.' };
+    journey = found;
+    if (!journey.enabled && !journey.doc.enabled) {
+      journey = await saveNurtureJourneyPg(params.tenantId, journey.id, {
+        enabled: true,
+        doc: { ...journey.doc, enabled: true }
+      });
+    }
+  } else if (params.autoEnableJourney) {
     const ready = await ensureNurtureJourneyReadyForHotLeads(params.tenantId, {
-      preferredConnectionId: params.connectionId,
+      preferredConnectionId: params.connectionId
     });
     journey = ready.journey;
+  } else {
+    journey = await getOrCreatePrimaryJourneyPg(params.tenantId);
   }
 
   const doc = journey.doc;

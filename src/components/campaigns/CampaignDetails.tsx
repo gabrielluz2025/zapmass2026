@@ -91,6 +91,7 @@ import { parseFirestoreDateToIso } from '../../utils/followUp';
 import * as XLSX from 'xlsx';
 import { Badge, Button, Card, Input, Modal, Tabs } from '../ui';
 import { CampaignDispatchLogs } from './CampaignDispatchLogs';
+import { CampaignProspectingDashboard } from './CampaignProspectingDashboard';
 import { PerformanceFunnel } from '../PerformanceFunnel';
 import { CampaignScoreCard } from './CampaignScoreCard';
 import { DispatchDiagnosticsPanel } from './DispatchDiagnosticsPanel';
@@ -2192,6 +2193,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
             stageLabels={campaign.stageConfigs.map((s) => s.body.slice(0, 60))}
           />
         )}
+
+        {campaign.prospecting?.enabled && <CampaignProspectingDashboard campaign={campaign} />}
 
         {/* Painel de diagnóstico: exibido quando há falhas significativas (>10% dos envios) */}
         {(() => {

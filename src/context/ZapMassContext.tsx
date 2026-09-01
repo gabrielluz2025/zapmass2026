@@ -3906,6 +3906,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       };
       skipFrequencyCap?: boolean;
       dailySchedule?: CampaignDailySchedule;
+      prospecting?: import('../types').CampaignProspecting;
     }
   ) => {
     const uid = currentUidRef.current;
@@ -3977,6 +3978,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       ...(options?.poolStrategy ? { poolStrategy: options.poolStrategy } : {}),
       ...(options?.poolId ? { poolId: options.poolId } : {}),
       ...(options?.dailySchedule?.enabled ? { dailySchedule: options.dailySchedule } : {}),
+      ...(options?.prospecting?.enabled ? { prospecting: options.prospecting } : {}),
       createdAt: new Date().toISOString(),
       scheduleStartSnapshot: {
         numbers: cleanNumbers,
@@ -3994,7 +3996,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ...(options?.poolStrategy ? { poolStrategy: options.poolStrategy } : {}),
         ...(options?.poolId ? { poolId: options.poolId } : {}),
         ...(options?.dailySchedule?.enabled ? { dailySchedule: options.dailySchedule } : {}),
-        ...(options?.skipFrequencyCap ? { skipFrequencyCap: true } : {})
+        ...(options?.skipFrequencyCap ? { skipFrequencyCap: true } : {}),
+        ...(options?.prospecting?.enabled ? { prospecting: options.prospecting } : {})
       }
     };
 
@@ -4069,7 +4072,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             mediaAttachment: options?.mediaAttachment,
             followUpMediaAttachment: options?.followUpMediaAttachment,
             skipFrequencyCap: options?.skipFrequencyCap === true,
-            dailySchedule: options?.dailySchedule?.enabled ? options.dailySchedule : undefined
+            dailySchedule: options?.dailySchedule?.enabled ? options.dailySchedule : undefined,
+            prospecting: options?.prospecting?.enabled ? options.prospecting : undefined
           },
           (result?: { ok?: boolean; error?: string }) => {
             if (result?.ok === true) {

@@ -360,6 +360,94 @@ export async function getOrCreatePrimaryJourneyPg(tenantId: string): Promise<Nur
   return mapJourneyRow(ins.rows[0]);
 }
 
+export async function getNurtureJourneyByIdPg(
+  tenantId: string,
+  journeyId: string
+): Promise<NurtureJourneyRow | null> {
+  const pool = getZapmassPool();
+  if (!pool) return null;
+  const tid = pgTenantId(tenantId);
+  if (!tid || !isUuid(tid) || !isUuid(journeyId)) return null;
+  const r = await pool.query<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    doc: unknown;
+    created_at: Date;
+    updated_at: Date;
+  }>(
+    `SELECT id, name, enabled, doc, created_at, updated_at
+     FROM zapmass.nurture_journeys
+     WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+    [tid, journeyId]
+  );
+  return r.rows[0] ? mapJourneyRow(r.rows[0]) : null;
+}
+
+/** Cria jornada nurture dedicada a uma campanha de prospecção. */
+export async function createCampaignProspectingJourneyPg(
+  tenantId: string,
+  campaignName: string,
+  connectionIds: string[],
+  responderSteps: Array<{ body: string; weekday?: number; time?: string }>
+): Promise<NurtureJourneyRow> {
+  const pool = getZapmassPool();
+  if (!pool) throw new Error('PostgreSQL indisponível');
+  const tid = pgTenantId(tenantId);
+  if (!tid || !isUuid(tid)) throw new Error('Tenant inválido');
+
+  const steps: NurtureStep[] = responderSteps
+    .map((s, i) => {
+      const body = String(s.body || '').trim().slice(0, 4000);
+      if (!body) return null;
+      const hasCalendar = s.weekday != null && s.time;
+      return {
+        id: `prosp-${i + 1}`,
+        kind: 'message' as const,
+        body,
+        delayHours: i === 0 ? 0 : 168,
+        ...(hasCalendar
+          ? { calendar: { weekday: Math.min(6, Math.max(0, Number(s.weekday))), time: String(s.time).slice(0, 5) } }
+          : {})
+      };
+    })
+    .filter((x): x is NurtureStep => x != null);
+
+  if (steps.length === 0) {
+    throw new Error('Plano semanal precisa de ao menos um passo com texto.');
+  }
+
+  const doc: NurtureJourneyDoc = {
+    ...DEFAULT_NURTURE_JOURNEY_DOC,
+    enabled: true,
+    name: `Prospecção: ${campaignName}`.slice(0, 120),
+    connectionIds: connectionIds.slice(0, 20),
+    scheduleMode: steps.some((s) => s.calendar) ? 'calendar' : 'relative',
+    entryRules: {
+      autoEnrollOnOptIn: false,
+      autoEnrollOnHotLead: false,
+      requireMarketingOptIn: false,
+      defaultConnectionId: connectionIds[0]
+    },
+    steps
+  };
+
+  const ins = await pool.query<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    doc: unknown;
+    created_at: Date;
+    updated_at: Date;
+  }>(
+    `INSERT INTO zapmass.nurture_journeys (tenant_id, name, enabled, doc)
+     VALUES ($1::uuid, $2, true, $3::jsonb)
+     RETURNING id, name, enabled, doc, created_at, updated_at`,
+    [tid, doc.name, JSON.stringify(doc)]
+  );
+  return mapJourneyRow(ins.rows[0]);
+}
+
 export async function saveNurtureJourneyPg(
   tenantId: string,
   journeyId: string,

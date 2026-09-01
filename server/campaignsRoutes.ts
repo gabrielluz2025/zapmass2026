@@ -238,6 +238,23 @@ export function registerCampaignsDataRoutes(app: Express): void {
     }
   });
 
+  app.get('/api/campaigns/:id/prospecting-stats', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const campaignId = String(req.params.id || '').trim();
+    try {
+      const campaign = await getCampaignDoc(ctx.tenantId, campaignId);
+      if (!campaign) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
+      const { getProspectingContactStats } = await import('./prospecting/prospectingService.js');
+      const stats = await getProspectingContactStats(campaignId);
+      const prospecting = campaign.prospecting ?? null;
+      return res.json({ ok: true, stats, prospecting });
+    } catch (e) {
+      console.error('[api/campaigns/prospecting-stats]', e);
+      return res.status(500).json({ ok: false, error: 'Erro ao obter estatísticas de prospecção.' });
+    }
+  });
+
   /** Lista contatos falhos em uma etapa específica. */
   app.get('/api/campaigns/:id/failed-contacts', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);

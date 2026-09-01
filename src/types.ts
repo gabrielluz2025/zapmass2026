@@ -225,6 +225,42 @@ export interface CampaignReplyFlow {
   globalOptOutKeywords?: string[];
 }
 
+/** Passo semanal enviado a quem respondeu à prospecção (vira jornada nurture). */
+export interface CampaignProspectingResponderStep {
+  body: string;
+  /** 0=Dom … 6=Sáb — opcional; sem calendário usa delay relativo de 7 dias. */
+  weekday?: number;
+  /** HH:mm no fuso America/Sao_Paulo. */
+  time?: string;
+}
+
+/** Campanha de prospecção: onda inicial + plano semanal para quem responde + lembretes para silenciosos. */
+export interface CampaignProspecting {
+  enabled: boolean;
+  /** Quantas semanas insistir nos que não responderam (ondas 1…N). */
+  silentWeeks: number;
+  /** Texto do lembrete semanal para silenciosos. */
+  silentBumpBody: string;
+  /** Dia da semana do lembrete (0=Dom … 6=Sáb). */
+  bumpWeekday: number;
+  /** Horário do lembrete HH:mm. */
+  bumpTime: string;
+  /** Jornada nurture criada para quem responde. */
+  responderJourneyId?: string;
+  /** Passos do plano semanal (persistidos até criar a jornada no servidor). */
+  responderSteps?: CampaignProspectingResponderStep[];
+  /** ISO — início da onda 0. */
+  campaignStartedAt?: string;
+  /** ISO — próxima janela de lembrete para silenciosos. */
+  nextBumpAt?: string;
+  /** ISO — último lembrete enviado. */
+  lastBumpAt?: string;
+  /** Quantas ondas de silencioso já foram disparadas (0 = só onda inicial). */
+  silentWaveIndex?: number;
+  /** false quando esgotou silentWeeks ou encerrada manualmente. */
+  active?: boolean;
+}
+
 export interface Campaign {
   id: string;
   name: string;
@@ -299,6 +335,8 @@ export interface Campaign {
    */
   stageConfigs?: CampaignStageConfig[];
   dailySchedule?: CampaignDailySchedule;
+  /** Prospecção da base: onda 0 + nurture semanal + lembretes para silenciosos. */
+  prospecting?: CampaignProspecting;
 }
 
 export interface DashboardMetrics {

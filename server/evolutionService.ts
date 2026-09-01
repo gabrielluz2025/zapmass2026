@@ -209,7 +209,7 @@ import {
 import type { Server as SocketIOServer } from 'socket.io';
 import { isEvolutionOpenState, parseConnectionStatePayload } from './evolutionOpenState.js';
 import { formatEvolutionHttpError } from './evolutionChatSend.js';
-import type { CampaignStageConfig } from '../src/types.js';
+import type { CampaignStageConfig, CampaignProspecting } from '../src/types.js';
 import {
     initMultiStepContactStates,
     onContactReply,
@@ -219,6 +219,12 @@ import {
 import { isCampaignFlowContinuation } from './campaignFlowContinuation.js';
 import { usePostgresCampaigns } from './campaignStore.js';
 import { countWaitingReplyForCampaign, getContactStateSummary } from './repositories/campaignContactStateRepository.js';
+import {
+    markProspectingSilentBumpSent,
+    markProspectingWave0Sent,
+    setupProspectingOnCampaignStart,
+    tryHandleProspectingReply,
+} from './prospecting/prospectingService.js';
 
 // ================== INTERFACES ==================
 
@@ -2361,6 +2367,12 @@ interface MessageQueueItem {
     nurtureEnrollmentId?: string;
     nurtureJourneyId?: string;
     nurtureStepIndex?: number;
+    /** Lembrete semanal de prospecção para contatos silenciosos. */
+    prospectingSilentBump?: {
+        contactId: string;
+        waveIndex: number;
+        maxSilentWeeks: number;
+    };
 }
 
 interface WarmupItem {
@@ -2484,6 +2496,39 @@ async function pingRedisHealthy(): Promise<boolean> {
 /** Expõe fila para trim periódico (redisMaintenance) — não usar fora do servidor. */
 export function getCampaignBullmqQueue(): Queue<MessageQueueItem> | null {
     return getCampaignQueue();
+}
+
+/** Enfileira lembrete semanal de prospecção (silenciosos). */
+export async function enqueueProspectingSilentBump(params: {
+    campaignId: string;
+    ownerUid: string;
+    connectionId: string;
+    to: string;
+    message: string;
+    rotationIndex: number;
+    delayMs: number;
+    contactId: string;
+    waveIndex: number;
+    maxSilentWeeks?: number;
+}): Promise<void> {
+    await enqueueCampaignItem(
+        {
+            connectionId: params.connectionId,
+            to: params.to,
+            message: params.message,
+            campaignId: params.campaignId,
+            ownerUid: params.ownerUid,
+            stageIndex: params.waveIndex,
+            rotationIndex: params.rotationIndex,
+            skipFrequencyCap: true,
+            prospectingSilentBump: {
+                contactId: params.contactId,
+                waveIndex: params.waveIndex,
+                maxSilentWeeks: params.maxSilentWeeks ?? 4,
+            },
+        },
+        params.delayMs
+    );
 }
 
 export type CampaignBullmqQueueMetrics = {
@@ -6661,6 +6706,22 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
     }
 
+    if (item.prospectingSilentBump && item.campaignId) {
+        void markProspectingSilentBumpSent(
+            item.campaignId,
+            item.prospectingSilentBump.contactId,
+            item.prospectingSilentBump.maxSilentWeeks
+        );
+    } else if (
+        item.campaignId &&
+        !item.replyFlowResponse &&
+        !item.nurtureFollowUp &&
+        !item.prospectingSilentBump &&
+        (item.stageIndex == null || item.stageIndex === 0)
+    ) {
+        void markProspectingWave0Sent(item.campaignId, phoneDigits);
+    }
+
     await accountCampaignJobOnce(job, item, true);
 
     publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {
@@ -7356,7 +7417,8 @@ export async function startCampaign(
         strategy?: PoolStrategy;
         channelWeights?: Record<string, number>;
         poolId?: string;
-    }
+    },
+    prospecting?: CampaignProspecting
 ): Promise<boolean> {
     if (connectionIds.length === 0 || numbers.length === 0) return false;
 
@@ -7487,6 +7549,23 @@ export async function startCampaign(
     if (ownerUid && (useLazyMotor || validStageConfigs.length > 0)) {
         const cleanPhones = numbers.map((n) => normalizePhoneKey(n)).filter((p) => p.length >= 8);
         void initMultiStepContactStates(ownerUid, cid, cleanPhones);
+    }
+
+    if (ownerUid && prospecting?.enabled) {
+        const cleanPhones = numbers.map((n) => normalizePhoneKey(n)).filter((p) => p.length >= 8);
+        void setupProspectingOnCampaignStart({
+            tenantId: ownerUid,
+            campaignId: cid,
+            campaignName: cid,
+            phones: cleanPhones,
+            connectionIds: activeConnectionIds,
+            prospecting,
+        }).catch((e) =>
+            log('warn', 'setupProspectingOnCampaignStart falhou', {
+                campaignId: cid,
+                error: (e as Error)?.message,
+            })
+        );
     }
 
     const dispatchSettings = resolveCampaignDispatchSettings(ownerUid, delaySeconds, delaySecondsMax);
@@ -8209,18 +8288,30 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
         campaignId: replyCampaignId,
         ownerUid: replyOwnerUid,
     });
-    if (replyOwnerUid) {
-        void tryAutoEnrollHotLead({
-            tenantId: replyOwnerUid,
-            phoneDigits,
-            connectionId: instance,
-            conversationId: incomingConvId,
-            treatReplyAsHot: true,
-        });
-    }
     const replyPreview =
         String(bodyText || '').slice(0, 80) ||
         (nonTextReply ? '[resposta sem texto legível — mídia/botão/etc.]' : '');
+    if (replyOwnerUid) {
+        const prospectingHandled = replyCampaignId
+            ? await tryHandleProspectingReply({
+                  tenantId: replyOwnerUid,
+                  campaignId: replyCampaignId,
+                  phoneDigits,
+                  connectionId: instance,
+                  conversationId: incomingConvId,
+                  replyText: replyPreview || '[resposta]',
+              })
+            : false;
+        if (!prospectingHandled) {
+            void tryAutoEnrollHotLead({
+                tenantId: replyOwnerUid,
+                phoneDigits,
+                connectionId: instance,
+                conversationId: incomingConvId,
+                treatReplyAsHot: true,
+            });
+        }
+    }
     if (replyPreview) {
         logCampaignContactReply(instance, phoneDigits, replyPreview, replyCampaignId, replyOwnerUid);
     }

@@ -118,6 +118,7 @@ import { registerNurtureRoutes } from './nurtureRoutes.js';
 import { registerChipProtectionRoutes } from './chipProtectionRoutes.js';
 import { registerReplyIntentRoutes } from './replyIntentRoutes.js';
 import { startChipProtectionScheduler } from './chipProtectionScheduler.js';
+import { startProspectingSilentBumpJob } from './prospecting/prospectingSilentBumpJob.js';
 import { startNurtureScheduler } from './nurture/nurtureScheduler.js';
 import { registerAiAssistantRoutes } from './aiAssistantRoutes.js';
 import { registerAssistantRoutes } from './assistantRoutes.js';
@@ -1621,7 +1622,8 @@ const registerSocketHandlers = () => {
           followUpMediaAttachment,
           stageConfigs,
           skipFrequencyCap,
-          dailySchedule
+          dailySchedule,
+          prospecting
         }: {
           numbers?: string[];
           message?: string;
@@ -1680,6 +1682,14 @@ const registerSocketHandlers = () => {
               dayIndex: number;
               limitPerChannel: number;
             }>;
+          };
+          prospecting?: {
+            enabled?: boolean;
+            silentWeeks?: number;
+            silentBumpBody?: string;
+            bumpWeekday?: number;
+            bumpTime?: string;
+            responderSteps?: Array<{ body: string; weekday?: number; time?: string }>;
           };
         },
         callback?: (response: { ok: boolean; error?: string }) => void
@@ -1802,6 +1812,19 @@ const registerSocketHandlers = () => {
           notifyCampaignSocketError(uid, err, campaignId);
           return;
         }
+        if (prospecting?.enabled) {
+          const bumpBody = String(prospecting.silentBumpBody || '').trim();
+          const steps = Array.isArray(prospecting.responderSteps) ? prospecting.responderSteps : [];
+          const validSteps = steps.filter((s) => String(s?.body || '').trim().length > 0);
+          if (!bumpBody || validSteps.length < 2) {
+            const err =
+              'Prospecção incompleta: defina o lembrete para silenciosos e ao menos 2 passos no plano semanal.';
+            callback?.({ ok: false, error: err });
+            socket.emit('campaign-error', { error: err, campaignId });
+            notifyCampaignSocketError(uid, err, campaignId);
+            return;
+          }
+        }
         const sanitizedMedia = normalizeCampaignMediaAttachment(mediaAttachment);
         const sanitizedFollowUpMedia = normalizeCampaignMediaAttachment(followUpMediaAttachment);
         const campaignMedia = sanitizedMedia
@@ -1888,6 +1911,18 @@ const registerSocketHandlers = () => {
                       strategy: poolStrategy,
                       channelWeights,
                       poolId,
+                  }
+                : undefined,
+              prospecting?.enabled
+                ? {
+                      enabled: true,
+                      silentWeeks: Math.min(12, Math.max(1, Number(prospecting.silentWeeks) || 4)),
+                      silentBumpBody: String(prospecting.silentBumpBody || '').trim(),
+                      bumpWeekday: Math.min(6, Math.max(0, Number(prospecting.bumpWeekday) || 2)),
+                      bumpTime: String(prospecting.bumpTime || '10:00').trim().slice(0, 5),
+                      responderSteps: Array.isArray(prospecting.responderSteps)
+                        ? prospecting.responderSteps
+                        : [],
                   }
                 : undefined
             );
@@ -2564,6 +2599,7 @@ const bootstrap = async () => {
   startScheduledCampaignRunner();
   startNurtureScheduler();
   startChipProtectionScheduler();
+  startProspectingSilentBumpJob();
   startCampaignJobsReaper();
 
   // Trim periódico BullMQ — Redis 1–2 GB com noeviction não é storage infinito.

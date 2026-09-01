@@ -35,6 +35,7 @@ import {
   CampaignDailySchedule,
   Campaign,
   CampaignStatus,
+  CampaignProspecting,
   Contact,
   ContactList,
   ConnectionStatus,
@@ -61,6 +62,7 @@ import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { CampaignReplyFlowEditor } from './CampaignReplyFlowEditor';
 import { CampaignFlowModePicker, type CampaignFlowMode } from './CampaignFlowModePicker';
+import { CampaignProspectingSetup } from './CampaignProspectingSetup';
 import { CampaignSingleMessageEditor } from './CampaignSingleMessageEditor';
 import { CampaignPreflightEstimate } from './CampaignPreflightEstimate';
 import { CampaignMessageSetupProgress } from './CampaignMessageSetupProgress';
@@ -198,6 +200,7 @@ interface NewCampaignWizardProps {
       sendMediaAsDocument?: boolean;
     };
     dailySchedule?: CampaignDailySchedule;
+    prospecting?: CampaignProspecting;
   }) => Promise<void>;
   /** Reidrata o assistente (clone / modelo). */
   initialDraft?: CampaignWizardDraft | null;
@@ -255,6 +258,16 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const isEditMode = Boolean(initialDraft?.editMode);
   const [duplicatedContacts, setDuplicatedContacts] = useState<Array<{ phone: string; campaignName: string; campaignId: string }>>([]);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const [campaignKind, setCampaignKind] = useState<'standard' | 'prospecting'>('standard');
+  const [prospectingSilentWeeks, setProspectingSilentWeeks] = useState(4);
+  const [prospectingSilentBody, setProspectingSilentBody] = useState(
+    'Oi! Vi que você não respondeu na semana passada — ainda posso te enviar mais detalhes?'
+  );
+  const [prospectingBumpWeekday, setProspectingBumpWeekday] = useState(2);
+  const [prospectingBumpTime, setProspectingBumpTime] = useState('10:00');
+  const [prospectingResponderSteps, setProspectingResponderSteps] = useState<
+    Array<{ body: string }>
+  >(() => [{ body: '' }, { body: '' }]);
   const [showDuplicateWarningModal, setShowDuplicateWarningModal] = useState(false);
   const [excludedDuplicatePhones, setExcludedDuplicatePhones] = useState<Set<string>>(new Set());
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
@@ -1202,7 +1215,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     messageStages.length > 0 &&
     messageStages.every((s) => s.body.trim().length > 0) &&
     replyFlowGatesOk &&
-    stageCountOk;
+    stageCountOk &&
+    (campaignKind !== 'prospecting' ||
+      (prospectingSilentBody.trim().length > 0 &&
+        prospectingResponderSteps.filter((s) => s.body.trim().length > 0).length >= 2));
   const canGoFromChannels = connectedIds.length > 0;
   const scheduleSlots = useMemo((): CampaignScheduleSlot[] => {
     if (!repeatWeekly) {
@@ -1237,7 +1253,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     scheduleSlots,
     scheduleTimeZone
   ]);
-  const scheduleOk = launchMode === 'now' || scheduleSlots.length > 0;
+  const scheduleOk =
+    campaignKind === 'prospecting'
+      ? launchMode === 'now'
+      : launchMode === 'now' || scheduleSlots.length > 0;
   // Em modo edição não exige público preenchido — a audiência já existe na campanha
   const canSubmit =
     (isEditMode || canGoFromAudience) &&
@@ -1543,7 +1562,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       sendMode === 'list' && selectedList
         ? { id: selectedList.id, name: selectedList.name }
         : sendMode === 'filter'
-        ? { id: undefined, name: buildFilterLabel() }
+        ? {
+            id: undefined,
+            name:
+              campaignKind === 'prospecting'
+                ? 'Base completa (prospecção)'
+                : buildFilterLabel()
+          }
         : { id: undefined, name: 'Envio manual' };
 
     const runSingle = async () => {
@@ -1578,7 +1603,21 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
             } : {}),
             days: dailyScheduleDays
           }
-        } : {})
+        } : {}),
+        ...(campaignKind === 'prospecting'
+          ? {
+              prospecting: {
+                enabled: true,
+                silentWeeks: prospectingSilentWeeks,
+                silentBumpBody: prospectingSilentBody.trim(),
+                bumpWeekday: prospectingBumpWeekday,
+                bumpTime: prospectingBumpTime,
+                responderSteps: prospectingResponderSteps
+                  .map((s) => ({ body: s.body.trim() }))
+                  .filter((s) => s.body.length > 0)
+              } satisfies CampaignProspecting
+            }
+          : {})
       };
       if (launchMode === 'schedule') {
         await onSubmit({
@@ -1845,7 +1884,67 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 </div>
               )}
 
-              {/* Cards de modo */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+                {[
+                  {
+                    id: 'standard' as const,
+                    label: 'Campanha comum',
+                    desc: 'Lista, filtros ou números manuais — disparo único ou fluxo por respostas.',
+                    accent: '#10b981'
+                  },
+                  {
+                    id: 'prospecting' as const,
+                    label: 'Prospecção da base',
+                    desc: 'Toda a base (sem opt-out): quem responde entra no plano semanal; silenciosos recebem lembrete.',
+                    accent: '#6366f1'
+                  }
+                ].map((k) => {
+                  const isSel = campaignKind === k.id;
+                  return (
+                    <button
+                      key={k.id}
+                      type="button"
+                      onClick={() => {
+                        setCampaignKind(k.id);
+                        if (k.id === 'prospecting') {
+                          setSendMode('filter');
+                          clearAllFilters();
+                          setCampaignFlowMode('single');
+                          setFlowModeChosen(true);
+                          setLaunchMode('now');
+                          if (!name.trim()) setName('Prospecção da base');
+                        }
+                      }}
+                      className="rounded-xl p-4 text-left transition-all"
+                      style={{
+                        border: isSel ? `2px solid ${k.accent}` : '2px solid var(--border-subtle)',
+                        background: isSel ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
+                        boxShadow: isSel ? `0 6px 20px ${k.accent}22` : 'none'
+                      }}
+                    >
+                      <p className="text-[13.5px] font-bold" style={{ color: 'var(--text-1)' }}>
+                        {k.label}
+                      </p>
+                      <p className="text-[11.5px] mt-1 leading-snug" style={{ color: 'var(--text-3)' }}>
+                        {k.desc}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {campaignKind === 'prospecting' && (
+                <div
+                  className="mb-5 rounded-xl px-4 py-3 text-[12px]"
+                  style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.22)' }}
+                >
+                  <strong>Público travado:</strong> todos os contatos da base, exceto quem pediu opt-out de
+                  marketing ({eligibleContacts.length.toLocaleString('pt-BR')} elegíveis).
+                </div>
+              )}
+
+              {campaignKind !== 'prospecting' && (
+              <>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
                 {[
                   {
@@ -2272,6 +2371,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   )}
                 </div>
               )}
+            </>
+              )}
             </Card>
           )}
 
@@ -2302,7 +2403,18 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               </div>
               </div>
 
-              <CampaignFlowModePicker mode={campaignFlowMode} onChange={setFlowMode} />
+              {campaignKind !== 'prospecting' && (
+                <CampaignFlowModePicker mode={campaignFlowMode} onChange={setFlowMode} />
+              )}
+
+              {campaignKind === 'prospecting' && (
+                <div
+                  className="rounded-lg px-3 py-2 text-[12px] mb-3"
+                  style={{ background: 'var(--surface-2)', color: 'var(--text-3)' }}
+                >
+                  Modo <strong>disparo único</strong> — a mensagem abaixo é a onda 0 para toda a base.
+                </div>
+              )}
 
               {flowModeChosen && (
                 <CampaignMessageSetupProgress items={messageSetupProgress} />
@@ -2356,6 +2468,21 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                           />
                         )}
                       </div>
+              )}
+
+              {campaignKind === 'prospecting' && flowModeChosen && (
+                <CampaignProspectingSetup
+                  silentWeeks={prospectingSilentWeeks}
+                  onSilentWeeksChange={setProspectingSilentWeeks}
+                  silentBody={prospectingSilentBody}
+                  onSilentBodyChange={setProspectingSilentBody}
+                  bumpWeekday={prospectingBumpWeekday}
+                  onBumpWeekdayChange={setProspectingBumpWeekday}
+                  bumpTime={prospectingBumpTime}
+                  onBumpTimeChange={setProspectingBumpTime}
+                  responderSteps={prospectingResponderSteps}
+                  onResponderStepsChange={setProspectingResponderSteps}
+                />
               )}
 
               {/* Prévia no celular (telas menores) */}

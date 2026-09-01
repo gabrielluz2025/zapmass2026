@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.46',
+    date: '01/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Preset Prospecção da base: onda inicial + plano semanal para quem responde + lembretes automáticos para silenciosos' },
+      { type: 'feat', text: 'Painel na campanha com enviados, respostas, silenciosos e próxima onda de lembrete' },
+    ],
+  },
+  {
     version: '2.3.45',
     date: '01/09/2026',
     highlights: [

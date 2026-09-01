@@ -354,3 +354,130 @@ export async function resetFailedContactsAtStep(
   );
   return r.rowCount ?? 0;
 }
+
+export interface ProspectingContactStats {
+  total: number;
+  replied: number;
+  silent: number;
+  maxSilentWave: number;
+  pendingInitial: number;
+}
+
+/** Marca onda inicial enviada (prospecção). */
+export async function markProspectingInitialSent(
+  campaignId: string,
+  contactId: string
+): Promise<void> {
+  const pool = getZapmassPool();
+  if (!pool) return;
+  await pool.query(
+    `UPDATE zapmass.campaign_contact_state
+     SET status          = 'waiting_delay',
+         last_message_at = NOW(),
+         updated_at      = NOW()
+     WHERE campaign_id = $1::uuid AND contact_id = $2
+       AND reply_received_at IS NULL`,
+    [campaignId, contactId]
+  );
+}
+
+/** Grava resposta na prospecção e encerra o contato na campanha. */
+export async function recordProspectingReply(
+  campaignId: string,
+  contactId: string,
+  replyText: string
+): Promise<boolean> {
+  const pool = getZapmassPool();
+  if (!pool) return false;
+  const r = await pool.query(
+    `UPDATE zapmass.campaign_contact_state
+     SET reply_text        = $3,
+         reply_received_at = COALESCE(reply_received_at, NOW()),
+         status            = 'completed',
+         updated_at        = NOW()
+     WHERE campaign_id = $1::uuid AND contact_id = $2
+       AND reply_received_at IS NULL
+     RETURNING contact_id`,
+    [campaignId, contactId, replyText.slice(0, 4000)]
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
+/** Silenciosos elegíveis para a próxima onda de lembrete (step_index = ondas já enviadas). */
+export async function listProspectingSilentContactsForBump(
+  campaignId: string,
+  waveIndex: number,
+  limit = 2000
+): Promise<string[]> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const r = await pool.query<{ contact_id: string }>(
+    `SELECT contact_id
+     FROM zapmass.campaign_contact_state
+     WHERE campaign_id = $1::uuid
+       AND reply_received_at IS NULL
+       AND current_step_index = $2
+       AND status IN ('waiting_delay', 'pending', 'completed')
+     ORDER BY updated_at ASC
+     LIMIT $3`,
+    [campaignId, waveIndex, limit]
+  );
+  return r.rows.map((row) => row.contact_id);
+}
+
+/** Após enviar lembrete semanal, avança onda do contato. */
+export async function advanceProspectingSilentWave(
+  campaignId: string,
+  contactId: string,
+  maxSilentWeeks: number
+): Promise<void> {
+  const pool = getZapmassPool();
+  if (!pool) return;
+  await pool.query(
+    `UPDATE zapmass.campaign_contact_state
+     SET current_step_index = current_step_index + 1,
+         last_message_at    = NOW(),
+         status             = CASE
+                                WHEN current_step_index + 1 >= $3 THEN 'completed'
+                                ELSE 'waiting_delay'
+                              END,
+         updated_at         = NOW()
+     WHERE campaign_id = $1::uuid AND contact_id = $2
+       AND reply_received_at IS NULL`,
+    [campaignId, contactId, maxSilentWeeks]
+  );
+}
+
+export async function getProspectingContactStats(
+  campaignId: string
+): Promise<ProspectingContactStats> {
+  const pool = getZapmassPool();
+  if (!pool) {
+    return { total: 0, replied: 0, silent: 0, maxSilentWave: 0, pendingInitial: 0 };
+  }
+  const r = await pool.query<{
+    total: number;
+    replied: number;
+    silent: number;
+    max_silent_wave: number;
+    pending_initial: number;
+  }>(
+    `SELECT
+       COUNT(*)::int AS total,
+       COUNT(*) FILTER (WHERE reply_received_at IS NOT NULL)::int AS replied,
+       COUNT(*) FILTER (WHERE reply_received_at IS NULL AND status NOT IN ('failed', 'skipped'))::int AS silent,
+       COALESCE(MAX(current_step_index) FILTER (WHERE reply_received_at IS NULL), 0)::int AS max_silent_wave,
+       COUNT(*) FILTER (WHERE reply_received_at IS NULL AND status = 'pending')::int AS pending_initial
+     FROM zapmass.campaign_contact_state
+     WHERE campaign_id = $1::uuid`,
+    [campaignId]
+  );
+  const row = r.rows[0];
+  return {
+    total: row?.total ?? 0,
+    replied: row?.replied ?? 0,
+    silent: row?.silent ?? 0,
+    maxSilentWave: row?.max_silent_wave ?? 0,
+    pendingInitial: row?.pending_initial ?? 0
+  };
+}

@@ -147,6 +147,29 @@ export async function fetchCampaignContactStates(
   return Array.isArray(j.summary) ? j.summary : [];
 }
 
+export type CampaignProspectingStatsDto = {
+  total: number;
+  replied: number;
+  silent: number;
+  maxSilentWave: number;
+  pendingInitial: number;
+};
+
+export async function fetchCampaignProspectingStats(campaignId: string): Promise<{
+  stats: CampaignProspectingStatsDto;
+  prospecting: import('../types').CampaignProspecting | null;
+}> {
+  const path = `/api/campaigns/${encodeURIComponent(campaignId)}/prospecting-stats`;
+  const j = await apiFetchJson<{
+    stats?: CampaignProspectingStatsDto;
+    prospecting?: import('../types').CampaignProspecting | null;
+  }>(path);
+  return {
+    stats: j.stats ?? { total: 0, replied: 0, silent: 0, maxSilentWave: 0, pendingInitial: 0 },
+    prospecting: j.prospecting ?? null
+  };
+}
+
 export async function retryFailedContacts(
   campaignId: string,
   stepIndex: number,
