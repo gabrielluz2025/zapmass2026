@@ -7811,7 +7811,7 @@ async function reconcileConnectionHealth() {
                 (await getConnectionState(id, { timeoutMs: CONNECTION_STATE_PROBE_TIMEOUT_MS }))
             ).toLowerCase();
 
-            if (isEvolutionOpenState(apiState) && memState !== 'open') {
+            if (isEvolutionOpenState(apiState)) {
                 applyConnectionStateUpdate(id, 'open', {});
                 return;
             }

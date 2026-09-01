@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.47',
+    date: '01/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Correção de typecheck no CI para deploy da prospecção da base (v2.3.46)' },
+    ],
+  },
+  {
     version: '2.3.46',
     date: '01/09/2026',
     highlights: [

@@ -791,6 +791,7 @@ export interface ZapMassContextType {
       /** Ignora limite de 24 h — só após confirmação explícita na triagem. */
       skipFrequencyCap?: boolean;
       dailySchedule?: CampaignDailySchedule;
+      prospecting?: CampaignProspecting;
     }
   ) => Promise<string>;
   /** Grava campanha como agendada (sem socket); o servidor dispara no horário. */
@@ -820,6 +821,7 @@ export interface ZapMassContextType {
       poolId?: string;
       skipFrequencyCap?: boolean;
       dailySchedule?: CampaignDailySchedule;
+      prospecting?: CampaignProspecting;
     }
   ) => Promise<string>;
   funnelStats: FunnelStats;

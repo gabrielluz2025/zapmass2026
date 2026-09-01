@@ -11,6 +11,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.47] — 2026-09-01
+
+### Fix: CI (typecheck) da prospecção v2.3.46
+
+- Tipos `prospecting` em `ZapMassContext` / `types.ts` (startCampaign e scheduleCampaign).
+- Ajuste em `nurtureRepository` e `evolutionService` para passar `npm run typecheck` no Actions.
+
+---
+
 ## [2.3.46] — 2026-09-01
 
 ### Feature: campanha Prospecção da base (produção e homologação)

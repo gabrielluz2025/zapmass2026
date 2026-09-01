@@ -396,22 +396,23 @@ export async function createCampaignProspectingJourneyPg(
   const tid = pgTenantId(tenantId);
   if (!tid || !isUuid(tid)) throw new Error('Tenant inválido');
 
-  const steps: NurtureStep[] = responderSteps
+  const steps = responderSteps
     .map((s, i) => {
       const body = String(s.body || '').trim().slice(0, 4000);
       if (!body) return null;
       const hasCalendar = s.weekday != null && s.time;
-      return {
+      const step: NurtureStep = {
         id: `prosp-${i + 1}`,
-        kind: 'message' as const,
+        kind: 'message',
         body,
         delayHours: i === 0 ? 0 : 168,
         ...(hasCalendar
           ? { calendar: { weekday: Math.min(6, Math.max(0, Number(s.weekday))), time: String(s.time).slice(0, 5) } }
           : {})
       };
+      return step;
     })
-    .filter((x): x is NurtureStep => x != null);
+    .filter((x): x is NurtureStep => x !== null);
 
   if (steps.length === 0) {
     throw new Error('Plano semanal precisa de ao menos um passo com texto.');

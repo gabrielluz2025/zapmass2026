@@ -4161,6 +4161,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       dailySchedule?: CampaignDailySchedule;
       delaySecondsMax?: number;
       humanizedPauses?: boolean;
+      prospecting?: import('../types').CampaignProspecting;
     }
   ) => {
     const uid = currentUidRef.current;
