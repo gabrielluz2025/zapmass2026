@@ -2,7 +2,7 @@
  * Reconcilia ownerUid de canais legados (conn_*) com base nos utilizadores Postgres.
  * Corrige vazamento quando um canal foi criado sob a conta errada (ex.: Patrícia na conta Gabriel).
  */
-import { tenantScopeUidsMatch } from './auth/tenantUidScopeServer.js';
+import { tenantScopeUidsMatch, isUuid } from './auth/tenantUidScopeServer.js';
 import { normalizeConnectionLabel } from '../src/utils/normalizeConnectionLabel.js';
 
 export type ConnectionSettingsRow = {
@@ -265,9 +265,13 @@ export async function resolveCanonicalTenantId(uid: string): Promise<string> {
   const pool = getZapmassPool();
   if (!pool) return raw;
   const r = await pool.query<{ id: string }>(
-    `SELECT id::text FROM zapmass.users
-     WHERE id::text = $1 OR firebase_uid = $1 OR id = $1::uuid
-     LIMIT 1`,
+    isUuid(raw)
+      ? `SELECT id::text FROM zapmass.users
+         WHERE id::text = $1 OR firebase_uid = $1 OR id = $1::uuid
+         LIMIT 1`
+      : `SELECT id::text FROM zapmass.users
+         WHERE id::text = $1 OR firebase_uid = $1
+         LIMIT 1`,
     [raw]
   );
   return r.rows[0]?.id?.trim() || raw;

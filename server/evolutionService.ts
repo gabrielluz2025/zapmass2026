@@ -17,6 +17,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { evolutionConfig, isEvolutionGoEngine, isGoWebhookInboxMode } from './evolutionConfig.js';
 import { createEvolutionHttpClient } from './evolutionProvider/createEvolutionHttpClient.js';
+import { pickGoInstanceUuid, pickGoInstanceUuidFromRow } from './evolutionProvider/goUuid.js';
 import {
     looksLikeBase64Image,
     looksLikeWhatsAppPairingCode,
@@ -194,7 +195,7 @@ import {
     parseEvolutionMessageStatus
 } from './evolutionMessageStatus.js';
 import { isLegacyConnectionId } from '../src/utils/connectionScope.js';
-import { tenantScopeUidsMatch } from './auth/tenantUidScopeServer.js';
+import { isUuid, tenantScopeUidsMatch } from './auth/tenantUidScopeServer.js';
 import {
     filterByConnectionScope,
     ownsConnectionForTenant as ownsConnectionForUid,
@@ -1518,6 +1519,7 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
             autoReconnectState.set(connectionId, st);
             log('info', `Auto-reconnect Evolution: ${connectionId} (tentativa ${attempt}${st.longTail ? ', lento' : ''})`);
             try {
+                await ensureGoInstanceUuidResolved(connectionId);
                 try {
                     await api.post(`/instance/restart/${evoInst(connectionId)}`, {});
                     await sleep(3000);
@@ -1971,6 +1973,7 @@ async function tryRecoverCountZeroInstance(instanceName: string): Promise<boolea
     try {
         await api.delete(`/instance/logout/${evoInst(instanceName)}`);
         await sleep(1500);
+        await ensureGoInstanceUuidResolved(instanceName);
         await api.post(`/instance/connect/${evoInst(instanceName)}`, { forceReconnect: true });
         await sleep(2000);
         return true;
@@ -2023,6 +2026,7 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
 
         if (isEvolutionGoEngine()) {
             await ensureEvolutionGoInstanceExists(instanceName);
+            await ensureGoInstanceUuidResolved(instanceName);
         }
 
         let sawCountZero = false;
@@ -2811,9 +2815,13 @@ export async function normalizeConnectionOwnersInSettings(): Promise<{ changed: 
             const raw = typeof row?.ownerUid === 'string' ? row.ownerUid.trim() : '';
             if (!raw) continue;
             const r = await pool.query<{ id: string }>(
-                `SELECT id::text FROM zapmass.users
-                 WHERE firebase_uid = $1 OR id::text = $1 OR id = $1::uuid
-                 LIMIT 1`,
+                isUuid(raw)
+                    ? `SELECT id::text FROM zapmass.users
+                       WHERE firebase_uid = $1 OR id::text = $1 OR id = $1::uuid
+                       LIMIT 1`
+                    : `SELECT id::text FROM zapmass.users
+                       WHERE firebase_uid = $1 OR id::text = $1
+                       LIMIT 1`,
                 [raw]
             );
             const canonical = r.rows[0]?.id?.trim();
@@ -3323,11 +3331,11 @@ function getGoInstanceToken(connectionId: string): string | undefined {
 }
 
 function getGoInstanceUuid(connectionId: string): string | undefined {
-    return connectionsSettingsCache[connectionId]?.evolutionGoInstanceId;
+    return pickGoInstanceUuid(connectionsSettingsCache[connectionId]?.evolutionGoInstanceId);
 }
 
 function persistGoInstanceUuid(connectionId: string, uuid: unknown): void {
-    const id = typeof uuid === 'string' ? uuid.trim() : '';
+    const id = pickGoInstanceUuid(uuid);
     if (!id) return;
     if (connectionsSettingsCache[connectionId]?.evolutionGoInstanceId === id) return;
     mergeConnectionSettingsCache(connectionId, { evolutionGoInstanceId: id });
@@ -3336,13 +3344,38 @@ function persistGoInstanceUuid(connectionId: string, uuid: unknown): void {
 
 /** Sincroniza UUID + token da instância Go (evita 401 em /user/avatar). */
 function syncGoInstanceCredentials(connectionId: string, row: Record<string, unknown>): void {
-    persistGoInstanceUuid(connectionId, row.id ?? row.instanceId);
+    persistGoInstanceUuid(connectionId, pickGoInstanceUuidFromRow(row));
     const token = typeof row.token === 'string' ? row.token.trim() : '';
     if (!token) return;
     if (connectionsSettingsCache[connectionId]?.evolutionGoToken === token) return;
     mergeConnectionSettingsCache(connectionId, { evolutionGoToken: token });
     saveConnectionsSettings();
     log('info', `Token Go sincronizado: ${connectionId}`);
+}
+
+/**
+ * Garante UUID Go em cache antes de POST /instance/connect (header instanceId).
+ * Sem isso o adapter enviava `conn_*` (20 chars) e o Go respondia invalid UUID length: 20.
+ */
+async function ensureGoInstanceUuidResolved(connectionId: string): Promise<string | undefined> {
+    const existing = getGoInstanceUuid(connectionId);
+    if (existing) return existing;
+    if (!isEvolutionGoEngine()) return undefined;
+    try {
+        const list = await fetchGoInstanceList();
+        for (const item of list) {
+            if (!item || typeof item !== 'object') continue;
+            const row = item as Record<string, unknown>;
+            const name = String(row.name || row.instanceName || '').trim();
+            if (name !== connectionId) continue;
+            syncGoInstanceCredentials(connectionId, row);
+            const resolved = getGoInstanceUuid(connectionId);
+            if (resolved) return resolved;
+        }
+    } catch {
+        /* lista Go indisponível — caller trata */
+    }
+    return getGoInstanceUuid(connectionId);
 }
 
 /** Cria instância no Evolution Go se o canal existe no ZapMass mas não no motor (pós-cutover). */
@@ -3406,7 +3439,7 @@ function resolveGoWebhookConnectionId(hint: {
     if (token) {
         for (const [connId, settings] of Object.entries(connectionsSettingsCache)) {
             if (settings.evolutionGoToken === token) {
-                if (hint.instanceId?.trim() && settings.evolutionGoInstanceId !== hint.instanceId.trim()) {
+                if (hint.instanceId?.trim()) {
                     persistGoInstanceUuid(connId, hint.instanceId.trim());
                 }
                 return connId;
@@ -3431,8 +3464,9 @@ function resolveGoWebhookConnectionId(hint: {
     );
     if (connecting.length === 1 && (goId || token)) {
         const [connId] = connecting[0];
+        const goUuid = pickGoInstanceUuid(goId);
         mergeConnectionSettingsCache(connId, {
-            ...(goId ? { evolutionGoInstanceId: goId } : {}),
+            ...(goUuid ? { evolutionGoInstanceId: goUuid } : {}),
             ...(token ? { evolutionGoToken: token } : {}),
         });
         saveConnectionsSettings();
@@ -3448,15 +3482,7 @@ function resolveGoWebhookConnectionId(hint: {
 
 function extractGoInstanceIdFromApiPayload(data: unknown): string | undefined {
     if (!data || typeof data !== 'object') return undefined;
-    const row = data as Record<string, unknown>;
-    const direct = row.id ?? row.hash ?? row.instanceId;
-    if (typeof direct === 'string' && direct.trim()) return direct.trim();
-    const inst = row.instance;
-    if (inst && typeof inst === 'object') {
-        const nested = (inst as Record<string, unknown>).instanceId;
-        if (typeof nested === 'string' && nested.trim()) return nested.trim();
-    }
-    return undefined;
+    return pickGoInstanceUuidFromRow(data as Record<string, unknown>);
 }
 
 function ensureGoInstanceToken(connectionId: string): string {
@@ -3514,6 +3540,7 @@ async function ensureEvolutionFullHistorySync(instanceName: string): Promise<boo
 async function applyProxyToInstance(instanceName: string, proxy?: ConnectionProxyConfig | null) {
     if (!proxy?.host || !proxy.port) return;
     try {
+        await ensureGoInstanceUuidResolved(instanceName);
         await api.post(`/proxy/set/${evoInst(instanceName)}`, {
             enabled: true,
             host: proxy.host,
@@ -4646,7 +4673,7 @@ async function createConnectionInternal(
         if (isEvolutionGoLicenseError(error)) {
             return { error: evolutionGoLicenseUserMessage(error) };
         }
-        return { error: error.message };
+        return { error: formatEvolutionHttpError(error) };
     }
 }
 
@@ -4670,6 +4697,12 @@ async function ensureGoInstanceWebhook(instanceName: string): Promise<void> {
     // Chips open já têm webhook registrado; só precisamos reaplicar após close/restart.
     const memStatus = connections.get(instanceName)?.status;
     if (memStatus === 'open') return;
+
+    const goUuid = await ensureGoInstanceUuidResolved(instanceName);
+    if (!goUuid) {
+        log('warn', `ensureGoInstanceWebhook: sem UUID Go (${instanceName}) — pulando connect`);
+        return;
+    }
 
     _webhookEnsureLastRun.set(instanceName, Date.now());
     try {
@@ -4768,7 +4801,7 @@ async function probeGoConnectionStateFromInstanceList(instanceName: string): Pro
             if (!item || typeof item !== 'object') continue;
             const row = item as Record<string, unknown>;
             const name = String(row.name || row.instanceName || '').trim();
-            const id = String(row.id || row.instanceId || '').trim();
+            const id = pickGoInstanceUuidFromRow(row) || String(row.id || row.instanceId || '').trim();
             if (name !== instanceName && id !== instanceName && !(goUuid && id === goUuid)) continue;
             if (row.connected === true || row.connectionStatus === 'open' || isEvolutionOpenState(row.connectionStatus)) {
                 return 'open';
@@ -5109,6 +5142,7 @@ export async function deleteConnection(
         } catch {
             /* ok */
         }
+        await ensureGoInstanceUuidResolved(id);
         await api.delete(`/instance/delete/${evoInst(id)}`);
     } catch (error: any) {
         const status = error?.response?.status;

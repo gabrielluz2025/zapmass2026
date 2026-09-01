@@ -11,6 +11,18 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.44] — 2026-09-01
+
+### Fix: toast `invalid UUID format: invalid UUID length: 20` na aba Conexões
+
+O Evolution Go exige UUID no header `instanceId`. O ZapMass às vezes enviava o id do canal (`conn_<timestamp>_n`, 20 caracteres) quando o UUID interno ainda não estava em cache — o Go recusava e o erro aparecia no painel mesmo com o chip Online.
+
+- Adapter não envia mais `conn_*` como UUID (connect/delete/proxy).
+- UUID é resolvido pela lista `/instance/all` antes do connect.
+- Mensagem amigável no toast se o erro antigo ainda aparecer.
+
+---
+
 ## [2.3.43] — 2026-09-01
 
 ### Fix crítico: deploy de homologação parava o Evolution Go de produção

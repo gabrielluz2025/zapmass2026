@@ -12,6 +12,11 @@ export const API_OFFLINE_TOAST_DELAY_MS = 6_000;
 const NETWORK_TOAST_RE =
   /Failed to fetch|Sem conexão com o servidor|Tempo esgotado ao (conectar|falar) com o servidor|NetworkError|Load failed|ERR_CONNECTION|ECONNRESET|Failed to load|Erro HTTP 50[234]|Conexão perdida com o servidor|Servidor ocupado ou reiniciando|Bad Gateway|Service Unavailable|Gateway Timeout/i;
 
+const GO_UUID_TOAST_RE = /invalid UUID/i;
+
+const GO_UUID_TOAST_MESSAGE =
+  'O Evolution não reconheceu o identificador deste canal. Atualize a página; se o chip estiver Online, o disparo continua valendo.';
+
 export function isOfflineToastMessage(message: unknown): boolean {
   if (typeof message === 'string') return NETWORK_TOAST_RE.test(message);
   if (message instanceof Error) return NETWORK_TOAST_RE.test(message.message);
@@ -70,6 +75,11 @@ export function installApiErrorToastGuard(): void {
     if (isOfflineToastMessage(message)) {
       scheduleApiOfflineToast();
       return API_OFFLINE_TOAST_ID;
+    }
+    const text =
+      typeof message === 'string' ? message : message instanceof Error ? message.message : '';
+    if (text && GO_UUID_TOAST_RE.test(text)) {
+      return original(GO_UUID_TOAST_MESSAGE, { ...opts, id: opts?.id || 'go-invalid-uuid' });
     }
     return original(message as never, opts);
   }) as typeof toast.error;

@@ -17,6 +17,18 @@ import {
 } from './evolutionLidResolve.js';
 import { evolutionNetworkUserMessage, isTransientEvolutionNetworkError } from './evolutionAxiosRetry.js';
 
+const GO_INVALID_UUID_RE = /invalid UUID/i;
+
+export const EVOLUTION_GO_INVALID_UUID_HINT =
+  'O Evolution não reconheceu o identificador deste canal. Atualize a página; se o chip estiver Online, o disparo continua valendo.';
+
+export function humanizeEvolutionEngineError(raw: string): string {
+  const t = String(raw || '').trim();
+  if (!t) return t;
+  if (GO_INVALID_UUID_RE.test(t) || t === 'missing-go-uuid') return EVOLUTION_GO_INVALID_UUID_HINT;
+  return t;
+}
+
 function formatPhoneForError(raw: string): string {
   const key = normPhoneKey(raw) || raw.replace(/\D/g, '');
   if (!key) return raw;
@@ -217,6 +229,9 @@ export function formatEvolutionHttpError(err: unknown, originalPhone?: string): 
   }
   const ax = err as { response?: { data?: unknown }; message?: string };
   const data = ax?.response?.data;
+  if (typeof data === 'string' && data.trim()) {
+    return humanizeEvolutionEngineError(data);
+  }
   if (data && typeof data === 'object') {
     const o = data as Record<string, unknown>;
     const nested = o.response as { message?: unknown } | undefined;
@@ -243,11 +258,12 @@ export function formatEvolutionHttpError(err: unknown, originalPhone?: string): 
         }
       });
       const joined = parts.filter(Boolean).join(' — ');
-      if (joined) return joined;
+      if (joined) return humanizeEvolutionEngineError(joined);
     }
-    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+    if (typeof raw === 'string' && raw.trim()) return humanizeEvolutionEngineError(raw);
   }
   const m = String(ax?.message || '').trim();
+  if (GO_INVALID_UUID_RE.test(m)) return EVOLUTION_GO_INVALID_UUID_HINT;
   if (/status code 400/i.test(m)) {
     return 'WhatsApp recusou o envio (400). Sincronize a conversa ou abra o chat no celular primeiro.';
   }

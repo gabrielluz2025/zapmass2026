@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.44',
+    date: '01/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Erro invalid UUID length:20 na aba Conexões: o Evolution Go não recebe mais o id conn_* no lugar do UUID interno do chip' },
+      { type: 'fix', text: 'Toast passa a explicar o problema em português se o identificador do canal ainda estiver desatualizado' },
+    ],
+  },
+  {
     version: '2.3.43',
     date: '01/09/2026',
     highlights: [

@@ -1,6 +1,7 @@
 import type { InternalAxiosRequestConfig } from 'axios';
 import { evolutionEngineConfig } from '../evolutionEngineConfig.js';
 import { goPayloadLooksConnected } from '../evolutionOpenState.js';
+import { pickGoInstanceUuid } from './goUuid.js';
 
 export type InstanceTokenStore = {
     getToken: (instanceId: string) => string | undefined;
@@ -33,6 +34,17 @@ function adminHeaders(globalKey: string): Record<string, string> {
 function instanceHeaders(instanceToken: string): Record<string, string> {
     return { apikey: instanceToken, 'Content-Type': 'application/json' };
 }
+
+/** UUID Go para header/path. Nunca devolve `conn_*` — o Go rejeita com invalid UUID length: 20. */
+function goUuidForConnection(tokenStore: InstanceTokenStore, connectionId: string): string | undefined {
+    return pickGoInstanceUuid(tokenStore.getGoInstanceUuid?.(connectionId), connectionId);
+}
+
+const MISSING_GO_UUID_SYNTHETIC = {
+    error: 'missing-go-uuid',
+    message:
+        'O Evolution não reconheceu o identificador deste canal. Atualize a página; se o chip estiver Online, o disparo continua valendo.',
+};
 
 function evolutionWebhookUrlForGo(): string {
     let url = evolutionEngineConfig.webhookUrl;
@@ -98,7 +110,14 @@ export function adaptEvolutionApiRequestToGo(
     }
 
     if (method === 'DELETE' && instanceId && url.includes('/instance/delete/')) {
-        const goUuid = tokenStore.getGoInstanceUuid?.(instanceId) || instanceId;
+        const goUuid = goUuidForConnection(tokenStore, instanceId);
+        if (!goUuid) {
+            return {
+                url: '/instance/delete/skipped',
+                headers: adminHeaders(globalKey),
+                syntheticResponse: { status: 404, data: { error: 'instance not found' } },
+            };
+        }
         return {
             url: `/instance/delete/${encodeURIComponent(goUuid)}`,
             headers: adminHeaders(globalKey),
@@ -112,15 +131,23 @@ export function adaptEvolutionApiRequestToGo(
 
     if (method === 'POST' && instanceId && (url.includes('/instance/proxy/') || url.includes('/proxy/set/'))) {
         const body = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+        const goUuid = goUuidForConnection(tokenStore, instanceId);
+        if (!goUuid) {
+            return {
+                url: '/instance/proxy/skipped',
+                headers: adminHeaders(globalKey),
+                syntheticResponse: { status: 400, data: MISSING_GO_UUID_SYNTHETIC },
+            };
+        }
         if (body.enabled === false) {
             return {
-                url: `/instance/proxy/${encodeURIComponent(instanceId)}`,
+                url: `/instance/proxy/${encodeURIComponent(goUuid)}`,
                 methodOverride: 'DELETE',
                 headers: adminHeaders(globalKey),
             };
         }
         return {
-            url: `/instance/proxy/${encodeURIComponent(instanceId)}`,
+            url: `/instance/proxy/${encodeURIComponent(goUuid)}`,
             data: {
                 host: body.host,
                 port: body.port,
@@ -140,8 +167,15 @@ export function adaptEvolutionApiRequestToGo(
     const instH = instanceHeaders(token);
 
     if (url.includes('/instance/connect/')) {
-        const goUuid = tokenStore.getGoInstanceUuid?.(instanceId!) || instanceId;
+        const goUuid = goUuidForConnection(tokenStore, instanceId!);
         if (method === 'POST') {
+            if (!goUuid) {
+                return {
+                    url: '/instance/connect',
+                    headers: instH,
+                    syntheticResponse: { status: 400, data: MISSING_GO_UUID_SYNTHETIC },
+                };
+            }
             const body = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
             // immediate:true força reconexão WhatsApp imediata. Usar apenas em connect explícito
             // (novo canal / Forçar QR). Re-registro de webhook no boot NÃO deve forçar reconnect
@@ -155,7 +189,7 @@ export function adaptEvolutionApiRequestToGo(
                     immediate: shouldReconnect,
                 },
                 // Go exige apikey = token da instância (global key → not authorized).
-                headers: { ...instH, instanceId: goUuid! },
+                headers: { ...instH, instanceId: goUuid },
             };
         }
         return { url: '/instance/qr', headers: instH };
@@ -339,7 +373,7 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
             return {
                 name: row.name || row.instanceName,
                 instanceName: row.name || row.instanceName,
-                id: row.id,
+                id: row.id || row.ID || row.instanceId || row.hash,
                 token: row.token,
                 jid: row.jid,
                 connected: rowConnected,

@@ -59,7 +59,7 @@ describe('adaptEvolutionApiRequestToGo', () => {
     it('POST connect → /instance/connect com webhook', () => {
         const store = {
             ...tokenStore,
-            getGoInstanceUuid: () => 'uuid-chip1',
+            getGoInstanceUuid: () => 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
         };
         const r = adaptEvolutionApiRequestToGo(
             {
@@ -71,9 +71,40 @@ describe('adaptEvolutionApiRequestToGo', () => {
             store
         );
         expect(r.url).toBe('/instance/connect');
-        expect(r.headers.instanceId).toBe('uuid-chip1');
+        expect(r.headers.instanceId).toBe('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
         expect(r.headers.apikey).toBe('tok-test');
         expect((r.data as { subscribe?: string[] }).subscribe).toContain('ALL');
+    });
+
+    it('POST connect sem UUID Go não envia conn_* no header instanceId', () => {
+        const r = adaptEvolutionApiRequestToGo(
+            {
+                method: 'post',
+                url: '/instance/connect/conn_1787847087384_1',
+                data: {},
+                headers: {},
+            },
+            tokenStore
+        );
+        expect(r.headers.instanceId).toBeUndefined();
+        expect(r.syntheticResponse?.status).toBe(400);
+        expect(String((r.syntheticResponse?.data as { error?: string })?.error)).toBe('missing-go-uuid');
+    });
+
+    it('DELETE instance usa UUID Go, não o conn_*', () => {
+        const store = {
+            ...tokenStore,
+            getGoInstanceUuid: () => 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+        };
+        const r = adaptEvolutionApiRequestToGo(
+            {
+                method: 'delete',
+                url: '/instance/delete/conn_1787847087384_1',
+                headers: {},
+            },
+            store
+        );
+        expect(r.url).toBe('/instance/delete/a1b2c3d4-e5f6-7890-abcd-ef1234567890');
     });
 });
 

@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 // Motor Híbrido ativado (whatsappService / evolutionService)
 import * as waService from './whatsappService.js';
 import * as evolutionService from './evolutionService.js';
+import { formatEvolutionHttpError, humanizeEvolutionEngineError } from './evolutionChatSend.js';
 import { applyMessageVars } from './replyFlowEngine.js';
 import { hasUnresolvedCampaignTemplateTokens } from '../shared/campaignSpintax.js';
 import { getAppVersion } from './version.js';
@@ -1079,7 +1080,8 @@ const registerSocketHandlers = () => {
       return false;
     };
     const reportSocketAsyncError = (op: string, err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
+      const raw = err instanceof Error ? err.message : String(err);
+      const message = humanizeEvolutionEngineError(formatEvolutionHttpError(err) || raw);
       structuredLog('error', 'socket.async_handler_failed', {
         op,
         tenantUid: uid,

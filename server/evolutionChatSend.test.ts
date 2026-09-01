@@ -48,18 +48,12 @@ describe('formatEvolutionHttpError', () => {
     expect(msg).toMatch(/não foi possível obter o número/i);
   });
 
-  it('exibe o número original em vez do JID corrompido', () => {
-    const msg = formatEvolutionHttpError(
-      {
-        response: {
-          data: {
-            response: { message: [{ exists: false, jid: '54784556296@s.whatsapp.net' }] }
-          }
-        }
-      },
-      '5547984556296'
-    );
-    expect(msg).toBe('Contato não encontrado no WhatsApp (+55 (47) 98455-6296)');
+  it('traduz invalid UUID do Evolution Go', () => {
+    const msg = formatEvolutionHttpError({
+      response: { data: { error: 'invalid UUID format: invalid UUID length: 20' } },
+      message: 'Request failed with status code 400',
+    });
+    expect(msg).toMatch(/não reconheceu o identificador/i);
   });
 });
 
