@@ -3,16 +3,21 @@
 # Uso: cd /opt/zapmass && bash deployment/fix-postgres-connections.sh
 # Agressivo (idle imediato + para API homolog): bash deployment/fix-postgres-connections.sh --aggressive
 # Reinício do Postgres (aplica max_connections=300): bash deployment/fix-postgres-connections.sh --restart-postgres
+# NUNCA para o Evolution Go de produção — isso derruba todos os chips WhatsApp.
+# Emergência (só se Postgres estiver saturado pelo Go de prod):
+#   bash deployment/fix-postgres-connections.sh --stop-prod-evolution
 set -euo pipefail
 
 ROOT="${ROOT:-/opt/zapmass}"
 cd "$ROOT"
 RESTART_PG=0
 AGGRESSIVE=0
+STOP_PROD_EVOLUTION=0
 for arg in "$@"; do
   case "$arg" in
     --restart-postgres) RESTART_PG=1 ;;
     --aggressive) AGGRESSIVE=1 ;;
+    --stop-prod-evolution) STOP_PROD_EVOLUTION=1 ;;
   esac
 done
 
@@ -38,11 +43,25 @@ pg_can_connect() {
   docker exec "$PG" psql -U postgres -d postgres -c 'SELECT 1' >/dev/null 2>&1
 }
 
+ensure_prod_evolution_running() {
+  if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx 'zapmass-evolution-go'; then
+    local running
+    running="$(docker inspect --format '{{.State.Running}}' zapmass-evolution-go 2>/dev/null || echo false)"
+    if [ "$running" != "true" ]; then
+      log "Subindo Evolution Go de PRODUÇÃO (não pode ficar parado após limpeza de Postgres)"
+      docker start zapmass-evolution-go >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
 stop_connection_hogs() {
-  log "Parar consumidores Evolution (libera slots Postgres)…"
+  log "Parar consumidores Evolution de HOMOLOGAÇÃO (libera slots Postgres)…"
   docker stop zapmass-evolution-go-homolog 2>/dev/null || true
-  docker stop zapmass-evolution-go 2>/dev/null || true
-  docker stop evolution-go 2>/dev/null || true
+  if [ "$STOP_PROD_EVOLUTION" = "1" ]; then
+    log "AVISO: --stop-prod-evolution — parando Evolution Go de PRODUÇÃO (chips caem)"
+    docker stop zapmass-evolution-go 2>/dev/null || true
+    docker stop evolution-go 2>/dev/null || true
+  fi
   if [ "$AGGRESSIVE" = "1" ] || [ "$RESTART_PG" = "1" ]; then
     docker stop zapmass-homolog-api 2>/dev/null || true
   fi
@@ -117,8 +136,10 @@ if [ "$RESTART_PG" = "1" ]; then
 fi
 
 if pg_can_connect; then
+  ensure_prod_evolution_running
   log "OK — Postgres aceita conexões. Suba homolog: bash deployment/recover-homolog-evolution-go.sh"
 else
+  ensure_prod_evolution_running
   echo "ERRO: Postgres ainda indisponível após limpeza/restart." >&2
   exit 1
 fi

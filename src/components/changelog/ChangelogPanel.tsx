@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.43',
+    date: '01/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Deploy de homologação não para mais o Evolution Go de produção — chips WhatsApp deixam de cair ao subir homolog' },
+    ],
+  },
+  {
     version: '2.3.42',
     date: '01/09/2026',
     highlights: [

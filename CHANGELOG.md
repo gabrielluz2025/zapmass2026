@@ -11,6 +11,18 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.43] — 2026-09-01
+
+### Fix crítico: deploy de homologação parava o Evolution Go de produção
+
+`fix-postgres-connections.sh` fazia `docker stop zapmass-evolution-go` (produção) para liberar slots no Postgres. O deploy homolog chama esse script com `--aggressive`, então **todos os chips de produção caíam** sempre que homolog subia.
+
+- Agora só para o Evolution Go de **homologação**.
+- Produção só para com `--stop-prod-evolution` (emergência explícita).
+- Ao terminar, o script **sobe de volta** o Evolution Go de produção se estiver parado.
+
+---
+
 ## [2.3.42] — 2026-09-01
 
 ### Fix: disparo recusava chips visivelmente online ("Evolution sem conexão ativa")
