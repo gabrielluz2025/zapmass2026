@@ -153,5 +153,39 @@ describe('normalizeEvolutionGoWebhookIfNeeded', () => {
         expect(data.messages).toHaveLength(1);
         expect(data.messages[0]!.key.id).toBe('WM1');
         expect(data.messages[0]!.pushName).toBe('Pedro');
+        expect(Array.isArray((out.data as { conversationStubs?: unknown[] }).conversationStubs)).toBe(
+            true
+        );
+    });
+
+    it('HistorySync Go (Conversations sem mensagens) → stubs de conversa', () => {
+        const out = normalizeEvolutionGoWebhookIfNeeded(
+            {
+                event: 'HistorySync',
+                instanceToken: 'tok-chip1',
+                data: {
+                    Conversations: [
+                        {
+                            ID: '5511666666666@s.whatsapp.net',
+                            Name: 'Ana',
+                            LastMessageTimestamp: 1700000000,
+                        },
+                    ],
+                },
+            },
+            lookup
+        ) as Record<string, unknown>;
+
+        expect(out.event).toBe('MESSAGES_UPSERT');
+        const data = out.data as {
+            messages: unknown[];
+            conversationStubs: Array<{ remoteJid: string; name?: string }>;
+            historySync: boolean;
+        };
+        expect(data.historySync).toBe(true);
+        expect(data.messages).toHaveLength(0);
+        expect(data.conversationStubs).toHaveLength(1);
+        expect(data.conversationStubs[0]!.remoteJid).toBe('5511666666666@s.whatsapp.net');
+        expect(data.conversationStubs[0]!.name).toBe('Ana');
     });
 });

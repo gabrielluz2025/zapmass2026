@@ -31,6 +31,7 @@ export function useWaRealtime(
 ) {
   const [socketStatus, setSocketStatus] = useState<WaSocketStatus>('offline');
   const [syncing, setSyncing] = useState(false);
+  const [historyImporting, setHistoryImporting] = useState(false);
   const pingSentAtRef = useRef(0);
   const slowStrikeRef = useRef(0);
   const lastRealtimeActivityRef = useRef(0);
@@ -160,6 +161,12 @@ export function useWaRealtime(
     socket.on('conversation-delta', onConv);
     socket.on('inbox-page', onConv);
 
+    const onHistorySync = (payload: { importing?: boolean }) => {
+      setHistoryImporting(Boolean(payload?.importing));
+      if (!payload?.importing) markRealtimeActivity();
+    };
+    socket.on('history-sync-status', onHistorySync);
+
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
@@ -167,6 +174,7 @@ export function useWaRealtime(
       socket.off('conversations-update', onConv);
       socket.off('conversation-delta', onConv);
       socket.off('inbox-page', onConv);
+      socket.off('history-sync-status', onHistorySync);
       document.removeEventListener('visibilitychange', onVis);
       clearInterval(pingTimer);
       clearInterval(lightSyncTimer);
@@ -175,5 +183,5 @@ export function useWaRealtime(
     };
   }, [socket, runResync]);
 
-  return { socketStatus, syncing, runResync };
+  return { socketStatus, syncing, historyImporting, runResync };
 }

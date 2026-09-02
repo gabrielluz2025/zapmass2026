@@ -32,9 +32,13 @@ type Props = {
   chipsConnected: number;
   connections: WhatsAppConnection[];
   syncing: boolean;
+  historyImporting?: boolean;
+  isGoWebhookInbox?: boolean;
   onSearch: (q: string) => void;
   onToggleUnread: () => void;
   onRefresh: () => void;
+  onNewConversation?: () => void;
+  onOpenOptions?: () => void;
   onSelect: (id: string) => void;
   hideOnMobile?: boolean;
   inboxHasMore?: boolean;
@@ -68,9 +72,13 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   chipsConnected,
   connections,
   syncing,
+  historyImporting = false,
+  isGoWebhookInbox = false,
   onSearch,
   onToggleUnread,
   onRefresh,
+  onNewConversation,
+  onOpenOptions,
   onSelect,
   hideOnMobile,
   inboxHasMore,
@@ -153,12 +161,13 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   const isOffline = socketStatus === 'offline';
 
   const statusText = useMemo(() => {
+    if (historyImporting) return 'Importando conversas do WhatsApp…';
     if (syncing) return 'Sincronizando…';
     if (isOffline) return 'Servidor desconectado';
     if (isSlow) return 'Conexão instável — sync ativo';
     if (chipsConnected > 0) return `${chipsConnected} chip${chipsConnected > 1 ? 's' : ''} ativo${chipsConnected > 1 ? 's' : ''}`;
     return 'Conecte um chip em Conexões';
-  }, [syncing, isOffline, isSlow, chipsConnected]);
+  }, [historyImporting, syncing, isOffline, isSlow, chipsConnected]);
 
   const smartTabs: { id: InboxSmartTab; label: string; badge?: number }[] = [
     { id: 'all', label: 'Tudo' },
@@ -201,6 +210,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
             className="wa-icon-btn"
             title="Nova conversa"
             aria-label="Nova conversa"
+            onClick={onNewConversation}
           >
             <PenSquare className="w-[18px] h-[18px]" />
           </button>
@@ -209,6 +219,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
             className="wa-icon-btn"
             title="Opções"
             aria-label="Opções"
+            onClick={onOpenOptions}
           >
             <MoreVertical className="w-[18px] h-[18px]" />
           </button>
@@ -216,8 +227,11 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
       </div>
 
       {/* Status compacto — só quando relevante */}
-      {(isOffline || isSlow || syncing || chipsConnected === 0) && (
-        <div className="wa-inbox-status" data-state={isOffline ? 'off' : isSlow ? 'slow' : 'on'}>
+      {(isOffline || isSlow || syncing || historyImporting || chipsConnected === 0) && (
+        <div
+          className="wa-inbox-status"
+          data-state={isOffline ? 'off' : isSlow ? 'slow' : historyImporting ? 'import' : 'on'}
+        >
           {isOffline ? <WifiOff className="w-3 h-3 shrink-0" /> : <Wifi className="w-3 h-3 shrink-0" />}
           <span className="flex-1 truncate">{statusText}</span>
         </div>
@@ -289,27 +303,58 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
         className="wa-conv-list flex-1 min-h-0 overflow-y-auto"
         onScroll={handleScroll}
       >
-        {conversations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 px-4 text-center gap-3">
-            <MessageCircle className="w-10 h-10 opacity-20" style={{ color: 'var(--wa-text-3)' }} />
-            <p className="text-sm" style={{ color: 'var(--wa-text-3)' }}>
-              {syncing
-                ? 'Sincronizando conversas com o WhatsApp…'
-                : connectionFilterId !== 'ALL' || unreadOnly
-                ? 'Nenhuma conversa com esses filtros.'
+        {conversations.length === 0 && (syncing || historyImporting) ? (
+          <div className="wa-inbox-skeleton" aria-hidden>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="wa-inbox-skeleton-row">
+                <span className="wa-inbox-skeleton-avatar" />
+                <span className="wa-inbox-skeleton-lines">
+                  <span className="wa-inbox-skeleton-line wa-inbox-skeleton-line--wide" />
+                  <span className="wa-inbox-skeleton-line" />
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : conversations.length === 0 ? (
+          <div className="wa-inbox-empty flex flex-col items-center justify-center py-16 px-4 text-center gap-3">
+            <MessageCircle className="w-12 h-12 opacity-25" style={{ color: 'var(--wa-text-3)' }} />
+            <p className="text-sm font-medium" style={{ color: 'var(--wa-text-2)' }}>
+              {connectionFilterId !== 'ALL' || unreadOnly
+                ? 'Nenhuma conversa com esses filtros'
                 : chipsConnected === 0
-                  ? 'Vá em Conexões e escaneie o QR do WhatsApp.'
-                  : 'Aguardando mensagens…'}
+                  ? 'Nenhum chip conectado'
+                  : isGoWebhookInbox
+                    ? 'Aguardando conversas do WhatsApp'
+                    : 'Sua inbox está vazia'}
             </p>
-            {!syncing && chipsConnected > 0 && connectionFilterId === 'ALL' && !unreadOnly && (
-              <button
-                type="button"
-                className="wa-filter-pill mt-1"
-                data-active="false"
-                onClick={onRefresh}
-              >
-                Sincronizar agora
-              </button>
+            <p className="text-xs max-w-[240px]" style={{ color: 'var(--wa-text-3)' }}>
+              {chipsConnected === 0
+                ? 'Vá em Conexões e escaneie o QR do WhatsApp.'
+                : isGoWebhookInbox
+                  ? 'O histórico chega via sincronização do celular. Use o botão abaixo se demorar.'
+                  : 'Novas mensagens aparecerão aqui automaticamente.'}
+            </p>
+            {!syncing && !historyImporting && chipsConnected > 0 && connectionFilterId === 'ALL' && !unreadOnly && (
+              <div className="flex flex-col gap-2 mt-1">
+                <button
+                  type="button"
+                  className="wa-filter-pill"
+                  data-active="false"
+                  onClick={onRefresh}
+                >
+                  Sincronizar agora
+                </button>
+                {onNewConversation ? (
+                  <button
+                    type="button"
+                    className="wa-filter-pill"
+                    data-active="false"
+                    onClick={onNewConversation}
+                  >
+                    Nova conversa
+                  </button>
+                ) : null}
+              </div>
             )}
           </div>
         ) : (

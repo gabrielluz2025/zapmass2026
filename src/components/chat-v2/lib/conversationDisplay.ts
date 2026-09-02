@@ -201,10 +201,24 @@ export function formatListTime(conv: Conversation): string {
 }
 
 export function avatarUrl(name: string, pic?: string): string {
-  return (
-    pic ||
-    `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=00a884&color=fff&size=200`
-  );
+  if (pic && pic.trim()) return pic;
+  return initialsAvatarDataUrl(name);
+}
+
+/** Avatar local com iniciais — sem depender de ui-avatars.com. */
+export function initialsAvatarDataUrl(name: string): string {
+  const cleaned = String(name || 'C')
+    .trim()
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
+    .split(/\s+/)
+    .filter(Boolean);
+  const initials =
+    cleaned.length >= 2
+      ? `${cleaned[0]![0] || ''}${cleaned[1]![0] || ''}`.toUpperCase()
+      : (cleaned[0]?.slice(0, 2) || 'C').toUpperCase();
+  const hue = [...initials].reduce((h, ch) => h + ch.charCodeAt(0), 0) % 360;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" rx="100" fill="hsl(${hue},42%,38%)"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" fill="#fff" font-family="system-ui,sans-serif" font-size="72" font-weight="600">${initials}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
 /** Na lista/cabeçalho: evita vários "Contato" iguais — mostra telefone ou sufixo do JID. */

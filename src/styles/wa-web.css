@@ -230,6 +230,90 @@ html[data-mode='light'] {
   opacity: 0.7;
 }
 
+.wa-inbox-status[data-state='import'] {
+  background: rgba(0, 168, 132, 0.1);
+  color: var(--wa-green-strong);
+}
+
+.wa-inbox-skeleton {
+  padding: 8px 12px;
+}
+
+.wa-inbox-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+}
+
+.wa-inbox-skeleton-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, var(--wa-divider) 25%, rgba(255,255,255,0.06) 50%, var(--wa-divider) 75%);
+  background-size: 200% 100%;
+  animation: wa-skeleton-shimmer 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.wa-inbox-skeleton-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wa-inbox-skeleton-line {
+  height: 10px;
+  border-radius: 6px;
+  width: 55%;
+  background: linear-gradient(90deg, var(--wa-divider) 25%, rgba(255,255,255,0.06) 50%, var(--wa-divider) 75%);
+  background-size: 200% 100%;
+  animation: wa-skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+.wa-inbox-skeleton-line--wide {
+  width: 72%;
+}
+
+@keyframes wa-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.wa-inbox-options-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.wa-inbox-options-menu {
+  position: absolute;
+  top: 52px;
+  right: 16px;
+  min-width: 220px;
+  background: var(--wa-panel);
+  border: 1px solid var(--wa-divider);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  padding: 6px;
+  z-index: 61;
+}
+
+.wa-inbox-options-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--wa-text-1);
+}
+
+.wa-inbox-options-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .wa-icon-btn {
   display: inline-flex;
   align-items: center;

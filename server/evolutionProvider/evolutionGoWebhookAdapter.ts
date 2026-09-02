@@ -106,6 +106,63 @@ function goHistoryItemToEvolutionV2(item: unknown, chatJidFallback?: string): Re
     return null;
 }
 
+/** Metadados de conversa no lote HistorySync (nome, JID, última atividade). */
+export type GoHistoryConversationStub = {
+    remoteJid: string;
+    name?: string;
+    lastMessageTimestamp?: number;
+    unreadCount?: number;
+};
+
+function parseConversationJidFromGoRow(c: Record<string, unknown>): string {
+    return String(c.ID ?? c.id ?? c.JID ?? c.jid ?? '').trim();
+}
+
+/** Extrai stubs de conversa do HistorySync — inclusive threads sem mensagens no lote. */
+export function extractGoHistorySyncConversationStubs(data: unknown): GoHistoryConversationStub[] {
+    if (!data || typeof data !== 'object') return [];
+    const row = data as Record<string, unknown>;
+    const out: GoHistoryConversationStub[] = [];
+    const seen = new Set<string>();
+
+    const pushStub = (jid: string, meta?: { name?: string; ts?: unknown; unread?: unknown }) => {
+        const remoteJid = jid.trim();
+        if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') return;
+        if (seen.has(remoteJid)) return;
+        seen.add(remoteJid);
+        out.push({
+            remoteJid,
+            name: meta?.name ? String(meta.name).trim() : undefined,
+            lastMessageTimestamp: parseGoTimestamp(meta?.ts),
+            unreadCount:
+                typeof meta?.unread === 'number' && Number.isFinite(meta.unread)
+                    ? Math.max(0, Math.floor(meta.unread))
+                    : undefined,
+        });
+    };
+
+    for (const key of ['Conversations', 'conversations'] as const) {
+        const convs = row[key];
+        if (!Array.isArray(convs)) continue;
+        for (const conv of convs) {
+            if (!conv || typeof conv !== 'object') continue;
+            const c = conv as Record<string, unknown>;
+            const chatJid = parseConversationJidFromGoRow(c);
+            if (!chatJid) continue;
+            const name = String(c.Name ?? c.name ?? c.DisplayName ?? c.displayName ?? '').trim();
+            const ts = c.LastMessageTimestamp ?? c.lastMessageTimestamp ?? c.Timestamp ?? c.timestamp;
+            const unread = c.UnreadCount ?? c.unreadCount;
+            pushStub(chatJid, { name: name || undefined, ts, unread });
+        }
+    }
+
+    if (row.Data && typeof row.Data === 'object') {
+        return extractGoHistorySyncConversationStubs(row.Data);
+    }
+
+    return out;
+}
+
 /** Extrai lote de mensagens do webhook HistorySync (vários formatos whatsmeow/Go). */
 function extractGoHistorySyncMessages(data: unknown): Record<string, unknown>[] {
     if (!data || typeof data !== 'object') return [];
@@ -162,8 +219,9 @@ function normalizeGoEventData(eventName: string, data: unknown): unknown {
             return goMessageDataToEvolutionV2(row);
         case 'HistorySync': {
             const messages = extractGoHistorySyncMessages(row);
-            if (messages.length === 0) return row;
-            return { messages };
+            const conversationStubs = extractGoHistorySyncConversationStubs(row);
+            if (messages.length === 0 && conversationStubs.length === 0) return row;
+            return { messages, conversationStubs, historySync: true };
         }
         case 'QRCode':
         case 'QRSuccess':
@@ -193,6 +251,7 @@ function normalizeGoEventData(eventName: string, data: unknown): unknown {
                 jid: row.jid ?? row.ID,
                 owner: row.jid ?? row.ID,
                 pushName: row.pushName,
+                _goSourceEvent: 'OfflineSyncCompleted',
             };
         case 'LoggedOut':
             return {

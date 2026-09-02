@@ -24,6 +24,8 @@ import {
     collapseConversationsByPhone,
     mergeConversationsPair
 } from '../src/utils/collapseConversationsByPhone.js';
+import type { GoHistoryConversationStub } from './evolutionProvider/evolutionGoWebhookAdapter.js';
+import { isGoWebhookInboxMode } from './evolutionConfig.js';
 import {
     ensureLatestPreviewInMessages,
     mergeChatMessageLists
@@ -162,6 +164,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     let lidDiagSamples = 0;
     const phonebookCache = new Map<string, { at: number; index: PhonebookNameIndex }>();
     const PHONEBOOK_CACHE_MS = 120_000;
+    /** Rajadas HistorySync — flush único após idle. */
+    let historySyncIdleTimer: ReturnType<typeof setTimeout> | null = null;
+    const historySyncActiveConnections = new Set<string>();
     const withStoreLock = <T>(fn: () => Promise<T>): Promise<T> => {
         const run = storeLock.then(fn);
         storeLock = run.then(
@@ -291,7 +296,16 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     }
 
     function buildConversationId(connectionId: string, remoteJid: string): string {
-        return `${connectionId}:${remoteJid}`;
+        const jid = remoteJid.includes('@') ? remoteJid : toRemoteJid(remoteJid);
+        if (jid.toLowerCase().endsWith('@lid')) return `${connectionId}:${jid}`;
+        const normalized = toRemoteJid(jid);
+        const base = normalized.split('@')[0].replace(/\D/g, '');
+        const suffix = (normalized.split('@')[1] || '').toLowerCase();
+        if (suffix === 'lid') return `${connectionId}:${normalized}`;
+        if (base.length >= 8 && (suffix === 's.whatsapp.net' || suffix === 'c.us')) {
+            return `${connectionId}:${base}@s.whatsapp.net`;
+        }
+        return `${connectionId}:${normalized}`;
     }
 
     function toPhoneDisplay(jidOrPhone: string): string {
@@ -565,9 +579,120 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 ? { contactPhone: existing.contactPhone, waJidAlt: existing.waJidAlt }
                 : undefined
         );
-        if (!hasResolvablePhone(merged)) return conversationId;
+        if (!hasResolvablePhone(merged)) return buildConversationId(connectionId, parsed.remoteJid);
         const digits = normalizePhoneDigits(merged.contactPhone);
         return resolveConversationIdForPhone(connectionId, digits);
+    }
+
+    function upsertHistorySyncStub(instance: string, stub: GoHistoryConversationStub): void {
+        const remoteJid = String(stub.remoteJid || '').trim();
+        if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') return;
+        let conversationId = buildConversationId(instance, remoteJid);
+        const phone = toPhoneDisplay(remoteJid);
+        conversationId = resolveCanonicalConversationId(instance, conversationId, {
+            contactPhone: phone || undefined,
+        });
+        const tsRaw = stub.lastMessageTimestamp;
+        const tsMs =
+            tsRaw != null && Number.isFinite(tsRaw)
+                ? tsRaw > 1_000_000_000_000
+                    ? Math.floor(tsRaw)
+                    : Math.floor(tsRaw * 1000)
+                : 0;
+        const existing = conversations.find((c) => c.id === conversationId);
+        if (existing) {
+            const betterName = filterEvolutionName(stub.name);
+            if (betterName) {
+                existing.contactName = pickContactDisplayName({
+                    waName: betterName,
+                    previous: existing.contactName,
+                    fallback: existing.contactName || betterName,
+                });
+            }
+            if (phone && !existing.contactPhone) existing.contactPhone = phone;
+            if (tsMs > (existing.lastMessageTimestamp || 0)) {
+                existing.lastMessageTimestamp = tsMs;
+                existing.lastMessageTime = formatTime(tsMs);
+            }
+            if (typeof stub.unreadCount === 'number' && stub.unreadCount > 0) {
+                existing.unreadCount = Math.max(existing.unreadCount || 0, stub.unreadCount);
+            }
+            return;
+        }
+        upsertConversation(
+            {
+                id: conversationId,
+                contactName:
+                    filterEvolutionName(stub.name) || phone || remoteJid.split('@')[0] || 'Contato',
+                contactPhone: phone,
+                connectionId: instance,
+                unreadCount: stub.unreadCount || 0,
+                lastMessage: '',
+                lastMessageTime: tsMs > 0 ? formatTime(tsMs) : '',
+                lastMessageTimestamp: tsMs > 0 ? tsMs : Date.now(),
+                messages: [],
+                tags: [],
+            },
+            { skipArchive: true }
+        );
+    }
+
+    function scheduleHistorySyncFlush(instance: string): void {
+        historySyncActiveConnections.add(instance);
+        if (historySyncIdleTimer) clearTimeout(historySyncIdleTimer);
+        historySyncIdleTimer = setTimeout(() => {
+            historySyncIdleTimer = null;
+            historySyncActiveConnections.clear();
+            collapseStoredConversations();
+            emitConversationsUpdate();
+        }, 450);
+    }
+
+    function completeHistorySyncForConnection(instance: string): void {
+        historySyncActiveConnections.delete(instance);
+        if (historySyncIdleTimer) {
+            clearTimeout(historySyncIdleTimer);
+            historySyncIdleTimer = null;
+        }
+        collapseStoredConversations();
+        emitConversationsUpdate();
+    }
+
+    function isHistorySyncImporting(): boolean {
+        return historySyncActiveConnections.size > 0;
+    }
+
+    async function hydrateInboxStubsFromArchive(
+        ownerUid: string,
+        connectionIds: string[]
+    ): Promise<number> {
+        const allowed = new Set(connectionIds.filter(Boolean));
+        if (allowed.size === 0) return 0;
+        const { usePostgresChatArchive } = await import('./chatArchiveStore.js');
+        if (!usePostgresChatArchive()) return 0;
+        const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+        const { listInboxThreadStubsPg } = await import('./repositories/chatArchiveRepository.js');
+        const tenantId = resolvePostgresTenantId(ownerUid);
+        const stubs = await listInboxThreadStubsPg(tenantId, { limit: 300 });
+        let touched = 0;
+        for (const stub of stubs) {
+            if (!allowed.has(stub.connectionId)) continue;
+            const canonicalId = resolveCanonicalConversationId(stub.connectionId, stub.id, {
+                contactPhone: stub.contactPhone,
+            });
+            const normalized = { ...stub, id: canonicalId };
+            if (conversations.some((c) => c.id === canonicalId)) {
+                upsertConversation(normalized, { skipArchive: true });
+            } else {
+                upsertConversation(normalized, { skipArchive: true });
+                touched += 1;
+            }
+        }
+        if (touched > 0) {
+            collapseStoredConversations();
+            emitConversationsUpdate();
+        }
+        return touched;
     }
 
     function removeDuplicateConversationId(dropId: string, keep: Conversation): Conversation {
@@ -1370,6 +1495,15 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     }
 
     function handleWebhookMessage(instance: string, data: any) {
+        const isHistorySync = data?.historySync === true;
+        const stubs: GoHistoryConversationStub[] = Array.isArray(data?.conversationStubs)
+            ? data.conversationStubs
+            : [];
+        if (stubs.length > 0) {
+            for (const stub of stubs) upsertHistorySyncStub(instance, stub);
+        }
+        if (isHistorySync && stubs.length > 0) scheduleHistorySyncFlush(instance);
+
         // Evolution v2 pode mandar `data` em 3 formatos:
         //   1) { messages: [ { key, message, ... } ] }
         //   2) array direto: [ { key, message, ... }, ... ]
@@ -1420,6 +1554,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             });
             touched.add(conversationId);
         }
+        if (isHistorySync) scheduleHistorySyncFlush(instance);
         for (const id of touched) emitConversationDelta(id);
     }
 
@@ -1636,6 +1771,12 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         if (archiveCtx) {
             await mergeChatArchiveIntoConversation(conversationId, limit, evoChatArchiveHooks());
+        }
+
+        if (isGoWebhookInboxMode()) {
+            const convAfterArchive = conversations.find((c) => c.id === conversationId);
+            const msgs = convAfterArchive?.messages || [];
+            return { ok: true, total: msgs.length, messages: msgs };
         }
 
         const requested = Math.max(50, Math.min(limit, MAX_MESSAGES));
@@ -1996,6 +2137,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         enrichProfilePicturesForConnection,
         handleWebhookMessage,
         handlePresenceUpdate,
+        completeHistorySyncForConnection,
+        isHistorySyncImporting,
+        hydrateInboxStubsFromArchive,
         appendCampaignOutboundMessage,
         updateMessageStatus,
         sendMessage,

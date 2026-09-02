@@ -11,6 +11,18 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.49] — 2026-09-01
+
+### Bate-papo: sync do celular, de-para e visual WA Web
+
+- **HistorySync (Evolution Go):** stubs de conversa + mensagens; evento `history-sync-status` na UI.
+- **Inbox persistente:** hidratação do arquivo Postgres ao reabrir aba / sync no modo Go.
+- **ID canônico:** servidor usa `{chip}:{digits}@s.whatsapp.net`; collapse LID/telefone antes do emit.
+- **Go:** `loadChatHistory` não chama `findMessages` (só arquivo + RAM).
+- **UI:** avatars locais, skeleton na importação, empty states honestos, botões Nova conversa/Opções, painel único de contexto.
+
+---
+
 ## [2.3.48] — 2026-09-01
 
 ### Fix: Desconectar não religa o chip sozinho (Online fantasma)

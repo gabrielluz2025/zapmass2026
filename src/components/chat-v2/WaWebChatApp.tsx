@@ -10,12 +10,9 @@ import {
   useZapMassConnectionsSlice,
   useZapMassUiSnapshot,
 } from '../../context/ZapMassContext';
-import { ClientCrmPanel } from '../chat/ClientCrmPanel';
-import { WaContactDrawer } from '../chat/wa/WaContactDrawer';
 import { useClientCrm } from '../chat/useClientCrm';
 import { useSendChatMedia } from './hooks/useSendChatMedia';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
-import { collapseConversationsByPhone } from '../../utils/collapseConversationsByPhone';
 import { buildCanonicalConversationId } from '../../utils/conversationId';
 import { OPEN_CHAT_BY_CONVERSATION_ID_KEY } from '../../utils/openChatByConversationIdNav';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
@@ -125,6 +122,7 @@ export const WaWebChatApp: React.FC<{
   const [inboxPrefs, setInboxPrefs] = useState<ChatInboxPrefsState>(() => loadChatInboxPrefs());
   const [inboxTab, setInboxTab] = useState<InboxSmartTab>('all');
   const [focusMode, setFocusMode] = useState(false);
+  const [showInboxOptions, setShowInboxOptions] = useState(false);
   const [quoteMessage, setQuoteMessage] = useState<ChatMessage | null>(null);
   const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -146,7 +144,7 @@ export const WaWebChatApp: React.FC<{
     if (socket?.connected) socket.emit('request-conversations-sync', opts);
   }, [socket]);
 
-  const { socketStatus, syncing, runResync } = useWaRealtime(socket, requestSync, {
+  const { socketStatus, syncing, historyImporting, runResync } = useWaRealtime(socket, requestSync, {
     chipsConnected: connectedChannels.length
   });
 
@@ -221,9 +219,7 @@ export const WaWebChatApp: React.FC<{
   const mergedConversations = useMemo(() => {
     const realIds = new Set(conversations.map((c) => c.id));
     const drafts = draftConversations.filter((d) => !realIds.has(d.id));
-    return collapseConversationsByPhone(
-      dedupeConversationsById([...conversations, ...drafts])
-    );
+    return dedupeConversationsById([...conversations, ...drafts]);
   }, [conversations, draftConversations]);
 
   // mergedConversations já foi collapsed/deduped — ordenar direto sem segundo collapse.
@@ -372,6 +368,84 @@ export const WaWebChatApp: React.FC<{
     [markAsRead]
   );
 
+  const openChatByPhoneDigits = useCallback(
+    (
+      digits: string,
+      opts?: { contactName?: string; profilePicUrl?: string; preferredConnectionId?: string }
+    ) => {
+      const phoneDigits = String(digits || '').replace(/\D/g, '');
+      if (!phoneDigits) return;
+
+      const matchesDigits = (cd: string) =>
+        !!cd &&
+        (cd === phoneDigits ||
+          cd.endsWith(phoneDigits) ||
+          phoneDigits.endsWith(cd) ||
+          (cd.length >= 10 && phoneDigits.length >= 10 && cd.slice(-10) === phoneDigits.slice(-10)));
+
+      const candidates = sortedConversations.filter((c) =>
+        matchesDigits((c.contactPhone || '').replace(/\D/g, ''))
+      );
+      if (candidates.length > 0) {
+        const preferred = opts?.preferredConnectionId
+          ? candidates.find((c) => c.connectionId === opts.preferredConnectionId)
+          : undefined;
+        const best =
+          preferred ||
+          candidates.sort(
+            (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
+          )[0];
+        if (best) selectChat(best.id);
+        return;
+      }
+
+      const connectedList = connections.filter((c) => c.status === 'CONNECTED');
+      const preferredConn = opts?.preferredConnectionId
+        ? connections.find((c) => c.id === opts.preferredConnectionId)
+        : undefined;
+      const chosen = preferredConn || connectedList[0] || connections[0];
+      const draftId = chosen
+        ? buildCanonicalConversationId(chosen.id, phoneDigits) || `draft:${phoneDigits}`
+        : `draft:${phoneDigits}`;
+      const agendaHit = contacts.find((ct) => {
+        const cd = (ct.phone || '').replace(/\D/g, '');
+        return matchesDigits(cd);
+      });
+      const displayName =
+        (agendaHit?.name || '').trim() || opts?.contactName?.trim() || `+${phoneDigits}`;
+      const draft: Conversation = {
+        id: draftId,
+        contactName: displayName,
+        contactPhone: phoneDigits,
+        profilePicUrl: opts?.profilePicUrl || agendaHit?.profilePicUrl || undefined,
+        connectionId: chosen?.id || '',
+        unreadCount: 0,
+        lastMessage: '',
+        lastMessageTime: '',
+        lastMessageTimestamp: Date.now(),
+        messages: [],
+        tags: [],
+      };
+      setDraftConversations((prev) => (prev.some((d) => d.id === draftId) ? prev : [...prev, draft]));
+      if (chosen?.id) {
+        setDraftChannelById((prev) => ({ ...prev, [draftId]: chosen.id }));
+      }
+      selectChat(draftId);
+      if (!chosen) {
+        toast('Conversa aberta sem chip. Conecte um chip em Conexões para enviar.', {
+          icon: 'ℹ️',
+          duration: 4500,
+        });
+      } else if (chosen.status !== 'CONNECTED') {
+        toast('Chip selecionado não está online. Conecte-o antes de enviar.', {
+          icon: '⚠️',
+          duration: 4500,
+        });
+      }
+    },
+    [sortedConversations, connections, contacts, selectChat]
+  );
+
   /** Desktop: auto-seleciona a primeira conversa quando a lista carrega. */
   useEffect(() => {
     if (autoSelectDoneRef.current || selectedId || filtered.length === 0) return;
@@ -441,75 +515,11 @@ export const WaWebChatApp: React.FC<{
 
       const digits = (phoneRaw || '').replace(/\D/g, '');
       if (!digits) return;
-
-      const matchesDigits = (cd: string) =>
-        !!cd &&
-        (cd === digits ||
-          cd.endsWith(digits) ||
-          digits.endsWith(cd) ||
-          (cd.length >= 10 && digits.length >= 10 && cd.slice(-10) === digits.slice(-10)));
-
-      const candidates = sortedConversations.filter((c) =>
-        matchesDigits((c.contactPhone || '').replace(/\D/g, ''))
-      );
-      if (candidates.length > 0) {
-        const preferred = preferredConnectionId
-          ? candidates.find((c) => c.connectionId === preferredConnectionId)
-          : undefined;
-        const best =
-          preferred ||
-          candidates.sort(
-            (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
-          )[0];
-        selectChat(best.id);
-        return;
-      }
-
-      const connectedList = connections.filter((c) => c.status === 'CONNECTED');
-      const preferredConn = preferredConnectionId
-        ? connections.find((c) => c.id === preferredConnectionId)
-        : undefined;
-      const chosen = preferredConn || connectedList[0] || connections[0];
-      const draftId = chosen ? buildCanonicalConversationId(chosen.id, digits) || `draft:${digits}` : `draft:${digits}`;
-      const agendaHit = contacts.find((ct) => {
-        const cd = (ct.phone || '').replace(/\D/g, '');
-        return matchesDigits(cd);
-      });
-      const displayName =
-        (agendaHit?.name || '').trim() || contactName || `+${digits}`;
-      const draft: Conversation = {
-        id: draftId,
-        contactName: displayName,
-        contactPhone: digits,
-        profilePicUrl: profilePicUrl || agendaHit?.profilePicUrl || undefined,
-        connectionId: chosen?.id || '',
-        unreadCount: 0,
-        lastMessage: '',
-        lastMessageTime: '',
-        lastMessageTimestamp: Date.now(),
-        messages: [],
-        tags: []
-      };
-      setDraftConversations((prev) => (prev.some((d) => d.id === draftId) ? prev : [...prev, draft]));
-      if (chosen?.id) {
-        setDraftChannelById((prev) => ({ ...prev, [draftId]: chosen.id }));
-      }
-      selectChat(draftId);
-      if (!chosen) {
-        toast('Conversa aberta sem chip. Conecte um chip em Conexões para enviar.', {
-          icon: 'ℹ️',
-          duration: 4500
-        });
-      } else if (chosen.status !== 'CONNECTED') {
-        toast('Chip selecionado não está online. Conecte-o antes de enviar.', {
-          icon: '⚠️',
-          duration: 4500
-        });
-      }
+      openChatByPhoneDigits(digits, { contactName, profilePicUrl, preferredConnectionId });
     } catch {
       /* ignore */
     }
-  }, [mergedConversations.length, connections.length, sortedConversations, contacts, selectChat]);
+  }, [mergedConversations.length, connections.length, openChatByPhoneDigits]);
 
   useEffect(() => {
     if (draftConversations.length === 0) return;
@@ -816,17 +826,30 @@ export const WaWebChatApp: React.FC<{
   );
 
   const handleRefresh = useCallback(() => {
-    const full = !isGoWebhookInbox;
+    const full = isGoWebhookInbox;
     runResync({ full, force: true });
     requestSync({ full });
     if (selectedId) void loadMoreHistory(selectedId, true);
     toast.success(
-      full
-        ? 'Sincronizando conversas e mensagens…'
-        : 'Atualizando conversas recentes…',
+      isGoWebhookInbox
+        ? 'Reimportando conversas do WhatsApp…'
+        : full
+          ? 'Sincronizando conversas e mensagens…'
+          : 'Atualizando conversas recentes…',
       { duration: 2500 }
     );
   }, [runResync, requestSync, isGoWebhookInbox, selectedId, loadMoreHistory]);
+
+  const handleNewConversation = useCallback(() => {
+    const raw = window.prompt('Telefone com DDD (apenas números ou +55…)');
+    if (!raw?.trim()) return;
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length < 10) {
+      toast.error('Informe um telefone válido com DDD.');
+      return;
+    }
+    openChatByPhoneDigits(digits);
+  }, [openChatByPhoneDigits]);
 
   const handleAutoClassifyResponses = useCallback(async () => {
     const ok = window.confirm(
@@ -1098,11 +1121,15 @@ export const WaWebChatApp: React.FC<{
         onConnectionFilterChange={setConnectionFilterId}
         socketStatus={isBackendConnected ? socketStatus : 'offline'}
         syncing={syncing}
+        historyImporting={historyImporting}
+        isGoWebhookInbox={isGoWebhookInbox}
         chipsConnected={connectedChannels.length}
         connections={connections}
         onSearch={setSearch}
         onToggleUnread={() => setUnreadOnly((v) => !v)}
         onRefresh={handleRefresh}
+        onNewConversation={handleNewConversation}
+        onOpenOptions={() => setShowInboxOptions((v) => !v)}
         onAutoClassifyResponses={() => void handleAutoClassifyResponses()}
         autoClassifying={autoClassifying}
         onSelect={selectChat}
@@ -1118,6 +1145,56 @@ export const WaWebChatApp: React.FC<{
         hotCount={hotCount}
       />
       )}
+
+      {showInboxOptions && !focusMode ? (
+        <div
+          className="wa-inbox-options-backdrop"
+          role="presentation"
+          onClick={() => setShowInboxOptions(false)}
+        >
+          <div
+            className="wa-inbox-options-menu"
+            role="menu"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className="wa-inbox-options-item"
+              onClick={() => {
+                setShowInboxOptions(false);
+                void handleAutoClassifyResponses();
+              }}
+            >
+              Classificar respostas (quero/sair)
+            </button>
+            {selected ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="wa-inbox-options-item"
+                onClick={() => {
+                  setShowInboxOptions(false);
+                  handleExportConversation();
+                }}
+              >
+                Exportar conversa aberta
+              </button>
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              className="wa-inbox-options-item"
+              onClick={() => {
+                setShowInboxOptions(false);
+                setFocusMode((v) => !v);
+              }}
+            >
+              {focusMode ? 'Sair do modo foco' : 'Modo foco (só thread)'}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <WaThread
         conversation={selected}
@@ -1183,6 +1260,7 @@ export const WaWebChatApp: React.FC<{
         onPickFileForPreview={(file) => setMediaPreviewFile(file)}
         focusMode={focusMode}
         onToggleFocus={() => setFocusMode((v) => !v)}
+        isGoWebhookInbox={isGoWebhookInbox}
       />
 
       {selected && !focusMode && showContactInfo && (
@@ -1227,28 +1305,6 @@ export const WaWebChatApp: React.FC<{
             /* contatos atualizados via socket / próximo sync */
           }}
         />
-      )}
-
-      {selected && (
-        <WaContactDrawer
-          open={showContactInfo}
-          title="Ficha do cliente"
-          subtitle={selectedTitle}
-          onClose={() => setShowContactInfo(false)}
-        >
-          <ClientCrmPanel
-            conversation={selected}
-            connectionName={selectedConnection?.name}
-            avatar={avatarById.get(selected.id) || ''}
-            crmData={crm.get(selected.id)}
-            pipelineAgg={pipelineAgg}
-            displayTitle={selectedTitle}
-            whatsappAlias={selectedDisplay?.whatsappSubtitle}
-            onClose={() => setShowContactInfo(false)}
-            onUpdate={(patch) => crm.update(selected.id, patch)}
-            onClear={() => crm.clear(selected.id)}
-          />
-        </WaContactDrawer>
       )}
 
       <WaForwardModal

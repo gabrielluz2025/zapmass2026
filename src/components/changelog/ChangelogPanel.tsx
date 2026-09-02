@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.49',
+    date: '01/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Bate-papo Evolution Go: importação HistorySync com lista de conversas + barra de progresso' },
+      { type: 'fix', text: 'De-para LID/telefone unificado no servidor — some thread duplicada' },
+      { type: 'feat', text: 'Visual WA Web: avatars locais, skeleton, empty states, Nova conversa e Opções funcionais' },
+    ],
+  },
+  {
     version: '2.3.48',
     date: '01/09/2026',
     highlights: [

@@ -1073,6 +1073,7 @@ export async function syncConnectionsForOwner(
 
     if (isGoWebhookInboxMode()) {
         if (syncedChats.length > 0) {
+            await hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
             await markOwnerFullSyncDone(uid);
         }
     } else if (syncedChats.length === 0 || mappedChats > 0) {
@@ -1126,6 +1127,14 @@ export async function getInboxPageForOwner(
 }
 
 /** Reemite inbox do RAM para o socket — sem findChats (sync leve ao focar aba / reconectar). */
+export async function hydrateInboxFromArchiveForOwner(ownerUid: string): Promise<number> {
+    const uid = String(ownerUid || '').trim();
+    if (!uid || uid === 'anonymous') return 0;
+    const scoped = filterByConnectionScope(uid, getConnections());
+    const connectionIds = scoped.map((c) => c.id).filter(Boolean);
+    return chatStore.hydrateInboxStubsFromArchive(uid, connectionIds);
+}
+
 export async function reemitConversationsForOwner(ownerUid: string): Promise<void> {
     const uid = String(ownerUid || '').trim();
     if (!uid || uid === 'anonymous') return;
@@ -1133,7 +1142,13 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
     const scopedForReemit = filterByConnectionScope(uid, getConnections());
     const hasOpenChip = scopedForReemit.some((c) => String(c.status || '').toUpperCase() === 'CONNECTED');
     if (isInboxPaginationEnabled()) {
-        const page = await getInboxPageForOwner(uid, uid, { reset: true });
+        let page = await getInboxPageForOwner(uid, uid, { reset: true });
+        if (page.total === 0 && hasOpenChip && isGoWebhookInboxMode()) {
+            const hydrated = await hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
+            if (hydrated > 0) {
+                page = await getInboxPageForOwner(uid, uid, { reset: true });
+            }
+        }
         if (page.total === 0 && hasOpenChip && !isGoWebhookInboxMode()) {
             log('info', 'reemitConversationsForOwner: RAM vazia com chips abertos — sync completo', {
                 ownerUid: uid,
@@ -1687,6 +1702,8 @@ function applyConnectionStateUpdate(
     data?: Record<string, unknown>
 ) {
     if (!instance) return;
+    const goSource =
+        data && typeof data === 'object' ? String(data._goSourceEvent || '').trim() : '';
     const state = String(rawState || '').toLowerCase();
     if (!state) return;
     const open = isEvolutionOpenState(state);
@@ -1908,6 +1925,18 @@ function applyConnectionStateUpdate(
                 );
             }
         })();
+    }
+
+    if (goSource === 'OfflineSyncCompleted' && open) {
+        chatStore.completeHistorySyncForConnection(instance);
+        const ou = resolveOwnerUid(instance);
+        if (ou) {
+            publishOwnerEvent(ou, 'history-sync-status', {
+                connectionId: instance,
+                importing: false,
+            });
+            void reemitConversationsForOwner(ou).catch(() => undefined);
+        }
     }
 }
 
@@ -8420,6 +8449,12 @@ export async function handleWebhook(event: any) {
                     break;
                 }
                 chatStore.handleWebhookMessage(instance, data);
+                if (data && typeof data === 'object' && (data as Record<string, unknown>).historySync === true) {
+                    publishOwnerEvent(messageOwnerUid, 'history-sync-status', {
+                        connectionId: instance,
+                        importing: true,
+                    });
+                }
 
                 const items = normalizeEvolutionWebhookMessages(data);
                 for (const msg of items) {
@@ -9769,6 +9804,7 @@ export default {
     syncConnectionsForOwner,
     ensureConnectionsHydratedForOwner,
     reemitConversationsForOwner,
+    hydrateInboxFromArchiveForOwner,
     getInboxPageForOwner,
     assignConnectionOwner,
     reassignConnectionOwnerAdmin,

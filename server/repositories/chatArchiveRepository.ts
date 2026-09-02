@@ -233,7 +233,7 @@ export async function listInboxThreadStubsPg(
       const phone = (row.contact_phone || '').replace(/\D/g, '');
       const conn = (row.last_connection_id || '').trim();
       if (!conn || phone.length < 8) continue;
-      const id = `${conn}:${phone}@c.us`;
+      const id = `${conn}:${phone}@s.whatsapp.net`;
       const ts = Number(row.updated_ms) || Date.now();
       out.push({
         id,

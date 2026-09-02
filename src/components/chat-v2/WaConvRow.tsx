@@ -13,6 +13,7 @@ import {
   formatContactPresenceSubtitle,
   isContactPresenceOnline,
 } from '../../utils/evolutionPresence';
+import { initialsAvatarDataUrl } from './lib/conversationDisplay';
 
 import type { ConversationOrigin } from './lib/conversationOrigin';
 import type { SlaLevel } from './lib/slaUtils';
@@ -38,7 +39,7 @@ type Props = {
 const UI_AVATAR_HOST = 'ui-avatars.com';
 
 function isGeneratedAvatar(src: string): boolean {
-  return !src || src.includes(UI_AVATAR_HOST);
+  return !src || src.includes(UI_AVATAR_HOST) || src.startsWith('data:image/svg+xml');
 }
 
 export const WaConvRow = memo(function WaConvRow({
@@ -126,7 +127,7 @@ export const WaConvRow = memo(function WaConvRow({
             if (el.dataset.fallback === '1') return;
             el.dataset.fallback = '1';
             el.onerror = null;
-            el.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(title)}&background=00a884&color=fff&size=200&bold=true`;
+            el.src = initialsAvatarDataUrl(title);
             if (conv.profilePicUrl?.startsWith('http')) {
               onRequestPicture?.(conv.id, true);
             }

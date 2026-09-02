@@ -84,6 +84,7 @@ type Props = {
   onPickFileForPreview?: (file: File) => void;
   focusMode?: boolean;
   onToggleFocus?: () => void;
+  isGoWebhookInbox?: boolean;
 };
 
 function messageShowsTail(messages: Conversation['messages'], index: number): boolean {
@@ -142,6 +143,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
   onPickFileForPreview,
   focusMode,
   onToggleFocus,
+  isGoWebhookInbox = false,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollPreserveRef = useRef<{ id: string; height: number; top: number } | null>(null);
@@ -413,7 +415,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
           onScroll={handleScroll}
         >
           {!historyExhausted && messages.length > 0 && (
-            <div className="flex justify-center pt-3 sticky top-0 z-[1]">
+            <div className="flex flex-col items-center pt-3 sticky top-0 z-[1] gap-1">
               <button
                 type="button"
                 className="wa-history-btn"
@@ -427,6 +429,11 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
                 )}
                 Carregar mensagens anteriores
               </button>
+              {isGoWebhookInbox ? (
+                <p className="text-[11px] px-3 text-center" style={{ color: 'var(--wa-text-3)' }}>
+                  Histórico incompleto — puxe para cima para carregar mais
+                </p>
+              ) : null}
             </div>
           )}
 
