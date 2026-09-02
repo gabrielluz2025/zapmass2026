@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.50',
+    date: '01/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Go: HistorySync sinalizado ao conectar chip + sync full no modo webhook' },
+      { type: 'fix', text: 'Wizard de campanha: limite diário só em chips online com número pareado' },
+    ],
+  },
+  {
     version: '2.3.49',
     date: '01/09/2026',
     highlights: [

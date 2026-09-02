@@ -2794,7 +2794,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
               {(() => {
                 const selOnline = connections.filter(
-                  (c) => selectedConnectionIds.includes(c.id) && c.status === ConnectionStatus.CONNECTED
+                  (c) =>
+                    selectedConnectionIds.includes(c.id) &&
+                    c.status === ConnectionStatus.CONNECTED &&
+                    Boolean(c.phoneNumber?.trim())
                 );
                 const withLimit = selOnline.filter((c) => (Number(c.dailyLimit) || 0) > 0);
                 if (withLimit.length === 0) return null;

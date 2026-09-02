@@ -106,7 +106,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
     window.setTimeout(() => { loadMoreLockRef.current = false; }, 800);
   }, [inboxHasMore, inboxLoadingMore, onLoadMore]);
 
-  const showChannelRail = connections.length > 1;
+  const showChannelRail = connections.length > 2;
   const showChannelTagsInRows = showChannelRail && connectionFilterId === 'ALL';
 
   const virtualizer = useVirtualizer({

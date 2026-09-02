@@ -1036,6 +1036,9 @@ export async function syncConnectionsForOwner(
                     });
                 });
                 if (isGoWebhookInboxMode()) {
+                    if (ownerSyncProfile.fullHistory) {
+                        await ensureEvolutionFullHistorySync(id);
+                    }
                     syncedChats.push(id);
                     return;
                 }
@@ -3624,8 +3627,20 @@ const fullHistorySyncEnsured = new Set<string>();
 async function ensureEvolutionFullHistorySync(instanceName: string): Promise<boolean> {
     const id = String(instanceName || '').trim();
     if (!id || !isEvolutionFullHistorySyncEnabled()) return false;
-    if (isGoWebhookInboxMode()) return false;
     if (fullHistorySyncEnsured.has(id)) return true;
+
+    if (isGoWebhookInboxMode()) {
+        fullHistorySyncEnsured.add(id);
+        const ou = resolveOwnerUid(id);
+        if (ou) {
+            publishOwnerEvent(ou, 'history-sync-status', {
+                connectionId: id,
+                importing: true,
+            });
+        }
+        log('info', `Evolution Go: aguardando HistorySync via webhook: ${id}`);
+        return true;
+    }
 
     try {
         await api.post(`/settings/set/${evoInst(id)}`, {

@@ -11,6 +11,17 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.50] — 2026-09-01
+
+### Bate-papo Go + wizard de campanha
+
+- **HistorySync Go:** `ensureEvolutionFullHistorySync` sinaliza importação ao conectar chip (webhook).
+- **Sync manual:** full sync no Go também dispara ensure + hidratação do arquivo.
+- **UI:** pills de canal só com 3+ chips (alinhado ao rail).
+- **Wizard:** limite diário só conta chips online **com número pareado**.
+
+---
+
 ## [2.3.49] — 2026-09-01
 
 ### Bate-papo: sync do celular, de-para e visual WA Web
