@@ -152,6 +152,13 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
   const [menuMsg, setMenuMsg] = useState<ChatMessage | null>(null);
   const [menuRect, setMenuRect] = useState<DOMRect | null>(null);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setMenuMsg(null);
+    setMenuRect(null);
+    setHeaderMenuOpen(false);
+  }, [conversation?.id]);
+
   const messages = conversation?.messages ?? [];
   const virtualRows = useMemo(() => buildVirtualRows(messages), [messages]);
 

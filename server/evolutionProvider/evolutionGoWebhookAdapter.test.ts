@@ -188,4 +188,41 @@ describe('normalizeEvolutionGoWebhookIfNeeded', () => {
         expect(data.conversationStubs[0]!.remoteJid).toBe('5511666666666@s.whatsapp.net');
         expect(data.conversationStubs[0]!.name).toBe('Ana');
     });
+
+    it('Receipt Go → MESSAGES_UPDATE com key.id + status', () => {
+        const out = normalizeEvolutionGoWebhookIfNeeded(
+            {
+                event: 'Receipt',
+                state: 'Read',
+                instanceToken: 'tok-chip1',
+                data: {
+                    Chat: '5511999999999@s.whatsapp.net',
+                    MessageIDs: ['MSG_ACK_1', 'MSG_ACK_2'],
+                    Type: 'read',
+                },
+            },
+            lookup
+        ) as Record<string, unknown>;
+
+        expect(out.event).toBe('MESSAGES_UPDATE');
+        const data = out.data as Array<{ key: { id: string }; status: string }>;
+        expect(data).toHaveLength(2);
+        expect(data[0]!.key.id).toBe('MSG_ACK_1');
+        expect(data[0]!.status).toBe('READ');
+        expect(data[1]!.key.id).toBe('MSG_ACK_2');
+    });
+
+    it('Receipt Delivered → DELIVERY_ACK', () => {
+        const out = normalizeEvolutionGoWebhookIfNeeded(
+            {
+                event: 'Receipt',
+                state: 'Delivered',
+                instanceToken: 'tok-chip1',
+                data: { MessageIDs: ['D1'] },
+            },
+            lookup
+        ) as Record<string, unknown>;
+        const data = out.data as Array<{ status: string }>;
+        expect(data[0]!.status).toBe('DELIVERY_ACK');
+    });
 });

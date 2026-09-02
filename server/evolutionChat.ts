@@ -165,7 +165,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     const phonebookCache = new Map<string, { at: number; index: PhonebookNameIndex }>();
     const PHONEBOOK_CACHE_MS = 120_000;
     /** Rajadas HistorySync — flush único após idle. */
-    let historySyncIdleTimer: ReturnType<typeof setTimeout> | null = null;
+    let historySyncIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const historySyncActiveConnections = new Set<string>();
     const withStoreLock = <T>(fn: () => Promise<T>): Promise<T> => {
         const run = storeLock.then(fn);
@@ -639,20 +639,25 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
     function scheduleHistorySyncFlush(instance: string): void {
         historySyncActiveConnections.add(instance);
-        if (historySyncIdleTimer) clearTimeout(historySyncIdleTimer);
-        historySyncIdleTimer = setTimeout(() => {
-            historySyncIdleTimer = null;
-            historySyncActiveConnections.clear();
-            collapseStoredConversations();
-            emitConversationsUpdate();
-        }, 450);
+        const prev = historySyncIdleTimers.get(instance);
+        if (prev) clearTimeout(prev);
+        historySyncIdleTimers.set(
+            instance,
+            setTimeout(() => {
+                historySyncIdleTimers.delete(instance);
+                historySyncActiveConnections.delete(instance);
+                collapseStoredConversations();
+                emitConversationsUpdate();
+            }, 450)
+        );
     }
 
     function completeHistorySyncForConnection(instance: string): void {
         historySyncActiveConnections.delete(instance);
-        if (historySyncIdleTimer) {
-            clearTimeout(historySyncIdleTimer);
-            historySyncIdleTimer = null;
+        const prev = historySyncIdleTimers.get(instance);
+        if (prev) {
+            clearTimeout(prev);
+            historySyncIdleTimers.delete(instance);
         }
         collapseStoredConversations();
         emitConversationsUpdate();

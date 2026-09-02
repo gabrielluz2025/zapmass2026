@@ -157,7 +157,15 @@ export function extractGoHistorySyncConversationStubs(data: unknown): GoHistoryC
     }
 
     if (row.Data && typeof row.Data === 'object') {
-        return extractGoHistorySyncConversationStubs(row.Data);
+        // Mesclar stubs aninhados em Data — não descartar Conversations já coletados.
+        const nested = extractGoHistorySyncConversationStubs(row.Data);
+        for (const stub of nested) {
+            pushStub(stub.remoteJid, {
+                name: stub.name,
+                ts: stub.lastMessageTimestamp,
+                unread: stub.unreadCount,
+            });
+        }
     }
 
     return out;
@@ -261,10 +269,38 @@ function normalizeGoEventData(eventName: string, data: unknown): unknown {
                 instance: { state: 'close', statusReason: row.Reason ?? row.reason ?? 'loggedOut' },
             };
         case 'Receipt':
+            // Pass-through cru é inútil — extractEvolutionMessageUpdates espera key.id + status.
+            // Aqui o `row` é só data; state/Type vêm no webhook raiz (normalizado abaixo).
             return row;
         default:
             return data;
     }
+}
+
+/** Mapeia Receipt do Evolution Go → lista MESSAGES_UPDATE no formato Baileys/v2. */
+function normalizeGoReceiptEvent(webhook: Record<string, unknown>): unknown {
+    const data =
+        webhook.data && typeof webhook.data === 'object'
+            ? (webhook.data as Record<string, unknown>)
+            : webhook;
+    const stateRaw = String(
+        webhook.state ?? data.Type ?? data.type ?? data.State ?? data.state ?? ''
+    )
+        .trim()
+        .toLowerCase();
+    let status = 'SERVER_ACK';
+    if (stateRaw.includes('read')) status = 'READ';
+    else if (stateRaw.includes('deliver')) status = 'DELIVERY_ACK';
+
+    const idsRaw = data.MessageIDs ?? data.messageIDs ?? data.MessageIds ?? data.ids;
+    const ids = (Array.isArray(idsRaw) ? idsRaw : []).map((id) => String(id || '').trim()).filter(Boolean);
+    const chat = String(data.Chat ?? data.chat ?? '').trim();
+
+    return ids.map((id) => ({
+        key: { id, remoteJid: chat || undefined, fromMe: true },
+        status,
+        update: { status },
+    }));
 }
 
 /** Converte payload Go → evento Evolution API v2 (pass-through se já for v2). */
@@ -286,7 +322,10 @@ export function normalizeEvolutionGoWebhookIfNeeded(
         (typeof row.instance === 'string' ? row.instance.trim() : '') ||
         '';
 
-    const data = normalizeGoEventData(goEvent, row.data ?? row);
+    const data =
+        goEvent === 'Receipt'
+            ? normalizeGoReceiptEvent(row)
+            : normalizeGoEventData(goEvent, row.data ?? row);
 
     return {
         event: mapped,

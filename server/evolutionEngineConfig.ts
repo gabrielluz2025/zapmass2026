@@ -1,13 +1,13 @@
 const isWin = process.platform === 'win32';
 
-/** Motor WhatsApp: evolution-api (Baileys/Node, default) ou evolution-go (whatsmeow/Go). */
+/** Motor WhatsApp: evolution-go (whatsmeow/Go, default produção) ou evolution-api (Baileys/Node). */
 export type WhatsAppEngineKind = 'evolution-api' | 'evolution-go';
 
 export function resolveWhatsAppEngine(): WhatsAppEngineKind {
     const raw = String(
         process.env.ZAPMASS_WHATSAPP_ENGINE ||
             process.env.EVOLUTION_ENGINE ||
-            'evolution-api'
+            'evolution-go'
     )
         .trim()
         .toLowerCase();
@@ -18,7 +18,7 @@ export function resolveWhatsAppEngine(): WhatsAppEngineKind {
     if (raw === 'evolution' || raw === 'evolution-api' || raw === 'api' || raw === 'baileys') {
         return 'evolution-api';
     }
-    return 'evolution-api';
+    return 'evolution-go';
 }
 
 export function isEvolutionGoEngine(): boolean {

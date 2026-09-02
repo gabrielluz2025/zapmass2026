@@ -113,7 +113,7 @@ export const WaWebChatApp: React.FC<{
   const deferredSearch = useDeferredValue(search);
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [connectionFilterId, setConnectionFilterId] = useState<string | 'ALL'>('ALL');
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [loadingHistoryIds, setLoadingHistoryIds] = useState<Set<string>>(() => new Set());
   const [historyExhausted, setHistoryExhausted] = useState<Record<string, boolean>>({});
   const [mobileShowThread, setMobileShowThread] = useState(false);
   const [showContactInfo, setShowContactInfo] = useState(false);
@@ -534,13 +534,13 @@ export const WaWebChatApp: React.FC<{
   }, [mergedConversations.length, connections.length, openChatByPhoneDigits]);
 
   useEffect(() => {
-    if (draftConversations.length === 0) return;
-    const realIds = new Set(conversations.map((c) => c.id));
-    const stillPending = draftConversations.filter((d) => !realIds.has(d.id));
-    if (stillPending.length !== draftConversations.length) {
-      setDraftConversations(stillPending);
-    }
-  }, [conversations, draftConversations]);
+    setDraftConversations((prev) => {
+      if (prev.length === 0) return prev;
+      const realIds = new Set(conversations.map((c) => c.id));
+      const stillPending = prev.filter((d) => !realIds.has(d.id));
+      return stillPending.length === prev.length ? prev : stillPending;
+    });
+  }, [conversations]);
 
   const conversationNeedsRemotePicture = useCallback(
     (conv: Conversation) => {
@@ -604,19 +604,24 @@ export const WaWebChatApp: React.FC<{
   const loadingHistoryById = useRef<Set<string>>(new Set());
 
   const loadMoreHistory = useCallback(
-    async (conversationId: string, silent = false) => {
-      if (!conversationId) return;
-      if (historyExhausted[conversationId]) return;
+    async (conversationId: string, silent = false): Promise<boolean> => {
+      if (!conversationId) return false;
+      if (historyExhausted[conversationId]) return false;
       // Evita carga paralela da mesma conversa
-      if (loadingHistoryById.current.has(conversationId)) return;
+      if (loadingHistoryById.current.has(conversationId)) return false;
 
       const current = historyRequestedRef.current.get(conversationId) || 0;
       const nextLevel =
         HISTORY_LEVELS.find((lvl) => lvl > current) || HISTORY_LEVELS[HISTORY_LEVELS.length - 1];
-      if (nextLevel === current) return;
+      if (nextLevel === current) return false;
 
       loadingHistoryById.current.add(conversationId);
-      setLoadingHistory(true);
+      setLoadingHistoryIds((prev) => {
+        if (prev.has(conversationId)) return prev;
+        const next = new Set(prev);
+        next.add(conversationId);
+        return next;
+      });
       const prevCount =
         sortedConversations.find((c) => c.id === conversationId)?.messages.length || 0;
       try {
@@ -634,7 +639,7 @@ export const WaWebChatApp: React.FC<{
           if (res.error && !silent && !suppressed.includes(res.error)) {
             toast.error(res.error);
           }
-          return;
+          return false;
         }
         // Só avança o nível APÓS sucesso confirmado
         historyRequestedRef.current.set(conversationId, nextLevel);
@@ -648,9 +653,15 @@ export const WaWebChatApp: React.FC<{
             return next;
           });
         }
+        return true;
       } finally {
         loadingHistoryById.current.delete(conversationId);
-        setLoadingHistory(false);
+        setLoadingHistoryIds((prev) => {
+          if (!prev.has(conversationId)) return prev;
+          const next = new Set(prev);
+          next.delete(conversationId);
+          return next;
+        });
       }
     },
     [historyExhausted, loadChatHistory, sortedConversations]
@@ -658,11 +669,11 @@ export const WaWebChatApp: React.FC<{
 
   useEffect(() => {
     if (!selected?.id || !socket?.connected) return;
-    if (!historyInitializedRef.current.has(selected.id)) {
-      // Marcar só após sucesso para permitir retry em falha
-      void loadMoreHistory(selected.id, true).then(() => {
-        historyInitializedRef.current.add(selected.id!);
-      });
+    if (historyInitializedRef.current.has(selected.id)) return;
+    const id = selected.id;
+    void loadMoreHistory(id, true).then((ok) => {
+      if (ok) historyInitializedRef.current.add(id);
+    });
   }, [selected?.id, socket?.connected, loadMoreHistory]);
 
   const isSelectedDraft = useMemo(() => {
@@ -838,16 +849,13 @@ export const WaWebChatApp: React.FC<{
   );
 
   const handleRefresh = useCallback(() => {
-    const full = isGoWebhookInbox;
-    // runResync já chama onResync (requestSync) — evitar emit duplicado no socket.
-    runResync({ full, force: true });
+    // Go: force reconnect HistorySync; Evolution API: sync leve (full diário já no boot).
+    runResync({ full: false, force: true });
     if (selectedId) void loadMoreHistory(selectedId, true);
     toast.success(
       isGoWebhookInbox
         ? 'Reimportando conversas do WhatsApp…'
-        : full
-          ? 'Sincronizando conversas e mensagens…'
-          : 'Atualizando conversas recentes…',
+        : 'Atualizando conversas recentes…',
       { duration: 2500 }
     );
   }, [runResync, isGoWebhookInbox, selectedId, loadMoreHistory]);
@@ -1212,7 +1220,7 @@ export const WaWebChatApp: React.FC<{
         conversation={selected}
         display={selectedDisplay ?? null}
         avatarSrc={selected ? avatarById.get(selected.id) || '' : ''}
-        loadingHistory={loadingHistory}
+        loadingHistory={selectedId ? loadingHistoryIds.has(selectedId) : false}
         historyExhausted={selected ? !!historyExhausted[selected.id] : true}
         canSend={!!selected && selectedChipConnected}
         chipsConnected={connectedChannels.length}

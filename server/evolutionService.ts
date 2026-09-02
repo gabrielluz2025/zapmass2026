@@ -1984,6 +1984,7 @@ function applyConnectionStateUpdate(
     }
 
     if (goSource === 'OfflineSyncCompleted' && open) {
+        releaseGoInboxHistorySyncInflight(instance);
         chatStore.completeHistorySyncForConnection(instance);
         const ou = resolveOwnerUid(instance);
         if (ou) {
@@ -3679,6 +3680,20 @@ const GO_INBOX_HISTORY_SYNC_MIN_INTERVAL_MS = 3 * 60 * 1000;
 const GO_INBOX_HISTORY_SYNC_FORCE_MIN_INTERVAL_MS = 90 * 1000;
 const goInboxHistorySyncLastRun = new Map<string, number>();
 const goInboxHistorySyncInflight = new Set<string>();
+const goInboxHistorySyncInflightTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** Tempo máximo que o lock de reconnect fica ativo aguardando OfflineSyncCompleted. */
+const GO_INBOX_HISTORY_SYNC_INFLIGHT_TTL_MS = 3 * 60 * 1000;
+
+function releaseGoInboxHistorySyncInflight(instanceName: string): void {
+    const id = String(instanceName || '').trim();
+    if (!id) return;
+    goInboxHistorySyncInflight.delete(id);
+    const timer = goInboxHistorySyncInflightTimers.get(id);
+    if (timer) {
+        clearTimeout(timer);
+        goInboxHistorySyncInflightTimers.delete(id);
+    }
+}
 
 /**
  * Evolution Go: solicita HistorySync do celular via reconnect controlado.
@@ -3712,6 +3727,19 @@ async function requestGoInboxHistorySync(
 
     goInboxHistorySyncInflight.add(id);
     goInboxHistorySyncLastRun.set(id, Date.now());
+    const ttlTimer = setTimeout(() => {
+        log('warn', `Go inbox history sync inflight expirou (TTL): ${id}`);
+        releaseGoInboxHistorySyncInflight(id);
+        const ouExpired = resolveOwnerUid(id);
+        if (ouExpired) {
+            publishOwnerEvent(ouExpired, 'history-sync-status', {
+                connectionId: id,
+                importing: false,
+            });
+        }
+    }, GO_INBOX_HISTORY_SYNC_INFLIGHT_TTL_MS);
+    goInboxHistorySyncInflightTimers.set(id, ttlTimer);
+
     const ou = resolveOwnerUid(id);
     if (ou) {
         publishOwnerEvent(ou, 'history-sync-status', {
@@ -3725,10 +3753,12 @@ async function requestGoInboxHistorySync(
         log('info', `Go inbox history sync solicitado via reconnect: ${id}`, {
             userInitiated: Boolean(opts?.userInitiated),
         });
+        // Mantém inflight até OfflineSyncCompleted (ou TTL) — não liberar no finally do HTTP.
         return true;
     } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
         log('warn', `Go inbox history sync falhou: ${id}`, { error: msg });
+        releaseGoInboxHistorySyncInflight(id);
         if (ou) {
             publishOwnerEvent(ou, 'history-sync-status', {
                 connectionId: id,
@@ -3736,8 +3766,6 @@ async function requestGoInboxHistorySync(
             });
         }
         return false;
-    } finally {
-        goInboxHistorySyncInflight.delete(id);
     }
 }
 
@@ -3751,9 +3779,9 @@ async function ensureEvolutionFullHistorySync(instanceName: string): Promise<boo
     if (fullHistorySyncEnsured.has(id)) return true;
 
     if (isGoWebhookInboxMode()) {
-        fullHistorySyncEnsured.add(id);
-        await requestGoInboxHistorySync(id);
-        return true;
+        const ok = await requestGoInboxHistorySync(id);
+        if (ok) fullHistorySyncEnsured.add(id);
+        return ok;
     }
 
     try {

@@ -130,7 +130,7 @@ import { redisMemoryInfo } from './redisMemory.js';
 import { getPlatformLegalInfo } from './platformLegal.js';
 import { getRedisUrlCandidates, getRedisUrlMisconfigHint, getEffectiveRedisUrl, isMisconfiguredRedisHost, parseRedisHost } from './redisConfig.js';
 import { configureTrustProxy } from './trustProxySetup.js';
-import { evolutionWebhookLimiter } from './httpRateLimit.js';
+import { evolutionWebhookLimiter, dispatchReconnectLimiter } from './httpRateLimit.js';
 import { securityHeadersMiddleware } from './securityHeaders.js';
 import { getUploadsDir } from './mediaStorage.js';
 import {
@@ -609,7 +609,7 @@ app.get('/api/health/dispatch', async (_req, res) => {
 });
 
 /** Recria conexão BullMQ e re-testa Redis (chamado pelo front antes de exibir erro ao usuário). */
-app.post('/api/health/dispatch/reconnect', async (_req, res) => {
+app.post('/api/health/dispatch/reconnect', dispatchReconnectLimiter, async (_req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   dispatchHealthCache = null;
   evolutionService.resetCampaignRedisConnection();
@@ -772,6 +772,10 @@ app.post('/api/backup', async (req, res) => {
 const handleEvolutionWebhookPost = async (req: express.Request, res: express.Response) => {
   try {
     const tok = process.env.EVOLUTION_WEBHOOK_TOKEN?.trim();
+    const requireToken = process.env.ZAPMASS_REQUIRE_WEBHOOK_TOKEN === '1';
+    if (!tok && requireToken) {
+      return res.status(503).json({ error: 'Webhook token not configured' });
+    }
     if (tok) {
       const auth = String(req.headers.authorization || '');
       const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
@@ -1960,7 +1964,11 @@ const registerSocketHandlers = () => {
     });
 
     socket.on('send-message', async ({ conversationId, text }, callback?: (resp: { ok: boolean; error?: string }) => void) => {
-      if (typeof conversationId === 'string' && !ownsConnectionId(conversationId.split(':')[0] || '')) {
+      if (typeof conversationId !== 'string' || !conversationId.trim()) {
+        callback?.({ ok: false, error: 'Conversa invalida.' });
+        return;
+      }
+      if (!ownsConnectionId(conversationId.split(':')[0] || '')) {
         denyCrossTenant('send-message', { conversationId });
         callback?.({ ok: false, error: 'Conversa nao pertence a esta conta.' });
         return;

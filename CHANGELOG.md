@@ -11,6 +11,19 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.54] — 2026-09-02
+
+### Auditoria completa — bugs críticos Evolution + segurança + chat
+
+- **Go HistorySync:** lock `inflight` só libera em `OfflineSyncCompleted` (ou TTL 3 min) — evita tempestade de reconnect.
+- **Go ACKs:** webhook `Receipt` mapeado para `MESSAGES_UPDATE` (READ / DELIVERY_ACK) — ticks de entrega/leitura voltam a funcionar.
+- **HistorySync stubs:** mescla `Conversations` + `Data` em vez de descartar stubs já coletados.
+- **Timers HistorySync:** idle timer por chip (antes um timer global cancelava sync de outros chips).
+- **Segurança:** `send-message` exige conversationId string; reconnect BullMQ com rate-limit 6/min; default motor `evolution-go`.
+- **Chat:** loading de histórico por conversa; mídia sem race; menus resetam ao trocar chat; teste de campanha com timeout/cleanup.
+
+---
+
 ## [2.3.53] — 2026-09-02
 
 ### Auditoria chat-v2 — correções críticas e altas

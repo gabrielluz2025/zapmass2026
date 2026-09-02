@@ -995,6 +995,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
   const autosaveRef = useRef(onAutosave);
   autosaveRef.current = onAutosave;
+  const quickTestCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    return () => {
+      quickTestCleanupRef.current?.();
+      quickTestCleanupRef.current = null;
+    };
+  }, []);
   const wizardSnapshotRef = useRef<() => CampaignWizardDraft>(() => ({
     ...buildCurrentDraft(),
     step,
@@ -1381,9 +1388,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     // Antes nao havia timeout: se o servidor nao respondesse, o botao
     // ficava 'busy' para sempre e o listener vazava ao desmontar.
     let finished = false;
+    quickTestCleanupRef.current?.();
     const cleanup = () => {
       socket?.off('test-dispatch-result', onResult);
       clearTimeout(timeoutId);
+      if (quickTestCleanupRef.current === cleanup) quickTestCleanupRef.current = null;
     };
     const onResult = (result: { success?: boolean; message?: string; error?: string }) => {
       if (finished) return;
@@ -1404,6 +1413,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       setQuickTestBusy(false);
       toast.error('Tempo esgotado aguardando resposta do servidor.');
     }, 30_000);
+    quickTestCleanupRef.current = cleanup;
     socket.on('test-dispatch-result', onResult);
     socket.emit('test-dispatch', {
       fromConnectionId: fromId,
@@ -1432,6 +1442,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         }
       } catch (e) {
         console.error('[DuplicateCheck Error]', e);
+        toast.error('Não foi possível verificar duplicados. Tente novamente.');
       } finally {
         setCheckingDuplicates(false);
       }

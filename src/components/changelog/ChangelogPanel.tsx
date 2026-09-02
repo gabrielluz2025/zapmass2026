@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.54',
+    date: '02/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Go: lock HistorySync até OfflineSyncCompleted + ACKs Receipt (entrega/leitura)' },
+      { type: 'fix', text: 'HistorySync: stubs Conversations+Data mesclados; timer idle por chip' },
+      { type: 'security', text: 'send-message exige ID válido; reconnect BullMQ rate-limited; default evolution-go' },
+      { type: 'fix', text: 'Chat: loading por conversa, mídia sem race, menus resetam; teste campanha com timeout' },
+    ],
+  },
+  {
     version: '2.3.53',
     date: '02/09/2026',
     highlights: [

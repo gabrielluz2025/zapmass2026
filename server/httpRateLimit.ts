@@ -107,3 +107,12 @@ export const evolutionWebhookLimiter = rateLimit({
   legacyHeaders: false,
   message: { ok: false, error: 'Webhook: limite ultrapassado.' }
 });
+
+/** Reconnect BullMQ/Redis — público mas com limite agressivo anti-DoS. */
+export const dispatchReconnectLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas de reconnect. Aguarde um minuto.' },
+});

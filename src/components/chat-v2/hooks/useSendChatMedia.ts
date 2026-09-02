@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { prepareCampaignAttachmentForSend } from '../../../utils/campaignMediaCompress';
 
@@ -15,11 +15,25 @@ type SendMediaFn = (
 
 export function useSendChatMedia(sendMedia: SendMediaFn) {
   const [sending, setSending] = useState(false);
+  const inflightRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const sendFile = useCallback(
     async (conversationId: string, file: File, caption?: string) => {
       if (!conversationId) return;
-      setSending(true);
+      if (inflightRef.current > 0) {
+        toast('Aguarde o envio anterior terminar…', { duration: 2500 });
+        return;
+      }
+      inflightRef.current += 1;
+      if (mountedRef.current) setSending(true);
       try {
         const prep = await prepareCampaignAttachmentForSend(file);
         for (const h of prep.hints) toast(h, { duration: 5000 });
@@ -42,12 +56,13 @@ export function useSendChatMedia(sendMedia: SendMediaFn) {
           sendMediaAsDocument: prep.sendMediaAsDocument
         });
         if (!resp.ok) throw new Error(resp.error || 'Falha ao enviar arquivo.');
-        toast.success('Arquivo enviado', { duration: 2500 });
+        if (mountedRef.current) toast.success('Arquivo enviado', { duration: 2500 });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'Falha ao enviar arquivo.';
-        toast.error(msg, { duration: 7000 });
+        if (mountedRef.current) toast.error(msg, { duration: 7000 });
       } finally {
-        setSending(false);
+        inflightRef.current = Math.max(0, inflightRef.current - 1);
+        if (mountedRef.current) setSending(inflightRef.current > 0);
       }
     },
     [sendMedia]

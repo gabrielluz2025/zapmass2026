@@ -528,13 +528,16 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       toast.error('Preencha todos os campos do teste.');
       return;
     }
+    if (!socket) {
+      toast.error('Sem conexão com o servidor.');
+      return;
+    }
     setTestResult(null);
-    socket?.emit('test-dispatch', {
-      fromConnectionId: testFromConn,
-      toPhone: testToPhone,
-      message: testMessage.trim()
-    });
-    socket?.once('test-dispatch-result', (result: { success: boolean; message?: string; error?: string }) => {
+    let finished = false;
+    const onResult = (result: { success: boolean; message?: string; error?: string }) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeoutId);
       if (result.success) {
         setTestResult(`Enviado: ${result.message}`);
         toast.success(result.message || 'Teste enviado.');
@@ -542,6 +545,19 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
         setTestResult(`Erro: ${result.error}`);
         toast.error(result.error || 'Falha no teste.');
       }
+    };
+    const timeoutId = window.setTimeout(() => {
+      if (finished) return;
+      finished = true;
+      socket.off('test-dispatch-result', onResult);
+      setTestResult('Tempo esgotado aguardando resposta do servidor.');
+      toast.error('Tempo esgotado no teste de envio.');
+    }, 30_000);
+    socket.once('test-dispatch-result', onResult);
+    socket.emit('test-dispatch', {
+      fromConnectionId: testFromConn,
+      toPhone: testToPhone,
+      message: testMessage.trim()
     });
   };
 

@@ -1,7 +1,16 @@
-/** Sync completo da inbox (findChats + prefetch findMessages) ao conectar chip / full sync. */
+/** Sync completo da inbox (findChats + prefetch findMessages) ao conectar chip / full sync.
+ * Em Evolution Go o inbox vem de webhook — default off; na Evolution API default on.
+ */
 export function isFullInboxSyncEnabled(): boolean {
+  const engine = String(
+    process.env.ZAPMASS_WHATSAPP_ENGINE || process.env.EVOLUTION_ENGINE || 'evolution-go'
+  )
+    .trim()
+    .toLowerCase();
+  const isGo = engine === 'evolution-go' || engine === 'go' || engine === 'evogo';
+  const fallback = isGo ? '0' : '1';
   return !['0', 'false', 'no', 'off'].includes(
-    String(process.env.WA_FULL_INBOX_SYNC ?? '1').trim().toLowerCase()
+    String(process.env.WA_FULL_INBOX_SYNC ?? fallback).trim().toLowerCase()
   );
 }
 

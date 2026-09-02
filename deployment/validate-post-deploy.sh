@@ -107,7 +107,7 @@ else
 fi
 
 section "3/5 — Variáveis de sync (inbox / chat)"
-for var in WA_FULL_INBOX_SYNC EVOLUTION_SYNC_MESSAGES CHAT_SOCKET_MSG_TAIL; do
+for var in WA_FULL_INBOX_SYNC EVOLUTION_SYNC_MSG_PREFETCH EVOLUTION_SYNC_FULL_HISTORY CHAT_SOCKET_MSG_TAIL; do
   val="$(grep -E "^${var}=" .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d $'\r"' || true)"
   if [ -n "$val" ]; then
     echo "  ${var}=${val}"
