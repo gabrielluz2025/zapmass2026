@@ -1252,8 +1252,9 @@ const registerSocketHandlers = () => {
           }
           if (useEvolutionChat()) {
             if (fullSync && uid && uid !== 'anonymous' && isGoWebhookInboxMode()) {
-              await evolutionService.hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
-              await evolutionService.reemitConversationsForOwner(uid).catch(() => undefined);
+              await evolutionService
+                .syncGoInboxFromPhoneForOwner(uid, { force: true })
+                .catch(() => undefined);
               return;
             }
             if (fullSync && uid && uid !== 'anonymous') {

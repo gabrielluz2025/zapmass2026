@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.51',
+    date: '02/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Bate-papo Go: botão Atualizar dispara reconnect e importa conversas do celular via HistorySync' },
+    ],
+  },
+  {
     version: '2.3.50',
     date: '01/09/2026',
     highlights: [

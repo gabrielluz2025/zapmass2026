@@ -11,6 +11,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.51] — 2026-09-02
+
+### Bate-papo Evolution Go — sync real do celular
+
+- **Atualizar conversas:** botão de sync no Go agora dispara reconnect controlado → webhooks `HistorySync` importam conversas do celular (antes só recarregava o arquivo local).
+- **Cooldown:** 3 min entre reconnects por chip para evitar tempestade de reconexão.
+
+---
+
 ## [2.3.50] — 2026-09-01
 
 ### Bate-papo Go + wizard de campanha

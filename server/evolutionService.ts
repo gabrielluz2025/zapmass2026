@@ -1038,6 +1038,8 @@ export async function syncConnectionsForOwner(
                 if (isGoWebhookInboxMode()) {
                     if (ownerSyncProfile.fullHistory) {
                         await ensureEvolutionFullHistorySync(id);
+                    } else if (opts?.force) {
+                        await requestGoInboxHistorySync(id, { force: true, userInitiated: true });
                     }
                     syncedChats.push(id);
                     return;
@@ -1136,6 +1138,32 @@ export async function hydrateInboxFromArchiveForOwner(ownerUid: string): Promise
     const scoped = filterByConnectionScope(uid, getConnections());
     const connectionIds = scoped.map((c) => c.id).filter(Boolean);
     return chatStore.hydrateInboxStubsFromArchive(uid, connectionIds);
+}
+
+/** Go: hidrata arquivo + reconnect nos chips abertos para puxar HistorySync do celular. */
+export async function syncGoInboxFromPhoneForOwner(
+    ownerUid: string,
+    opts?: { force?: boolean }
+): Promise<{ hydrated: number; triggered: string[] }> {
+    const uid = String(ownerUid || '').trim();
+    if (!uid || uid === 'anonymous' || !isGoWebhookInboxMode()) {
+        return { hydrated: 0, triggered: [] };
+    }
+    const hydrated = await hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
+    const triggered: string[] = [];
+    for (const [id] of connections.entries()) {
+        if (!tenantOwnsConnection(uid, id)) continue;
+        const ok = await requestGoInboxHistorySync(id, {
+            force: opts?.force,
+            userInitiated: true,
+        });
+        if (ok) triggered.push(id);
+    }
+    await reemitConversationsForOwner(uid);
+    if (triggered.length > 0) {
+        await markOwnerFullSyncDone(uid).catch(() => undefined);
+    }
+    return { hydrated, triggered };
 }
 
 export async function reemitConversationsForOwner(ownerUid: string): Promise<void> {
@@ -3620,6 +3648,59 @@ const chatStore: EvolutionChatStore = createEvolutionChat(api, {
 /** Evita POST repetido em /settings/set na mesma sessão do processo. */
 const fullHistorySyncEnsured = new Set<string>();
 
+/** Cooldown entre reconnects Go para puxar HistorySync do celular (evita storm). */
+const GO_INBOX_HISTORY_SYNC_MIN_INTERVAL_MS = 3 * 60 * 1000;
+const goInboxHistorySyncLastRun = new Map<string, number>();
+
+/**
+ * Evolution Go: solicita HistorySync do celular via reconnect controlado.
+ * O Go emite webhooks HistorySync + OfflineSyncCompleted após reconectar.
+ */
+async function requestGoInboxHistorySync(
+    instanceName: string,
+    opts?: { force?: boolean; userInitiated?: boolean }
+): Promise<boolean> {
+    const id = String(instanceName || '').trim();
+    if (!id || !isGoWebhookInboxMode()) return false;
+    if (!opts?.userInitiated && !isEvolutionFullHistorySyncEnabled()) return false;
+
+    const last = goInboxHistorySyncLastRun.get(id) ?? 0;
+    if (!opts?.force && Date.now() - last < GO_INBOX_HISTORY_SYNC_MIN_INTERVAL_MS) {
+        log('info', `Go inbox history sync em cooldown: ${id}`);
+        return false;
+    }
+
+    const open = await isConnectionOpen(id);
+    if (!open) return false;
+
+    goInboxHistorySyncLastRun.set(id, Date.now());
+    const ou = resolveOwnerUid(id);
+    if (ou) {
+        publishOwnerEvent(ou, 'history-sync-status', {
+            connectionId: id,
+            importing: true,
+        });
+    }
+
+    try {
+        await api.post(`/instance/restart/${evoInst(id)}`, {});
+        log('info', `Go inbox history sync solicitado via reconnect: ${id}`, {
+            userInitiated: Boolean(opts?.userInitiated),
+        });
+        return true;
+    } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        log('warn', `Go inbox history sync falhou: ${id}`, { error: msg });
+        if (ou) {
+            publishOwnerEvent(ou, 'history-sync-status', {
+                connectionId: id,
+                importing: false,
+            });
+        }
+        return false;
+    }
+}
+
 /**
  * Ativa syncFullHistory na Evolution (histórico completo do WhatsApp no servidor).
  * Idempotente; falha silenciosa com log warn.
@@ -3631,14 +3712,7 @@ async function ensureEvolutionFullHistorySync(instanceName: string): Promise<boo
 
     if (isGoWebhookInboxMode()) {
         fullHistorySyncEnsured.add(id);
-        const ou = resolveOwnerUid(id);
-        if (ou) {
-            publishOwnerEvent(ou, 'history-sync-status', {
-                connectionId: id,
-                importing: true,
-            });
-        }
-        log('info', `Evolution Go: aguardando HistorySync via webhook: ${id}`);
+        await requestGoInboxHistorySync(id);
         return true;
     }
 
@@ -9820,6 +9894,7 @@ export default {
     ensureConnectionsHydratedForOwner,
     reemitConversationsForOwner,
     hydrateInboxFromArchiveForOwner,
+    syncGoInboxFromPhoneForOwner,
     getInboxPageForOwner,
     assignConnectionOwner,
     reassignConnectionOwnerAdmin,
