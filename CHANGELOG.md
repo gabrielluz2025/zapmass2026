@@ -11,6 +11,18 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.48] — 2026-09-01
+
+### Fix: Desconectar não religa o chip sozinho (Online fantasma)
+
+Após logout manual, o health/auto-reconnect chamava `restart`/`connect` no Evolution Go e o canal voltava **Online sem número** (sem ler QR).
+
+- Logout manual segura o chip por 30 min: sem auto-reconnect.
+- Sem número pareado, o servidor não promove o canal para Online.
+- UI deixa de mostrar “Online” quando não há telefone.
+
+---
+
 ## [2.3.47] — 2026-09-01
 
 ### Fix: CI (typecheck) da prospecção v2.3.46

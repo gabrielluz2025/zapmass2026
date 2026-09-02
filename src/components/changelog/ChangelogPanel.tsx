@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.48',
+    date: '01/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Desconectar não religa o chip sozinho: logout manual bloqueia auto-reconnect e some o “Online” fantasma sem número' },
+    ],
+  },
+  {
     version: '2.3.47',
     date: '01/09/2026',
     highlights: [

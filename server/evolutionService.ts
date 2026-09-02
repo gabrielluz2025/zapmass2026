@@ -1203,7 +1203,8 @@ export async function refreshConnectionsForCampaign(connectionIds: string[]): Pr
 /** Verificação instantânea (RAM) — usada antes de probes lentos na Evolution. */
 export function anySelectedConnectionsOpenInMemory(connectionIds: string[]): boolean {
     for (const id of connectionIds) {
-        if (connections.get(id)?.status === 'open') return true;
+        const c = connections.get(id);
+        if (c?.status === 'open' && c.phoneNumber?.trim()) return true;
     }
     return false;
 }
@@ -1443,6 +1444,36 @@ const autoReconnectState = new Map<
 >();
 /** Intervalo de reconexão lenta após esgotar tentativas rápidas (evita chip offline por horas). */
 const LONG_TAIL_RECONNECT_MS = 30 * 60 * 1000;
+/**
+ * Logout / desconectar manual: o usuário pediu QR novo.
+ * Health e auto-reconnect NÃO podem religar a sessão antiga sozinhos.
+ */
+const manualLogoutHoldUntil = new Map<string, number>();
+const MANUAL_LOGOUT_HOLD_MS = 30 * 60 * 1000;
+
+function markManualLogoutHold(connectionId: string): void {
+    if (!connectionId) return;
+    manualLogoutHoldUntil.set(connectionId, Date.now() + MANUAL_LOGOUT_HOLD_MS);
+}
+
+function clearManualLogoutHold(connectionId: string): void {
+    manualLogoutHoldUntil.delete(connectionId);
+}
+
+function isManualLogoutHoldActive(connectionId: string): boolean {
+    const until = manualLogoutHoldUntil.get(connectionId);
+    if (!until) return false;
+    if (Date.now() >= until) {
+        manualLogoutHoldUntil.delete(connectionId);
+        return false;
+    }
+    return true;
+}
+
+/** Só trata como sessão pareada se houver número — senão restart/connect vira “Online” fantasma. */
+function isPairedConnection(connectionId: string): boolean {
+    return Boolean(connections.get(connectionId)?.phoneNumber?.trim());
+}
 let connectionHealthTimer: ReturnType<typeof setInterval> | null = null;
 /** Dedupe de sync pesado concorrente por tenant. */
 const syncInFlightByOwner = new Map<
@@ -1465,6 +1496,8 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
     if (!connectionId || !connections.has(connectionId)) return;
     const conn = connections.get(connectionId);
     if (!conn || conn.status === 'open') return;
+    if (isManualLogoutHoldActive(connectionId)) return;
+    if (!isPairedConnection(connectionId)) return;
     if (connectionWatchTimers.has(connectionId) || qrWatchTimers.has(connectionId)) return;
 
     const ownerUid = resolveOwnerUid(connectionId);
@@ -1600,7 +1633,7 @@ function ensureQrDelivered(connectionId: string, maxAttempts = 45, delayMs = 200
             return;
         }
         const conn = connections.get(connectionId);
-        if (conn?.status === 'open') {
+        if (conn?.status === 'open' && isPairedConnection(connectionId)) {
             stopQrWatch(connectionId);
             return;
         }
@@ -1691,6 +1724,7 @@ function applyConnectionStateUpdate(
             stopQrWatch(instance);
             pairingStartedAt.delete(instance);
             clearAutoReconnect(instance);
+            clearManualLogoutHold(instance);
             conn.qrCode = undefined;
             // Uptime: marca o momento do open; não zera em webhook "open" repetido.
             if (prevStatus !== 'open' || !conn.lastOpenAt) {
@@ -1792,8 +1826,8 @@ function applyConnectionStateUpdate(
     }
 
     if (state === 'close') {
-        const paired = Boolean(connAfter?.phoneNumber?.trim());
-        if (prevStatus === 'open' || paired) {
+        const paired = isPairedConnection(instance);
+        if (!isManualLogoutHoldActive(instance) && (prevStatus === 'open' || paired)) {
             scheduleEvolutionAutoReconnect(instance);
         }
     }
@@ -1899,8 +1933,7 @@ function watchConnectionUntilOpen(connectionId: string) {
             return;
         }
         if (state === 'close' && attempts >= 4) {
-            const conn = connections.get(connectionId);
-            if (conn?.phoneNumber?.trim()) {
+            if (isPairedConnection(connectionId) && !isManualLogoutHoldActive(connectionId)) {
                 stopWatchingConnection(connectionId);
                 clearAutoReconnect(connectionId);
                 scheduleEvolutionAutoReconnect(connectionId, { immediate: true });
@@ -1910,8 +1943,7 @@ function watchConnectionUntilOpen(connectionId: string) {
         if (attempts >= maxAttempts) {
             stopWatchingConnection(connectionId);
             log('warn', `Timeout aguardando conexão abrir: ${connectionId}`);
-            const conn = connections.get(connectionId);
-            if (conn?.phoneNumber?.trim()) {
+            if (isPairedConnection(connectionId) && !isManualLogoutHoldActive(connectionId)) {
                 clearAutoReconnect(connectionId);
                 scheduleEvolutionAutoReconnect(connectionId, { immediate: true });
             } else {
@@ -2023,9 +2055,11 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
 
     const runConnectPass = async (): Promise<ExtractedEvolutionQr | null> => {
         const mem = connections.get(instanceName);
-        if (mem?.status === 'open') return null;
+        if (mem?.status === 'open' && isPairedConnection(instanceName) && !isManualLogoutHoldActive(instanceName)) {
+            return null;
+        }
         const live = (await getConnectionState(instanceName)).toLowerCase();
-        if (isEvolutionOpenState(live)) {
+        if (isEvolutionOpenState(live) && isPairedConnection(instanceName) && !isManualLogoutHoldActive(instanceName)) {
             applyConnectionStateUpdate(instanceName, 'open', {});
             return null;
         }
@@ -4571,7 +4605,8 @@ function ensureNurtureEnqueue() {
 async function filterActiveConnections(connectionIds: string[]): Promise<string[]> {
     const active: string[] = [];
     for (const connId of connectionIds) {
-        const ramOpen = connections.get(connId)?.status === 'open';
+        const ram = connections.get(connId);
+        const ramOpen = ram?.status === 'open' && Boolean(ram.phoneNumber?.trim());
         // Webhook Connected já marcou o chip na RAM: incluir sem esperar probe HTTP
         // (o parser Go costumava recusar chips visivelmente Online).
         if (ramOpen) {
@@ -5068,6 +5103,7 @@ export async function disconnectConnection(id: string): Promise<void> {
     stopQrWatch(id);
     clearAutoReconnect(id);
     pairingStartedAt.delete(id);
+    markManualLogoutHold(id);
 
     if (!connections.has(id)) {
         await hydrateInstancesFromEvolution();
@@ -5086,8 +5122,10 @@ export async function disconnectConnection(id: string): Promise<void> {
     const conn = connections.get(id);
     if (conn) {
         conn.qrCode = undefined;
+        conn.phoneNumber = null;
         conn.lastActivity = 'Desconectado';
         connections.set(id, conn);
+        mergeConnectionSettingsCache(id, { lastClosedAt: Date.now() });
     }
     emitConnectionsUpdateForConnection(id);
 
@@ -5110,14 +5148,18 @@ export async function reconnectConnection(id: string) {
         emitConnectionProgress(id, 'loading-whatsapp-web');
 
         const live = (await getConnectionState(id)).toLowerCase();
-        if (isEvolutionOpenState(live)) {
+        if (isEvolutionOpenState(live) && isPairedConnection(id) && !isManualLogoutHoldActive(id)) {
             applyConnectionStateUpdate(id, 'open', {});
             log('info', `Instância já aberta: ${id}`);
             return;
         }
 
         const conn = connections.get(id);
-        if (conn?.phoneNumber?.trim() && (live === 'close' || live === 'connecting')) {
+        if (
+            isPairedConnection(id) &&
+            !isManualLogoutHoldActive(id) &&
+            (live === 'close' || live === 'connecting')
+        ) {
             if (conn) {
                 conn.status = 'connecting';
                 connections.set(id, conn);
@@ -7812,25 +7854,36 @@ async function reconcileConnectionHealth() {
             ).toLowerCase();
 
             if (isEvolutionOpenState(apiState)) {
+                // Sem número + hold de logout: Evolution Go pode reportar "open" órfão.
+                // Não promover para Online — o usuário precisa ler o QR.
+                if (isManualLogoutHoldActive(id) || !paired) {
+                    return;
+                }
                 applyConnectionStateUpdate(id, 'open', {});
                 return;
             }
 
             if (memState === 'connecting' || memState === 'created') {
                 const pairingAge = Date.now() - (pairingStartedAt.get(id) ?? 0);
-                if (isEvolutionOpenState(apiState)) {
+                if (isEvolutionOpenState(apiState) && paired && !isManualLogoutHoldActive(id)) {
                     applyConnectionStateUpdate(id, 'open', {});
                 } else if (apiState === 'connecting') {
                     watchConnectionUntilOpen(id);
                 } else if (apiState === 'close' && pairingAge > 50_000) {
                     log('info', `Health: pairing preso ${id} (${Math.round(pairingAge / 1000)}s)`);
                     applyConnectionStateUpdate(id, 'close', {});
-                    if (paired) scheduleEvolutionAutoReconnect(id);
+                    if (paired && !isManualLogoutHoldActive(id)) scheduleEvolutionAutoReconnect(id);
                 }
                 return;
             }
 
-            if (paired && memState === 'close' && !isEvolutionOpenState(apiState) && !autoReconnectState.has(id)) {
+            if (
+                paired &&
+                !isManualLogoutHoldActive(id) &&
+                memState === 'close' &&
+                !isEvolutionOpenState(apiState) &&
+                !autoReconnectState.has(id)
+            ) {
                 if (!isInDeployGraceWindow()) {
                     scheduleEvolutionAutoReconnect(id);
                 }

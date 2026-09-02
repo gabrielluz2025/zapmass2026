@@ -50,7 +50,8 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
     return () => clearInterval(t);
   }, []);
 
-  const isConnected = connection.status === ConnectionStatus.CONNECTED;
+  const isPaired = Boolean(connection.phoneNumber?.trim());
+  const isConnected = connection.status === ConnectionStatus.CONNECTED && isPaired;
   const qrCodeText = typeof connection.qrCode === 'string' ? connection.qrCode.trim() : '';
   const isQrReady = Boolean(qrCodeText);
   const isConnecting =
@@ -296,7 +297,9 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
             </div>
             <p className="text-xs text-slate-400 font-mono truncate">
               {connection.phoneNumber ||
-                (isConnected ? 'Sem número — reconecte ou gere novo QR' : 'Aguardando conexão...')}
+                (connection.status === ConnectionStatus.CONNECTED && !isPaired
+                  ? 'Sem número — desconecte e leia o QR'
+                  : 'Aguardando conexão...')}
             </p>
 
             {/* Badges de risco e quarentena */}

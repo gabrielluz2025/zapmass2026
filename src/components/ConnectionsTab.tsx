@@ -226,7 +226,7 @@ export const ConnectionsTab: React.FC = () => {
 
   // --- métricas agregadas ---
   const counts = useMemo(() => {
-    const online = connections.filter((c) => c.status === ConnectionStatus.CONNECTED).length;
+    const online = connections.filter((c) => c.status === ConnectionStatus.CONNECTED && c.phoneNumber?.trim()).length;
     const offline = connections.filter((c) => c.status === ConnectionStatus.DISCONNECTED).length;
     const pairing = connections.filter(
       (c) => c.status === ConnectionStatus.QR_READY || c.status === ConnectionStatus.CONNECTING
@@ -513,7 +513,7 @@ export const ConnectionsTab: React.FC = () => {
 
   // --- hero: contadores da frota ---
   const heroStats = useMemo(() => {
-    const online = connections.filter((c) => c.status === ConnectionStatus.CONNECTED).length;
+    const online = connections.filter((c) => c.status === ConnectionStatus.CONNECTED && c.phoneNumber?.trim()).length;
     const connecting = connections.filter(
       (c) => c.status === ConnectionStatus.CONNECTING || c.status === ConnectionStatus.QR_READY
     ).length;

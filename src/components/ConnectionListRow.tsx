@@ -62,7 +62,7 @@ export const ConnectionListRow: React.FC<ConnectionListRowProps> = ({
   onLogoutConnection,
   onDisconnect
 }) => {
-  const isConnected = connection.status === ConnectionStatus.CONNECTED;
+  const isConnected = connection.status === ConnectionStatus.CONNECTED && Boolean(connection.phoneNumber?.trim());
   const qrCodeText = typeof connection.qrCode === 'string' ? connection.qrCode.trim() : '';
   const isQrReady = Boolean(qrCodeText);
   const isConnecting =

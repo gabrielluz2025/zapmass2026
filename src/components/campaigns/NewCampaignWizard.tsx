@@ -450,7 +450,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   }, [selectedConnectionIds]);
 
   const onlineConnections = useMemo(
-    () => connections.filter((conn) => conn.status === ConnectionStatus.CONNECTED),
+    () => connections.filter((conn) => conn.status === ConnectionStatus.CONNECTED && Boolean(conn.phoneNumber?.trim())),
     [connections]
   );
 
@@ -2714,7 +2714,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   /* lista de chips — só renderiza quando modo manual */
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {connections.map((conn) => {
-                      const isOnline = conn.status === ConnectionStatus.CONNECTED;
+                      const isOnline = conn.status === ConnectionStatus.CONNECTED && Boolean(conn.phoneNumber?.trim());
                       const isSel = selectedConnectionIds.includes(conn.id);
                       return (
                         <label
