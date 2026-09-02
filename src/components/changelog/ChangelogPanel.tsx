@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.52',
+    date: '02/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Go: anti-tempestade no Atualizar — sem emit duplicado, cooldown 90s/chip, reconnect escalonado' },
+    ],
+  },
+  {
     version: '2.3.51',
     date: '02/09/2026',
     highlights: [

@@ -827,8 +827,8 @@ export const WaWebChatApp: React.FC<{
 
   const handleRefresh = useCallback(() => {
     const full = isGoWebhookInbox;
+    // runResync já chama onResync (requestSync) — evitar emit duplicado no socket.
     runResync({ full, force: true });
-    requestSync({ full });
     if (selectedId) void loadMoreHistory(selectedId, true);
     toast.success(
       isGoWebhookInbox
@@ -838,7 +838,7 @@ export const WaWebChatApp: React.FC<{
           : 'Atualizando conversas recentes…',
       { duration: 2500 }
     );
-  }, [runResync, requestSync, isGoWebhookInbox, selectedId, loadMoreHistory]);
+  }, [runResync, isGoWebhookInbox, selectedId, loadMoreHistory]);
 
   const handleNewConversation = useCallback(() => {
     const raw = window.prompt('Telefone com DDD (apenas números ou +55…)');

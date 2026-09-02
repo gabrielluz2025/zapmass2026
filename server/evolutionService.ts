@@ -1149,21 +1149,44 @@ export async function syncGoInboxFromPhoneForOwner(
     if (!uid || uid === 'anonymous' || !isGoWebhookInboxMode()) {
         return { hydrated: 0, triggered: [] };
     }
-    const hydrated = await hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
-    const triggered: string[] = [];
-    for (const [id] of connections.entries()) {
-        if (!tenantOwnsConnection(uid, id)) continue;
-        const ok = await requestGoInboxHistorySync(id, {
-            force: opts?.force,
-            userInitiated: true,
-        });
-        if (ok) triggered.push(id);
+
+    const inflight = goInboxSyncInFlightByOwner.get(uid);
+    if (inflight) return inflight;
+
+    const task = (async (): Promise<{ hydrated: number; triggered: string[] }> => {
+        const hydrated = await hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
+        const triggered: string[] = [];
+        const scoped = filterByConnectionScope(uid, getConnections());
+        const openIds: string[] = [];
+        for (const conn of scoped) {
+            const id = String(conn.id || '').trim();
+            if (!id) continue;
+            const st = String(conn.status || '').toUpperCase();
+            if (st === 'CONNECTED' || st === 'OPEN') openIds.push(id);
+        }
+        for (let i = 0; i < openIds.length; i++) {
+            if (i > 0) await sleep(2_500);
+            const ok = await requestGoInboxHistorySync(openIds[i]!, {
+                force: opts?.force,
+                userInitiated: true,
+            });
+            if (ok) triggered.push(openIds[i]!);
+        }
+        await reemitConversationsForOwner(uid);
+        if (triggered.length > 0) {
+            await markOwnerFullSyncDone(uid).catch(() => undefined);
+        }
+        return { hydrated, triggered };
+    })();
+
+    goInboxSyncInFlightByOwner.set(uid, task);
+    try {
+        return await task;
+    } finally {
+        if (goInboxSyncInFlightByOwner.get(uid) === task) {
+            goInboxSyncInFlightByOwner.delete(uid);
+        }
     }
-    await reemitConversationsForOwner(uid);
-    if (triggered.length > 0) {
-        await markOwnerFullSyncDone(uid).catch(() => undefined);
-    }
-    return { hydrated, triggered };
 }
 
 export async function reemitConversationsForOwner(ownerUid: string): Promise<void> {
@@ -1521,6 +1544,8 @@ function isPairedConnection(connectionId: string): boolean {
     return Boolean(connections.get(connectionId)?.phoneNumber?.trim());
 }
 let connectionHealthTimer: ReturnType<typeof setInterval> | null = null;
+/** Dedupe de sync Go inbox por tenant (reconnect HistorySync). */
+const goInboxSyncInFlightByOwner = new Map<string, Promise<{ hydrated: number; triggered: string[] }>>();
 /** Dedupe de sync pesado concorrente por tenant. */
 const syncInFlightByOwner = new Map<
     string,
@@ -3650,7 +3675,10 @@ const fullHistorySyncEnsured = new Set<string>();
 
 /** Cooldown entre reconnects Go para puxar HistorySync do celular (evita storm). */
 const GO_INBOX_HISTORY_SYNC_MIN_INTERVAL_MS = 3 * 60 * 1000;
+/** Mínimo mesmo com force (botão Atualizar) — Evolution Go retorna 500 se reconnect em rajada. */
+const GO_INBOX_HISTORY_SYNC_FORCE_MIN_INTERVAL_MS = 90 * 1000;
 const goInboxHistorySyncLastRun = new Map<string, number>();
+const goInboxHistorySyncInflight = new Set<string>();
 
 /**
  * Evolution Go: solicita HistorySync do celular via reconnect controlado.
@@ -3663,16 +3691,26 @@ async function requestGoInboxHistorySync(
     const id = String(instanceName || '').trim();
     if (!id || !isGoWebhookInboxMode()) return false;
     if (!opts?.userInitiated && !isEvolutionFullHistorySyncEnabled()) return false;
+    if (goInboxHistorySyncInflight.has(id)) {
+        log('info', `Go inbox history sync já em andamento: ${id}`);
+        return false;
+    }
 
     const last = goInboxHistorySyncLastRun.get(id) ?? 0;
-    if (!opts?.force && Date.now() - last < GO_INBOX_HISTORY_SYNC_MIN_INTERVAL_MS) {
-        log('info', `Go inbox history sync em cooldown: ${id}`);
+    const minInterval = opts?.force
+        ? GO_INBOX_HISTORY_SYNC_FORCE_MIN_INTERVAL_MS
+        : GO_INBOX_HISTORY_SYNC_MIN_INTERVAL_MS;
+    if (Date.now() - last < minInterval) {
+        log('info', `Go inbox history sync em cooldown: ${id}`, {
+            cooldownSec: Math.ceil((minInterval - (Date.now() - last)) / 1000),
+        });
         return false;
     }
 
     const open = await isConnectionOpen(id);
     if (!open) return false;
 
+    goInboxHistorySyncInflight.add(id);
     goInboxHistorySyncLastRun.set(id, Date.now());
     const ou = resolveOwnerUid(id);
     if (ou) {
@@ -3698,6 +3736,8 @@ async function requestGoInboxHistorySync(
             });
         }
         return false;
+    } finally {
+        goInboxHistorySyncInflight.delete(id);
     }
 }
 

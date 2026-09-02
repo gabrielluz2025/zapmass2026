@@ -11,6 +11,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.52] — 2026-09-02
+
+### Bate-papo Go — anti-tempestade de reconnect
+
+- **Atualizar:** um único pedido de sync (antes emitia duplicado no socket).
+- **Cooldown force:** mínimo 90s por chip mesmo no botão Atualizar (Evolution Go retornava HTTP 500 em rajada).
+- **Escalonamento:** reconnects espaçados 2,5s entre chips; lock in-flight por chip e por tenant.
+
+---
+
 ## [2.3.51] — 2026-09-02
 
 ### Bate-papo Evolution Go — sync real do celular
