@@ -61,6 +61,7 @@ export function useWaRealtime(
     if (!socket) {
       setSocketStatus('offline');
       setSyncing(false);
+      setHistoryImporting(false);
       return;
     }
 
@@ -87,6 +88,7 @@ export function useWaRealtime(
     const onDisconnect = () => {
       clearOfflineGrace();
       setSyncing(false);
+      setHistoryImporting(false);
       slowStrikeRef.current = 0;
       offlineGraceTimerRef.current = setTimeout(() => {
         offlineGraceTimerRef.current = null;

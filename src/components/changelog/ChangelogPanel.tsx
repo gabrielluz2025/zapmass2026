@@ -10,6 +10,17 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.53',
+    date: '02/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Modo foco: botão visível no header + Esc para sair — não havia mais como sair' },
+      { type: 'fix', text: 'historyImporting preso: agora zerado ao desconectar socket' },
+      { type: 'fix', text: 'Boot: emit duplicado de sync full removido' },
+      { type: 'fix', text: 'Histórico: conversa só marcada como inicializada após sucesso do load' },
+      { type: 'perf', text: 'Inbox: pinnedIds agora usa Set (O(1) por linha) e array de candidatos não é mais mutado' },
+    ],
+  },
+  {
     version: '2.3.52',
     date: '02/09/2026',
     highlights: [

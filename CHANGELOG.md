@@ -11,6 +11,20 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.53] — 2026-09-02
+
+### Auditoria chat-v2 — correções críticas e altas
+
+- **Crítico:** Modo foco sem saída — botão ◧/◨ agora visível no header; atalho `Esc` fecha foco, busca e preview de mídia.
+- **Crítico:** `historyImporting` podia ficar preso para sempre — agora é zerado ao desconectar o socket e ao `socket === null`.
+- **Crítico:** Emit duplicado de sync full no boot — removida linha `requestSync({ full: true })` extra (o `runResync` já emitia).
+- **Alto:** Histórico inicial marcava conversa como "inicializada" antes do `await`; agora só é marcada após sucesso permitindo retry.
+- **Médio:** `openChatByPhoneDigits` mutava array com `.sort()` — corrigido para `[...candidates].sort()`.
+- **Médio:** `pinnedIds.includes` O(n) por linha virtualizada — substituído por `Set` via `useMemo`.
+- **UX:** Botões Vídeo/Telefone sem ação agora aparecem desabilitados com tooltip "em breve" em vez de enganar o usuário.
+
+---
+
 ## [2.3.52] — 2026-09-02
 
 ### Bate-papo Go — anti-tempestade de reconnect

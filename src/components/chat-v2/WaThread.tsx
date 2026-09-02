@@ -337,10 +337,10 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
           </p>
         </div>
         {/* Ícones de ação no header — estilo WhatsApp Desktop */}
-        <button type="button" className="wa-icon-btn flex-shrink-0" aria-label="Chamada de vídeo" title="Chamada de vídeo">
+        <button type="button" className="wa-icon-btn flex-shrink-0 opacity-40 cursor-not-allowed" aria-label="Chamada de vídeo (em breve)" title="Chamada de vídeo — em breve" disabled>
           <Video className="w-5 h-5" />
         </button>
-        <button type="button" className="wa-icon-btn flex-shrink-0" aria-label="Chamada de voz" title="Chamada de voz">
+        <button type="button" className="wa-icon-btn flex-shrink-0 opacity-40 cursor-not-allowed" aria-label="Chamada de voz (em breve)" title="Chamada de voz — em breve" disabled>
           <Phone className="w-5 h-5" />
         </button>
         {onAnalyzeIntent && (
@@ -354,7 +354,13 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
           </button>
         )}
         {onToggleFocus && (
-          <button type="button" className="wa-icon-btn flex-shrink-0 hidden" onClick={onToggleFocus} aria-hidden tabIndex={-1}>
+          <button
+            type="button"
+            className="wa-icon-btn flex-shrink-0"
+            onClick={onToggleFocus}
+            aria-label={focusMode ? 'Sair do modo foco' : 'Modo foco'}
+            title={focusMode ? 'Sair do modo foco (Esc)' : 'Modo foco'}
+          >
             {focusMode ? '◧' : '◨'}
           </button>
         )}

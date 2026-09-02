@@ -161,8 +161,8 @@ export const WaWebChatApp: React.FC<{
       return;
     }
     markInboxFullSyncDoneForToday(tenantUid);
+    // runResync já chama requestSync internamente — evitar emit duplicado no socket
     runResync({ full: true });
-    requestSync({ full: true });
   }, [
     isBackendConnected,
     socket,
@@ -200,6 +200,18 @@ export const WaWebChatApp: React.FC<{
   useEffect(() => {
     saveChatInboxPrefs(inboxPrefs);
   }, [inboxPrefs]);
+
+  // Esc fecha modo foco, busca na thread e preview de mídia
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (mediaPreviewFile) { setMediaPreviewFile(null); return; }
+      if (inThreadSearchOpen) { setInThreadSearchOpen(false); setInThreadQuery(''); return; }
+      if (focusMode) { setFocusMode(false); return; }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [focusMode, inThreadSearchOpen, mediaPreviewFile]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -392,7 +404,7 @@ export const WaWebChatApp: React.FC<{
           : undefined;
         const best =
           preferred ||
-          candidates.sort(
+          [...candidates].sort(
             (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
           )[0];
         if (best) selectChat(best.id);
@@ -647,10 +659,10 @@ export const WaWebChatApp: React.FC<{
   useEffect(() => {
     if (!selected?.id || !socket?.connected) return;
     if (!historyInitializedRef.current.has(selected.id)) {
-      historyInitializedRef.current.add(selected.id);
-      // Evolution Go: findMessages indisponível — histórico vem de arquivo + HistorySync webhook.
-      void loadMoreHistory(selected.id, true);
-    }
+      // Marcar só após sucesso para permitir retry em falha
+      void loadMoreHistory(selected.id, true).then(() => {
+        historyInitializedRef.current.add(selected.id!);
+      });
   }, [selected?.id, socket?.connected, loadMoreHistory]);
 
   const isSelectedDraft = useMemo(() => {

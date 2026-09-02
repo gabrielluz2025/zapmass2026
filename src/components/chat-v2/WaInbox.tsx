@@ -96,6 +96,8 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadMoreLockRef = useRef(false);
 
+  const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
+
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el || !inboxHasMore || inboxLoadingMore || !onLoadMore || loadMoreLockRef.current) return;
@@ -376,7 +378,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
                   style={{ height: row.size, transform: `translateY(${row.start}px)` }}
                   onSelect={onSelect}
                   onRequestPicture={onRequestPicture}
-                  isPinned={pinnedIds.includes(conv.id)}
+                  isPinned={pinnedSet.has(conv.id)}
                   slaLevel={slaByConvId?.get(conv.id) ?? 'none'}
                 />
               );
