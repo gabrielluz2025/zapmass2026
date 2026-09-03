@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.63] - 2026-09-03
+### Melhorado
+- **Notificações discretas**: toasts movidos para canto inferior direito, duração reduzida para 4-6s, tamanho compacto (320px max) e mensagens curtas — não ocupam mais metade da tela.
+- **Aquecimento sem trava para chips em quarentena/anti-ban**: chips em cooldown pós-ban e em quarentena agora participam normalmente do aquecimento. O warmup ajuda na recuperação do chip — não faz sentido bloquear.
+
 ## [2.3.62] - 2026-09-03
 ### Corrigido
 - **CRÍTICO — Aquecimento parava por causa de campanhas**: `recordConnectionDispatch` (campanhas e mensagens manuais) contaminava o contador diário do aquecimento. Agora `warmupSent`/`warmupReceived` são campos separados — campanhas NÃO afetam o limite de aquecimento.

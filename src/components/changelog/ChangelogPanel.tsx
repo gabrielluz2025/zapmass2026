@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.63',
+    date: '03/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Notificações discretas: mini-toast no canto inferior, 4-6s, mensagens curtas — sem mais popups gigantes' },
+      { type: 'improvement', text: 'Chips em quarentena/anti-ban participam do aquecimento sem bloqueio — warmup ajuda na recuperação' },
+    ],
+  },
+  {
     version: '2.3.62',
     date: '03/09/2026',
     highlights: [

@@ -2721,8 +2721,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       'tenant-notification',
       (p: { title?: string; body?: string; kind?: string }) => {
         const title = String(p?.title || 'Alerta de proteção').trim();
-        const body = String(p?.body || '').trim();
-        toast(body ? `${title}\n${body}` : title, { icon: '🛡️', duration: 14_000 });
+        // Notificação discreta: apenas título, curta duração
+        toast(title, { icon: '🛡️', duration: 5_000 });
         window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
       }
     );
@@ -2730,10 +2730,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     socket.on(
       'campaign-protection-paused',
       (p: { message?: string; campaignId?: string; reason?: string }) => {
-        const msg =
-          String(p?.message || '').trim() ||
-          'Campanha pausada pela proteção anti-ban. Verifique Conexões → Proteção de chips.';
-        toast(msg, { icon: '🛡️', duration: 16_000 });
+        toast('Campanha pausada — proteção anti-ban ativa.', { icon: '🛡️', duration: 5_000 });
         window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
       }
     );
@@ -2741,32 +2738,27 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     socket.on('chip-circuit-breaker-open', (p: { connectionId?: string; body?: string; title?: string }) => {
       const id = String(p?.connectionId || '');
       if (id) setCircuitBreakerOpenIds((prev) => new Set(prev).add(id));
-      const msg = String(p?.body || p?.title || 'Chip isolado temporariamente pelo circuit breaker.').trim();
-      toast(msg, { icon: '⚠️', duration: 12_000 });
+      toast('Chip pausado temporariamente — circuit breaker ativo.', { icon: '⚠️', duration: 5_000 });
       window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
     });
 
     socket.on('tenant-ban-cooldown-started', (p: { body?: string; title?: string }) => {
-      const msg = String(p?.body || p?.title || 'Proteção ativada após incidente — aguarde o cooldown.').trim();
-      toast(msg, { icon: '🚨', duration: 16_000 });
+      toast('Proteção anti-ban ativada — cooldown em andamento.', { icon: '🚨', duration: 6_000 });
       window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
     });
 
     socket.on('reconnect-storm-warning', (p: { body?: string; title?: string }) => {
-      const msg = String(p?.body || p?.title || 'Chip instável — próxima queda ativa proteção reforçada.').trim();
-      toast(msg, { icon: '⚡', duration: 18_000 });
+      toast('Chip instável detectado — monitorando.', { icon: '⚡', duration: 5_000 });
       window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
     });
 
     socket.on('chip-circuit-breaker-half-open', (p: { body?: string; title?: string }) => {
-      const msg = String(p?.body || p?.title || 'Instabilidade detectada — reduza o ritmo ou troque de chip.').trim();
-      toast(msg, { icon: '⚠️', duration: 14_000 });
+      toast('Instabilidade detectada — reduza o ritmo.', { icon: '⚠️', duration: 5_000 });
       window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
     });
 
     socket.on('chip-reconnect-exhausted', (p: { body?: string; title?: string; connectionId?: string }) => {
-      const msg = String(p?.body || p?.title || 'Chip offline — reconexão automática continua a cada ~30 min.').trim();
-      toast(msg, { icon: '📡', duration: 16_000 });
+      toast('Chip offline — reconexão automática ativa.', { icon: '📡', duration: 5_000 });
       window.dispatchEvent(new CustomEvent('zapmass:tenant-notification'));
     });
 

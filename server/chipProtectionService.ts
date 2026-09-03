@@ -167,6 +167,8 @@ export async function isChipQuietMode(tenantId: string): Promise<boolean> {
 }
 
 /** Chips conectados, fora de quarentena, aptos ao aquecimento entre si. */
+/** Conta chips conectados (online) elegíveis para aquecimento, incluindo os em quarentena.
+ *  O aquecimento ajuda na recuperação de chips banidos/em cooldown — quarentena não bloqueia. */
 export async function countNonQuarantinedWarmupChips(
   tenantId: string,
   connectionIds: string[]
@@ -184,7 +186,7 @@ export async function countNonQuarantinedWarmupChips(
     if (st !== 'CONNECTED' && st !== 'OPEN') continue;
     const phone = String(conn.phoneNumber || '').replace(/\D/g, '');
     if (phone.length < 10) continue;
-    if (evo.getConnectionBanInfo(id).inQuarantine) continue;
+    // Quarentena NÃO bloqueia aquecimento — chips em cooldown se beneficiam do warmup
     count++;
   }
   return count;
@@ -192,7 +194,8 @@ export async function countNonQuarantinedWarmupChips(
 
 /**
  * Motivo pelo qual aquecimento está bloqueado (null = permitido).
- * Em cooldown pós-ban, permite aquecer entre chips saudáveis (≥2 fora de quarentena).
+ * Chips em quarentena, ban_cooldown e anti-ban PODEM aquecer — o aquecimento
+ * ajuda na recuperação. Somente bloqueia se não houver ao menos 2 chips conectados.
  */
 export async function getWarmupBlockReason(
   tenantId: string,
@@ -203,17 +206,10 @@ export async function getWarmupBlockReason(
   if (
     reason === 'policy_auto_idle' ||
     reason === 'policy_always' ||
-    reason === 'reconnect_storm'
+    reason === 'reconnect_storm' ||
+    reason === 'ban_cooldown'  // ban_cooldown também permite — o warmup ajuda na recuperação
   ) {
     return null;
-  }
-  if (reason === 'ban_cooldown') {
-    if (connectionIds && connectionIds.length >= 2) {
-      const eligible = await countNonQuarantinedWarmupChips(tenantId, connectionIds);
-      if (eligible >= 2) return null;
-      return 'Cooldown pós-ban: ative pelo menos 2 chips saudáveis (fora de quarentena).';
-    }
-    return chipProtectionReasonLabel(reason);
   }
   return null;
 }

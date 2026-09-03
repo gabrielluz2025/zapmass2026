@@ -641,17 +641,20 @@ const App: React.FC = () => {
   return (
     <>
       <Toaster
-        position="top-right"
-        gutter={10}
+        position="bottom-right"
+        gutter={6}
         toastOptions={{
-          duration: 5000,
+          duration: 4000,
           style: {
             background: 'var(--surface-0)',
             color: 'var(--text-1)',
             border: '1px solid var(--border)',
-            borderRadius: '12px',
-            fontSize: '13.5px',
-            fontWeight: 500
+            borderRadius: '10px',
+            fontSize: '12.5px',
+            fontWeight: 500,
+            maxWidth: '320px',
+            padding: '10px 14px',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.12)'
           }
         }}
       />
