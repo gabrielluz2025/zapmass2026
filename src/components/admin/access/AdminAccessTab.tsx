@@ -679,12 +679,12 @@ export const AdminAccessTab: React.FC = () => {
                         </button>
                       ))}
                     </div>
-                    <p className="text-[10px] uppercase font-bold text-slate-500 pt-2">Canais do plano</p>
+                    <p className="text-[10px] uppercase font-bold text-slate-500 pt-2">Canais do plano <span className="normal-case text-slate-600">(até 20)</span></p>
                     <div className="flex gap-2 items-end">
                       <input
                         type="number"
                         min={1}
-                        max={5}
+                        max={20}
                         className="ui-input w-20"
                         value={includedChannelsGrant}
                         onChange={(e) => setIncludedChannelsGrant(e.target.value)}
@@ -695,7 +695,7 @@ export const AdminAccessTab: React.FC = () => {
                         leftIcon={<Smartphone className="w-3.5 h-3.5" />}
                         onClick={async () => {
                           try {
-                            const n = Math.max(1, Math.min(5, Math.floor(Number(includedChannelsGrant) || 5)));
+                            const n = Math.max(1, Math.min(20, Math.floor(Number(includedChannelsGrant) || 5)));
                             const updated = await updateAccessUser({ uid: selectedUser.uid, includedChannels: n });
                             setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
                             toast.success(`${n} canal(is) aplicados.`);
@@ -707,6 +707,37 @@ export const AdminAccessTab: React.FC = () => {
                         Aplicar
                       </Button>
                     </div>
+                    <p className="text-[10px] uppercase font-bold text-slate-500 pt-2">Canais bônus extras <span className="normal-case text-slate-600">(slots manuais, até 18)</span></p>
+                    <div className="flex gap-2 items-end">
+                      <input
+                        type="number"
+                        min={0}
+                        max={18}
+                        className="ui-input w-20"
+                        defaultValue={selectedUser.manualExtraChannelSlots ?? 0}
+                        key={`extra-${selectedUser.uid}`}
+                        id="extra-channel-slots-input"
+                      />
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        leftIcon={<Smartphone className="w-3.5 h-3.5" />}
+                        onClick={async () => {
+                          try {
+                            const inputEl = document.getElementById('extra-channel-slots-input') as HTMLInputElement | null;
+                            const slots = Math.max(0, Math.min(18, Math.floor(Number(inputEl?.value) || 0)));
+                            const updated = await updateAccessUser({ uid: selectedUser.uid, manualExtraChannelSlots: slots });
+                            setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
+                            toast.success(slots > 0 ? `+${slots} canais bônus aplicados.` : 'Canais bônus removidos.');
+                          } catch (e: unknown) {
+                            toast.error(e instanceof Error ? e.message : 'Erro.');
+                          }
+                        }}
+                      >
+                        Aplicar bônus
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-slate-500">Total efetivo: até {Math.min(20, (Number(selectedUser.includedChannels) || 2) + (Number(selectedUser.manualExtraChannelSlots) || 0))} canais</p>
                   </div>
                 )}
               </div>

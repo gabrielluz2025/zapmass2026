@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.59] - 2026-09-03
+### Corrigido / Adicionado
+- **Canais bônus além de 5**: limite de canais manual agora vai até 20 (antes era fixo em 5 para todos). Contas com `manualExtraChannelSlots` ou `includedChannels` definidos pelo admin podem ter até 20 chips simultâneos.
+- Admin UI: campo "Canais do plano" aceita até 20; nova seção "Canais bônus extras" para definir slots adicionais.
+- Backend e frontend sincronizados: `MAX_CHANNELS_MANUAL_GRANT = 20`, `manualGrantedExtraSlots` sem cap artificial de 3.
+
 ## [2.3.58] - 2026-09-03
 ### Adicionado
 - **Fluxo por gatilho na Prospecção de base**: agora é possível escolher o modo "Fluxo por respostas" também em campanhas de prospecção — permita rotear contatos por palavra-chave ("quero" → Lead Quente, "sair" → Lista Negra) diretamente na abertura da campanha.

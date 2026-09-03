@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.59',
+    date: '03/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Canais bônus agora funcionam além de 5: manual grants até 20 chips por conta' },
+      { type: 'improvement', text: 'Admin UI: campo canais do plano aceita até 20; nova seção canais bônus extras' },
+    ],
+  },
+  {
     version: '2.3.58',
     date: '03/09/2026',
     highlights: [

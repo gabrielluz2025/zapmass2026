@@ -4,6 +4,8 @@ import { filterByConnectionScope } from './connectionScope';
 export const BASE_CHANNEL_SLOTS = 2;
 export const MAX_EXTRA_CHANNEL_SLOTS = 3;
 export const MAX_CHANNELS_TOTAL = 5;
+/** Teto para contas com grant manual do admin (operator pode ter muitos chips). */
+export const MAX_CHANNELS_MANUAL_GRANT = 20;
 
 function nonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v.trim().length > 0;
@@ -61,9 +63,11 @@ function toMs(v: unknown): number | null {
 
 function manualGrantedExtraSlots(sub: UserSubscription | null): number {
   if (!sub) return 0;
+  // Slots manuais podem ir até MAX_CHANNELS_MANUAL_GRANT - BASE (ex: 18 extras → 20 total)
+  const maxExtra = MAX_CHANNELS_MANUAL_GRANT - BASE_CHANNEL_SLOTS;
   const raw = Math.max(
     0,
-    Math.min(MAX_EXTRA_CHANNEL_SLOTS, Math.floor(Number(sub.manualExtraChannelSlots) || 0))
+    Math.min(maxExtra, Math.floor(Number(sub.manualExtraChannelSlots) || 0))
   );
   if (raw <= 0) return 0;
   const endMs = toMs(sub.manualExtraChannelSlotsEndsAt);
@@ -86,16 +90,22 @@ export function getMaxConnectionSlotsForUser(
   subscription: UserSubscription | null,
   isAdminUser: boolean
 ): number {
-  if (isAdminUser) return MAX_CHANNELS_TOTAL;
+  // Admin da plataforma: usa o teto de grants manuais
+  if (isAdminUser) return MAX_CHANNELS_MANUAL_GRANT;
+
+  const manualExtras = manualGrantedExtraSlots(subscription);
+  // Conta com grant manual pode ultrapassar o teto padrão de 5
+  const effectiveCap = manualExtras > 0 ? MAX_CHANNELS_MANUAL_GRANT : MAX_CHANNELS_TOTAL;
+
   const included = paidIncludedChannels(subscription);
   const includedEffective =
     included > 0
       ? included
       : subscription?.manualGrant === true && statusAllowsPaidExtras(subscription)
-        ? MAX_CHANNELS_TOTAL
+        ? effectiveCap
         : 0;
   if (includedEffective > 0 && statusAllowsPaidExtras(subscription)) {
-    return Math.min(MAX_CHANNELS_TOTAL, includedEffective + manualGrantedExtraSlots(subscription));
+    return Math.min(effectiveCap, includedEffective + manualExtras);
   }
   const raw = Math.max(
     0,
@@ -103,8 +113,8 @@ export function getMaxConnectionSlotsForUser(
   );
   const paidExtras =
     statusAllowsPaidExtras(subscription) && hasChannelAddonPurchaseProof(subscription) ? raw : 0;
-  const effective = Math.max(paidExtras, manualGrantedExtraSlots(subscription));
-  return Math.min(MAX_CHANNELS_TOTAL, BASE_CHANNEL_SLOTS + effective);
+  const effective = Math.max(paidExtras, manualExtras);
+  return Math.min(effectiveCap, BASE_CHANNEL_SLOTS + effective);
 }
 
 /**

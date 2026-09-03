@@ -10,9 +10,11 @@ import { isUuid } from './auth/firebaseUidMap.js';
 
 /** Incluídos no plano. */
 export const BASE_CONNECTION_SLOTS = 2;
-/** Máximo de canais (2 base + 3 extras). */
+/** Máximo de canais para usuários comuns (2 base + 3 extras). */
 export const MAX_CONNECTIONS_TOTAL = 5;
 export const MAX_EXTRA_CHANNEL_SLOTS = 3;
+/** Teto para contas com grant manual do admin (operator pode ter muitos chips). */
+export const MAX_CONNECTIONS_MANUAL_GRANT = 20;
 
 export async function isUidTreatedAsServerAdmin(uid: string): Promise<boolean> {
   if (!uid || uid === 'anonymous') return false;
@@ -81,9 +83,11 @@ function statusAllowsPaidExtras(sub: UserSubscriptionDoc | null | undefined, now
 
 function manualGrantedExtraSlots(sub: UserSubscriptionDoc | null | undefined): number {
   if (!sub) return 0;
+  // Slots manuais podem ir até MAX_CONNECTIONS_MANUAL_GRANT - BASE (ex: 18 extras → 20 total)
+  const maxExtra = MAX_CONNECTIONS_MANUAL_GRANT - BASE_CONNECTION_SLOTS;
   const raw = Math.max(
     0,
-    Math.min(MAX_EXTRA_CHANNEL_SLOTS, Math.floor(Number(sub.manualExtraChannelSlots) || 0))
+    Math.min(maxExtra, Math.floor(Number(sub.manualExtraChannelSlots) || 0))
   );
   if (raw <= 0) return 0;
   const endMs = tsToMs(sub.manualExtraChannelSlotsEndsAt);
@@ -111,28 +115,32 @@ export function getMaxConnectionSlots(
   sub: UserSubscriptionDoc | null | undefined,
   options: { serverAdmin: boolean }
 ): number {
+  // Admin da plataforma: usa o teto de grants manuais
   if (options.serverAdmin) {
-    return MAX_CONNECTIONS_TOTAL;
+    return MAX_CONNECTIONS_MANUAL_GRANT;
   }
+
+  const manualExtras = manualGrantedExtraSlots(sub);
+  // Conta com grant manual pode ultrapassar o teto padrão de 5
+  const effectiveCap = manualExtras > 0 ? MAX_CONNECTIONS_MANUAL_GRANT : MAX_CONNECTIONS_TOTAL;
+
   const included = paidIncludedChannels(sub);
   const includedEffective =
     included > 0
       ? included
       : sub?.manualGrant === true && statusAllowsPaidExtras(sub, Date.now())
-        ? MAX_CONNECTIONS_TOTAL
+        ? effectiveCap
         : 0;
   if (includedEffective > 0 && statusAllowsPaidExtras(sub, Date.now())) {
-    const manualExtras = manualGrantedExtraSlots(sub);
-    return Math.min(MAX_CONNECTIONS_TOTAL, includedEffective + manualExtras);
+    return Math.min(effectiveCap, includedEffective + manualExtras);
   }
   const raw = Math.max(
     0,
     Math.min(MAX_EXTRA_CHANNEL_SLOTS, Math.floor(Number(sub?.extraChannelSlots) || 0))
   );
   const paidExtras = statusAllowsPaidExtras(sub, Date.now()) && hasChannelAddonPurchaseProof(sub) ? raw : 0;
-  const manualExtras = manualGrantedExtraSlots(sub);
   const effective = Math.max(paidExtras, manualExtras);
-  return Math.min(MAX_CONNECTIONS_TOTAL, BASE_CONNECTION_SLOTS + effective);
+  return Math.min(effectiveCap, BASE_CONNECTION_SLOTS + effective);
 }
 
 /**

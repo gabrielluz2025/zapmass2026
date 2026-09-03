@@ -92,7 +92,7 @@ export function docToAdminAccessRow(
     ),
     manualExtraChannelSlots: Math.max(
       0,
-      Math.min(3, Math.floor(Number(data?.manualExtraChannelSlots) || 0))
+      Math.min(18, Math.floor(Number(data?.manualExtraChannelSlots) || 0))
     ),
     manualExtraChannelSlotsEndsAt: tsToIso(data?.manualExtraChannelSlotsEndsAt),
     adminNote: typeof data?.adminNote === 'string' ? data.adminNote : '',
@@ -347,7 +347,7 @@ export function buildAdminAccessUpdates(
   }
 
   if (body.manualExtraChannelSlots != null) {
-    const slots = Math.max(0, Math.min(3, Math.floor(Number(body.manualExtraChannelSlots) || 0)));
+    const slots = Math.max(0, Math.min(18, Math.floor(Number(body.manualExtraChannelSlots) || 0)));
     updates.manualExtraChannelSlots = slots;
     if (slots <= 0) {
       updates.manualExtraChannelSlotsEndsAt = forPg ? null : FieldValue.delete();
@@ -374,7 +374,7 @@ export function buildAdminAccessUpdates(
   if (body.includedChannels != null) {
     const n = Math.floor(Number(body.includedChannels) || 0);
     if (n > 0) {
-      updates.includedChannels = Math.max(1, Math.min(5, n));
+      updates.includedChannels = Math.max(1, Math.min(20, n));
     }
   } else if (enableManualGrant || body.manualGrant === true) {
     const curN = Math.floor(Number(cur.includedChannels) || 0);
