@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.61] - 2026-09-03
+### Corrigido
+- **"too many clients" recorrente — solução permanente**: Postgres agora mata conexões ociosas automaticamente via `idle_session_timeout=300s` + `tcp_keepalives`. Cron de limpeza preventiva instalado a cada 10 minutos pela VPS.
+
 ## [2.3.60] - 2026-09-03
 ### Adicionado
 - **Botão "Respostas" no card de conexão**: reprocessa mensagens recebidas enquanto o chip estava offline — aplica opt-in/opt-out e inscreve leads quentes automaticamente ao reconectar.

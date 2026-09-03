@@ -143,6 +143,18 @@ if pg_can_connect; then
   # Garante que o Evolution Go de produção não ficou parado por acidente
   ensure_prod_evolution_running
   log "Suba homolog se necessário: bash deployment/recover-homolog-evolution-go.sh"
+
+  # Instala cron de limpeza preventiva de conexões idle (a cada 10 minutos)
+  CRON_FILE="/etc/cron.d/zapmass-pg-cleanup"
+  if [ ! -f "$CRON_FILE" ]; then
+    log "Instalando cron de limpeza preventiva de conexões Postgres idle..."
+    cat > "$CRON_FILE" << 'EOFCRON'
+# Limpa conexões idle do Postgres a cada 10 minutos (previne "too many clients")
+*/10 * * * * root docker exec zapmass-postgres-1 psql -U postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state='idle' AND state_change < NOW() - INTERVAL '5 minutes' AND pid <> pg_backend_pid();" > /var/log/zapmass-pg-cleanup.log 2>&1
+EOFCRON
+    chmod 644 "$CRON_FILE"
+    log "Cron de limpeza instalado em $CRON_FILE (a cada 10 minutos)"
+  fi
 else
   echo "ERRO: Postgres ainda indisponível após limpeza/restart." >&2
   exit 1

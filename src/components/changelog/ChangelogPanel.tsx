@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.61',
+    date: '03/09/2026',
+    highlights: [
+      { type: 'fix', text: 'CRÍTICO: Postgres mata conexões idle automaticamente (idle_session_timeout=5min) — elimina "too many clients" recorrente' },
+      { type: 'fix', text: 'Cron de limpeza preventiva de conexões Postgres instalado (a cada 10min na VPS)' },
+    ],
+  },
+  {
     version: '2.3.60',
     date: '03/09/2026',
     highlights: [
