@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.64] - 2026-09-03
+### Corrigido
+- **Prospecção em base grande travava o disparo**: o modal de pré-voo recomeçava a verificação do motor e dos canais a cada re-render (lista enorme de destinatários). Agora a checagem roda uma vez ao abrir e o botão Confirmar não fica bloqueado no loop de “Verificando…”.
+- **Limite 24h no cliente**: bases com mais de 1.500 contatos não enviam a lista inteira no pré-disparo (o servidor aplica o cap no envio). Evita POST gigante e tela piscando.
+
 ## [2.3.63] - 2026-09-03
 ### Melhorado
 - **Notificações discretas**: toasts movidos para canto inferior direito, duração reduzida para 4-6s, tamanho compacto (320px max) e mensagens curtas — não ocupam mais metade da tela.

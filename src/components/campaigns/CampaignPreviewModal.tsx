@@ -4,7 +4,7 @@
  * Preview da campanha antes do disparo com verificação automática de saúde
  * (Redis + chips) para o usuário saber antes de clicar em "Confirmar".
  */
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import {
   CheckCircle2,
   Clock,
@@ -148,16 +148,41 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
     s.preview.some((p) => hasUnresolvedCampaignTemplateTokens(p))
   );
 
+  const recipientsRef = useRef(allRecipients);
+  const connectionIdsRef = useRef(selectedConnectionIds);
+  recipientsRef.current = allRecipients;
+  connectionIdsRef.current = selectedConnectionIds;
+
+  /** Base grande: o check 24h no cliente trava o modal (payload + re-render). O servidor aplica o cap no envio. */
+  const LARGE_FREQ_CAP_CLIENT = 1_500;
+
   const runFrequencyCapCheck = useCallback(async () => {
+    const recipients = recipientsRef.current;
     setFreqCapStatus('checking');
     setConfirmRepeatSend(false);
+    const phones = recipients.map((r) => r.phone.replace(/\D/g, '')).filter((p) => p.length >= 10);
+
+    if (phones.length > LARGE_FREQ_CAP_CLIENT) {
+      setTriagedContacts(
+        recipients.slice(0, 6).map((r) => ({
+          phone: r.phone.replace(/\D/g, ''),
+          name: r.name || r.phone,
+          vars: r.vars,
+          capped: false,
+        }))
+      );
+      setCappedCount(0);
+      setFreqCapStatus('ok');
+      return;
+    }
+
     try {
-      const phones = allRecipients.map((r) => r.phone.replace(/\D/g, '')).filter((p) => p.length >= 10);
       const res = await apiFrequencyCapCheck(phones);
       const cappedByPhone = new Map(
         res.contacts.map((c) => [c.phoneKey, { capped: c.capped, lastSentAt: c.lastSentAt }])
       );
-      const triaged: TriagedContact[] = allRecipients.map((r) => {
+      const preview = recipients.slice(0, 80);
+      const triaged: TriagedContact[] = preview.map((r) => {
         const digits = r.phone.replace(/\D/g, '');
         const key = digits.slice(-11);
         const cap = cappedByPhone.get(key);
@@ -174,7 +199,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       setFreqCapStatus('ok');
     } catch {
       setTriagedContacts(
-        allRecipients.map((r) => ({
+        recipients.slice(0, 6).map((r) => ({
           phone: r.phone.replace(/\D/g, ''),
           name: r.name || r.phone,
           vars: r.vars,
@@ -184,15 +209,16 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       setCappedCount(0);
       setFreqCapStatus('error');
     }
-  }, [allRecipients]);
+  }, []);
 
   const runHealthCheck = useCallback(async () => {
+    const ids = connectionIdsRef.current;
     setMotorStatus('checking');
     setChipStatus('checking');
 
     const motorP = ensureDispatchReady({ maxAttempts: 1, tryReconnect: false }).then(
       (h) => {
-        setMotorStatus(h.ok ? 'ok' : h.reachable === false ? 'warn' : 'warn');
+        setMotorStatus(h.ok ? 'ok' : 'warn');
         return h.ok;
       },
       () => {
@@ -202,11 +228,11 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
     );
 
     const chipP =
-      selectedConnectionIds.length === 0
+      ids.length === 0
         ? Promise.resolve().then(() => {
             setChipStatus('warn');
           })
-        : apiPreflightCheck(selectedConnectionIds)
+        : apiPreflightCheck(ids)
             .then((res) => {
               setChipResults(res.results);
               setChipStatus(res.allReady ? 'ok' : 'error');
@@ -217,12 +243,12 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
             });
 
     await Promise.all([motorP, chipP]);
-  }, [selectedConnectionIds]);
+  }, []);
 
-  // Verificação automática ao abrir
+  // Uma única verificação ao abrir — NÃO reexecuta quando o pai re-renderiza a lista (base grande).
   useEffect(() => {
     if (isOpen) {
-      runHealthCheck();
+      void runHealthCheck();
       void runFrequencyCapCheck();
     } else {
       setMotorStatus('idle');
@@ -265,12 +291,12 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       : 'idle';
 
   const chipsConfirmedOffline = chipStatus === 'error' && chipResults.some((r) => !r.isReady);
+  const largeBaseSkipClientCap = contactCount > LARGE_FREQ_CAP_CLIENT;
   const canDispatch =
     !hasUnresolved &&
     repeatConfirmed &&
     !chipsConfirmedOffline &&
-    motorStatus !== 'checking' &&
-    chipStatus !== 'checking';
+    motorStatus !== 'error';
 
   const palette = {
     ok: { bg: '#10b98115', border: '#10b98135', text: '#10b981', icon: <CheckCircle2 className="w-4 h-4" /> },
@@ -534,6 +560,8 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
                   ? 'Verificando contatos (limite 24 h)…'
                   : freqCapStatus === 'error'
                   ? 'Não foi possível verificar o limite de 24 h'
+                  : largeBaseSkipClientCap
+                  ? `Base grande (${contactCount.toLocaleString('pt-BR')}): limite 24 h aplicado no envio`
                   : cappedCount > 0
                   ? `${cappedCount} contato${cappedCount !== 1 ? 's' : ''} já recebeu mensagem hoje`
                   : `Todos os ${contactCount} contatos liberados`}

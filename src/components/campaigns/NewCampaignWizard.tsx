@@ -1434,19 +1434,22 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         setStep(2);
         return;
       }
-      setCheckingDuplicates(true);
-      try {
-        const dups = await apiCheckScheduledDuplicates(numbers);
-        if (dups.length > 0) {
-          setDuplicatedContacts(dups);
-          setShowDuplicateWarningModal(true);
-          return; // Interrompe e abre o modal explicativo
+      // Base muito grande: o POST com dezenas de milhares de números trava o wizard.
+      if (numbers.length <= 5_000) {
+        setCheckingDuplicates(true);
+        try {
+          const dups = await apiCheckScheduledDuplicates(numbers);
+          if (dups.length > 0) {
+            setDuplicatedContacts(dups);
+            setShowDuplicateWarningModal(true);
+            return;
+          }
+        } catch (e) {
+          console.error('[DuplicateCheck Error]', e);
+          toast.error('Não foi possível verificar duplicados. Seguindo sem essa checagem.');
+        } finally {
+          setCheckingDuplicates(false);
         }
-      } catch (e) {
-        console.error('[DuplicateCheck Error]', e);
-        toast.error('Não foi possível verificar duplicados. Tente novamente.');
-      } finally {
-        setCheckingDuplicates(false);
       }
     }
     setStep((step + 1) as 1 | 2 | 3 | 4);

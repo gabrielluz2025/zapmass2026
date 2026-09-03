@@ -3262,11 +3262,18 @@ export async function checkFrequencyCapForPhones(
 
     try {
         const keys = needRedis.map((u) => freqCapRedisKey(ownerUid, u.phoneKey));
-        const raws = await Promise.race([
-            redis.mget(...keys),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 4_000)),
-        ]);
-        if (!raws) return results;
+        const CHUNK = 800;
+        const raws: Array<string | null> = [];
+        for (let offset = 0; offset < keys.length; offset += CHUNK) {
+            const slice = keys.slice(offset, offset + CHUNK);
+            const part = await Promise.race([
+                redis.mget(...slice),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 3_000)),
+            ]);
+            if (!part) break;
+            raws.push(...part);
+        }
+        if (raws.length === 0) return results;
         for (let k = 0; k < needRedis.length; k++) {
             const raw = raws[k];
             if (!raw) continue;

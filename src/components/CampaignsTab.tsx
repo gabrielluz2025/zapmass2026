@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -127,6 +127,16 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     delaySecondsMax?: number;
     humanizedPauses?: boolean;
   }>(null);
+
+  const previewRecipients = useMemo(
+    () =>
+      (previewPayload?.recipients ?? []).map((r) => ({
+        phone: r.phone,
+        vars: r.vars,
+        name: r.vars['nome_completo'] || r.vars['nome'] || r.phone,
+      })),
+    [previewPayload]
+  );
   const [previewConfirmLoading, setPreviewConfirmLoading] = useState(false);
 
   useEffect(() => {
@@ -675,11 +685,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           contactCount={previewPayload.numbers.length}
           delaySeconds={previewPayload.delaySeconds}
           launchMode={previewPayload.launchMode ?? 'now'}
-          allRecipients={previewPayload.recipients.map((r) => ({
-            phone: r.phone,
-            vars: r.vars,
-            name: r.vars['nome_completo'] || r.vars['nome'] || r.phone,
-          }))}
+          allRecipients={previewRecipients}
           isLoading={previewConfirmLoading}
           selectedConnectionIds={previewPayload.connectedIds}
         />

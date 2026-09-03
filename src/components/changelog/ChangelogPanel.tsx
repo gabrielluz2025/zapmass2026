@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.64',
+    date: '03/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Prospecção em base grande: pré-disparo não fica mais piscando/reverificando motor e canais — dá para iniciar' },
+      { type: 'fix', text: 'Check de 24h no cliente pulado acima de 1.500 contatos (servidor aplica no envio)' },
+    ],
+  },
+  {
     version: '2.3.63',
     date: '03/09/2026',
     highlights: [
