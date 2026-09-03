@@ -63,7 +63,7 @@ fix_container() {
         ok=1
         break
       fi
-      echo "  Aguardando porta $port ($(_i)s)..."
+      echo "  Aguardando porta $port (${_i}s)..."
       sleep 5
     done
     if [ "$ok" = "1" ]; then

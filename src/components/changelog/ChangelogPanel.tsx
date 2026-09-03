@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.57',
+    date: '03/09/2026',
+    highlights: [
+      { type: 'fix', text: 'LID: reply flow agora tenta resolver telefone via waJidAlt no chatStore antes de descartar mensagem' },
+      { type: 'fix', text: 'fix-evolution-go-now.sh: corrige bug sintaxe `_i: command not found` no loop de aguardar porta' },
+    ],
+  },
+  {
     version: '2.3.56',
     date: '03/09/2026',
     highlights: [

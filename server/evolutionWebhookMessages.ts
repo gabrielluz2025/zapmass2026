@@ -360,6 +360,7 @@ export function resolvePhoneDigitsFromEvolutionMessage(
   connectionId?: string
 ): string {
   const key = msg.key || {};
+  // 1) Campos explícitos com número (Evolution Go senderPn, Evolution v2 remoteJidAlt, participante)
   const candidates = [key.remoteJidAlt, key.senderPn, key.participant, key.remoteJid];
   for (const c of candidates) {
     const d = digitsFromJidLike(c);
@@ -368,11 +369,34 @@ export function resolvePhoneDigitsFromEvolutionMessage(
 
   const remoteJid = String(key.remoteJid || '');
   if (chatStore && connectionId && remoteJid) {
+    const convs = chatStore.getConversations();
+
+    // 2) Busca exata por convId (caminho normal)
     const convId = `${connectionId}:${remoteJid}`;
-    const conv = chatStore.getConversations().find((c) => c.id === convId);
+    const conv = convs.find((c) => c.id === convId);
     if (conv?.contactPhone) {
       const fromContact = conv.contactPhone.replace(/\D/g, '');
       if (fromContact.length >= 8) return fromContact;
+    }
+
+    // 3) LID fallback: busca por waJidAlt (conversa gravada como @s.whatsapp.net mas com @lid alternativo)
+    if (remoteJid.endsWith('@lid')) {
+      const byAlt = convs.find(
+        (c) => c.connectionId === connectionId && c.waJidAlt === remoteJid
+      );
+      if (byAlt?.contactPhone) {
+        const fromAlt = byAlt.contactPhone.replace(/\D/g, '');
+        if (fromAlt.length >= 8) return fromAlt;
+      }
+      // 4) LID fallback: busca por id que já começa com connectionId e termina em @lid
+      //    (conversa cujo contactPhone pode já ter sido resolvido via backfill)
+      const byLidId = convs.find(
+        (c) => c.id === convId && c.contactPhone
+      );
+      if (byLidId?.contactPhone) {
+        const fromLid = byLidId.contactPhone.replace(/\D/g, '');
+        if (fromLid.length >= 8) return fromLid;
+      }
     }
   }
 

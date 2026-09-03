@@ -11,6 +11,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.57] — 2026-09-03
+
+### Corrigido
+- **LID/reply flow**: `resolvePhoneDigitsFromEvolutionMessage` agora tenta resolver telefone via `waJidAlt` no chatStore quando `remoteJid` é `@lid` sem campos `senderPn`/`remoteJidAlt` — evita descartar respostas de campanha de contatos com JID privado
+- **fix-evolution-go-now.sh**: corrige bug de sintaxe `_i: command not found` no loop que aguarda a porta do Evolution Go ficar disponível
+
+---
+
 ## [2.3.56] — 2026-09-03
 
 ### Hotfix crítico — Evolution Go offline + "too many clients" Postgres
