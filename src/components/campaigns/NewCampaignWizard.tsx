@@ -1224,6 +1224,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     replyFlowGatesOk &&
     stageCountOk &&
     (campaignKind !== 'prospecting' ||
+      // Em modo reply a configuração de respostas vem do CampaignReplyFlowEditor (replyFlowGatesOk)
+      campaignFlowMode === 'reply' ||
       (prospectingSilentBody.trim().length > 0 &&
         prospectingResponderSteps.filter((s) => s.body.trim().length > 0).length >= 2));
   const canGoFromChannels = connectedIds.length > 0;
@@ -2414,16 +2416,22 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               </div>
               </div>
 
-              {campaignKind !== 'prospecting' && (
-                <CampaignFlowModePicker mode={campaignFlowMode} onChange={setFlowMode} />
-              )}
+              <CampaignFlowModePicker
+                mode={campaignFlowMode}
+                onChange={(m) => {
+                  // Prospecção só aceita single ou reply (sem sequential)
+                  if (campaignKind === 'prospecting' && m === 'sequential') return;
+                  setFlowMode(m);
+                }}
+                hiddenModes={campaignKind === 'prospecting' ? ['sequential'] : []}
+              />
 
-              {campaignKind === 'prospecting' && (
+              {campaignKind === 'prospecting' && campaignFlowMode === 'single' && (
                 <div
-                  className="rounded-lg px-3 py-2 text-[12px] mb-3"
+                  className="rounded-lg px-3 py-2 text-[12px] mb-1"
                   style={{ background: 'var(--surface-2)', color: 'var(--text-3)' }}
                 >
-                  Modo <strong>disparo único</strong> — a mensagem abaixo é a onda 0 para toda a base.
+                  Modo <strong>disparo único</strong> — mensagem de abertura enviada para toda a base.
                 </div>
               )}
 
@@ -2493,6 +2501,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   onBumpTimeChange={setProspectingBumpTime}
                   responderSteps={prospectingResponderSteps}
                   onResponderStepsChange={setProspectingResponderSteps}
+                  hideResponderSteps={campaignFlowMode === 'reply'}
                 />
               )}
 

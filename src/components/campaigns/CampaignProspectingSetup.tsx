@@ -24,6 +24,8 @@ type Props = {
   onBumpTimeChange: (v: string) => void;
   responderSteps: CampaignProspectingResponderStep[];
   onResponderStepsChange: (steps: CampaignProspectingResponderStep[]) => void;
+  /** Oculta seção de Plano Semanal (quando usar Fluxo por Respostas, o nurture cuida disso) */
+  hideResponderSteps?: boolean;
 };
 
 export const CampaignProspectingSetup: React.FC<Props> = ({
@@ -36,7 +38,8 @@ export const CampaignProspectingSetup: React.FC<Props> = ({
   bumpTime,
   onBumpTimeChange,
   responderSteps,
-  onResponderStepsChange
+  onResponderStepsChange,
+  hideResponderSteps,
 }) => {
   const updateStep = (index: number, patch: Partial<CampaignProspectingResponderStep>) => {
     onResponderStepsChange(
@@ -46,6 +49,13 @@ export const CampaignProspectingSetup: React.FC<Props> = ({
 
   return (
     <div className="cw-msg-section space-y-4 mt-4">
+      {hideResponderSteps && (
+        <div className="rounded-xl px-4 py-3 text-[11.5px]" style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', color: 'var(--text-3)' }}>
+          <strong style={{ color: 'var(--text-1)' }}>🔥 Plano semanal automático</strong><br />
+          Contatos que responderem com a palavra-gatilho de Lead Quente entram automaticamente no nurture semanal — não é preciso configurar os passos aqui.
+        </div>
+      )}
+      {!hideResponderSteps && (
       <div className="rounded-xl p-4" style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)' }}>
         <p className="text-[13px] font-bold mb-1" style={{ color: 'var(--text-1)' }}>
           Plano semanal — quem responder
@@ -98,6 +108,7 @@ export const CampaignProspectingSetup: React.FC<Props> = ({
           )}
         </div>
       </div>
+      )}
 
       <div className="rounded-xl p-4" style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.22)' }}>
         <div className="flex items-center gap-2 mb-2">

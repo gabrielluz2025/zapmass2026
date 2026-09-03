@@ -6,6 +6,8 @@ export type CampaignFlowMode = 'single' | 'sequential' | 'reply';
 type Props = {
   mode: CampaignFlowMode;
   onChange: (mode: CampaignFlowMode) => void;
+  /** Modos a esconder (ex: ['sequential'] para prospecção) */
+  hiddenModes?: CampaignFlowMode[];
 };
 
 /** Modos visíveis no wizard — `sequential` mantido no tipo só para campanhas antigas. */
@@ -34,8 +36,11 @@ const VISIBLE_MODES: Array<{
   },
 ];
 
-export const CampaignFlowModePicker: React.FC<Props> = ({ mode, onChange }) => {
+export const CampaignFlowModePicker: React.FC<Props> = ({ mode, onChange, hiddenModes }) => {
   const active = mode === 'sequential' ? 'single' : mode;
+  const visibleModes = hiddenModes?.length
+    ? VISIBLE_MODES.filter((m) => !hiddenModes.includes(m.id))
+    : VISIBLE_MODES;
 
   return (
     <div className="cw-msg-section">
@@ -44,7 +49,7 @@ export const CampaignFlowModePicker: React.FC<Props> = ({ mode, onChange }) => {
         <p className="cw-msg-section-title mb-0">Tipo de campanha</p>
       </div>
       <div className="cw-flow-pick-grid" role="group" aria-label="Tipo de campanha">
-        {VISIBLE_MODES.map((m) => {
+        {visibleModes.map((m) => {
           const isActive = active === m.id;
           return (
             <button

@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.58] - 2026-09-03
+### Adicionado
+- **Fluxo por gatilho na Prospecção de base**: agora é possível escolher o modo "Fluxo por respostas" também em campanhas de prospecção — permita rotear contatos por palavra-chave ("quero" → Lead Quente, "sair" → Lista Negra) diretamente na abertura da campanha.
+- `CampaignFlowModePicker`: novo prop `hiddenModes` para ocultar modos não suportados (ex.: sem "Sequential" na prospecção).
+- `CampaignProspectingSetup`: novo prop `hideResponderSteps` — quando o fluxo de respostas está ativo, o "Plano semanal" é gerenciado automaticamente pelo nurture, exibindo mensagem informativa no lugar dos passos manuais.
+- Validação do wizard ajustada: no modo reply + prospecção não exige preenchimento dos `responderSteps` manualmente.
+
 ---
 
 ---

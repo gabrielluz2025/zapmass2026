@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.58',
+    date: '03/09/2026',
+    highlights: [
+      { type: 'feature', text: 'Prospecção de base: agora suporta "Fluxo por respostas" — route "quero"→Lead Quente e "sair"→Lista Negra diretamente na abertura' },
+      { type: 'improvement', text: 'CampaignFlowModePicker: prop hiddenModes para filtrar modos por contexto' },
+      { type: 'improvement', text: 'CampaignProspectingSetup: prop hideResponderSteps — exibe info automática quando nurture cuida do plano semanal' },
+    ],
+  },
+  {
     version: '2.3.57',
     date: '03/09/2026',
     highlights: [
