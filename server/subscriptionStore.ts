@@ -32,8 +32,6 @@ export interface UserSubscriptionDoc {
   mercadoPagoChannelAddonOneTimePaymentId?: string;
   manualExtraChannelSlots?: number;
   manualExtraChannelSlotsEndsAt?: Timestamp | string | null;
-  /** Bônus permanente de canais concedido pelo admin (acima do teto de 5). */
-  adminBonusChannelSlots?: number;
   manualGrant?: boolean;
   freeTrialUsed?: boolean;
   adminNewClientNotifiedAt?: Timestamp | string | null;

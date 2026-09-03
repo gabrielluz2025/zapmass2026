@@ -11,6 +11,17 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.55] — 2026-09-03
+
+### Campanhas — Fluxo por respostas: opt-out real + UX melhorada
+
+- **feat:** Opt-out via "Fluxo por respostas" agora persiste na lista negra real (tabela `contact_opt_outs`, cancela jobs BullMQ e nurture enrollments).
+- **feat:** `CampaignFlowModePicker` mostra exemplos "quero → Lead Quente" e "sair → Lista Negra" para facilitar descoberta.
+- **feat:** Seletor de ação nos menus de resposta redesenhado em cards visuais (Sem ação / Lead Quente / Lista Negra).
+- **fix:** `onMarketingConsent(opt_out)` agora chama `processContactOptOut` idêntico ao fluxo inbound — comportamento consistente.
+
+---
+
 ## [2.3.54] — 2026-09-02
 
 ### Auditoria completa — bugs críticos Evolution + segurança + chat

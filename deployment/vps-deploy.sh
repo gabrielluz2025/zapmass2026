@@ -515,28 +515,6 @@ else
     echo "==> (compose) atualizar wa-worker (profile workers)"
     docker compose --profile workers up -d --no-deps --build wa-worker
   fi
-  # Garante restart: always no Evolution Go sem recriar (aplica política mesmo em containers antigos).
-  for _ego_cname in zapmass-evolution-go zapmass-evolution-go-homolog; do
-    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$_ego_cname"; then
-      _old_policy="$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$_ego_cname" 2>/dev/null || echo '')"
-      if [ "$_old_policy" != "always" ]; then
-        echo "==> aplicando restart=always em $_ego_cname (era: ${_old_policy:-?})"
-        docker update --restart=always "$_ego_cname" >/dev/null 2>&1 || true
-      fi
-      # Sobe se estiver parado
-      _ego_running="$(docker inspect --format '{{.State.Running}}' "$_ego_cname" 2>/dev/null || echo 'missing')"
-      if [ "$_ego_running" != "true" ]; then
-        echo "==> $_ego_cname está parado — iniciando"
-        docker start "$_ego_cname" >/dev/null 2>&1 || true
-      fi
-    fi
-  done
-  unset _ego_cname _old_policy _ego_running
-  # Instala/atualiza watchdog do Evolution Go (cron a cada 2 min)
-  if [ -f deployment/install-evolution-go-watchdog.sh ]; then
-    chmod +x deployment/install-evolution-go-watchdog.sh deployment/watchdog-evolution-go.sh 2>/dev/null || true
-    bash deployment/install-evolution-go-watchdog.sh 2>/dev/null || echo "AVISO: install-evolution-go-watchdog.sh falhou (continuando)"
-  fi
 fi
 
 if [ -d /opt/zapmass/clientes ] && ls /opt/zapmass/clientes/*/docker-compose.yml >/dev/null 2>&1; then

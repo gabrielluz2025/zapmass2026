@@ -52,36 +52,4 @@ describe('getMaxConnectionSlots', () => {
       )
     ).toBe(5);
   });
-
-  it('bônus admin soma acima do teto de 5', () => {
-    expect(
-      getMaxConnectionSlots(
-        {
-          status: 'active',
-          provider: 'none',
-          plan: null,
-          manualGrant: true,
-          includedChannels: 5,
-          adminBonusChannelSlots: 10
-        },
-        { serverAdmin: false }
-      )
-    ).toBe(15);
-  });
-
-  it('plano 2 + bônus admin 8 = 10', () => {
-    expect(
-      getMaxConnectionSlots(
-        {
-          status: 'active',
-          provider: 'none',
-          plan: null,
-          manualGrant: true,
-          includedChannels: 2,
-          adminBonusChannelSlots: 8
-        },
-        { serverAdmin: false }
-      )
-    ).toBe(10);
-  });
 });

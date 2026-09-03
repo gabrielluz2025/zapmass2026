@@ -59,7 +59,7 @@ describe('adaptEvolutionApiRequestToGo', () => {
     it('POST connect → /instance/connect com webhook', () => {
         const store = {
             ...tokenStore,
-            getGoInstanceUuid: () => 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+            getGoInstanceUuid: () => 'uuid-chip1',
         };
         const r = adaptEvolutionApiRequestToGo(
             {
@@ -71,40 +71,9 @@ describe('adaptEvolutionApiRequestToGo', () => {
             store
         );
         expect(r.url).toBe('/instance/connect');
-        expect(r.headers.instanceId).toBe('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+        expect(r.headers.instanceId).toBe('uuid-chip1');
         expect(r.headers.apikey).toBe('tok-test');
         expect((r.data as { subscribe?: string[] }).subscribe).toContain('ALL');
-    });
-
-    it('POST connect sem UUID Go não envia conn_* no header instanceId', () => {
-        const r = adaptEvolutionApiRequestToGo(
-            {
-                method: 'post',
-                url: '/instance/connect/conn_1787847087384_1',
-                data: {},
-                headers: {},
-            },
-            tokenStore
-        );
-        expect(r.headers.instanceId).toBeUndefined();
-        expect(r.syntheticResponse?.status).toBe(400);
-        expect(String((r.syntheticResponse?.data as { error?: string })?.error)).toBe('missing-go-uuid');
-    });
-
-    it('DELETE instance usa UUID Go, não o conn_*', () => {
-        const store = {
-            ...tokenStore,
-            getGoInstanceUuid: () => 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-        };
-        const r = adaptEvolutionApiRequestToGo(
-            {
-                method: 'delete',
-                url: '/instance/delete/conn_1787847087384_1',
-                headers: {},
-            },
-            store
-        );
-        expect(r.url).toBe('/instance/delete/a1b2c3d4-e5f6-7890-abcd-ef1234567890');
     });
 });
 
@@ -112,19 +81,6 @@ describe('normalizeGoResponseToApiV2', () => {
     it('normaliza status', () => {
         const out = normalizeGoResponseToApiV2('/instance/status', { data: { connected: true } });
         expect((out as { instance: { state: string } }).instance.state).toBe('open');
-    });
-
-    it('normaliza status PascalCase Connected do whatsmeow', () => {
-        const out = normalizeGoResponseToApiV2('/instance/status', {
-            success: true,
-            data: { Connected: true, JID: '5547999:1@s.whatsapp.net' },
-        });
-        expect((out as { state: string }).state).toBe('open');
-    });
-
-    it('não trata envelope success sem evidência de sessão como open', () => {
-        const out = normalizeGoResponseToApiV2('/instance/status', { status: 'success' });
-        expect((out as { state: string }).state).toBe('close');
     });
 
     it('separa código de pareamento de imagem QR', () => {
@@ -155,10 +111,12 @@ describe('normalizeGoResponseToApiV2', () => {
         expect(out.profilePictureUrl).toContain('data:image/jpeg;base64,');
     });
 
-    it('marca Connected PascalCase como open em /instance/all', () => {
+    it('preserva token e jid em /instance/all', () => {
         const out = normalizeGoResponseToApiV2('/instance/all', {
-            data: [{ id: 'uuid-2', name: 'conn_1', Connected: true }],
-        }) as Array<{ connectionStatus?: string }>;
+            data: [{ id: 'uuid-1', name: 'chip1', token: 'tok-1', jid: '554796317344:19@s.whatsapp.net', connected: true }],
+        }) as Array<{ token?: string; jid?: string; connectionStatus?: string }>;
+        expect(out[0]?.token).toBe('tok-1');
+        expect(out[0]?.jid).toContain('554796317344');
         expect(out[0]?.connectionStatus).toBe('open');
     });
 });

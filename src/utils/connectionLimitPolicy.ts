@@ -4,8 +4,6 @@ import { filterByConnectionScope } from './connectionScope';
 export const BASE_CHANNEL_SLOTS = 2;
 export const MAX_EXTRA_CHANNEL_SLOTS = 3;
 export const MAX_CHANNELS_TOTAL = 5;
-/** Teto de segurança para bônus administrativo (acima do teto do produto). */
-export const MAX_ADMIN_BONUS_CHANNEL_SLOTS = 100;
 
 function nonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v.trim().length > 0;
@@ -73,22 +71,21 @@ function manualGrantedExtraSlots(sub: UserSubscription | null): number {
   return endMs > Date.now() ? raw : 0;
 }
 
-/** Bônus permanente concedido pelo admin — soma acima do teto do produto (5). */
-export function adminGrantedBonusChannelSlots(sub: UserSubscription | null): number {
-  if (!sub) return 0;
-  return Math.max(
-    0,
-    Math.min(MAX_ADMIN_BONUS_CHANNEL_SLOTS, Math.floor(Number(sub.adminBonusChannelSlots) || 0))
-  );
-}
-
 function paidIncludedChannels(sub: UserSubscription | null): number {
   const n = Math.floor(Number(sub?.includedChannels) || 0);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.max(1, Math.min(MAX_CHANNELS_TOTAL, n));
 }
 
-function getPlanMaxConnectionSlots(subscription: UserSubscription | null, isAdminUser: boolean): number {
+/**
+ * Teto de canais para o app (2 base + `extraChannelSlots` pagos, máx. 5).
+ * Contas de administrador (lista ADMIN) usam o teto máximo do produto (5), igual ao servidor.
+ * Extras exigem prova de add-on (igual ao servidor) — nunca só o numero no Firestore.
+ */
+export function getMaxConnectionSlotsForUser(
+  subscription: UserSubscription | null,
+  isAdminUser: boolean
+): number {
   if (isAdminUser) return MAX_CHANNELS_TOTAL;
   const included = paidIncludedChannels(subscription);
   const includedEffective =
@@ -108,19 +105,6 @@ function getPlanMaxConnectionSlots(subscription: UserSubscription | null, isAdmi
     statusAllowsPaidExtras(subscription) && hasChannelAddonPurchaseProof(subscription) ? raw : 0;
   const effective = Math.max(paidExtras, manualGrantedExtraSlots(subscription));
   return Math.min(MAX_CHANNELS_TOTAL, BASE_CHANNEL_SLOTS + effective);
-}
-
-/**
- * Teto de canais para o app (plano até 5 + bônus admin opcional).
- * Contas de administrador (lista ADMIN) usam o teto máximo do produto (5), igual ao servidor.
- */
-export function getMaxConnectionSlotsForUser(
-  subscription: UserSubscription | null,
-  isAdminUser: boolean
-): number {
-  const planMax = getPlanMaxConnectionSlots(subscription, isAdminUser);
-  if (isAdminUser) return planMax;
-  return planMax + adminGrantedBonusChannelSlots(subscription);
 }
 
 /**

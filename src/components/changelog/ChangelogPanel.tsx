@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.55',
+    date: '03/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Fluxo por respostas: opt-out agora persiste na lista negra real (cancela jobs + nurture)' },
+      { type: 'feat', text: 'Wizard: picker mostra exemplos "quero → plano semanal" e "sair → Lista Negra"' },
+      { type: 'feat', text: 'Seletor de ação redesenhado em cards visuais em cada opção do menu de respostas' },
+    ],
+  },
+  {
     version: '2.3.54',
     date: '02/09/2026',
     highlights: [

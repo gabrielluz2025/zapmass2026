@@ -355,20 +355,35 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                   />
 
                   {/* Ação de Marketing / Efeito no contato ao responder (Qualquer Resposta) */}
-                  <div className="mt-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-inner">
+                  <div className="mt-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/10 flex flex-col gap-3 shadow-inner">
                     <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-tight">Ação ao responder</p>
-                      <p className="text-[10.5px] text-slate-400 mt-0.5 leading-snug">O que acontece com o contato no CRM após enviar qualquer resposta</p>
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-tight">Ação ao responder qualquer coisa</p>
+                      <p className="text-[10.5px] text-slate-400 mt-0.5 leading-snug">O que acontece automaticamente quando o contato responder esta mensagem</p>
                     </div>
-                    <select
-                      className="py-1 px-2 text-xs text-slate-900 bg-white border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-emerald-500 font-semibold focus:outline-none shrink-0"
-                      value={first?.marketingEffect || 'none'}
-                      onChange={(e) => patchFirst({ marketingEffect: e.target.value as any })}
-                    >
-                      <option value="none">🔵 Sem efeito extra</option>
-                      <option value="opt_in">🔥 Marcar como Lead Quente</option>
-                      <option value="opt_out">🚫 Direcionar p/ Lista Negra</option>
-                    </select>
+                    <div className="flex flex-wrap gap-2">
+                      {(
+                        [
+                          { value: 'none', emoji: '🔵', label: 'Sem ação', desc: 'Só envia a resposta, nada muda no contato' },
+                          { value: 'opt_in', emoji: '🔥', label: 'Lead Quente + plano semanal', desc: 'Entra em jornada automática de follow-up' },
+                          { value: 'opt_out', emoji: '🚫', label: 'Lista Negra', desc: 'Para todos os disparos e nunca mais recebe mensagens' },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          className="flex-1 min-w-[140px] rounded-lg border px-3 py-2 text-left transition-all"
+                          style={
+                            (first?.marketingEffect || 'none') === opt.value
+                              ? { borderColor: opt.value === 'opt_out' ? '#ef4444' : opt.value === 'opt_in' ? '#f59e0b' : '#6366f1', background: opt.value === 'opt_out' ? '#fef2f2' : opt.value === 'opt_in' ? '#fffbeb' : '#eef2ff' }
+                              : { borderColor: 'var(--border-1)', background: 'transparent' }
+                          }
+                          onClick={() => patchFirst({ marketingEffect: opt.value })}
+                        >
+                          <span className="text-sm font-bold block leading-tight">{opt.emoji} {opt.label}</span>
+                          <span className="text-[10px] leading-snug" style={{ color: 'var(--text-3)' }}>{opt.desc}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {followUpPreview.trim() ? (
@@ -458,15 +473,15 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                                 />
                               </label>
                               <label className="cw-reply-menu-field">
-                                <span className="cw-reply-menu-field__label">Ação do contato</span>
+                                <span className="cw-reply-menu-field__label">Ação ao escolher</span>
                                 <select
                                   className="cw-reply-menu-field__input py-1 px-2 text-xs text-slate-900 bg-white border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-emerald-500 font-semibold focus:outline-none"
                                   value={opt.marketingEffect || 'none'}
                                   onChange={(e) => updateOption(opt.id, { marketingEffect: e.target.value as any })}
                                 >
-                                  <option value="none">🔵 Sem efeito extra</option>
-                                  <option value="opt_in">🔥 Marcar como Lead Quente</option>
-                                  <option value="opt_out">🚫 Direcionar p/ Lista Negra</option>
+                                  <option value="none">🔵 Sem ação extra</option>
+                                  <option value="opt_in">🔥 Lead Quente + plano semanal</option>
+                                  <option value="opt_out">🚫 Lista Negra (para tudo)</option>
                                 </select>
                               </label>
                             </div>

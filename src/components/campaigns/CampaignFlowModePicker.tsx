@@ -28,7 +28,7 @@ const VISIBLE_MODES: Array<{
   {
     id: 'reply',
     title: 'Fluxo por respostas',
-    desc: 'Envia uma abertura e, quando o contato responder, manda o próximo texto.',
+    desc: 'Mensagem de abertura + regras automáticas: direcione o contato conforme o que ele responder.',
     icon: <GitBranch className="w-5 h-5" />,
     accent: '#6366f1',
   },
@@ -90,8 +90,9 @@ export const CampaignFlowModePicker: React.FC<Props> = ({ mode, onChange }) => {
                       </>
                     ) : (
                       <>
-                        <li>Abertura + resposta automática</li>
-                        <li>Por palavra, número ou gatilho</li>
+                        <li>Abertura + menu de opções por número ou palavra</li>
+                        <li>Resposta &quot;quero&quot; → Lead Quente / plano semanal</li>
+                        <li>Resposta &quot;sair&quot; → Lista Negra automática</li>
                       </>
                     )}
                   </ul>

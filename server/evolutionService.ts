@@ -111,6 +111,7 @@ import {
     cancelCampaignJobsForPhone,
     handleInboundOptOut,
     isContactOptedOut,
+    processContactOptOut,
 } from './contactOptOutService.js';
 import {
     emitAntiBanAlert,
@@ -4679,6 +4680,45 @@ function ensureReplyFlowEngine() {
                     connectionId,
                     conversationId: `${connectionId}:${phoneDigits}`,
                 });
+            }
+            // opt_out via fluxo de respostas → persiste na lista negra real
+            // (cancela jobs pendentes, nurture e grava contact_opt_outs no Postgres)
+            if (effect === 'opt_out' && ownerUid) {
+                void (async () => {
+                    try {
+                        const result = await processContactOptOut({
+                            tenantId: ownerUid,
+                            phoneDigits,
+                            reason: `Opt-out via fluxo de respostas — campanha ${campaignId || 'desconhecida'}`,
+                            source: 'reply_flow',
+                            keyword: String(replyText || '').slice(0, 60),
+                            cancelJobs: async (tid, phone) => {
+                                const queue = getCampaignQueue();
+                                if (!queue) return 0;
+                                return cancelCampaignJobsForPhone(
+                                    queue,
+                                    tid,
+                                    phone,
+                                    (cid) => campaignsById.get(cid)?.ownerUid,
+                                );
+                            },
+                        });
+                        log('info', '[ReplyFlow] Opt-out persistido na lista negra', {
+                            ownerUid,
+                            campaignId,
+                            phoneDigits: phoneDigits.slice(-4),
+                            jobsCancelled: result?.jobsCancelled ?? 0,
+                            nurtureCancelled: result?.nurtureCancelled ?? 0,
+                        });
+                    } catch (err) {
+                        log('warn', 'Falha ao processar opt-out do Reply Flow no Postgres', {
+                            ownerUid,
+                            campaignId,
+                            phoneDigits: phoneDigits.slice(-4),
+                            error: (err as Error)?.message,
+                        });
+                    }
+                })();
             }
         },
         onLog: (message, payload) =>
