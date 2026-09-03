@@ -6,17 +6,21 @@ set -euo pipefail
 cd /opt/zapmass 2>/dev/null || { echo "Erro: /opt/zapmass não encontrado."; exit 1; }
 
 echo "==> Liberando chipProtectionLockUntil e reconnect_storm no banco..."
-docker compose exec -T postgres psql -U zapmass -d zapmass -c "
-  UPDATE tenant_settings
-     SET settings = jsonb_set(
-           jsonb_set(settings, '{chipProtectionLockUntil}', '\"\"', true),
-           '{chipProtectionLockReason}', '\"\"', true
-         )
-   WHERE settings ? 'chipProtectionLockUntil';
-  SELECT id, settings->>'chipProtectionLockUntil' AS lock_until
-    FROM tenant_settings
+docker compose exec -T postgres psql -U postgres -d zapmass_db -c "
+  UPDATE zapmass.tenant_dispatch_settings
+     SET doc = doc
+               - 'chipProtectionLockUntil'
+               - 'chipProtectionLockReason'
+   WHERE doc ? 'chipProtectionLockUntil'
+      OR doc ? 'chipProtectionLockReason';
+  SELECT tenant_id,
+         doc->>'chipProtectionLockUntil' AS lock_until,
+         doc->>'chipProtectionLockReason' AS lock_reason
+    FROM zapmass.tenant_dispatch_settings
+   WHERE doc ? 'chipProtectionLockUntil'
+      OR doc ? 'chipProtectionLockReason'
    LIMIT 20;
-" 2>/dev/null || echo "AVISO: postgres update falhou (tabela pode ter outro nome)"
+" 2>/dev/null || echo "AVISO: postgres update falhou (verificar credenciais ou schema)"
 
 echo ""
 echo "==> Limpando circuit breaker no Redis (chip:cb:* keys)..."

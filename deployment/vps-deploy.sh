@@ -458,6 +458,18 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
     echo "==> (swarm) forçar recarregamento: zapmass_prometheus (alert_rules.yml / prometheus.yml no host)"
     docker service update --force zapmass_prometheus >/dev/null 2>&1 || true
   fi
+  # Evolution Go watchdog (cron 2min) + restart=always em containers avulsos
+  if echo "${_engine:-evolution-go}" | grep -qiE 'evolution-go|^go$|evogo'; then
+    if [ -f deployment/install-evolution-go-watchdog.sh ]; then
+      chmod +x deployment/install-evolution-go-watchdog.sh deployment/watchdog-evolution-go.sh 2>/dev/null || true
+      bash deployment/install-evolution-go-watchdog.sh 2>/dev/null || echo "AVISO: watchdog do Evolution Go nao instalado"
+    fi
+    for _go_cname in zapmass-evolution-go evolution-go; do
+      if docker inspect "$_go_cname" >/dev/null 2>&1; then
+        docker update --restart=always "$_go_cname" >/dev/null 2>&1 && echo "==> restart=always aplicado: $_go_cname" || true
+      fi
+    done
+  fi
 else
   echo "==> docker compose build + up"
   # Compose: REDIS_URL deve usar DNS interno redis:6379 (host.docker.internal é só Swarm).
@@ -514,6 +526,18 @@ else
   if docker compose --profile workers ps --services --status running 2>/dev/null | grep -q '^wa-worker$'; then
     echo "==> (compose) atualizar wa-worker (profile workers)"
     docker compose --profile workers up -d --no-deps --build wa-worker
+  fi
+  # Evolution Go watchdog (cron 2min) + restart=always
+  if echo "${_engine:-evolution-go}" | grep -qiE 'evolution-go|^go$|evogo'; then
+    if [ -f deployment/install-evolution-go-watchdog.sh ]; then
+      chmod +x deployment/install-evolution-go-watchdog.sh deployment/watchdog-evolution-go.sh 2>/dev/null || true
+      bash deployment/install-evolution-go-watchdog.sh 2>/dev/null || echo "AVISO: watchdog do Evolution Go nao instalado"
+    fi
+    for _go_cname in zapmass-evolution-go evolution-go; do
+      if docker inspect "$_go_cname" >/dev/null 2>&1; then
+        docker update --restart=always "$_go_cname" >/dev/null 2>&1 && echo "==> restart=always aplicado: $_go_cname" || true
+      fi
+    done
   fi
 fi
 

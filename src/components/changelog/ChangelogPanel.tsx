@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.56',
+    date: '03/09/2026',
+    highlights: [
+      { type: 'fix', text: 'CRÍTICO: fix-postgres não derruba mais Evolution Go de produção' },
+      { type: 'fix', text: 'CRÍTICO: parser evolutionOpenState restaurado (PascalCase + envelopes aninhados)' },
+      { type: 'fix', text: 'unlock-campaign: schema/tabela corretos (zapmass.tenant_dispatch_settings)' },
+      { type: 'fix', text: 'vps-deploy restaura watchdog Evolution Go (cron 2min) + restart=always' },
+    ],
+  },
+  {
     version: '2.3.55',
     date: '03/09/2026',
     highlights: [

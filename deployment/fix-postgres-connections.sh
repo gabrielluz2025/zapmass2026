@@ -9,10 +9,12 @@ ROOT="${ROOT:-/opt/zapmass}"
 cd "$ROOT"
 RESTART_PG=0
 AGGRESSIVE=0
+STOP_PROD_EVOLUTION=0
 for arg in "$@"; do
   case "$arg" in
     --restart-postgres) RESTART_PG=1 ;;
     --aggressive) AGGRESSIVE=1 ;;
+    --stop-prod-evolution) STOP_PROD_EVOLUTION=1 ;;
   esac
 done
 
@@ -38,11 +40,31 @@ pg_can_connect() {
   docker exec "$PG" psql -U postgres -d postgres -c 'SELECT 1' >/dev/null 2>&1
 }
 
+ensure_prod_evolution_running() {
+  # Garante que o Evolution Go de PRODUÇÃO está no ar após a limpeza
+  for cname in zapmass-evolution-go evolution-go-prod; do
+    if docker inspect "$cname" >/dev/null 2>&1; then
+      if ! docker ps --filter "name=^${cname}$" --filter "status=running" -q | grep -q .; then
+        log "Reiniciando Evolution Go de produção (${cname}) que estava parado…"
+        docker start "$cname" 2>/dev/null || true
+      fi
+      docker update --restart=always "$cname" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
 stop_connection_hogs() {
-  log "Parar consumidores Evolution (libera slots Postgres)…"
+  log "Parar consumidores Evolution HOMOLOG (libera slots Postgres)…"
+  # SEGURO: para apenas homolog e containers de teste — NUNCA produção por padrão
   docker stop zapmass-evolution-go-homolog 2>/dev/null || true
-  docker stop zapmass-evolution-go 2>/dev/null || true
-  docker stop evolution-go 2>/dev/null || true
+  docker stop zapmass-homolog-evolution-go  2>/dev/null || true
+  docker stop evolution-go-homolog          2>/dev/null || true
+  # Produção só com flag explícita --stop-prod-evolution
+  if [ "$STOP_PROD_EVOLUTION" = "1" ]; then
+    log "AVISO: parando Evolution Go de PRODUÇÃO (--stop-prod-evolution fornecido)"
+    docker stop zapmass-evolution-go 2>/dev/null || true
+    docker stop evolution-go         2>/dev/null || true
+  fi
   if [ "$AGGRESSIVE" = "1" ] || [ "$RESTART_PG" = "1" ]; then
     docker stop zapmass-homolog-api 2>/dev/null || true
   fi
@@ -117,7 +139,10 @@ if [ "$RESTART_PG" = "1" ]; then
 fi
 
 if pg_can_connect; then
-  log "OK — Postgres aceita conexões. Suba homolog: bash deployment/recover-homolog-evolution-go.sh"
+  log "OK — Postgres aceita conexões."
+  # Garante que o Evolution Go de produção não ficou parado por acidente
+  ensure_prod_evolution_running
+  log "Suba homolog se necessário: bash deployment/recover-homolog-evolution-go.sh"
 else
   echo "ERRO: Postgres ainda indisponível após limpeza/restart." >&2
   exit 1

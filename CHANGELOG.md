@@ -11,6 +11,18 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.56] — 2026-09-03
+
+### Hotfix crítico — Evolution Go offline + "too many clients" Postgres
+
+- **fix CRÍTICO:** `fix-postgres-connections.sh` não para mais o Evolution Go de **produção** por padrão — apenas homolog. Flag `--stop-prod-evolution` para opt-in explícito + `ensure_prod_evolution_running` reconecta prod no final.
+- **fix CRÍTICO:** `evolutionOpenState.ts` — parser restaurado com PascalCase (`Connected`, `LoggedIn`, `Online`), envelopes `instance`/`data` aninhados. Previne false-negative que causava loop de reconexão.
+- **fix:** `unlock-campaign-protection.sh` usa schema/tabela corretos (`zapmass.tenant_dispatch_settings`, user `postgres`, db `zapmass_db`).
+- **fix:** `vps-deploy.sh` restaura instalação do watchdog do Evolution Go (cron 2min) e `restart=always` em containers avulsos, nos modos Swarm e Compose.
+- **test:** 15 testes cobrem todos os formatos do parser de estado Go.
+
+---
+
 ## [2.3.55] — 2026-09-03
 
 ### Campanhas — Fluxo por respostas: opt-out real + UX melhorada
