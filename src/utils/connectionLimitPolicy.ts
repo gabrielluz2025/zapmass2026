@@ -114,3 +114,11 @@ export function countAccountScopedConnections(connections: Array<{ id: string }>
   if (!userId) return 0;
   return filterByConnectionScope(userId, connections).length;
 }
+
+/**
+ * Retorna quantos slots extras foram concedidos manualmente pelo admin para a assinatura.
+ * Útil para exibir "bônus de canais" na UI sem recalcular o teto total.
+ */
+export function adminGrantedBonusChannelSlots(sub: UserSubscription | null): number {
+  return manualGrantedExtraSlots(sub);
+}

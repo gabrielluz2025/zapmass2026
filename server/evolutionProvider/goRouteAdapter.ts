@@ -415,7 +415,7 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
         const wrapped = data as { data?: Record<string, unknown> };
         const st = wrapped?.data || (data as Record<string, unknown>);
         // Aceita camelCase e PascalCase (Connected / LoggedIn) do Evolution Go / whatsmeow
-        const connected = goPayloadLooksConnected(st) || goPayloadLooksConnected(data);
+        const connected = goPayloadLooksConnected(st) || goPayloadLooksConnected(data as Record<string, unknown>);
         const state = connected ? 'open' : 'close';
         return {
             state,
