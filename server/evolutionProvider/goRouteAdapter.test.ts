@@ -57,9 +57,10 @@ describe('adaptEvolutionApiRequestToGo', () => {
     });
 
     it('POST connect → /instance/connect com webhook', () => {
+        const validUuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
         const store = {
             ...tokenStore,
-            getGoInstanceUuid: () => 'uuid-chip1',
+            getGoInstanceUuid: () => validUuid,
         };
         const r = adaptEvolutionApiRequestToGo(
             {
@@ -71,7 +72,7 @@ describe('adaptEvolutionApiRequestToGo', () => {
             store
         );
         expect(r.url).toBe('/instance/connect');
-        expect(r.headers.instanceId).toBe('uuid-chip1');
+        expect(r.headers.instanceId).toBe(validUuid);
         expect(r.headers.apikey).toBe('tok-test');
         expect((r.data as { subscribe?: string[] }).subscribe).toContain('ALL');
     });
