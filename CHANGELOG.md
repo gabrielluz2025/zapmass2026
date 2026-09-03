@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.62] - 2026-09-03
+### Corrigido
+- **CRÍTICO — Aquecimento parava por causa de campanhas**: `recordConnectionDispatch` (campanhas e mensagens manuais) contaminava o contador diário do aquecimento. Agora `warmupSent`/`warmupReceived` são campos separados — campanhas NÃO afetam o limite de aquecimento.
+- **Limites diários de aquecimento ampliados para 24h**: Novato 20→150 / Morno 50→300 / Quente 120→600 / Premium 250→1200 (suportam operação contínua 24h com 2–5 chips).
+
 ## [2.3.61] - 2026-09-03
 ### Corrigido
 - **"too many clients" recorrente — solução permanente**: Postgres agora mata conexões ociosas automaticamente via `idle_session_timeout=300s` + `tcp_keepalives`. Cron de limpeza preventiva instalado a cada 10 minutos pela VPS.

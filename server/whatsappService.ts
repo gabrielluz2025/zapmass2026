@@ -794,9 +794,13 @@ const warmedNumbers = new Set<string>();
 // =====================================================================
 interface WarmupDailyEntry {
     date: string; // YYYY-MM-DD
-    sent: number;
-    received: number;
+    sent: number;       // total disparos (campanha + manual + aquecimento) — apenas para exibição
+    received: number;   // total recebidos (campanha inbound + aquecimento) — apenas para exibição
     failed: number;
+    /** Disparos exclusivos do auto-aquecimento (chip↔chip). Não contaminado por campanhas. */
+    warmupSent?: number;
+    /** Recebidos exclusivos do auto-aquecimento. Não contaminado por campanhas. */
+    warmupReceived?: number;
 }
 interface WarmupChipStats {
     connectionId: string;
@@ -1112,21 +1116,28 @@ function phonesMatch(a: string, b: string): boolean {
     return va.some((x) => vb.includes(x));
 }
 
-/** Regista troca entre dois chips conhecidos (IDs) — contabilização confiável. */
+/** Regista troca entre dois chips conhecidos (IDs) — contabilização confiável.
+ *  Atualiza TANTO os contadores gerais (sent/received) quanto os específicos de aquecimento
+ *  (warmupSent/warmupReceived) — estes últimos são os usados para calcular o limite diário
+ *  do auto-aquecimento, separados de disparos de campanhas e mensagens manuais. */
 export const recordWarmupPair = (fromId: string, toId: string) => {
     const now = Date.now();
     const fromStats = getOrCreateChipStats(fromId);
     if (!fromStats.firstWarmedAt) fromStats.firstWarmedAt = now;
     fromStats.lastActiveAt = now;
     fromStats.totalSent += 1;
-    ensureTodayEntry(fromStats).sent += 1;
+    const fromEntry = ensureTodayEntry(fromStats);
+    fromEntry.sent += 1;
+    fromEntry.warmupSent = (fromEntry.warmupSent ?? 0) + 1;
 
     if (toId && toId !== fromId) {
         const toStats = getOrCreateChipStats(toId);
         if (!toStats.firstWarmedAt) toStats.firstWarmedAt = now;
         toStats.lastActiveAt = now;
         toStats.totalReceived += 1;
-        ensureTodayEntry(toStats).received += 1;
+        const toEntry = ensureTodayEntry(toStats);
+        toEntry.received += 1;
+        toEntry.warmupReceived = (toEntry.warmupReceived ?? 0) + 1;
     }
     scheduleWarmupStatsSave();
     emitWarmupChipStats();
@@ -1148,7 +1159,9 @@ export const recordWarmupExchange = (
     if (!fromStats.firstWarmedAt) fromStats.firstWarmedAt = now;
     fromStats.lastActiveAt = now;
     fromStats.totalSent += 1;
-    ensureTodayEntry(fromStats).sent += 1;
+    const fromEntry = ensureTodayEntry(fromStats);
+    fromEntry.sent += 1;
+    fromEntry.warmupSent = (fromEntry.warmupSent ?? 0) + 1;
 
     const normalized = toPhone.replace(/\D/g, '');
     const targetConn = connections.find((c) => phonesMatch(c.phoneNumber || '', normalized));
@@ -1157,7 +1170,9 @@ export const recordWarmupExchange = (
         if (!toStats.firstWarmedAt) toStats.firstWarmedAt = now;
         toStats.lastActiveAt = now;
         toStats.totalReceived += 1;
-        ensureTodayEntry(toStats).received += 1;
+        const toEntry = ensureTodayEntry(toStats);
+        toEntry.received += 1;
+        toEntry.warmupReceived = (toEntry.warmupReceived ?? 0) + 1;
     }
     scheduleWarmupStatsSave();
     emitWarmupChipStats();
@@ -7209,22 +7224,35 @@ const saveAutoWarmupsToDisk = async () => {
     }
 };
 
-/** Limite diário de mensagens por tier de maturidade (em dias desde firstWarmedAt). */
+/** Limite diário de mensagens de aquecimento (warmupSent+warmupReceived) por tier.
+ *  Calculado em dias desde firstWarmedAt. Dimensionado para cobrir 24h de operação
+ *  contínua entre 2–5 chips com intervalo de 10 minutos:
+ *    2 chips @10min = 1 par × 2 msgs/rodada × 144 rodadas/dia = 288 msgs/chip/dia
+ *    5 chips @10min = 10 pares × 2 × 144 ÷ 5 ≈ 576 msgs/chip/dia */
 const getDailyTarget = (stats: WarmupChipStats | undefined): number => {
-    if (!stats?.firstWarmedAt) return 20; // Novato
+    if (!stats?.firstWarmedAt) return 150; // Novato — permite ~12h contínuo com 2 chips
     const days = Math.floor((Date.now() - stats.firstWarmedAt) / 86_400_000);
-    if (days < 3)  return 20;  // Novato
-    if (days < 7)  return 50;  // Morno
-    if (days < 21) return 120; // Quente
-    return 250;                // Premium
+    if (days < 3)  return 150;  // Novato    (antes: 20)
+    if (days < 7)  return 300;  // Morno     (antes: 50)
+    if (days < 21) return 600;  // Quente    (antes: 120)
+    return 1200;                 // Premium   (antes: 250)
 };
 
-/** Total enviado + recebido hoje pelo chip (UTC-3). */
+/** Total de mensagens de aquecimento enviadas+recebidas hoje pelo chip (UTC-3).
+ *  Usa warmupSent/warmupReceived (separados de campanhas e mensagens manuais).
+ *  Se o campo não existir ainda (dados legados), usa sent+received como fallback. */
 const getTodayCount = (stats: WarmupChipStats | undefined): number => {
     if (!stats) return 0;
     const key = todayKey();
     const row = stats.dailyHistory?.find((d) => d.date === key);
-    return (row?.sent ?? 0) + (row?.received ?? 0);
+    if (!row) return 0;
+    // Prefere contadores exclusivos de aquecimento; fallback para legado
+    const hasWarmupCounters = (row.warmupSent !== undefined) || (row.warmupReceived !== undefined);
+    if (hasWarmupCounters) {
+        return (row.warmupSent ?? 0) + (row.warmupReceived ?? 0);
+    }
+    // Legado: usa sent+received (chips sem dados novos)
+    return (row.sent ?? 0) + (row.received ?? 0);
 };
 
 /** Retorna true se o chip ainda tem capacidade de envio hoje. */
@@ -7247,14 +7275,27 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
         return;
     }
 
-    // Filtra apenas chips que ainda não atingiram a meta diária
+    // Filtra apenas chips que ainda não atingiram a meta diária de aquecimento
     const availableConns = activeConns.filter((c) => chipHasDailyCapacity(c.id));
     if (availableConns.length < 2) {
         const allFull = activeConns.every((c) => !chipHasDailyCapacity(c.id));
         if (allFull) {
-            console.log(`[AutoWarmup] [${uid}] Todos os chips atingiram a meta diária. Aguardando próximo dia.`);
+            // Log diagnóstico: mostra contadores por chip para facilitar debug
+            const counters = activeConns.map((c) => {
+                const st = warmupChipStats.get(c.id);
+                const used = getTodayCount(st);
+                const limit = getDailyTarget(st);
+                return `${c.id.slice(-6)}:${used}/${limit}`;
+            }).join(', ');
+            console.log(`[AutoWarmup] [${uid}] Todos os chips atingiram a meta de aquecimento hoje. Aguardando próximo dia. (${counters})`);
         } else {
-            console.log(`[AutoWarmup] [${uid}] Menos de 2 chips disponíveis (meta diária atingida em alguns). Aguardando.`);
+            const counters = activeConns.map((c) => {
+                const st = warmupChipStats.get(c.id);
+                const used = getTodayCount(st);
+                const limit = getDailyTarget(st);
+                return `${c.id.slice(-6)}:${used}/${limit}`;
+            }).join(', ');
+            console.log(`[AutoWarmup] [${uid}] Menos de 2 chips com capacidade disponível. (${counters})`);
         }
         return;
     }

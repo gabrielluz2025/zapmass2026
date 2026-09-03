@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.62',
+    date: '03/09/2026',
+    highlights: [
+      { type: 'fix', text: 'CRÍTICO: Aquecimento parava porque campanhas consumiam o limite diário — contadores agora separados (warmupSent/warmupReceived)' },
+      { type: 'fix', text: 'Limites de aquecimento ampliados: Novato 150/dia, Morno 300, Quente 600, Premium 1200 — suporta 24h contínuo' },
+    ],
+  },
+  {
     version: '2.3.61',
     date: '03/09/2026',
     highlights: [
