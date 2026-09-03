@@ -1,6 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Wifi, WifiOff, Trash2, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw, Pencil, Check, X, Settings, Flame, Thermometer, Snowflake, TrendingUp, TrendingDown, Minus, LogOut, Activity, AlertTriangle, Lock, Eraser } from 'lucide-react';
+import { Wifi, WifiOff, Trash2, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw, Pencil, Check, X, Settings, Flame, Thermometer, Snowflake, TrendingUp, TrendingDown, Minus, LogOut, Activity, AlertTriangle, Lock, Eraser, History } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { apiUrl } from '../utils/apiBase';
+import { useAuth } from '../context/AuthContext';
 import { QRCodeModal } from './QRCodeModal';
 import { QrCanvas } from './QrCanvas';
 import { Sparkline } from './Sparkline';
@@ -45,6 +47,9 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
   onUpdateSettings
 }) => {
   const [, setTick] = useState(0);
+  const [replaying, setReplaying] = useState(false);
+  const { user } = useAuth();
+
   useEffect(() => {
     const t = setInterval(() => setTick(n => n + 1), 30000);
     return () => clearInterval(t);
@@ -52,6 +57,31 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
 
   const isPaired = Boolean(connection.phoneNumber?.trim());
   const isConnected = connection.status === ConnectionStatus.CONNECTED && isPaired;
+
+  const handleReplayInbound = async () => {
+    if (replaying) return;
+    setReplaying(true);
+    try {
+      const token = await user?.getIdToken();
+      const res = await fetch(apiUrl(`/api/connections/${encodeURIComponent(connection.id)}/replay-inbound`), {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+      if (!res.ok) throw new Error(String(data?.error || 'Erro ao reprocessar.'));
+      const replayed = Number(data?.replayed ?? 0);
+      const enrolled = Number(data?.enrolled ?? 0);
+      if (replayed === 0) {
+        toast('Nenhuma resposta pendente encontrada.', { icon: 'ℹ️' });
+      } else {
+        toast.success(`${replayed} resposta(s) reprocessada(s)${enrolled > 0 ? ` · ${enrolled} leads inscritos` : ''}.`);
+      }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao reprocessar respostas.');
+    } finally {
+      setReplaying(false);
+    }
+  };
   const qrCodeText = typeof connection.qrCode === 'string' ? connection.qrCode.trim() : '';
   const isQrReady = Boolean(qrCodeText);
   const isConnecting =
@@ -738,6 +768,17 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   Reiniciar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReplayInbound}
+                  disabled={replaying}
+                  title="Reprocessa respostas recebidas enquanto o chip estava offline — aplica opt-in/opt-out e inscreve leads quentes"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95 shrink-0 disabled:opacity-50"
+                  style={{ background: 'rgba(99,102,241,0.10)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.25)' }}
+                >
+                  {replaying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <History className="w-3.5 h-3.5" />}
+                  {replaying ? 'Buscando…' : 'Respostas'}
                 </button>
                 <button
                   type="button"

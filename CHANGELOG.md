@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.60] - 2026-09-03
+### Adicionado
+- **Botão "Respostas" no card de conexão**: reprocessa mensagens recebidas enquanto o chip estava offline — aplica opt-in/opt-out e inscreve leads quentes automaticamente ao reconectar.
+
 ## [2.3.59] - 2026-09-03
 ### Corrigido / Adicionado
 - **Canais bônus além de 5**: limite de canais manual agora vai até 20 (antes era fixo em 5 para todos). Contas com `manualExtraChannelSlots` ou `includedChannels` definidos pelo admin podem ter até 20 chips simultâneos.

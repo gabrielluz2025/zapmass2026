@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.60',
+    date: '03/09/2026',
+    highlights: [
+      { type: 'feature', text: 'Botão "Respostas" no chip: reprocessa msgs perdidas enquanto offline → aplica opt-in/opt-out + inscreve leads quentes' },
+    ],
+  },
+  {
     version: '2.3.59',
     date: '03/09/2026',
     highlights: [
