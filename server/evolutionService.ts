@@ -19,6 +19,7 @@ import { evolutionConfig, isEvolutionGoEngine, isGoWebhookInboxMode } from './ev
 import { createEvolutionHttpClient } from './evolutionProvider/createEvolutionHttpClient.js';
 import { pickGoInstanceUuid, pickGoInstanceUuidFromRow } from './evolutionProvider/goUuid.js';
 import {
+    isMissingGoUuidError,
     looksLikeBase64Image,
     looksLikeWhatsAppPairingCode,
 } from './evolutionProvider/goRouteAdapter.js';
@@ -1702,7 +1703,12 @@ function emitConnectionInitFailure(connectionId: string, message: string) {
 }
 
 /** Polling até o QR chegar (create/connect/webhook) ou timeout — evita modal preso em "Aguardar QR". */
-function ensureQrDelivered(connectionId: string, maxAttempts = 45, delayMs = 2000) {
+function ensureQrDelivered(
+    connectionId: string,
+    maxAttempts = 45,
+    delayMs = 2000,
+    opts?: { deleteOnTimeout?: boolean }
+) {
     stopQrWatch(connectionId);
     let attempts = 0;
 
@@ -1736,13 +1742,15 @@ function ensureQrDelivered(connectionId: string, maxAttempts = 45, delayMs = 200
             emitConnectionProgress(connectionId, 'failed');
             emitConnectionInitFailure(
                 connectionId,
-                'QR não foi gerado a tempo. Confirme Evolution API ativa, webhook e CONFIG_SESSION_PHONE_VERSION (sem sufixo -alpha). Tente "Gerar QR" de novo.'
+                'QR não foi gerado a tempo. Clique em QR para tentar de novo.'
             );
             log('error', `Timeout aguardando QR: ${connectionId}`);
-            void deleteConnection(connectionId, {
-                reason: 'qr_delivery_timeout',
-                caller: 'ensureQrDelivered',
-            }).catch(() => undefined);
+            if (opts?.deleteOnTimeout !== false) {
+                void deleteConnection(connectionId, {
+                    reason: 'qr_delivery_timeout',
+                    caller: 'ensureQrDelivered',
+                }).catch(() => undefined);
+            }
             return;
         }
 
@@ -2188,16 +2196,16 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
                 log('warn', `connect/${instanceName} — licença Go inativa`, { msg });
                 return null;
             }
-            // 400 = instância não existe/inválida no Evolution Go — parar polling imediatamente.
-            // Sem este guard, o polling repete a cada 2s indefinidamente gerando flood.
-            if (error?.response?.status === 400) {
-                log('warn', `GET connect/${instanceName} retornou 400 (instância inválida) — abortando polling`, {});
-                return null;
+            if (isMissingGoUuidError(error)) {
+                log('warn', `GET connect/${instanceName} sem UUID Go — recriando instância`, {});
+                await ensureEvolutionGoInstanceExists(instanceName);
+                await ensureGoInstanceUuidResolved(instanceName);
+            } else {
+                log('warn', `GET connect/${instanceName} falhou`, {
+                    error: error?.message,
+                    status: error?.response?.status,
+                });
             }
-            log('warn', `GET connect/${instanceName} falhou`, {
-                error: error?.message,
-                status: error?.response?.status,
-            });
         }
 
         try {
@@ -2215,10 +2223,27 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
                 }
                 return null;
             }
-            log('warn', `POST connect/${instanceName} falhou`, {
-                error: error?.message,
-                status: error?.response?.status,
-            });
+            if (isMissingGoUuidError(error)) {
+                log('warn', `POST connect/${instanceName} sem UUID Go — recriando instância`, {});
+                await ensureEvolutionGoInstanceExists(instanceName);
+                await ensureGoInstanceUuidResolved(instanceName);
+                try {
+                    const retryPost = await api.post(`/instance/connect/${evoInst(instanceName)}`, {
+                        forceReconnect: true,
+                    });
+                    const parsedRetry = tryParse(retryPost.data, 'POST-retry');
+                    if (parsedRetry.extracted) return parsedRetry.extracted;
+                } catch (retryErr: any) {
+                    log('warn', `POST connect retry ${instanceName} falhou`, {
+                        error: retryErr?.message,
+                    });
+                }
+            } else {
+                log('warn', `POST connect/${instanceName} falhou`, {
+                    error: error?.message,
+                    status: error?.response?.status,
+                });
+            }
         }
 
         if (sawCountZero && (await tryRecoverCountZeroInstance(instanceName))) {
@@ -5330,7 +5355,7 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
         extracted = await pollConnectQr(id, 10, 2500);
     }
     if (!extracted) {
-        ensureQrDelivered(id, 25, 2000);
+        ensureQrDelivered(id, 25, 2000, { deleteOnTimeout: false });
         applyConnectionStateUpdate(id, 'connecting', {});
         log('info', `forceQr: polling QR em background para ${id}`);
         return { error: 'QR ainda não disponível. Aguarde alguns segundos.', cleanReconnect: needsCleanReconnect };
@@ -5381,7 +5406,7 @@ export async function disconnectConnection(id: string): Promise<void> {
         if (extracted) {
             emitQrToFrontend(id, extracted);
         } else {
-            ensureQrDelivered(id, 25, 2000);
+            ensureQrDelivered(id, 25, 2000, { deleteOnTimeout: false });
         }
     })();
 }
@@ -5398,62 +5423,74 @@ export async function reconnectConnection(id: string) {
         clearManualLogoutHold(id);
         pairingStartedAt.set(id, Date.now());
 
-        invalidateConnectionStateCache(id);
-        let live = (await getConnectionState(id, { skipCache: true })).toLowerCase();
-        if (isEvolutionOpenState(live) && isPairedConnection(id)) {
-            applyConnectionStateUpdate(id, 'open', {});
-            log('info', `Instância já aberta: ${id}`);
-            return;
+        const mem0 = connections.get(id);
+        if (mem0 && mem0.status !== 'open') {
+            mem0.status = 'connecting';
+            connections.set(id, mem0);
+            emitConnectionsUpdateForConnection(id);
         }
 
-        const conn = connections.get(id);
-        if (isPairedConnection(id) && (live === 'close' || live === 'connecting' || live === 'created')) {
-            if (conn) {
-                conn.status = 'connecting';
-                connections.set(id, conn);
-            }
-            emitConnectionsUpdateForConnection(id);
-            clearAutoReconnect(id);
-            try {
-                await ensureGoInstanceUuidResolved(id);
-                try {
-                    await api.post(`/instance/restart/${evoInst(id)}`, {});
-                    await sleep(3500);
-                } catch {
-                    await api.post(`/instance/connect/${evoInst(id)}`, { forceReconnect: true });
-                    await sleep(2000);
-                }
-            } catch (err: any) {
-                log('warn', `restart/connect falhou em reconnect ${id}`, { error: err?.message });
-            }
-
-            live = (await getConnectionState(id, { skipCache: true })).toLowerCase();
+        const paired = isPairedConnection(id);
+        if (paired) {
+            invalidateConnectionStateCache(id);
+            let live = (await getConnectionState(id, { skipCache: true })).toLowerCase();
             if (isEvolutionOpenState(live)) {
                 applyConnectionStateUpdate(id, 'open', {});
-                log('info', `Sessão restaurada após restart: ${id}`);
+                log('info', `Instância já aberta: ${id}`);
                 return;
             }
-            if (live === 'connecting' || live === 'created') {
-                applyConnectionStateUpdate(id, live, {});
-                watchConnectionUntilOpen(id);
-                await sleep(4000);
+
+            if (live === 'close' || live === 'connecting' || live === 'created') {
+                clearAutoReconnect(id);
+                try {
+                    await ensureGoInstanceUuidResolved(id);
+                    try {
+                        await api.post(`/instance/restart/${evoInst(id)}`, {});
+                        await sleep(3500);
+                    } catch {
+                        await api.post(`/instance/connect/${evoInst(id)}`, { forceReconnect: true });
+                        await sleep(2000);
+                    }
+                } catch (err: any) {
+                    log('warn', `restart/connect falhou em reconnect ${id}`, { error: err?.message });
+                }
+
                 live = (await getConnectionState(id, { skipCache: true })).toLowerCase();
                 if (isEvolutionOpenState(live)) {
                     applyConnectionStateUpdate(id, 'open', {});
-                    log('info', `Sessão abriu após connecting: ${id}`);
+                    log('info', `Sessão restaurada após restart: ${id}`);
                     return;
                 }
+                if (live === 'connecting' || live === 'created') {
+                    applyConnectionStateUpdate(id, live, {});
+                    watchConnectionUntilOpen(id);
+                    await sleep(4000);
+                    live = (await getConnectionState(id, { skipCache: true })).toLowerCase();
+                    if (isEvolutionOpenState(live)) {
+                        applyConnectionStateUpdate(id, 'open', {});
+                        log('info', `Sessão abriu após connecting: ${id}`);
+                        return;
+                    }
+                }
+                log('info', `Sessão não voltou (${live}) — gerando QR: ${id}`);
             }
-            log('info', `Sessão não voltou (${live}) — gerando QR: ${id}`);
         }
 
-        const extracted = await fetchConnectQr(id);
+        if (isEvolutionGoEngine()) {
+            await ensureEvolutionGoInstanceExists(id);
+            await ensureGoInstanceUuidResolved(id);
+        }
+
+        let extracted = await fetchConnectQr(id);
+        if (!extracted) {
+            extracted = await pollConnectQr(id, 6, 1500);
+        }
         if (extracted) {
             emitQrToFrontend(id, extracted);
         } else {
-            ensureQrDelivered(id);
-            watchConnectionUntilOpen(id);
             applyConnectionStateUpdate(id, 'connecting', {});
+            watchConnectionUntilOpen(id);
+            ensureQrDelivered(id, 20, 2000, { deleteOnTimeout: false });
         }
 
         setupWebhook(id).catch((err) => {
@@ -5467,6 +5504,7 @@ export async function reconnectConnection(id: string) {
     } catch (error: any) {
         log('error', `Erro ao reconectar ${id}`, { error: error.message });
         emitConnectionProgress(id, 'failed');
+        emitConnectionInitFailure(id, error?.message || 'Falha ao reconectar o canal.');
         const ownerUid = resolveOwnerUid(id);
         if (ownerUid) {
             publishOwnerEvent(ownerUid, 'socket-operation-error', {

@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.71',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Canal novo/offline gera o QR de verdade: o Go não aborta mais no 400 e o Conectar não fica só em “Tentando reconectar…”' },
+    ],
+  },
+  {
     version: '2.3.70',
     date: '04/09/2026',
     highlights: [

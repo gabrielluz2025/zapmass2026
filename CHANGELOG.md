@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.71] - 2026-09-04
+### Corrigido
+- **Canal `conn_*` Offline com “Tentando reconectar…”**: o canal ainda não tinha número (nunca pareado). O GET do QR no Evolution Go voltava 400 e o ZapMass abortava — o QR não aparecia e, depois do timeout, o canal podia ser apagado. Agora o QR leva o UUID certo, o 400 não cancela o connect e o Conectar mostra “Gerando QR”.
+
 ## [2.3.70] - 2026-09-04
 ### Corrigido
 - **Buscar respostas no chip**: o botão Respostas usava a janela do último close (às vezes minutos) e só olhava o histórico em RAM — dava “nenhuma pendente” mesmo com conversas. Agora varre 72h, puxa o arquivo/inbox e o toast diz se já tinha sido processada.

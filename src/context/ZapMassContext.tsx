@@ -3017,7 +3017,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
     sock.emit('ui-log', { action: 'reconnect-connection', id });
     sock.emit('reconnect-connection', { id });
-    toast('Tentando reconectar...', { icon: '🔄' });
+    const target = connectionsRef.current.find((c) => c.id === id);
+    const unpaired = !target?.phoneNumber?.trim();
+    if (unpaired) {
+      setConnections((prev) => {
+        const updated = prev.map((c) =>
+          c.id === id ? { ...c, status: ConnectionStatus.CONNECTING } : c
+        );
+        connectionsRef.current = updated;
+        return updated;
+      });
+      toast('Gerando QR para conectar...', { icon: '📱' });
+    } else {
+      toast('Tentando reconectar...', { icon: '🔄' });
+    }
   };
 
   const forceQr = async (id: string) => {

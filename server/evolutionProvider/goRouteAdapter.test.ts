@@ -76,6 +76,25 @@ describe('adaptEvolutionApiRequestToGo', () => {
         expect(r.headers.apikey).toBe('tok-test');
         expect((r.data as { subscribe?: string[] }).subscribe).toContain('ALL');
     });
+
+    it('GET connect → /instance/qr com instanceId UUID', () => {
+        const validUuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+        const store = {
+            ...tokenStore,
+            getGoInstanceUuid: () => validUuid,
+        };
+        const r = adaptEvolutionApiRequestToGo(
+            {
+                method: 'get',
+                url: '/instance/connect/chip1',
+                headers: {},
+            },
+            store
+        );
+        expect(r.url).toBe('/instance/qr');
+        expect(r.headers.instanceId).toBe(validUuid);
+        expect(r.syntheticResponse).toBeUndefined();
+    });
 });
 
 describe('normalizeGoResponseToApiV2', () => {

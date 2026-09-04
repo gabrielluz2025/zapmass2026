@@ -40,11 +40,16 @@ function goUuidForConnection(tokenStore: InstanceTokenStore, connectionId: strin
     return pickGoInstanceUuid(tokenStore.getGoInstanceUuid?.(connectionId), connectionId);
 }
 
-const MISSING_GO_UUID_SYNTHETIC = {
+export const MISSING_GO_UUID_SYNTHETIC = {
     error: 'missing-go-uuid',
     message:
         'O Evolution não reconheceu o identificador deste canal. Atualize a página; se o chip estiver Online, o disparo continua valendo.',
 };
+
+export function isMissingGoUuidError(error: unknown): boolean {
+    const data = (error as { response?: { data?: { error?: string } } })?.response?.data;
+    return data?.error === 'missing-go-uuid';
+}
 
 function evolutionWebhookUrlForGo(): string {
     let url = evolutionEngineConfig.webhookUrl;
@@ -192,7 +197,15 @@ export function adaptEvolutionApiRequestToGo(
                 headers: { ...instH, instanceId: goUuid },
             };
         }
-        return { url: '/instance/qr', headers: instH };
+        if (!goUuid) {
+            return {
+                url: '/instance/qr',
+                headers: instH,
+                syntheticResponse: { status: 400, data: MISSING_GO_UUID_SYNTHETIC },
+            };
+        }
+        // Go exige instanceId no QR — sem isso responde 400 e o ZapMass abortava o connect.
+        return { url: '/instance/qr', headers: { ...instH, instanceId: goUuid } };
     }
 
     if (url.includes('/instance/connectionState/')) {
