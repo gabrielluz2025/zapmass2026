@@ -2704,6 +2704,12 @@ const handleGracefulShutdown = (signal: string) => {
   gracefulExiting = true;
   console.log(`\n🛑 ${signal} recebido — encerrando com graça...`);
 
+  try {
+    evolutionService.flushChatCache();
+  } catch {
+    /* cache já pode estar vazio no crash loop */
+  }
+
   // Fecha o servidor HTTP para nao aceitar novas conexoes
   try {
     httpServer?.close(() => {

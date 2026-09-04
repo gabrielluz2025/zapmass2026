@@ -189,7 +189,7 @@ export async function replayMissedInboundForConnection(
     .sort((a, b) => conversationActivityMs(b) - conversationActivityMs(a));
 
   const toLoad = manual
-    ? inWindow.slice(0, 120)
+    ? inWindow.slice(0, 250)
     : inWindow.filter((c) => (c.messages?.length ?? 0) <= 8).slice(0, 80);
 
   await loadHistoriesInBatches(toLoad, deps.loadChatHistory, manual ? 150 : 100);

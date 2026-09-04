@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.74] - 2026-09-04
+### Corrigido
+- **Bate-papo zerava quando a API caía**: se os canais ficavam sem dono no boot, o prune apagava todas as conversas e gravava `conversations_cache.json` vazio. Agora o prune não zera a inbox, a gravação é atômica e o SIGTERM faz flush.
+### Melhorado
+- **Botão Respostas**: no Evolution Go não lê o celular; varre o arquivo Postgres e os destinos de campanha das últimas 72h, além do bate-papo em memória.
+
 ## [2.3.73] - 2026-09-04
 ### Corrigido
 - **Canais restaurados sumiam no restart**: a reconciliação do boot apagava todo `conn_*` sem nome amigável, mesmo com dono no Postgres, e gravava `connections_settings.json` vazio. Agora só remove órfão de verdade (sem `ownerUid`) e recusa sobrescrever o arquivo com `{}`.

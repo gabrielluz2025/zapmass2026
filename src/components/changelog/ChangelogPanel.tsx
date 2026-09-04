@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.74',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Bate-papo não zera mais quando a API cai: o boot não apaga conversas se os canais ficarem sem dono' },
+      { type: 'improvement', text: 'Botão Respostas usa o arquivo do ZapMass e os destinos de campanha (72h) — no Go não dá para varrer o celular' },
+    ],
+  },
+  {
     version: '2.3.73',
     date: '04/09/2026',
     highlights: [

@@ -26,6 +26,7 @@ import {
 } from '../src/utils/collapseConversationsByPhone.js';
 import type { GoHistoryConversationStub } from './evolutionProvider/evolutionGoWebhookAdapter.js';
 import { isGoWebhookInboxMode } from './evolutionConfig.js';
+import { atomicWriteJsonFile, shouldRefuseEmptyArrayOverwrite, shouldSkipUnresolvedOwnerPrune } from './safeJsonFile.js';
 import {
     ensureLatestPreviewInMessages,
     mergeChatMessageLists
@@ -126,19 +127,44 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     }
 
     let cacheSaveTimer: ReturnType<typeof setTimeout> | null = null;
+    function persistConversationsCacheNow() {
+        try {
+            if (!fs.existsSync(dataDir)) {
+                fs.mkdirSync(dataDir, { recursive: true });
+            }
+            if (conversations.length === 0 && fs.existsSync(conversationsCacheFile)) {
+                try {
+                    const disk = JSON.parse(fs.readFileSync(conversationsCacheFile, 'utf-8'));
+                    if (Array.isArray(disk) && shouldRefuseEmptyArrayOverwrite(0, disk.length)) {
+                        console.warn(
+                            '[evolutionChat] Recusou gravar conversations_cache.json vazio por cima de arquivo com conversas',
+                            { disk: disk.length }
+                        );
+                        return;
+                    }
+                } catch {
+                    console.warn('[evolutionChat] Cache ilegível e RAM vazia — não sobrescreve conversations_cache.json');
+                    return;
+                }
+            }
+            atomicWriteJsonFile(conversationsCacheFile, conversations);
+        } catch (err: any) {
+            console.error('[evolutionChat] Erro ao salvar conversations_cache.json:', err.message);
+        }
+    }
     function saveConversationsToCacheDebounced() {
         if (cacheSaveTimer) return;
         cacheSaveTimer = setTimeout(() => {
             cacheSaveTimer = null;
-            try {
-                if (!fs.existsSync(dataDir)) {
-                    fs.mkdirSync(dataDir, { recursive: true });
-                }
-                fs.writeFileSync(conversationsCacheFile, JSON.stringify(conversations, null, 2), 'utf-8');
-            } catch (err: any) {
-                console.error('[evolutionChat] Erro ao salvar conversations_cache.json:', err.message);
-            }
-        }, 3000); // 5s debounce
+            persistConversationsCacheNow();
+        }, 3000);
+    }
+    function flushConversationsCache() {
+        if (cacheSaveTimer) {
+            clearTimeout(cacheSaveTimer);
+            cacheSaveTimer = null;
+        }
+        persistConversationsCacheNow();
     }
 
     // Carrega o cache do disco imediatamente
@@ -678,7 +704,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
         const { listInboxThreadStubsPg } = await import('./repositories/chatArchiveRepository.js');
         const tenantId = resolvePostgresTenantId(ownerUid);
-        const stubs = await listInboxThreadStubsPg(tenantId, { limit: 300 });
+        const stubs = await listInboxThreadStubsPg(tenantId, { limit: 400 });
         let touched = 0;
         for (const stub of stubs) {
             if (!allowed.has(stub.connectionId)) continue;
@@ -2126,16 +2152,60 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             return Boolean(ou && ou !== 'anonymous');
         });
         if (kept.length === before) return 0;
+        if (shouldSkipUnresolvedOwnerPrune(before, kept.length)) {
+            console.warn(
+                '[evolutionChat] prune ignorado: nenhum canal tem dono resolvível — bate-papo preservado',
+                { before }
+            );
+            return 0;
+        }
         conversations.length = 0;
         conversations.push(...kept);
         saveConversationsToCacheDebounced();
         return before - kept.length;
     }
 
+    function ensurePhoneStubs(
+        connectionId: string,
+        phones: Array<{ phone: string; timestampMs?: number }>
+    ): number {
+        const cid = String(connectionId || '').trim();
+        if (!cid || phones.length === 0) return 0;
+        let added = 0;
+        for (const row of phones) {
+            const digits = normalizePhoneDigits(row.phone);
+            if (!digits || digits.length < 8) continue;
+            const already = conversations.some((c) => {
+                if (c.connectionId !== cid) return false;
+                return normalizePhoneDigits(c.contactPhone) === digits;
+            });
+            if (already) continue;
+            upsertConversation(
+                {
+                    id: `${cid}:${digits}@s.whatsapp.net`,
+                    contactName: `+${digits}`,
+                    contactPhone: digits,
+                    connectionId: cid,
+                    unreadCount: 0,
+                    lastMessage: '',
+                    lastMessageTime: '',
+                    lastMessageTimestamp: row.timestampMs && row.timestampMs > 0 ? row.timestampMs : Date.now(),
+                    messages: [],
+                    tags: ['Campanha'],
+                },
+                { skipArchive: true }
+            );
+            added += 1;
+        }
+        return added;
+    }
+
     return {
         init,
         getConversations: () => [...conversations],
         pruneConversationsWithoutResolvableOwner,
+        ensurePhoneStubs,
+        flushConversationsCache,
         emitConversationsUpdate,
         emitConversationDelta,
         syncChatsForConnection,

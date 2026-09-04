@@ -8427,13 +8427,13 @@ export function init(socketIO: SocketIOServer) {
 
     void normalizeConnectionOwnersInSettings().then(async () => {
         healAllOrphanConnectionOwners();
+        const { refreshTenantUsersCache } = await import('./reconcileConnectionOwners.js');
+        await refreshTenantUsersCache();
+        await hydrateInstancesFromEvolution();
         const pruned = chatStore.pruneConversationsWithoutResolvableOwner(resolveOwnerUid);
         if (pruned > 0) {
             log('warn', 'Conversas sem ownerUid removidas do cache local', { pruned });
         }
-        const { refreshTenantUsersCache } = await import('./reconcileConnectionOwners.js');
-        await refreshTenantUsersCache();
-        await hydrateInstancesFromEvolution();
         const reconciled = await autoReconcileConnectionOwners();
         if (reconciled.applied.length > 0 || reconciled.removed.length > 0) {
             log('warn', 'Isolamento: canais reatribuídos no boot', {
@@ -9154,6 +9154,11 @@ export function getMetrics(): DashboardMetrics {
 
 export function getConversations(): Conversation[] {
     return chatStore.getConversations();
+}
+
+/** Flush imediato do bate-papo em disco (SIGTERM / deploy). */
+export function flushChatCache(): void {
+    chatStore.flushConversationsCache();
 }
 
 export async function syncAllOpenChats(): Promise<void> {
@@ -10203,6 +10208,36 @@ export async function triggerInboundReplayForConnection(connectionId: string): P
                     await chatStore
                         .hydrateInboxStubsFromArchive(ownerUid, [connectionId])
                         .catch(() => 0);
+                    try {
+                        const { getZapmassPool } = await import('./db/postgres.js');
+                        const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+                        const pool = getZapmassPool();
+                        const tenantId = resolvePostgresTenantId(ownerUid);
+                        if (pool && tenantId) {
+                            const r = await pool.query<{ to_number: string; last_sent: Date }>(
+                                `SELECT to_number, MAX(COALESCE(sent_at, updated_at)) AS last_sent
+                                 FROM zapmass.campaign_jobs
+                                 WHERE connection_id = $1
+                                   AND tenant_id = $2::uuid
+                                   AND status = 'sent'
+                                   AND COALESCE(sent_at, updated_at) > NOW() - INTERVAL '72 hours'
+                                 GROUP BY to_number
+                                 LIMIT 400`,
+                                [connectionId, tenantId]
+                            );
+                            chatStore.ensurePhoneStubs(
+                                connectionId,
+                                r.rows.map((row) => ({
+                                    phone: row.to_number,
+                                    timestampMs: row.last_sent ? new Date(row.last_sent).getTime() : Date.now(),
+                                }))
+                            );
+                        }
+                    } catch (err) {
+                        log('warn', 'seedCampaignRecipientStubs falhou', {
+                            error: err instanceof Error ? err.message : String(err),
+                        });
+                    }
                 }
                 if (!isGoWebhookInboxMode()) {
                     await chatStore
@@ -10311,6 +10346,7 @@ export default {
     getConnections,
     getMetrics,
     getConversations,
+    flushChatCache,
     syncAllOpenChats,
     syncOpenChatsForOwner,
     syncConnectionsForOwner,

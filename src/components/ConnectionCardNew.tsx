@@ -78,7 +78,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
       } else if (skipped > 0) {
         toast(`${skipped} resposta(s) já tinham sido processadas.`, { icon: '✓' });
       } else if (scanned === 0) {
-        toast('Nenhuma resposta recente neste canal (72h). Abra o bate-papo se o contato já falou e tente de novo.', { icon: 'ℹ️' });
+        toast('Nenhuma resposta recente neste canal (72h). O botão não lê o celular — só o bate-papo e o arquivo do ZapMass.', { icon: 'ℹ️' });
       } else {
         toast('Nenhuma resposta pendente encontrada.', { icon: 'ℹ️' });
       }
@@ -810,7 +810,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                   type="button"
                   onClick={handleReplayInbound}
                   disabled={replaying}
-                  title="Reprocessa respostas recebidas enquanto o chip estava offline — aplica opt-in/opt-out e inscreve leads quentes"
+                  title="Reprocessa QUERO/SAIR no bate-papo e no arquivo do ZapMass (72h). Não lê o histórico completo do celular."
                   className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95 shrink-0 disabled:opacity-50"
                   style={{ background: 'rgba(99,102,241,0.10)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.25)' }}
                 >

@@ -106,6 +106,19 @@ export function shouldRefuseEmptyObjectOverwrite(
   return Object.keys(disk).length > 0;
 }
 
+/** Mesma proteção para conversations_cache.json (array). */
+export function shouldRefuseEmptyArrayOverwrite(ramLength: number, diskLength: number): boolean {
+  return ramLength === 0 && diskLength > 0;
+}
+
+/**
+ * Se o settings.json ficou vazio, nenhum canal resolve dono — apagar o bate-papo
+ * inteiro seria perda permanente. Só poda quando ainda há conversas com dono.
+ */
+export function shouldSkipUnresolvedOwnerPrune(before: number, kept: number): boolean {
+  return before > 0 && kept === 0;
+}
+
 /** Grava JSON com arquivo temporário + rename (evita truncar no crash/deploy). */
 export function atomicWriteJsonFile(filePath: string, value: unknown): void {
   const dir = path.dirname(filePath);

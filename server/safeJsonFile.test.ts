@@ -2,7 +2,13 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
-import { atomicWriteJsonFile, parseJsonObjectLenient, shouldRefuseEmptyObjectOverwrite } from './safeJsonFile.js';
+import {
+  atomicWriteJsonFile,
+  parseJsonObjectLenient,
+  shouldRefuseEmptyArrayOverwrite,
+  shouldRefuseEmptyObjectOverwrite,
+  shouldSkipUnresolvedOwnerPrune,
+} from './safeJsonFile.js';
 
 describe('parseJsonObjectLenient', () => {
   it('parseia objeto completo', () => {
@@ -45,6 +51,26 @@ describe('shouldRefuseEmptyObjectOverwrite', () => {
 
   it('permite gravar quando a RAM tem canais', () => {
     expect(shouldRefuseEmptyObjectOverwrite({ conn_1: {} }, { conn_2: {} })).toBe(false);
+  });
+});
+
+describe('shouldRefuseEmptyArrayOverwrite', () => {
+  it('recusa RAM vazia por cima de disco com conversas', () => {
+    expect(shouldRefuseEmptyArrayOverwrite(0, 12)).toBe(true);
+  });
+
+  it('permite gravar vazio se o disco também está vazio', () => {
+    expect(shouldRefuseEmptyArrayOverwrite(0, 0)).toBe(false);
+  });
+});
+
+describe('shouldSkipUnresolvedOwnerPrune', () => {
+  it('não zera o bate-papo quando nenhum canal tem dono resolvível', () => {
+    expect(shouldSkipUnresolvedOwnerPrune(40, 0)).toBe(true);
+  });
+
+  it('permite podar órfãos se ainda restam conversas com dono', () => {
+    expect(shouldSkipUnresolvedOwnerPrune(40, 10)).toBe(false);
   });
 });
 

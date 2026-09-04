@@ -214,7 +214,7 @@ export async function listInboxThreadStubsPg(
   if (!isUuid(tenantId)) return [];
   const pool = getZapmassPool();
   if (!pool) return [];
-  const limit = Math.max(1, Math.min(150, opts?.limit ?? 60));
+  const limit = Math.max(1, Math.min(400, opts?.limit ?? 60));
   const cursorMs =
     opts?.cursorMs != null && Number.isFinite(Number(opts.cursorMs)) ? Number(opts.cursorMs) : null;
   try {
