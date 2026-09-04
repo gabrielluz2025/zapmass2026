@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { getMaxConnectionSlots, MAX_CONNECTIONS_TOTAL } from './connectionLimits.js';
+import { getMaxConnectionSlots, MAX_CONNECTIONS_MANUAL_GRANT, MAX_CONNECTIONS_TOTAL } from './connectionLimits.js';
 
 describe('getMaxConnectionSlots', () => {
   it('admin da plataforma usa teto máximo do produto', () => {
     expect(getMaxConnectionSlots({ status: 'none', provider: 'none', plan: null }, { serverAdmin: true })).toBe(
-      MAX_CONNECTIONS_TOTAL
+      MAX_CONNECTIONS_MANUAL_GRANT
     );
   });
 
