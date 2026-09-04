@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
-import { atomicWriteJsonFile, parseJsonObjectLenient } from './safeJsonFile.js';
+import { atomicWriteJsonFile, parseJsonObjectLenient, shouldRefuseEmptyObjectOverwrite } from './safeJsonFile.js';
 
 describe('parseJsonObjectLenient', () => {
   it('parseia objeto completo', () => {
@@ -31,6 +31,20 @@ describe('parseJsonObjectLenient', () => {
 
   it('retorna null se não houver objeto recuperável', () => {
     expect(parseJsonObjectLenient('{"chip1":')).toBeNull();
+  });
+});
+
+describe('shouldRefuseEmptyObjectOverwrite', () => {
+  it('recusa RAM vazia por cima de disco com canais', () => {
+    expect(shouldRefuseEmptyObjectOverwrite({}, { conn_1: { ownerUid: 'x' } })).toBe(true);
+  });
+
+  it('permite gravar vazio se o disco também está vazio', () => {
+    expect(shouldRefuseEmptyObjectOverwrite({}, {})).toBe(false);
+  });
+
+  it('permite gravar quando a RAM tem canais', () => {
+    expect(shouldRefuseEmptyObjectOverwrite({ conn_1: {} }, { conn_2: {} })).toBe(false);
   });
 });
 

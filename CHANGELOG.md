@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.73] - 2026-09-04
+### Corrigido
+- **Canais restaurados sumiam no restart**: a reconciliação do boot apagava todo `conn_*` sem nome amigável, mesmo com dono no Postgres, e gravava `connections_settings.json` vazio. Agora só remove órfão de verdade (sem `ownerUid`) e recusa sobrescrever o arquivo com `{}`.
+
 ## [2.3.72] - 2026-09-04
 ### Corrigido
 - **API em crash loop após deploy**: `connections_settings.json` truncado fazia o boot chamar `log()` antes do Socket.IO existir (`Cannot access 'io' before initialization`). Agora o JSON inválido não derruba o processo, tenta recuperar/.bak, e a gravação é atômica (tmp+rename).

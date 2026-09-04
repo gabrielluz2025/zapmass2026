@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.73',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Restart não apaga mais os canais restaurados: chip com dono no Postgres deixa de ser tratado como lixo no boot' },
+    ],
+  },
+  {
     version: '2.3.72',
     date: '04/09/2026',
     highlights: [

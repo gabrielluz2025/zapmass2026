@@ -178,9 +178,9 @@ export async function planConnectionOwnerReconciliation(
   opts?: { users?: TenantUser[]; evolutionLabels?: Record<string, string> }
 ): Promise<ReconcileAction[]> {
   const evolutionLabels = opts?.evolutionLabels;
-  const tenantUsers = opts?.users ?? cachedTenantUsers.length > 0
+  const tenantUsers = opts?.users ?? (cachedTenantUsers.length > 0
     ? cachedTenantUsers
-    : await loadTenantUsersFromPostgres();
+    : await loadTenantUsersFromPostgres());
   if (tenantUsers.length === 0) return [];
 
   const actions: ReconcileAction[] = [];
@@ -193,7 +193,10 @@ export async function planConnectionOwnerReconciliation(
 
     const best = resolveBestOwner(label, tenantUsers);
     if (!best) {
-      if (isOrphanOffline(connId, row, evolutionLabels)) {
+      // Chip restaurado do Postgres (campanha/jobs) tem ownerUid mas ainda não tem
+      // friendlyName — não é lixo. Apagar no boot zera connections_settings.json.
+      const hasKnownOwner = Boolean(currentOwnerRaw);
+      if (isOrphanOffline(connId, row, evolutionLabels) && !hasKnownOwner) {
         actions.push({
           kind: 'remove',
           connId,

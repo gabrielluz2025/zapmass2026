@@ -93,6 +93,19 @@ function replaceFile(tmpPath: string, destPath: string): void {
   }
 }
 
+/**
+ * Evita o processo com cache RAM vazio (boot com JSON truncado, ou SIGTERM
+ * após repair no disco) sobrescrever um arquivo que ainda tem canais.
+ */
+export function shouldRefuseEmptyObjectOverwrite(
+  ram: Record<string, unknown>,
+  disk: Record<string, unknown> | null | undefined
+): boolean {
+  if (Object.keys(ram).length > 0) return false;
+  if (!disk || typeof disk !== 'object' || Array.isArray(disk)) return false;
+  return Object.keys(disk).length > 0;
+}
+
 /** Grava JSON com arquivo temporário + rename (evita truncar no crash/deploy). */
 export function atomicWriteJsonFile(filePath: string, value: unknown): void {
   const dir = path.dirname(filePath);

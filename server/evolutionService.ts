@@ -216,7 +216,7 @@ import {
     buildCampaignOwnerLookupUids,
 } from './campaignTenantScope.js';
 import type { Server as SocketIOServer } from 'socket.io';
-import { atomicWriteJsonFile, parseJsonObjectLenient } from './safeJsonFile.js';
+import { atomicWriteJsonFile, parseJsonObjectLenient, shouldRefuseEmptyObjectOverwrite } from './safeJsonFile.js';
 import { isEvolutionOpenState, parseConnectionStatePayload } from './evolutionOpenState.js';
 import { formatEvolutionHttpError } from './evolutionChatSend.js';
 import type { CampaignStageConfig, CampaignProspecting } from '../src/types.js';
@@ -3050,6 +3050,15 @@ export function saveConnectionsSettings() {
         try {
             if (fs.existsSync(connectionsSettingsFile)) {
                 const current = parseJsonObjectLenient(fs.readFileSync(connectionsSettingsFile, 'utf8'));
+                if (
+                    current?.value &&
+                    shouldRefuseEmptyObjectOverwrite(connectionsSettingsCache, current.value)
+                ) {
+                    bootWarn('Recusou gravar connections_settings.json vazio por cima de arquivo com canais', {
+                        diskKeys: Object.keys(current.value).length,
+                    });
+                    return;
+                }
                 if (current && !current.salvaged) {
                     fs.copyFileSync(connectionsSettingsFile, connectionsSettingsBakFile);
                 }
