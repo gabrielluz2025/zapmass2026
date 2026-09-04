@@ -1823,10 +1823,14 @@ const registerSocketHandlers = () => {
           return;
         }
         if (prospecting?.enabled) {
-          const bumpBody = String(prospecting.silentBumpBody || '').trim();
+          const bumpBody =
+            String(prospecting.silentBumpBody || '').trim() ||
+            'Oi! Vi que você não respondeu na semana passada — ainda posso te enviar mais detalhes?';
           const steps = Array.isArray(prospecting.responderSteps) ? prospecting.responderSteps : [];
           const validSteps = steps.filter((s) => String(s?.body || '').trim().length > 0);
-          if (!bumpBody || validSteps.length < 2) {
+          prospecting.silentBumpBody = bumpBody;
+          // Fluxo por respostas: plano semanal vem do nurture (opt_in), não dos 2 passos do wizard.
+          if (!useReplyFlow && validSteps.length < 2) {
             const err =
               'Prospecção incompleta: defina o lembrete para silenciosos e ao menos 2 passos no plano semanal.';
             callback?.({ ok: false, error: err });

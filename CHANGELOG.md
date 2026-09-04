@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.66] - 2026-09-04
+### Corrigido
+- **Prospecção com fluxo por respostas era recusada no disparo**: o servidor exigia 2 passos do plano semanal mesmo quando o wizard usa Lead Quente / nurture. Agora, com fluxo por respostas, só o lembrete dos silenciosos é necessário — o plano semanal vem do nurture.
+
 ## [2.3.65] - 2026-09-04
 ### Corrigido
 - **Apagar canal com UUID inválido no Evolution**: o Go rejeitava o identificador e o ZapMass abortava a exclusão. Agora o canal é removido localmente mesmo se o Evolution não reconhecer o ID.

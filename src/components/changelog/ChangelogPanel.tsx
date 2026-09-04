@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.66',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Prospecção com fluxo por respostas: Confirmar e disparar não exige mais 2 passos do plano semanal no wizard (nurture cuida disso)' },
+    ],
+  },
+  {
     version: '2.3.65',
     date: '04/09/2026',
     highlights: [
