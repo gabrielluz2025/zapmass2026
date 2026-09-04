@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.68',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Gatilho SAIR envia o texto configurado na campanha — não mais a mensagem genérica de descadastro' },
+    ],
+  },
+  {
     version: '2.3.67',
     date: '04/09/2026',
     highlights: [

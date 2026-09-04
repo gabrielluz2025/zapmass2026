@@ -304,6 +304,8 @@ export type HandleInboundOptOutParams = {
   incomingConvId: string;
   sendText: (conversationId: string, text: string) => Promise<void>;
   cancelJobs: (tenantId: string, phoneDigits: string) => Promise<number>;
+  /** Se informado, substitui a confirmação genérica LGPD (ex.: texto do gatilho SAIR da campanha). */
+  confirmationMessage?: string;
   onComplete?: (payload: {
     tenantId: string;
     phoneDigits: string;
@@ -327,8 +329,9 @@ export async function handleInboundOptOut(params: HandleInboundOptOutParams): Pr
     cancelJobs: params.cancelJobs,
   });
 
+  const confirmation = String(params.confirmationMessage || '').trim() || OPT_OUT_CONFIRMATION_MESSAGE;
   try {
-    await params.sendText(params.incomingConvId, OPT_OUT_CONFIRMATION_MESSAGE);
+    await params.sendText(params.incomingConvId, confirmation);
   } catch {
     /* confirmação best-effort */
   }

@@ -233,6 +233,26 @@ export const sanitizeReplyFlowSteps = (
         .filter((s) => s.body.length > 0);
 };
 
+/** Texto de confirmação do gatilho SAIR/opt_out configurado no fluxo da campanha. */
+export function findConfiguredOptOutReply(
+    steps: ReplyFlowStepDef[] | undefined,
+    bodyText: string
+): string | null {
+    const t = String(bodyText || '').trim();
+    if (!t || !Array.isArray(steps) || steps.length === 0) return null;
+    for (const step of steps) {
+        const opts = step.options || [];
+        const optOutOpts = opts.filter((o) => o.marketingEffect === 'opt_out' && o.reply.trim());
+        if (optOutOpts.length === 0) continue;
+        const best = findBestMatchingOption(optOutOpts, t, step.matchMode || 'word');
+        if (best) {
+            const reply = String(optOutOpts[best.optionIndex]?.reply || '').trim();
+            if (reply) return reply;
+        }
+    }
+    return null;
+}
+
 export function sanitizeReplyFlowMeta(raw: unknown): ReplyFlowDefMeta {
     if (!raw || typeof raw !== 'object') return {};
     const rf = raw as Record<string, unknown>;
@@ -379,6 +399,20 @@ export class ReplyFlowEngine {
         }
         const found = this.findSession(connectionId, phoneDigits);
         return found?.session.campaignId;
+    }
+
+    async resolveConfiguredOptOutReply(
+        campaignId: string,
+        ownerUid: string | undefined,
+        bodyText: string
+    ): Promise<string | null> {
+        const cid = String(campaignId || '').trim();
+        if (!cid) return null;
+        let def = this.defs.get(cid);
+        if (!def?.steps?.length) {
+            def = (await this.loadDefFromFirestore(cid, ownerUid)) ?? undefined;
+        }
+        return findConfiguredOptOutReply(def?.steps, bodyText);
     }
 
     updateSessionAfterSend(connectionId: string, phoneDigits: string, newAwaitingAfterStep: number) {
@@ -610,7 +644,7 @@ export class ReplyFlowEngine {
         bodyText: string;
         nonTextReply?: boolean;
         incomingConvId?: string;
-    }) {
+    }): Promise<{ handled: boolean; marketingEffect?: 'none' | 'opt_in' | 'opt_out' }> {
         const { connectionId, phoneDigits, bodyText, nonTextReply, incomingConvId } = params;
 
         let found: { key: string; session: ReplyFlowSession } | null = null;
@@ -631,7 +665,7 @@ export class ReplyFlowEngine {
                     incomingConvId,
                 });
             }
-            return;
+            return { handled: false };
         }
 
         const { key, session } = found;
@@ -642,10 +676,10 @@ export class ReplyFlowEngine {
         }
         if (!def?.steps?.length) {
             this.disposeSession(key, session);
-            return;
+            return { handled: false };
         }
 
-        if (this.callbacks.isCampaignPaused?.(session.campaignId)) return;
+        if (this.callbacks.isCampaignPaused?.(session.campaignId)) return { handled: false };
 
         const tBody = String(bodyText || '').trim();
         const meta = def.meta || {};
@@ -668,7 +702,7 @@ export class ReplyFlowEngine {
                     phoneDigits,
                     pendingAgeSec: Math.round(ageMs / 1000),
                 });
-                return;
+                return { handled: true };
             }
             delete session.pendingOutbound;
             const colonIdx = key.indexOf(':');
@@ -704,8 +738,19 @@ export class ReplyFlowEngine {
                     bodyText,
                     connectionId
                 );
+                const customOptOut = findConfiguredOptOutReply(def.steps, tBody);
+                if (customOptOut) {
+                    const replyBody = applyMessageVars(customOptOut, phoneDigits, session.vars);
+                    void this.callbacks.enqueue({
+                        to: session.toRaw,
+                        message: replyBody,
+                        connectionId,
+                        campaignId: session.campaignId,
+                        replyFlowDisposeAfterSend: true,
+                    });
+                }
                 this.disposeSession(key, session);
-                return;
+                return { handled: true, marketingEffect: 'opt_out' };
             }
         }
 
@@ -799,7 +844,7 @@ export class ReplyFlowEngine {
                     marketingEffect: optMe,
                     matchKind: 'option',
                 });
-                return;
+                return { handled: true, marketingEffect: optMe };
             }
 
             if (gateStep.invalidReplyBody) {
@@ -816,7 +861,7 @@ export class ReplyFlowEngine {
                         maxAttempts,
                     });
                     this.disposeSession(key, session);
-                    return;
+                    return { handled: true };
                 }
 
                 const inv = applyMessageVars(gateStep.invalidReplyBody, phoneDigits, session.vars);
@@ -828,7 +873,7 @@ export class ReplyFlowEngine {
                 });
                 this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
             }
-            return;
+            return { handled: true };
         }
 
         if (awaiting >= steps.length - 1) {
@@ -848,7 +893,7 @@ export class ReplyFlowEngine {
                         maxAttempts,
                     });
                     this.disposeSession(key, session);
-                    return;
+                    return { handled: true };
                 }
 
                 const inv = applyMessageVars(gate.invalidReplyBody, phoneDigits, session.vars);
@@ -859,7 +904,7 @@ export class ReplyFlowEngine {
                     campaignId: session.campaignId,
                 });
                 this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
-                return;
+                return { handled: true };
             }
             if (gateOk && gate.marketingEffect === 'opt_in') {
                 this.callbacks.onMarketingConsent?.(
@@ -892,7 +937,7 @@ export class ReplyFlowEngine {
                 });
             }
             this.disposeSession(key, session);
-            return;
+            return { handled: true, marketingEffect: gateOk ? gate.marketingEffect || 'none' : undefined };
         }
 
         if (!replyMatchesGate(gateStep, bodyText, { nonTextReply })) {
@@ -905,7 +950,7 @@ export class ReplyFlowEngine {
                     campaignId: session.campaignId,
                 });
             }
-            return;
+            return { handled: true };
         }
 
         if (gateStep.marketingEffect === 'opt_in') {
@@ -941,7 +986,7 @@ export class ReplyFlowEngine {
         const nextIdx = awaiting + 1;
         if (nextIdx >= steps.length) {
             this.disposeSession(key, session);
-            return;
+            return { handled: true, marketingEffect: gateStep.marketingEffect || 'none' };
         }
 
         const nextBody = applyMessageVars(steps[nextIdx].body, phoneDigits, session.vars);
@@ -976,6 +1021,7 @@ export class ReplyFlowEngine {
             mediaStorageKey: stepMediaKey || undefined,
             replyFlowAfterSend: { phoneDigits: sessionPhoneKey, newAwaitingAfterStep: nextIdx },
         });
+        return { handled: true, marketingEffect: gateStep.marketingEffect || 'none' };
     }
 }
 

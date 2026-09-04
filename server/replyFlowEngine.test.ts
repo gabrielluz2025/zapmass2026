@@ -7,7 +7,7 @@ import {
   replyMatchesGate,
   simulateReplyFlowMatch,
 } from '../shared/replyFlowMatch.js';
-import { applyMessageVars, ReplyFlowEngine } from './replyFlowEngine.js';
+import { applyMessageVars, findConfiguredOptOutReply, ReplyFlowEngine } from './replyFlowEngine.js';
 
 const matched = (cleanTok: string, body: string, mode?: Parameters<typeof matchReplyTriggerToken>[2]) =>
   matchReplyTriggerToken(cleanTok, body, mode).matched;
@@ -212,5 +212,65 @@ describe('ReplyFlowEngine resume', () => {
       bodyText: '1',
     });
     expect(enqueued).toHaveLength(2);
+  });
+});
+
+describe('findConfiguredOptOutReply', () => {
+  const steps = [
+    {
+      body: 'Abertura',
+      acceptAnyReply: false,
+      validTokens: [],
+      invalidReplyBody: '',
+      options: [
+        { tokens: ['quero'], reply: 'Bora!', marketingEffect: 'opt_in' as const },
+        { tokens: ['sair'], reply: 'Tudo bem, removemos você da lista.', marketingEffect: 'opt_out' as const },
+      ],
+    },
+  ];
+
+  it('devolve o texto do gatilho SAIR, não a confirmação genérica', () => {
+    expect(findConfiguredOptOutReply(steps, 'SAir')).toBe('Tudo bem, removemos você da lista.');
+    expect(findConfiguredOptOutReply(steps, 'quero')).toBeNull();
+  });
+});
+
+describe('ReplyFlowEngine opt-out', () => {
+  it('SAIR usa a resposta do gatilho da campanha', async () => {
+    const enqueued: string[] = [];
+    const engine = new ReplyFlowEngine({
+      enqueue: (item) => {
+        enqueued.push(item.message);
+      },
+    });
+    engine.registerDef('camp1', [
+      {
+        body: 'Abertura',
+        acceptAnyReply: false,
+        validTokens: [],
+        invalidReplyBody: '',
+        options: [
+          { tokens: ['sair'], reply: 'Tudo bem, removemos você da lista.', marketingEffect: 'opt_out' },
+        ],
+      },
+    ]);
+    engine.openSession({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      campaignId: 'camp1',
+      vars: {},
+      toRaw: '5548999999999',
+    });
+
+    const result = await engine.handleIncoming({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      bodyText: 'SAir',
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.marketingEffect).toBe('opt_out');
+    expect(enqueued).toEqual(['Tudo bem, removemos você da lista.']);
+    expect(enqueued[0]).not.toContain('mensagens promocionais');
   });
 });

@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.68] - 2026-09-04
+### Corrigido
+- **Resposta do gatilho SAIR era substituída pelo texto genérico da LGPD**: o opt-out global rodava antes do fluxo por respostas e enviava “Sua solicitação foi processada…”. Agora o texto configurado no gatilho da campanha é o que o contato recebe.
+
 ## [2.3.67] - 2026-09-04
 ### Corrigido
 - **Campanha caía no anti-ban no 1º job e não disparava**: logout/apagar canal gerava 401 (`loggedOut`) e o tenant ficava 48h em cooldown — a campanha inteira pausava mesmo com chips online. Agora o lock só pausa se nenhum canal estiver disponível; exclusão/logout não conta como ban; campanhas já travadas retomam no próximo tick.

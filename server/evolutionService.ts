@@ -8537,13 +8537,37 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
         return;
     }
 
-    if (bodyText && messageOwnerUid) {
+    ensureReplyFlowEngine();
+    await tryRestoreReplyFlowSession(instance, phoneDigits);
+    const flowResult = await replyFlowEngine.handleIncoming({
+        connectionId: instance,
+        phoneDigits,
+        bodyText,
+        nonTextReply,
+        incomingConvId,
+    });
+
+    // Opt-out global só depois do fluxo: o gatilho SAIR da campanha manda o texto
+    // configurado. O handler genérico (LGPD) não pode roubar essa resposta.
+    if (bodyText && messageOwnerUid && !flowResult.handled) {
+        let confirmationMessage: string | undefined;
+        const resolvedCamp = resolveLatestCampaignForReply(instance, phoneDigits);
+        const cid = resolvedCamp.campaignId;
+        if (cid) {
+            const custom = await replyFlowEngine.resolveConfiguredOptOutReply(
+                cid,
+                resolvedCamp.ownerUid || messageOwnerUid,
+                bodyText
+            );
+            if (custom) confirmationMessage = custom;
+        }
         const optedOut = await handleInboundOptOut({
             tenantId: messageOwnerUid,
             connectionId: instance,
             phoneDigits,
             bodyText,
             incomingConvId,
+            confirmationMessage,
             sendText: async (convId, text) => {
                 await sendMessage(convId, text);
             },
@@ -8570,18 +8594,10 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
         }
     }
 
-    ensureReplyFlowEngine();
-    await tryRestoreReplyFlowSession(instance, phoneDigits);
-    await replyFlowEngine.handleIncoming({
-        connectionId: instance,
-        phoneDigits,
-        bodyText,
-        nonTextReply,
-        incomingConvId,
-    });
+    const skipMarketingFollowUp = flowResult.marketingEffect === 'opt_out';
 
     const ownerUidForBot = messageOwnerUid || resolveOwnerUid(instance);
-    if (ownerUidForBot && incomingConvId) {
+    if (ownerUidForBot && incomingConvId && !skipMarketingFollowUp) {
         const inboundGuard = await checkInboundAutomationAllowed(ownerUidForBot, instance);
         if (!inboundGuard.allowed) {
             log('info', `[inboundGuard] Automação bloqueada tenant=${ownerUidForBot}`, {
@@ -8671,7 +8687,7 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
     const replyPreview =
         String(bodyText || '').slice(0, 80) ||
         (nonTextReply ? '[resposta sem texto legível — mídia/botão/etc.]' : '');
-    if (replyOwnerUid) {
+    if (replyOwnerUid && !skipMarketingFollowUp) {
         const prospectingHandled = replyCampaignId
             ? await tryHandleProspectingReply({
                   tenantId: replyOwnerUid,
