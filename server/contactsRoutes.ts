@@ -211,6 +211,43 @@ export function registerContactsDataRoutes(app: Express): void {
     return res.json({ ok: true, total });
   });
 
+  app.get('/api/contacts/engagement-stats', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    try {
+      const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+      const { listPhoneEngagementStatsPg } = await import('./repositories/chatArchiveRepository.js');
+      const { normPhoneKey } = await import('../src/utils/brPhoneNormalize.js');
+      const tenantId = resolvePostgresTenantId(ctx.tenantId);
+      const raw = await listPhoneEngagementStatsPg(tenantId);
+      const byPhone: typeof raw = {};
+      for (const [phone, row] of Object.entries(raw)) {
+        const key = normPhoneKey(phone) || phone.replace(/\D/g, '');
+        if (!key) continue;
+        byPhone[key] = row;
+      }
+      let optOutPhoneKeys: string[] = [];
+      const pool = getZapmassPool();
+      if (pool) {
+        try {
+          const o = await pool.query<{ phone_digits: string }>(
+            `SELECT phone_digits FROM zapmass.contact_opt_outs WHERE tenant_id = $1::uuid`,
+            [tenantId]
+          );
+          optOutPhoneKeys = o.rows
+            .map((r) => normPhoneKey(r.phone_digits) || String(r.phone_digits || '').replace(/\D/g, ''))
+            .filter((k) => k.length >= 8);
+        } catch {
+          /* tabela pode não existir em instâncias antigas */
+        }
+      }
+      return res.json({ ok: true, byPhone, optOutPhoneKeys });
+    } catch (err) {
+      console.warn('[api/contacts/engagement-stats]', (err as Error)?.message || err);
+      return res.json({ ok: true, byPhone: {}, optOutPhoneKeys: [] });
+    }
+  });
+
   app.post('/api/contacts', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;

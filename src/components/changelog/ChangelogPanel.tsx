@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.77',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Totais de quente, morno, frio e lista negra voltam a contar mesmo se o bate-papo tiver esvaziado — usa tags, opt-out e o arquivo no servidor' },
+    ],
+  },
+  {
     version: '2.3.76',
     date: '04/09/2026',
     highlights: [

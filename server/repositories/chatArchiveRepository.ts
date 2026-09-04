@@ -255,3 +255,69 @@ export async function listInboxThreadStubsPg(
     return [];
   }
 }
+
+export type PhoneEngagementStatsRow = {
+  sent: number;
+  delivered: number;
+  read: number;
+  replied: number;
+  lastSentTs: number;
+  lastReplyTs: number;
+  lastReadTs: number;
+};
+
+/** Agrega o arquivo Postgres (180 dias) para restaurar quente/morno/frio sem depender da RAM do bate-papo. */
+export async function listPhoneEngagementStatsPg(
+  tenantId: string
+): Promise<Record<string, PhoneEngagementStatsRow>> {
+  if (!isUuid(tenantId)) return {};
+  const pool = getZapmassPool();
+  if (!pool) return {};
+  const sinceMs = Date.now() - 180 * 86_400_000;
+  try {
+    const r = await pool.query<{
+      phone: string;
+      sent: string;
+      delivered: string;
+      read: string;
+      replied: string;
+      last_sent: string;
+      last_reply: string;
+      last_read: string;
+    }>(
+      `SELECT regexp_replace(COALESCE(t.contact_phone, ''), '\\D', '', 'g') AS phone,
+              COUNT(*) FILTER (WHERE m.sender = 'me')::text AS sent,
+              COUNT(*) FILTER (WHERE m.sender = 'me' AND m.status IN ('delivered', 'read'))::text AS delivered,
+              COUNT(*) FILTER (WHERE m.sender = 'me' AND m.status = 'read')::text AS read,
+              COUNT(*) FILTER (WHERE m.sender = 'them')::text AS replied,
+              COALESCE(MAX(m.timestamp_ms) FILTER (WHERE m.sender = 'me'), 0)::text AS last_sent,
+              COALESCE(MAX(m.timestamp_ms) FILTER (WHERE m.sender = 'them'), 0)::text AS last_reply,
+              COALESCE(MAX(m.timestamp_ms) FILTER (WHERE m.sender = 'me' AND m.status = 'read'), 0)::text AS last_read
+       FROM zapmass.wa_chat_threads t
+       JOIN zapmass.wa_chat_messages m
+         ON m.tenant_id = t.tenant_id AND m.thread_id = t.thread_id
+       WHERE t.tenant_id = $1::uuid
+         AND m.timestamp_ms >= $2
+       GROUP BY 1`,
+      [tenantId, sinceMs]
+    );
+    const out: Record<string, PhoneEngagementStatsRow> = {};
+    for (const row of r.rows) {
+      const phone = String(row.phone || '').replace(/\D/g, '');
+      if (phone.length < 8) continue;
+      out[phone] = {
+        sent: Number(row.sent) || 0,
+        delivered: Number(row.delivered) || 0,
+        read: Number(row.read) || 0,
+        replied: Number(row.replied) || 0,
+        lastSentTs: Number(row.last_sent) || 0,
+        lastReplyTs: Number(row.last_reply) || 0,
+        lastReadTs: Number(row.last_read) || 0,
+      };
+    }
+    return out;
+  } catch (e) {
+    console.warn('[ChatArchive/PG] engagement stats falhou:', (e as Error)?.message || e);
+    return {};
+  }
+}

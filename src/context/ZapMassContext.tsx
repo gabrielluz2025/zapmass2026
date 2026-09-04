@@ -855,8 +855,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       ...(followUpNote ? { followUpNote } : {}),
       ...(aliasContactIds.length > 0 ? { aliasContactIds } : {}),
       ...(religiousMemberProfile && Object.keys(religiousMemberProfile).length > 0 ? { religiousMemberProfile } : {}),
-      ...(raw.marketingOptOut === true ? { marketingOptOut: true } : {}),
-      ...(raw.marketingOptIn === true ? { marketingOptIn: true } : {}),
+      ...(raw.marketingOptOut === true || raw.marketingOptOut === 'true' || raw.marketingOptOut === 1
+        ? { marketingOptOut: true }
+        : {}),
+      ...(raw.marketingOptIn === true || raw.marketingOptIn === 'true' || raw.marketingOptIn === 1
+        ? { marketingOptIn: true }
+        : {}),
       ...(typeof raw.marketingConsentAt === 'string' && raw.marketingConsentAt.trim()
         ? { marketingConsentAt: raw.marketingConsentAt.trim() }
         : {}),

@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.77] - 2026-09-04
+### Corrigido
+- **Quentes / mornos / frios / lista negra zeravam**: esses totais eram calculados só com as mensagens do bate-papo na tela. Depois da queda da API o histórico sumia da RAM e todo mundo virava “sem histórico”. Agora usa as tags gravadas no contato (`lead:quente` etc.), o opt-in/opt-out e o arquivo de mensagens no Postgres.
+
 ## [2.3.76] - 2026-09-04
 ### Alterado
 - **Aquecimento sem meta diária**: chips aquecem 24h enquanto o aquecimento estiver ativo — não pausam mais ao atingir um teto.

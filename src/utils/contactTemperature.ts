@@ -77,6 +77,75 @@ export const CONTACT_TEMP_DEFAULT: TempStats = {
 
 export type PhoneStatsBase = Omit<TempStats, 'temp' | 'score'>;
 
+const LEAD_TAG_HOT = new Set(['lead:quente', 'lead:hot']);
+const LEAD_TAG_WARM = new Set(['lead:morno', 'lead:warm']);
+const LEAD_TAG_COLD = new Set(['lead:frio', 'lead:cold']);
+const LEAD_TAG_BLACKLIST = new Set(['lead:lista-negra', 'lead:blacklist', 'lista-negra']);
+const TEMP_RANK: Record<ContactTemperature, number> = { new: 0, cold: 1, warm: 2, hot: 3 };
+
+function tagKey(raw: string): string {
+  return String(raw || '').trim().toLowerCase();
+}
+
+/** Classificação gravada no contato (Respostas / opt-in), independente do bate-papo na RAM. */
+export function leadTempFromContact(contact: Pick<Contact, 'tags' | 'marketingOptIn'>): ContactTemperature | null {
+  const tags = Array.isArray(contact.tags) ? contact.tags : [];
+  for (const t of tags) {
+    const k = tagKey(t);
+    if (LEAD_TAG_HOT.has(k)) return 'hot';
+  }
+  if (contact.marketingOptIn) return 'hot';
+  for (const t of tags) {
+    const k = tagKey(t);
+    if (LEAD_TAG_WARM.has(k)) return 'warm';
+  }
+  for (const t of tags) {
+    const k = tagKey(t);
+    if (LEAD_TAG_COLD.has(k)) return 'cold';
+  }
+  return null;
+}
+
+export function contactIsBlacklisted(
+  contact: Pick<Contact, 'tags' | 'marketingOptOut' | 'phone'>,
+  extraOptOutKeys?: Set<string>
+): boolean {
+  if (contact.marketingOptOut) return true;
+  const tags = Array.isArray(contact.tags) ? contact.tags : [];
+  if (tags.some((t) => LEAD_TAG_BLACKLIST.has(tagKey(t)))) return true;
+  if (extraOptOutKeys && extraOptOutKeys.size > 0) {
+    const key = normPhoneKey(contact.phone);
+    if (key && extraOptOutKeys.has(key)) return true;
+  }
+  return false;
+}
+
+export function mergePhoneStats(a: PhoneStatsBase, b: PhoneStatsBase): PhoneStatsBase {
+  return {
+    sent: Math.max(a.sent, b.sent),
+    delivered: Math.max(a.delivered, b.delivered),
+    read: Math.max(a.read, b.read),
+    replied: Math.max(a.replied, b.replied),
+    lastSentTs: Math.max(a.lastSentTs, b.lastSentTs),
+    lastReplyTs: Math.max(a.lastReplyTs, b.lastReplyTs),
+    lastReadTs: Math.max(a.lastReadTs, b.lastReadTs)
+  };
+}
+
+export function mergePhoneStatsMaps(
+  live: Record<string, PhoneStatsBase>,
+  archive: Record<string, PhoneStatsBase>
+): Record<string, PhoneStatsBase> {
+  if (!archive || Object.keys(archive).length === 0) return live;
+  const out: Record<string, PhoneStatsBase> = { ...live };
+  for (const [phone, row] of Object.entries(archive)) {
+    const key = normPhoneKey(phone) || phone;
+    if (!key) continue;
+    out[key] = out[key] ? mergePhoneStats(out[key], row) : { ...row };
+  }
+  return out;
+}
+
 const stripDigits = (p: string) => (p || '').replace(/\D/g, '');
 
 const convPrimaryDigits = (conv: Conversation) => {
@@ -197,7 +266,10 @@ export function mapContactToTempStats(
   }
 
   const cls = classifyTemperature(base);
-  return { ...base, temp: cls.temp, score: cls.score };
+  const tagged = leadTempFromContact(contact);
+  const temp =
+    tagged && TEMP_RANK[tagged] > TEMP_RANK[cls.temp] ? tagged : cls.temp;
+  return { ...base, temp, score: cls.score };
 }
 
 /**

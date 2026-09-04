@@ -37,6 +37,39 @@ export async function fetchContactsCount(): Promise<number> {
   return Number(j.total) || 0;
 }
 
+export async function fetchContactEngagementStats(): Promise<{
+  byPhone: Record<
+    string,
+    {
+      sent: number;
+      delivered: number;
+      read: number;
+      replied: number;
+      lastSentTs: number;
+      lastReplyTs: number;
+      lastReadTs: number;
+    }
+  >;
+  optOutPhoneKeys: string[];
+}> {
+  const j = await apiFetchJson<{
+    byPhone?: Record<string, {
+      sent: number;
+      delivered: number;
+      read: number;
+      replied: number;
+      lastSentTs: number;
+      lastReplyTs: number;
+      lastReadTs: number;
+    }>;
+    optOutPhoneKeys?: string[];
+  }>('/api/contacts/engagement-stats', { timeoutMs: CONTACTS_API_TIMEOUT_MS });
+  return {
+    byPhone: j.byPhone && typeof j.byPhone === 'object' ? j.byPhone : {},
+    optOutPhoneKeys: Array.isArray(j.optOutPhoneKeys) ? j.optOutPhoneKeys.filter(Boolean) : [],
+  };
+}
+
 export async function apiCreateContact(contact: Partial<Contact>): Promise<string> {
   const j = await apiFetchJson<{ id?: string; contact?: Contact }>('/api/contacts', {
     method: 'POST',

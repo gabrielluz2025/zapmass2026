@@ -61,10 +61,13 @@ import { storedDateToBrDisplay } from '../utils/brDateMask';
 import {
   buildPhoneMessageStatsIndex,
   mapContactsToTempStats,
+  mergePhoneStatsMaps,
+  contactIsBlacklisted,
   CONTACT_TEMP_DEFAULT,
   CONTACT_TEMP_LABEL,
   type ContactTemperature,
-  type TempStats
+  type TempStats,
+  type PhoneStatsBase,
 } from '../utils/contactTemperature';
 import { normPhoneKey, normalizeBRPhone } from '../utils/brPhoneNormalize';
 import { findBestConversationForPhone, findConversationForPhoneOnChannel, findConversationsForPhone } from '../utils/findConversationByPhone';
@@ -111,6 +114,7 @@ import {
   apiGetContactDedupeJob,
   apiGetActiveContactDedupeJob,
   apiCancelContactDedupeJob,
+  fetchContactEngagementStats,
   type ChipBaseSyncJob,
   type ContactImportJobDto,
   type ContactImportJobRowDto,
@@ -865,6 +869,22 @@ export const ContactsTab: React.FC = () => {
   const [aiEnrichLoading, setAiEnrichLoading] = useState(false);
   /** Evita travar a UI quando o socket atualiza conversas em alta frequência — o cálculo de temperatura acompanha com pequeno atraso. */
   const deferredConversations = useDeferredValue(conversations);
+  const [archiveEngagement, setArchiveEngagement] = useState<Record<string, PhoneStatsBase>>({});
+  const [optOutPhoneKeys, setOptOutPhoneKeys] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchContactEngagementStats()
+      .then((data) => {
+        if (cancelled) return;
+        setArchiveEngagement(data.byPhone || {});
+        setOptOutPhoneKeys(new Set(data.optOutPhoneKeys || []));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [greetedBirthdayIds, setGreetedBirthdayIds] = useState(() => getBirthdayGreetedIds());
 
   useEffect(() => {
@@ -2077,8 +2097,8 @@ export const ContactsTab: React.FC = () => {
   }, [deferredConversations]);
 
   const phoneMessageIndex = useMemo(
-    () => buildPhoneMessageStatsIndex(deferredConversations),
-    [conversationsTempKey, deferredConversations]
+    () => mergePhoneStatsMaps(buildPhoneMessageStatsIndex(deferredConversations), archiveEngagement),
+    [conversationsTempKey, deferredConversations, archiveEngagement]
   );
 
   const [contactTemps, setContactTemps] = useState<Record<string, TempStats>>({});
@@ -2269,7 +2289,7 @@ export const ContactsTab: React.FC = () => {
       }
 
       if (!c.street || !c.city || !c.zipCode) no_address++;
-      if (c.marketingOptOut) blacklist++;
+      if (contactIsBlacklisted(c, optOutPhoneKeys)) blacklist++;
 
       const fu = parseFollowUpMs(c.followUpAt);
       if (fu != null) {
@@ -2311,7 +2331,7 @@ export const ContactsTab: React.FC = () => {
       retorno_hoje,
       retorno_semana
     };
-  }, [deferredContacts, contactTemps, duplicateContactsCount, contactsSavedTotal, greetedBirthdayIds]);
+  }, [deferredContacts, contactTemps, duplicateContactsCount, contactsSavedTotal, greetedBirthdayIds, optOutPhoneKeys]);
 
   // ============================================================
   //  SEGMENTOS INTELIGENTES — chips que aplicam filtros prontos
@@ -2635,10 +2655,10 @@ export const ContactsTab: React.FC = () => {
       case 'no_list':
         return !contactIdsInAnyList.has(c.id);
       case 'blacklist':
-        return !!c.marketingOptOut;
+        return contactIsBlacklisted(c, optOutPhoneKeys);
       default: return true;
     }
-  }, [contactLists, contactTemps, phoneDupKeys, contactIdsInAnyList, greetedBirthdayIds]);
+  }, [contactLists, contactTemps, phoneDupKeys, contactIdsInAnyList, greetedBirthdayIds, optOutPhoneKeys]);
 
   // Filter Logic — memoizado: antes rodava filtro completo em todo re-render (digitar, modal, etc.).
   const filteredContacts = useMemo(() => {
