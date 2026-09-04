@@ -133,7 +133,9 @@ import {
     markJobSending,
     finalizeCampaignJob,
     isBackpressureActive,
+    getCampaignJobStatus,
 } from './campaignJobsResilience.js';
+import { loadCampaignProgressSeed, shouldSkipSettledCampaignEnqueue } from './campaignProgressSeed.js';
 import { fullSyncIntervalMs } from '../shared/dailyFullSync.js';
 import { isEvolutionFullHistorySyncEnabled } from '../shared/chatSyncConfig.js';
 import {
@@ -4741,17 +4743,36 @@ async function deleteCampaignRuntimeFromRedis(campaignId: string): Promise<void>
     } catch { /* ignora */ }
 }
 
+async function applyProgressSeedToRuntime(campaignId: string, ownerUid?: string): Promise<void> {
+    const state = campaignsById.get(campaignId);
+    if (!state) return;
+    const seed = await loadCampaignProgressSeed(ownerUid || state.ownerUid, campaignId);
+    state.successCount = Math.max(state.successCount || 0, seed.successCount);
+    state.failCount = Math.max(state.failCount || 0, seed.failedCount);
+    state.processed = Math.max(state.processed || 0, seed.processedCount);
+    if (state.total < state.processed) state.total = state.processed;
+}
+
 /**
  * Garante que campaignsById tem entrada para a campanha.
  * Se não estiver em RAM, tenta restaurar do Redis.
  * Usado em processCampaignJob quando o servidor reiniciou durante um disparo ativo.
  */
 async function ensureCampaignRuntimeInMemory(campaignId: string, fallbackOwnerUid?: string): Promise<void> {
-    if (!campaignId || campaignsById.has(campaignId)) return;
+    if (!campaignId || campaignsById.has(campaignId)) {
+        if (campaignId && campaignsById.has(campaignId)) {
+            const st = campaignsById.get(campaignId);
+            if (st && st.successCount === 0 && st.processed === 0) {
+                await applyProgressSeedToRuntime(campaignId, fallbackOwnerUid || st.ownerUid);
+            }
+        }
+        return;
+    }
     const fromRedis = await loadCampaignRuntimeFromRedis(campaignId);
     if (fromRedis) {
         campaignsById.set(campaignId, fromRedis);
         syncPausedCampaignFromRuntime(campaignId, fromRedis);
+        await applyProgressSeedToRuntime(campaignId, fromRedis.ownerUid || fallbackOwnerUid);
         log('info', `[reconcile] Runtime da campanha ${campaignId} restaurado do Redis`, { ownerUid: fromRedis.ownerUid });
         return;
     }
@@ -4769,6 +4790,7 @@ async function ensureCampaignRuntimeInMemory(campaignId: string, fallbackOwnerUi
             isRunning: true,
             recentOutcomes: [],
         });
+        await applyProgressSeedToRuntime(campaignId, uid);
         log('info', `[reconcile] Runtime mínimo criado para campanha ${campaignId} (sem Redis)`, { ownerUid: uid });
     }
 }
@@ -6490,6 +6512,13 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         return;
     }
 
+    const existingJobStatus = await getCampaignJobStatus(String(job.id || '')).catch(() => null);
+    if (existingJobStatus === 'sent' || existingJobStatus === 'dead') {
+        bumpQueueSize(item.connectionId, -1);
+        await skipCampaignJobOnce(job, item);
+        return;
+    }
+
     // BullMQ v5: para readiar um job ATIVO é obrigatório passar o `token` e lançar
     // DelayedError — caso contrário o moveToDelayed falha (lock) e o job vai para "failed".
     if (item.campaignId && !campaignsById.has(item.campaignId)) {
@@ -8160,17 +8189,27 @@ export async function startCampaign(
         });
     }
 
+    const progressSeed = await loadCampaignProgressSeed(ownerUid, cid);
+    const prevRuntime = campaignsById.get(cid);
+    const seededSuccess = Math.max(prevRuntime?.successCount || 0, progressSeed.successCount);
+    const seededFail = Math.max(prevRuntime?.failCount || 0, progressSeed.failedCount);
+    const seededProcessed = Math.max(
+        prevRuntime?.processed || 0,
+        progressSeed.processedCount,
+        seededSuccess + seededFail
+    );
+
     campaignsById.set(cid, {
         ownerUid,
-        total: totalJobs,
-        processed: 0,
-        successCount: 0,
-        failCount: 0,
-        lastLoggedProcessed: 0,
+        total: Math.max(totalJobs, seededProcessed),
+        processed: seededProcessed,
+        successCount: seededSuccess,
+        failCount: seededFail,
+        lastLoggedProcessed: Math.max(prevRuntime?.lastLoggedProcessed || 0, seededProcessed),
         isRunning: true,
-        startedAt: Date.now(),
+        startedAt: prevRuntime?.startedAt ?? Date.now(),
         connectionIds: [...activeConnectionIds],
-        recentOutcomes: [],
+        recentOutcomes: prevRuntime?.recentOutcomes ?? [],
         // Guarda variáveis dos destinatários para uso em etapas posteriores (multi-step/reply-flow)
         _recipientVars: recipientVars,
     });
@@ -8219,6 +8258,8 @@ export async function startCampaign(
     const enqueuedIndexPerDayPerChannel: Record<string, Record<number, number>> = {};
     const pendingEnqueue: Array<{ item: MessageQueueItem; delayMs: number }> = [];
     const seenPhones = new Set<string>();
+    const skipPhoneIfAlreadySent = useLazyMotor || useReplyFlow || templates.length <= 1;
+    let skippedSettled = 0;
 
     try {
         for (let i = 0; i < numbers.length; i++) {
@@ -8238,6 +8279,14 @@ export async function startCampaign(
                       index: i,
                   })
                 : activeConnectionIds[i % activeConnectionIds.length];
+
+            if (skipPhoneIfAlreadySent) {
+                const settledJobId = buildCampaignSendJobId({ campaignId: cid, to: num, stageIndex: 0 });
+                if (shouldSkipSettledCampaignEnqueue(progressSeed, settledJobId, num, 0, true)) {
+                    skippedSettled += 1;
+                    continue;
+                }
+            }
 
             let staggerDelay = 0;
 
@@ -8338,6 +8387,15 @@ export async function startCampaign(
                 });
             } else {
                 for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
+                    const settledJobId = buildCampaignSendJobId({
+                        campaignId: cid,
+                        to: num,
+                        stageIndex,
+                    });
+                    if (shouldSkipSettledCampaignEnqueue(progressSeed, settledJobId, num, stageIndex, false)) {
+                        skippedSettled += 1;
+                        continue;
+                    }
                     const personalizedMessage = applyMessageVars(templates[stageIndex], cleanPhone, vars, i);
                     const interStageMinDelay = dispatchSettings.minDelayMs;
                     const stageDelay = staggerDelay + stageIndex * interStageMinDelay;
@@ -8364,24 +8422,36 @@ export async function startCampaign(
 
         emitCampaignLog(
             'INFO',
-            'Campanha iniciada',
+            skippedSettled > 0
+                ? `Campanha retomada sem reenviar ${skippedSettled} já entregues`
+                : 'Campanha iniciada',
             {
                 campaignId: cid,
                 total: totalJobs,
+                queued: pendingEnqueue.length,
+                skippedSettled,
                 connections: activeConnectionIds.length,
                 stages: stageCount,
                 replyFlow: useReplyFlow,
             },
             ownerUid
         );
-        publishOwnerEvent(ownerUid, 'campaign-started', { total: totalJobs, campaignId: cid });
+        publishOwnerEvent(ownerUid, 'campaign-started', { total: pendingEnqueue.length, campaignId: cid });
         void import('./chipProtectionService.js').then((m) =>
             m.refreshEffectiveProtection(ownerUid)
         );
         // Não sobrescrever PAUSED se o 1º job já ativou proteção durante o enqueue.
+        // Nunca gravar 0,0,0 — usa os contadores já hidratados do PG/Redis.
         const runtimeAfterEnqueue = campaignsById.get(cid);
         if (!runtimeAfterEnqueue?.protectionPaused) {
-            void persistCampaignProgressToFirestore(ownerUid, cid, 0, 0, 0, 'RUNNING');
+            void persistCampaignProgressToFirestore(
+                ownerUid,
+                cid,
+                runtimeAfterEnqueue?.successCount ?? seededSuccess,
+                runtimeAfterEnqueue?.failCount ?? seededFail,
+                runtimeAfterEnqueue?.processed ?? seededProcessed,
+                pendingEnqueue.length === 0 && seededProcessed >= totalJobs ? 'COMPLETED' : 'RUNNING'
+            );
         }
     } catch (err: any) {
         // Falha de enfileiramento (Redis fora, etc.): cancela campanha em RAM
@@ -10000,13 +10070,16 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
     // Garante status RUNNING no Firestore ao retomar (corrige campanhas presas em DRAFT/PENDENTE).
     const stateAfter = campaignsById.get(campaignId);
     if (ou) {
-        void persistCampaignProgressToFirestore(
-            ou, campaignId,
-            stateAfter?.successCount ?? 0,
-            stateAfter?.failCount ?? 0,
-            stateAfter?.processed ?? 0,
-            'RUNNING'
-        );
+        void applyProgressSeedToRuntime(campaignId, ou).then(() => {
+            const hydrated = campaignsById.get(campaignId) || stateAfter;
+            void persistCampaignProgressToFirestore(
+                ou, campaignId,
+                hydrated?.successCount ?? 0,
+                hydrated?.failCount ?? 0,
+                hydrated?.processed ?? 0,
+                'RUNNING'
+            );
+        });
     }
     publishOwnerEvent(ou, 'campaign-resumed', { campaignId });
     ensureCampaignWorker();

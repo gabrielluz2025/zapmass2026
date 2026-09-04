@@ -9,6 +9,12 @@ import {
   type CampaignRow
 } from './campaignMapper.js';
 import { healCampaignDocument } from '../../src/utils/campaignMetrics.js';
+import { countCampaignJobsByStatus, countTenantCampaignJobsByStatus } from '../campaignJobsResilience.js';
+import {
+  countersFromCampaignDoc,
+  countersFromJobStatusCounts,
+  mergeCampaignCounterTriple,
+} from '../campaignProgressGuard.js';
 
 function campaignCountersChanged(before: Campaign, after: Campaign): boolean {
   return (
@@ -29,6 +35,34 @@ function persistHealedCampaignCounters(tenantId: string, before: Campaign, after
   }).catch(() => {});
 }
 
+function applyJobCountersToCampaign(
+  campaign: Campaign,
+  jobCounts: Record<string, number> | undefined
+): Campaign {
+  if (!jobCounts) return campaign;
+  const merged = mergeCampaignCounterTriple(
+    countersFromCampaignDoc({
+      successCount: campaign.successCount,
+      failedCount: campaign.failedCount,
+      processedCount: campaign.processedCount
+    }),
+    countersFromJobStatusCounts(jobCounts)
+  );
+  if (
+    merged.successCount === (campaign.successCount ?? 0) &&
+    merged.failedCount === (campaign.failedCount ?? 0) &&
+    merged.processedCount === (campaign.processedCount ?? 0)
+  ) {
+    return campaign;
+  }
+  return {
+    ...campaign,
+    successCount: merged.successCount,
+    failedCount: merged.failedCount,
+    processedCount: merged.processedCount
+  };
+}
+
 export async function listCampaigns(tenantId: string): Promise<Campaign[]> {
   const pool = getZapmassPool();
   if (!pool) return [];
@@ -37,10 +71,12 @@ export async function listCampaigns(tenantId: string): Promise<Campaign[]> {
      FROM zapmass.campaigns WHERE tenant_id = $1::uuid ORDER BY created_at DESC`,
     [tenantId]
   );
+  const jobMap = await countTenantCampaignJobsByStatus(tenantId);
   const out: Campaign[] = [];
   for (const row of r.rows) {
     const raw = rowToCampaign(row);
-    const healed = healCampaignDocument(raw);
+    const withJobs = applyJobCountersToCampaign(raw, jobMap.get(raw.id));
+    const healed = healCampaignDocument(withJobs);
     out.push(healed);
     persistHealedCampaignCounters(tenantId, raw, healed);
   }
@@ -57,7 +93,8 @@ export async function getCampaign(tenantId: string, campaignId: string): Promise
   );
   if (!r.rows[0]) return null;
   const raw = rowToCampaign(r.rows[0]);
-  const healed = healCampaignDocument(raw);
+  const withJobs = applyJobCountersToCampaign(raw, await countCampaignJobsByStatus(campaignId));
+  const healed = healCampaignDocument(withJobs);
   persistHealedCampaignCounters(tenantId, raw, healed);
   return healed;
 }
@@ -239,6 +276,28 @@ export async function listCampaignLogs(
     [tenantId, campaignId, limit, offset]
   );
   return r.rows;
+}
+
+/** Telefones com log persistido de envio confirmado — barreira extra se o job PG sumir. */
+export async function listCampaignSentLogPhones(
+  tenantId: string,
+  campaignId: string
+): Promise<string[]> {
+  const pool = getZapmassPool();
+  if (!pool || !isUuid(campaignId)) return [];
+  try {
+    const r = await pool.query<{ phone: string }>(
+      `SELECT DISTINCT COALESCE(payload->>'to', payload->>'phoneDigits', '') AS phone
+         FROM zapmass.campaign_logs
+        WHERE tenant_id = $1::uuid
+          AND campaign_id = $2::uuid
+          AND message ILIKE 'Mensagem enviada%'`,
+      [tenantId, campaignId]
+    );
+    return r.rows.map((row) => String(row.phone || '').trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 export type DueScheduledRow = {

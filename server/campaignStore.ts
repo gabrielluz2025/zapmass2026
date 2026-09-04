@@ -18,6 +18,10 @@ import {
   tryClaimScheduledCampaignLock
 } from './repositories/campaignsRepository.js';
 import type { DueScheduledRow } from './repositories/campaignsRepository.js';
+import {
+  countersFromCampaignDoc,
+  pickCampaignProgressToPersist,
+} from './campaignProgressGuard.js';
 
 export function usePostgresCampaigns(): boolean {
   return vpsDataEnabled() && !!getZapmassPool();
@@ -71,13 +75,19 @@ export async function persistCampaignProgress(
   status?: string
 ): Promise<void> {
   if (!ownerUid || !campaignId) return;
-  const patch: Record<string, unknown> = {
+  let next = {
     successCount,
     failedCount: failCount,
     processedCount
   };
+  const patch: Record<string, unknown> = { ...next };
   if (status) patch.status = status;
   if (usePostgresCampaigns()) {
+    const existing = await pgGetDoc(ownerUid, campaignId);
+    next = pickCampaignProgressToPersist(countersFromCampaignDoc(existing), next);
+    patch.successCount = next.successCount;
+    patch.failedCount = next.failedCount;
+    patch.processedCount = next.processedCount;
     await pgMergeUpdate(ownerUid, campaignId, patch);
     return;
   }

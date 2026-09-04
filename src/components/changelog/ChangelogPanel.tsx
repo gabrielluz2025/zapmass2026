@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.78',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Retomar campanha não zera mais o progresso nem reenvia quem já recebeu — o card volta a mostrar entregues/falhas reais' },
+    ],
+  },
+  {
     version: '2.3.77',
     date: '04/09/2026',
     highlights: [

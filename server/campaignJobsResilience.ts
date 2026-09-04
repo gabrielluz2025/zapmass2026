@@ -288,3 +288,101 @@ export async function isBackpressureActive(): Promise<boolean> {
   const metrics = await getQueueHealthMetrics();
   return metrics?.backpressureActive ?? false;
 }
+
+export async function getCampaignJobStatus(idempotencyKey: string): Promise<string | null> {
+  const key = String(idempotencyKey || '').trim();
+  if (!key || !isZapmassPostgresConfigured()) return null;
+  const pool = getZapmassPool();
+  if (!pool) return null;
+  try {
+    const r = await pool.query<{ status: string }>(
+      `SELECT status FROM zapmass.campaign_jobs WHERE idempotency_key = $1`,
+      [key]
+    );
+    return r.rows[0]?.status ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function countCampaignJobsByStatus(campaignId: string): Promise<Record<string, number>> {
+  const cid = String(campaignId || '').trim();
+  if (!cid || !isZapmassPostgresConfigured()) return {};
+  const pool = getZapmassPool();
+  if (!pool) return {};
+  try {
+    const r = await pool.query<{ status: string; cnt: string }>(
+      `SELECT status, COUNT(*)::text AS cnt
+         FROM zapmass.campaign_jobs
+        WHERE campaign_id = $1::uuid
+        GROUP BY status`,
+      [cid]
+    );
+    const counts: Record<string, number> = {};
+    for (const row of r.rows) {
+      counts[row.status] = parseInt(row.cnt, 10) || 0;
+    }
+    return counts;
+  } catch {
+    return {};
+  }
+}
+
+export async function countTenantCampaignJobsByStatus(
+  tenantId: string
+): Promise<Map<string, Record<string, number>>> {
+  const out = new Map<string, Record<string, number>>();
+  const uid = String(tenantId || '').trim();
+  if (!uid || !isZapmassPostgresConfigured()) return out;
+  const pool = getZapmassPool();
+  if (!pool) return out;
+  try {
+    const r = await pool.query<{ campaign_id: string; status: string; cnt: string }>(
+      `SELECT campaign_id::text AS campaign_id, status, COUNT(*)::text AS cnt
+         FROM zapmass.campaign_jobs
+        WHERE tenant_id = $1::uuid AND campaign_id IS NOT NULL
+        GROUP BY campaign_id, status`,
+      [uid]
+    );
+    for (const row of r.rows) {
+      const cid = String(row.campaign_id || '').trim();
+      if (!cid) continue;
+      const prev = out.get(cid) || {};
+      prev[row.status] = parseInt(row.cnt, 10) || 0;
+      out.set(cid, prev);
+    }
+  } catch {
+    // não crítico — o card segue com o documento da campanha
+  }
+  return out;
+}
+
+export type SettledCampaignJob = {
+  idempotencyKey: string;
+  toNumber: string;
+  stageIndex: number;
+};
+
+/** Jobs já encerrados: não reenviar nem recontar. */
+export async function listSettledCampaignJobs(campaignId: string): Promise<SettledCampaignJob[]> {
+  const cid = String(campaignId || '').trim();
+  if (!cid || !isZapmassPostgresConfigured()) return [];
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  try {
+    const r = await pool.query<{ idempotency_key: string; to_number: string; stage_index: number }>(
+      `SELECT idempotency_key, to_number, COALESCE(stage_index, 0) AS stage_index
+         FROM zapmass.campaign_jobs
+        WHERE campaign_id = $1::uuid
+          AND status IN ('sent', 'dead')`,
+      [cid]
+    );
+    return r.rows.map((row) => ({
+      idempotencyKey: String(row.idempotency_key || ''),
+      toNumber: String(row.to_number || ''),
+      stageIndex: Number(row.stage_index) || 0,
+    }));
+  } catch {
+    return [];
+  }
+}

@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.78] - 2026-09-04
+### Corrigido
+- **Campanha “começava do zero” ao disparar de novo**: retomar ou reiniciar gravava 0% / 0 entregues por cima do progresso real e recolocava na fila quem já tinha recebido. Agora o card lê os envios do Postgres, não zera contadores e pula números já entregues.
+
 ## [2.3.77] - 2026-09-04
 ### Corrigido
 - **Quentes / mornos / frios / lista negra zeravam**: esses totais eram calculados só com as mensagens do bate-papo na tela. Depois da queda da API o histórico sumia da RAM e todo mundo virava “sem histórico”. Agora usa as tags gravadas no contato (`lead:quente` etc.), o opt-in/opt-out e o arquivo de mensagens no Postgres.
