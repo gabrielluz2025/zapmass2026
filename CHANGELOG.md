@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.79] - 2026-09-04
+### Corrigido
+- **Prospecção enviava e o card não andava**: o evento de “campanha iniciada” zerava entregues/falhas no navegador e gravava 0 no banco. Job já marcado como enviado era contado como pulo (progresso sobe, entregues ficam 0). Agora o card só sobe, o PATCH não apaga progresso e a onda 0 da prospecção casa o telefone mesmo com DDD/9 diferentes.
+
 ## [2.3.78] - 2026-09-04
 ### Corrigido
 - **Campanha “começava do zero” ao disparar de novo**: retomar ou reiniciar gravava 0% / 0 entregues por cima do progresso real e recolocava na fila quem já tinha recebido. Agora o card lê os envios do Postgres, não zera contadores e pula números já entregues.

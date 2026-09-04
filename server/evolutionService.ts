@@ -4249,6 +4249,24 @@ function finishCampaignJob(campaignId: string | undefined, success: boolean) {
     }
 }
 
+async function closeCampaignJobWithoutRecount(
+    job: Job<MessageQueueItem>,
+    item: MessageQueueItem
+): Promise<void> {
+    if (item._progressAccounted) return;
+    item._progressAccounted = true;
+    await job.updateData(item).catch(() => {});
+    if (!item.campaignId) return;
+    const pending = Math.max(0, (campaignPendingJobs.get(item.campaignId) || 0) - 1);
+    if (pending <= 0) {
+        campaignPendingJobs.delete(item.campaignId);
+        void tryFinalizeOrHoldCampaign(item.campaignId);
+    } else {
+        campaignPendingJobs.set(item.campaignId, pending);
+        void saveCampaignRuntimeToRedis(item.campaignId);
+    }
+}
+
 async function skipCampaignJobOnce(
     job: Job<MessageQueueItem>,
     item: MessageQueueItem
@@ -6515,7 +6533,10 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const existingJobStatus = await getCampaignJobStatus(String(job.id || '')).catch(() => null);
     if (existingJobStatus === 'sent' || existingJobStatus === 'dead') {
         bumpQueueSize(item.connectionId, -1);
-        await skipCampaignJobOnce(job, item);
+        if (item.campaignId) {
+            await applyProgressSeedToRuntime(item.campaignId, item.ownerUid);
+        }
+        await closeCampaignJobWithoutRecount(job, item);
         return;
     }
 

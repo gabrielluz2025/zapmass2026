@@ -4,6 +4,7 @@ import {
   countersFromJobStatusCounts,
   mergeCampaignCounterTriple,
   pickCampaignProgressToPersist,
+  applyCampaignDocCounterPatch,
 } from './campaignProgressGuard.js';
 
 describe('campaignProgressGuard', () => {
@@ -37,5 +38,12 @@ describe('campaignProgressGuard', () => {
     expect(merged.successCount).toBe(800);
     expect(merged.failedCount).toBe(20);
     expect(merged.processedCount).toBe(820);
+  });
+
+  it('PATCH com 0,0,0 em RUNNING não apaga progresso; SCHEDULED pode zerar', () => {
+    const existing = { successCount: 400, failedCount: 10, processedCount: 410 };
+    const zeros = { successCount: 0, failedCount: 0, processedCount: 0 };
+    expect(applyCampaignDocCounterPatch(existing, zeros, 'RUNNING')).toEqual(existing);
+    expect(applyCampaignDocCounterPatch(existing, zeros, 'SCHEDULED')).toEqual(zeros);
   });
 });

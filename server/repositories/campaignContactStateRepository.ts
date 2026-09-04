@@ -370,14 +370,28 @@ export async function markProspectingInitialSent(
 ): Promise<void> {
   const pool = getZapmassPool();
   if (!pool) return;
+  const digits = String(contactId || '').replace(/\D/g, '');
+  if (digits.length < 8) return;
+  const variants = new Set<string>([contactId, digits]);
+  if (digits.length === 13 && digits.startsWith('55') && digits.charAt(4) === '9') {
+    variants.add(digits.slice(0, 4) + digits.slice(5));
+  } else if (digits.length === 12 && digits.startsWith('55')) {
+    variants.add(digits.slice(0, 4) + '9' + digits.slice(4));
+  }
+  const last11 = digits.slice(-11);
+  if (last11.length >= 8) variants.add(last11);
   await pool.query(
     `UPDATE zapmass.campaign_contact_state
      SET status          = 'waiting_delay',
          last_message_at = NOW(),
          updated_at      = NOW()
-     WHERE campaign_id = $1::uuid AND contact_id = $2
-       AND reply_received_at IS NULL`,
-    [campaignId, contactId]
+     WHERE campaign_id = $1::uuid
+       AND reply_received_at IS NULL
+       AND (
+         contact_id = ANY($2::text[])
+         OR right(regexp_replace(contact_id, '[^0-9]', '', 'g'), 11) = $3
+       )`,
+    [campaignId, [...variants], last11]
   );
 }
 

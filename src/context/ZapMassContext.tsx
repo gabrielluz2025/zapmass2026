@@ -2139,14 +2139,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     // Campaign Events
     socket.on('campaign-started', ({ total, campaignId }) => {
-      setCampaignStatus({ isRunning: true, total, processed: 0, success: 0, failed: 0 });
+      setCampaignStatus((prev) => ({
+        isRunning: true,
+        total: Number(total) || prev.total,
+        processed: prev.processed,
+        success: prev.success,
+        failed: prev.failed
+      }));
       if (campaignId) {
         setCampaignGeo({ campaignId, byUf: {}, updatedAt: Date.now() });
         const uid = currentUidRef.current;
         setCampaigns((prev) => {
           const next = prev.map((c) =>
             c.id === campaignId
-              ? { ...c, status: CampaignStatus.RUNNING, processedCount: 0, successCount: 0, failedCount: 0 }
+              ? { ...c, status: CampaignStatus.RUNNING }
               : c
           );
           if (uid) syncStuckCampaignsToFirestore(next, uid);
@@ -2154,10 +2160,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         });
         if (uid) {
           patchCampaignPersist(uid, campaignId, {
-          status: CampaignStatus.RUNNING,
-          processedCount: 0,
-          successCount: 0,
-          failedCount: 0
+          status: CampaignStatus.RUNNING
           });
         }
       }
@@ -2202,9 +2205,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             if (!d) return c;
             return {
               ...c,
-              processedCount: d.processedCount,
-              successCount: d.successCount,
-              failedCount: d.failedCount,
+              processedCount: Math.max(c.processedCount || 0, d.processedCount),
+              successCount: Math.max(c.successCount || 0, d.successCount),
+              failedCount: Math.max(c.failedCount || 0, d.failedCount),
               // Não sobrescrever WAITING_REPLY com RUNNING — campanha de fluxo
               // pode estar aguardando respostas enquanto ainda chegam progresso tardios.
               status: c.status === CampaignStatus.WAITING_REPLY
@@ -2218,10 +2221,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         });
         for (const campaignId of ids) {
           const payload = pendingMap[campaignId];
+          const cur = campaignsRef.current.find((c) => c.id === campaignId);
           queueCampaignProgressPersist(campaignId, {
-            processedCount: payload.processedCount,
-            successCount: payload.successCount,
-            failedCount: payload.failedCount
+            processedCount: Math.max(cur?.processedCount || 0, payload.processedCount),
+            successCount: Math.max(cur?.successCount || 0, payload.successCount),
+            failedCount: Math.max(cur?.failedCount || 0, payload.failedCount)
           });
         }
       }

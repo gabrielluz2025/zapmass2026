@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.79',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Prospecção: disparo deixa de zerar o card e passa a contar quem já recebeu — entregues/falhas não travam mais em 0' },
+    ],
+  },
+  {
     version: '2.3.78',
     date: '04/09/2026',
     highlights: [

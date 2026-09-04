@@ -14,6 +14,7 @@ import {
   countersFromCampaignDoc,
   countersFromJobStatusCounts,
   mergeCampaignCounterTriple,
+  applyCampaignDocCounterPatch,
 } from '../campaignProgressGuard.js';
 
 function campaignCountersChanged(before: Campaign, after: Campaign): boolean {
@@ -177,6 +178,15 @@ export async function mergeUpdateCampaign(
   const existing = await getCampaignDoc(tenantId, campaignId);
   if (!existing) return false;
   const merged = { ...existing, ...patch };
+  const nextStatus = String(merged.status || existing.status || '');
+  const kept = applyCampaignDocCounterPatch(
+    countersFromCampaignDoc(existing),
+    countersFromCampaignDoc(merged),
+    nextStatus
+  );
+  merged.successCount = kept.successCount;
+  merged.failedCount = kept.failedCount;
+  merged.processedCount = kept.processedCount;
   const fields = campaignRowFieldsFromDoc(merged);
   const r = await pool.query(
     `UPDATE zapmass.campaigns

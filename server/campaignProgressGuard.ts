@@ -55,3 +55,15 @@ export function pickCampaignProgressToPersist(
 ): CampaignCounterTriple {
   return mergeCampaignCounterTriple(existing, incoming);
 }
+
+/**
+ * PATCH do cliente/socket não pode apagar progresso, salvo reagendamento semanal (SCHEDULED zera de propósito).
+ */
+export function applyCampaignDocCounterPatch(
+  existing: CampaignCounterTriple,
+  incoming: CampaignCounterTriple,
+  nextStatus?: string
+): CampaignCounterTriple {
+  if (String(nextStatus || '').toUpperCase() === 'SCHEDULED') return incoming;
+  return pickCampaignProgressToPersist(existing, incoming);
+}

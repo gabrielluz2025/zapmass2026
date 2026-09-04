@@ -39,7 +39,8 @@ export const CampaignProspectingDashboard: React.FC<Props> = ({ campaign }) => {
   if (!campaign.prospecting?.enabled && !prospecting?.enabled) return null;
 
   const p = prospecting || campaign.prospecting;
-  const sent = Math.max(campaign.successCount || 0, stats?.total ?? 0);
+  const wave0Done = Math.max(0, (stats?.total ?? 0) - (stats?.pendingInitial ?? 0));
+  const sent = Math.max(campaign.successCount || 0, wave0Done);
   const replied = stats?.replied ?? campaign.reportSnapshot?.totals?.replied ?? 0;
   const silent = stats?.silent ?? Math.max(0, sent - replied);
 
