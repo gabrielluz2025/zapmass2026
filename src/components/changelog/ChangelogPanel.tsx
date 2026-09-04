@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.83',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Depois do restart a API não trava mais com enxurrada de QR — o site deixa de ficar “fora do ar” só porque os chips estão reconectando' },
+    ],
+  },
+  {
     version: '2.3.82',
     date: '04/09/2026',
     highlights: [

@@ -34,4 +34,20 @@ describe('buildEvolutionWebhookJobId', () => {
     };
     expect(buildEvolutionWebhookJobId(event)).toBe(buildEvolutionWebhookJobId(event));
   });
+
+  it('QRCODE_UPDATED colapsa por chip (não cria um job por frame)', () => {
+    const a = buildEvolutionWebhookJobId({
+      event: 'QRCODE_UPDATED',
+      instance: 'conn_1',
+      data: { qrcode: { base64: 'aaa' } },
+    });
+    const b = buildEvolutionWebhookJobId({
+      event: 'QRCODE_UPDATED',
+      instance: 'conn_1',
+      data: { qrcode: { base64: 'bbb' } },
+    });
+    expect(a).toBe(b);
+    expect(a).toBe('QR__conn_1');
+    expect(a).not.toContain(':');
+  });
 });

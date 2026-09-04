@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.83] - 2026-09-04
+### Corrigido
+- **API travava após deploy (site “caiu”)**: cada frame de QR virava um job na fila e o Node parava de responder health. Agora há no máximo 1 job de QR por chip e QR atrasado é descartado.
+
 ## [2.3.82] - 2026-09-04
 ### Corrigido
 - **Gatilhos de resposta paravam após deploy/pausa**: a definição do fluxo sumia da RAM e, sem Firebase, não voltava. Agora recarrega do Postgres, não apaga a sessão se a definição atrasar, e pausar o disparo em massa não silencia quem já recebeu.

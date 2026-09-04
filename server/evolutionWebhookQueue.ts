@@ -162,9 +162,8 @@ export function buildEvolutionWebhookJobId(event: unknown): string {
   }
 
   if (eventName === 'QRCODE_UPDATED') {
-    return sanitizeBullJobId(
-      `${'QR'}${JOB_ID_SEP}${instance}${JOB_ID_SEP}${createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 12)}`
-    );
+    // Um job por chip: cada frame de QR era um job novo e saturava a API após restart.
+    return sanitizeBullJobId(`${'QR'}${JOB_ID_SEP}${instance || 'unknown'}`);
   }
 
   const h = createHash('sha256').update(JSON.stringify(ev)).digest('hex').slice(0, 16);
@@ -196,11 +195,16 @@ export function ensureEvolutionWebhookWorker(): void {
     async (job: Job<EvolutionWebhookJobPayload>) => {
       const lagMs = Date.now() - (job.data.receivedAt || Date.now());
       recordEvolutionWebhookLagMs(lagMs);
+      const eventName = String((job.data.event as Record<string, unknown>)?.event || '');
       if (lagMs > 5000) {
         console.warn('[evolution-webhook-queue] job com fila alta', {
           lagMs,
-          event: String((job.data.event as Record<string, unknown>)?.event || ''),
+          event: eventName,
         });
+      }
+      if (lagMs > 12_000 && eventName.toUpperCase().replace(/\./g, '_') === 'QRCODE_UPDATED') {
+        markEvolutionWebhookJobProcessed(true);
+        return;
       }
       try {
         await processWebhook!(job.data.event);
