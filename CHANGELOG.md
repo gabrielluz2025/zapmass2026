@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.72] - 2026-09-04
+### Corrigido
+- **API em crash loop após deploy**: `connections_settings.json` truncado fazia o boot chamar `log()` antes do Socket.IO existir (`Cannot access 'io' before initialization`). Agora o JSON inválido não derruba o processo, tenta recuperar/.bak, e a gravação é atômica (tmp+rename).
+
 ## [2.3.71] - 2026-09-04
 ### Corrigido
 - **Canal `conn_*` Offline com “Tentando reconectar…”**: o canal ainda não tinha número (nunca pareado). O GET do QR no Evolution Go voltava 400 e o ZapMass abortava — o QR não aparecia e, depois do timeout, o canal podia ser apagado. Agora o QR leva o UUID certo, o 400 não cancela o connect e o Conectar mostra “Gerando QR”.

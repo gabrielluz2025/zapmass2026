@@ -216,6 +216,7 @@ import {
     buildCampaignOwnerLookupUids,
 } from './campaignTenantScope.js';
 import type { Server as SocketIOServer } from 'socket.io';
+import { atomicWriteJsonFile, parseJsonObjectLenient } from './safeJsonFile.js';
 import { isEvolutionOpenState, parseConnectionStatePayload } from './evolutionOpenState.js';
 import { formatEvolutionHttpError } from './evolutionChatSend.js';
 import type { CampaignStageConfig, CampaignProspecting } from '../src/types.js';
@@ -2753,6 +2754,10 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 const dataDir = path.resolve(projectRoot, process.env.DATA_DIR || 'data');
 const connectionsSettingsFile = path.join(dataDir, 'connections_settings.json');
+const connectionsSettingsBakFile = `${connectionsSettingsFile}.bak`;
+/** Declarado cedo: loadConnectionsSettings() roda no import e log() não pode tocar `io` em TDZ. */
+const connections: Map<string, EvolutionInstance> = new Map();
+let io: SocketIOServer | null = null;
 /** IDs de conexões explicitamente deletadas — impede ressurreição por hydrateInstancesFromEvolution. */
 const deletedConnectionIds = new Set<string>();
 const deletedConnectionsFile = path.join(dataDir, 'deleted_connections.json');
@@ -2957,6 +2962,45 @@ function mergeConnectionSettingsCache(connectionId: string, patch: ConnectionSet
     }
 }
 
+function applyParsedConnectionSettings(parsed: Record<string, unknown>): void {
+    for (const [connId, val] of Object.entries(parsed)) {
+        if (!deletedConnectionIds.has(connId) && val && typeof val === 'object' && !Array.isArray(val)) {
+            connectionsSettingsCache[connId] = val as ConnectionSettingsPayload;
+        }
+    }
+}
+
+function loadConnectionsSettingsFromRaw(raw: string): { parsed: Record<string, unknown>; salvaged: boolean } | null {
+    const main = parseJsonObjectLenient(raw);
+    if (main && !main.salvaged) return { parsed: main.value, salvaged: false };
+
+    let bak: ReturnType<typeof parseJsonObjectLenient> = null;
+    try {
+        if (fs.existsSync(connectionsSettingsBakFile)) {
+            bak = parseJsonObjectLenient(fs.readFileSync(connectionsSettingsBakFile, 'utf8'));
+        }
+    } catch {
+        /* backup ilegível */
+    }
+    if (bak && !bak.salvaged) return { parsed: bak.value, salvaged: true };
+
+    const candidates = [main, bak].filter((c): c is NonNullable<typeof c> => Boolean(c));
+    if (candidates.length === 0) return null;
+    const best = candidates.reduce((a, b) =>
+        Object.keys(a.value).length >= Object.keys(b.value).length ? a : b
+    );
+    return { parsed: best.value, salvaged: true };
+}
+
+function bootWarn(message: string, extra?: unknown): void {
+    // Não usa log(): no import do módulo `io`/`campaignsById` ainda podem estar em TDZ.
+    if (extra !== undefined) {
+        console.warn(`[EvolutionAPI:WARN] ${new Date().toISOString()} ${message}`, extra);
+    } else {
+        console.warn(`[EvolutionAPI:WARN] ${new Date().toISOString()} ${message}`);
+    }
+}
+
 function loadConnectionsSettings() {
     try {
         if (!fs.existsSync(dataDir)) {
@@ -2965,11 +3009,24 @@ function loadConnectionsSettings() {
         loadDeletedConnections();
         if (fs.existsSync(connectionsSettingsFile)) {
             const raw = fs.readFileSync(connectionsSettingsFile, 'utf8');
-            const parsed = JSON.parse(raw) as Record<string, unknown>;
-            // Remove do cache qualquer entrada que esteja no tombstone (conexões deletadas)
-            for (const [connId, val] of Object.entries(parsed)) {
-                if (!deletedConnectionIds.has(connId) && val && typeof val === 'object') {
-                    connectionsSettingsCache[connId] = val as ConnectionSettingsPayload;
+            const loaded = loadConnectionsSettingsFromRaw(raw);
+            if (!loaded) {
+                try {
+                    fs.writeFileSync(`${connectionsSettingsFile}.broken`, raw, 'utf8');
+                } catch {
+                    /* melhor esforço */
+                }
+                bootWarn('connections_settings.json inválido — iniciando com cache vazio (backup em .broken)');
+            } else {
+                applyParsedConnectionSettings(loaded.parsed);
+                if (loaded.salvaged) {
+                    try {
+                        fs.writeFileSync(`${connectionsSettingsFile}.broken`, raw, 'utf8');
+                    } catch {
+                        /* melhor esforço */
+                    }
+                    bootWarn('connections_settings.json truncado — recuperado o que era válido e regravado');
+                    saveConnectionsSettings();
                 }
             }
         }
@@ -2981,7 +3038,7 @@ function loadConnectionsSettings() {
             saveConnectionsSettings();
         }
     } catch (err) {
-        log('warn', 'Falha ao carregar connections_settings.json', { error: err });
+        bootWarn('Falha ao carregar connections_settings.json', { error: err });
     }
 }
 
@@ -2990,9 +3047,19 @@ export function saveConnectionsSettings() {
         if (!fs.existsSync(dataDir)) {
             fs.mkdirSync(dataDir, { recursive: true });
         }
-        fs.writeFileSync(connectionsSettingsFile, JSON.stringify(connectionsSettingsCache, null, 2), 'utf8');
+        try {
+            if (fs.existsSync(connectionsSettingsFile)) {
+                const current = parseJsonObjectLenient(fs.readFileSync(connectionsSettingsFile, 'utf8'));
+                if (current && !current.salvaged) {
+                    fs.copyFileSync(connectionsSettingsFile, connectionsSettingsBakFile);
+                }
+            }
+        } catch {
+            /* .bak é extra; o write atômico abaixo é o que evita truncar */
+        }
+        atomicWriteJsonFile(connectionsSettingsFile, connectionsSettingsCache);
     } catch (err) {
-        log('warn', 'Falha ao salvar connections_settings.json', { error: err });
+        bootWarn('Falha ao salvar connections_settings.json', { error: err });
     }
 }
 
@@ -3173,9 +3240,6 @@ export async function updateConnectionSettings(
         warnUnscopedConnectionEvent(id, 'connections-update');
     }
 }
-
-const connections: Map<string, EvolutionInstance> = new Map();
-let io: SocketIOServer | null = null;
 
 // Métricas e conversas
 let metrics: DashboardMetrics = {
@@ -4903,8 +4967,14 @@ function log(level: 'info' | 'warn' | 'error', message: string, data?: any) {
     const timestamp = new Date().toISOString();
     const prefix = `[EvolutionAPI:${level.toUpperCase()}]`;
     console.log(`${prefix} ${timestamp} ${message}`, data || '');
-    
-    if (!io) return;
+
+    let sock: SocketIOServer | null = null;
+    try {
+        sock = io;
+    } catch {
+        return;
+    }
+    if (!sock) return;
 
     // Tenta resolver o dono pelo data (campaignId/ownerUid/connectionId)
     // para nao vazar logs entre tenants. Se nao houver pista, evento fica
@@ -4915,7 +4985,11 @@ function log(level: 'info' | 'warn' | 'error', message: string, data?: any) {
         if (typeof d.ownerUid === 'string' && d.ownerUid) {
             ownerUid = d.ownerUid;
         } else if (typeof d.campaignId === 'string' && d.campaignId) {
-            ownerUid = campaignsById.get(d.campaignId)?.ownerUid;
+            try {
+                ownerUid = campaignsById.get(d.campaignId)?.ownerUid;
+            } catch {
+                /* campaignsById ainda em TDZ no boot do módulo */
+            }
         }
         if (!ownerUid && typeof d.connectionId === 'string' && d.connectionId) {
             ownerUid = resolveOwnerUid(d.connectionId);

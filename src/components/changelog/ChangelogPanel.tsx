@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.72',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'API não cai mais no boot se connections_settings.json estiver truncado — recupera o arquivo e sobe' },
+    ],
+  },
+  {
     version: '2.3.71',
     date: '04/09/2026',
     highlights: [
