@@ -9,6 +9,8 @@
  * - Recovery: ao iniciar, detecta jobs 'pending' > 10 min no PG sem correspondência ativa.
  */
 
+import { isUuid } from './auth/firebaseUidMap.js';
+import { pickOrphanJobCampaignTarget } from './campaignOrphanJobs.js';
 import { getZapmassPool, isZapmassPostgresConfigured } from './db/postgres.js';
 
 export interface CampaignJobRecord {
@@ -47,7 +49,7 @@ export async function registerCampaignJob(record: CampaignJobRecord): Promise<bo
        ON CONFLICT (idempotency_key) DO NOTHING`,
       [
         record.idempotencyKey,
-        record.campaignId ?? null,
+        record.campaignId && isUuid(record.campaignId) ? record.campaignId : null,
         record.tenantId,
         record.connectionId,
         record.toNumber,
@@ -362,6 +364,89 @@ export type SettledCampaignJob = {
   toNumber: string;
   stageIndex: number;
 };
+
+export function campaignJobsStillActive(counts: Record<string, number> | undefined): number {
+  if (!counts) return 0;
+  return (counts.pending || 0) + (counts.sending || 0) + (counts.failed || 0);
+}
+
+/**
+ * Jobs com campaign_id NULL (campanha apagada no timeout/deploy: ON DELETE SET NULL).
+ * Religa ao UUID ainda no payload, ou à única campanha viva do tenant.
+ */
+export async function reattachOrphanCampaignJobs(tenantId: string): Promise<number> {
+  const uid = String(tenantId || '').trim();
+  if (!uid || !isUuid(uid) || !isZapmassPostgresConfigured()) return 0;
+  const pool = getZapmassPool();
+  if (!pool) return 0;
+  try {
+    const orphan = await pool.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt
+         FROM zapmass.campaign_jobs
+        WHERE tenant_id = $1::uuid AND campaign_id IS NULL`,
+      [uid]
+    );
+    const orphanCount = parseInt(orphan.rows[0]?.cnt || '0', 10) || 0;
+    if (orphanCount <= 0) return 0;
+
+    const fromPayload = await pool.query(
+      `UPDATE zapmass.campaign_jobs j
+          SET campaign_id = (j.payload->>'campaignId')::uuid,
+              updated_at = NOW()
+        WHERE j.tenant_id = $1::uuid
+          AND j.campaign_id IS NULL
+          AND (j.payload->>'campaignId') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          AND EXISTS (
+            SELECT 1 FROM zapmass.campaigns c
+             WHERE c.id = (j.payload->>'campaignId')::uuid
+               AND c.tenant_id = j.tenant_id
+          )`,
+      [uid]
+    );
+    let attached = fromPayload.rowCount ?? 0;
+
+    const stillOrphan = await pool.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt
+         FROM zapmass.campaign_jobs
+        WHERE tenant_id = $1::uuid AND campaign_id IS NULL`,
+      [uid]
+    );
+    if ((parseInt(stillOrphan.rows[0]?.cnt || '0', 10) || 0) > 0) {
+      const camps = await pool.query<{ id: string; status: string; created_at: Date }>(
+        `SELECT id::text AS id, status, created_at
+           FROM zapmass.campaigns
+          WHERE tenant_id = $1::uuid`,
+        [uid]
+      );
+      const target = pickOrphanJobCampaignTarget(
+        camps.rows.map((row) => ({
+          id: row.id,
+          status: row.status,
+          createdAt: row.created_at?.toISOString?.(),
+        }))
+      );
+      if (target && isUuid(target)) {
+        const fallback = await pool.query(
+          `UPDATE zapmass.campaign_jobs
+              SET campaign_id = $2::uuid,
+                  updated_at = NOW()
+            WHERE tenant_id = $1::uuid
+              AND campaign_id IS NULL`,
+          [uid, target]
+        );
+        attached += fallback.rowCount ?? 0;
+      }
+    }
+
+    if (attached > 0) {
+      console.warn('[CampaignJobs] Relinked orphan jobs to campaign', { tenantId: uid, attached });
+    }
+    return attached;
+  } catch (err) {
+    console.error('[CampaignJobs] Erro ao religar jobs órfãos:', (err as Error)?.message);
+    return 0;
+  }
+}
 
 /** Jobs já encerrados: não reenviar nem recontar. */
 export async function listSettledCampaignJobs(campaignId: string): Promise<SettledCampaignJob[]> {

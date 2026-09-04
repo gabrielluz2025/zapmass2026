@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.80] - 2026-09-04
+### Corrigido
+- **Prospecção enviava e o card ficava 0% em rascunho**: apagar a campanha no timeout/deploy soltava os jobs (`campaign_id` NULL). Agora o status `RUNNING` grava antes da fila, jobs órfãos religam sozinhos e campanha com envio na fila não pode ser apagada.
+
 ## [2.3.79] - 2026-09-04
 ### Corrigido
 - **Prospecção enviava e o card não andava**: o evento de “campanha iniciada” zerava entregues/falhas no navegador e gravava 0 no banco. Job já marcado como enviado era contado como pulo (progresso sobe, entregues ficam 0). Agora o card só sobe, o PATCH não apaga progresso e a onda 0 da prospecção casa o telefone mesmo com DDD/9 diferentes.

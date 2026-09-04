@@ -8234,9 +8234,27 @@ export async function startCampaign(
         // Guarda variáveis dos destinatários para uso em etapas posteriores (multi-step/reply-flow)
         _recipientVars: recipientVars,
     });
-    // Persiste runtime no Redis imediatamente para sobreviver a restarts.
+    // Persiste RUNNING ANTES do enqueue: se o deploy matar o processo no meio dos 48k,
+    // o card não fica DRAFT e o cliente não apaga a campanha (ON DELETE SET NULL nos jobs).
     void saveCampaignRuntimeToRedis(cid);
     evolutionRegisterCampaign(cid, ownerUid);
+    if (ownerUid) {
+        try {
+            await persistCampaignProgressToFirestore(
+                ownerUid,
+                cid,
+                seededSuccess,
+                seededFail,
+                seededProcessed,
+                'RUNNING'
+            );
+        } catch (e) {
+            log('warn', 'startCampaign: falha ao persistir RUNNING antes do enqueue', {
+                campaignId: cid,
+                error: (e as Error)?.message,
+            });
+        }
+    }
 
     // Inicializa estado persistente para cada contato (motor multi-etapas).
     // Best-effort: falha silenciosa não bloqueia o envio.

@@ -92,6 +92,17 @@ describe('isCampaignLikelyStartedOnServer', () => {
 });
 
 describe('healStuckCampaignStatus', () => {
+  it('cura DRAFT→RUNNING quando já há envios gravados', () => {
+    const c = baseCampaign({
+      status: CampaignStatus.DRAFT,
+      totalContacts: 100,
+      processedCount: 10,
+      successCount: 8,
+      failedCount: 2
+    });
+    expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.RUNNING);
+  });
+
   it('cura DRAFT→COMPLETED quando fila esgotada (sem reply flow)', () => {
     const c = baseCampaign({
       status: CampaignStatus.DRAFT,

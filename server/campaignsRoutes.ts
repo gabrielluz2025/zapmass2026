@@ -4,6 +4,7 @@ import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { requireTenant } from './httpTenant.js';
 import {
+  CampaignDeleteBlockedError,
   createCampaign,
   deleteAllCampaigns,
   deleteCampaign,
@@ -102,6 +103,9 @@ export function registerCampaignsDataRoutes(app: Express): void {
       purgeCampaignRecipientSnapshot(id);
       return res.json({ ok: true });
     } catch (e) {
+      if (e instanceof CampaignDeleteBlockedError) {
+        return res.status(409).json({ ok: false, error: e.message });
+      }
       console.error('[api/campaigns DELETE]', id, e);
       return res.status(500).json({ ok: false, error: 'Erro ao remover campanha.' });
     }
@@ -121,12 +125,12 @@ export function registerCampaignsDataRoutes(app: Express): void {
       return res.status(400).json({ ok: false, error: 'Máximo de 200 campanhas por vez.' });
     }
     try {
-      const { deleted, missing } = await deleteCampaigns(ctx.tenantId, ids);
+      const { deleted, missing, blocked } = await deleteCampaigns(ctx.tenantId, ids);
       for (const id of deleted) {
         evolutionService.purgeCampaignMediaFiles(id);
         purgeCampaignRecipientSnapshot(id);
       }
-      return res.json({ ok: true, deleted, missing });
+      return res.json({ ok: true, deleted, missing, blocked });
     } catch (e) {
       console.error('[api/campaigns bulk-delete]', e);
       return res.status(500).json({ ok: false, error: 'Erro ao remover campanhas.' });

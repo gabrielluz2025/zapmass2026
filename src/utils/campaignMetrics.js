@@ -100,18 +100,26 @@ export function healCampaignCounters(c) {
     };
 }
 export function healStuckCampaignStatus(c) {
-    if (!isCampaignQueueWorkComplete(c))
-        return healCampaignCounters(c);
-    if (c.status === CampaignStatus.COMPLETED)
-        return healCampaignCounters(c);
-    const m = getCampaignProgressMetrics(c);
-    return {
-        ...c,
-        status: CampaignStatus.COMPLETED,
-        processedCount: m.effectiveProcessed,
-        successCount: m.ok,
-        failedCount: m.fail
-    };
+    if (isCampaignQueueWorkComplete(c)) {
+        if (c.status === CampaignStatus.COMPLETED)
+            return healCampaignCounters(c);
+        const m = getCampaignProgressMetrics(c);
+        return {
+            ...c,
+            status: CampaignStatus.COMPLETED,
+            processedCount: m.effectiveProcessed,
+            successCount: m.ok,
+            failedCount: m.fail
+        };
+    }
+    const counters = healCampaignCounters(c);
+    if (counters.status === CampaignStatus.DRAFT &&
+        ((counters.processedCount ?? 0) > 0 ||
+            (counters.successCount ?? 0) > 0 ||
+            (counters.failedCount ?? 0) > 0)) {
+        return { ...counters, status: CampaignStatus.RUNNING };
+    }
+    return counters;
 }
 /** Aplica cura de status preso e normalização de contadores (ok/fail/processed). */
 export function healCampaignDocument(c) {

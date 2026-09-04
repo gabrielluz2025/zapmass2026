@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.80',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Prospecção não some mais do card: jobs órfãos religam à campanha, o disparo grava “em andamento” antes da fila e apagar no timeout deixa de zerar o progresso' },
+    ],
+  },
+  {
     version: '2.3.79',
     date: '04/09/2026',
     highlights: [

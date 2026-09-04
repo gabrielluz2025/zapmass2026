@@ -9,7 +9,12 @@ import {
   type CampaignRow
 } from './campaignMapper.js';
 import { healCampaignDocument } from '../../src/utils/campaignMetrics.js';
-import { countCampaignJobsByStatus, countTenantCampaignJobsByStatus } from '../campaignJobsResilience.js';
+import {
+  campaignJobsStillActive,
+  countCampaignJobsByStatus,
+  countTenantCampaignJobsByStatus,
+  reattachOrphanCampaignJobs,
+} from '../campaignJobsResilience.js';
 import {
   countersFromCampaignDoc,
   countersFromJobStatusCounts,
@@ -67,6 +72,7 @@ function applyJobCountersToCampaign(
 export async function listCampaigns(tenantId: string): Promise<Campaign[]> {
   const pool = getZapmassPool();
   if (!pool) return [];
+  await reattachOrphanCampaignJobs(tenantId);
   const r = await pool.query<CampaignRow>(
     `SELECT id::text, tenant_id::text, name, status, next_run_at, schedule_lock_until, doc, created_at, updated_at
      FROM zapmass.campaigns WHERE tenant_id = $1::uuid ORDER BY created_at DESC`,
@@ -87,6 +93,7 @@ export async function listCampaigns(tenantId: string): Promise<Campaign[]> {
 export async function getCampaign(tenantId: string, campaignId: string): Promise<Campaign | null> {
   const pool = getZapmassPool();
   if (!pool) return null;
+  await reattachOrphanCampaignJobs(tenantId);
   const r = await pool.query<CampaignRow>(
     `SELECT id::text, tenant_id::text, name, status, next_run_at, schedule_lock_until, doc, created_at, updated_at
      FROM zapmass.campaigns WHERE tenant_id = $1::uuid AND id = $2::uuid`,
@@ -204,9 +211,20 @@ export async function mergeUpdateCampaign(
   return (r.rowCount ?? 0) > 0;
 }
 
+export class CampaignDeleteBlockedError extends Error {
+  constructor() {
+    super('Não é possível apagar uma campanha que ainda tem envios na fila.');
+    this.name = 'CampaignDeleteBlockedError';
+  }
+}
+
 export async function deleteCampaign(tenantId: string, campaignId: string): Promise<boolean> {
   const pool = getZapmassPool();
   if (!pool || !isUuid(campaignId)) return false;
+  const active = campaignJobsStillActive(await countCampaignJobsByStatus(campaignId));
+  if (active > 0) {
+    throw new CampaignDeleteBlockedError();
+  }
   const r = await pool.query(
     `DELETE FROM zapmass.campaigns WHERE tenant_id = $1::uuid AND id = $2::uuid`,
     [tenantId, campaignId]
@@ -217,15 +235,21 @@ export async function deleteCampaign(tenantId: string, campaignId: string): Prom
 export async function deleteCampaigns(
   tenantId: string,
   campaignIds: string[]
-): Promise<{ deleted: string[]; missing: string[] }> {
+): Promise<{ deleted: string[]; missing: string[]; blocked: string[] }> {
   const deleted: string[] = [];
   const missing: string[] = [];
+  const blocked: string[] = [];
   for (const id of campaignIds) {
-    const ok = await deleteCampaign(tenantId, id);
-    if (ok) deleted.push(id);
-    else missing.push(id);
+    try {
+      const ok = await deleteCampaign(tenantId, id);
+      if (ok) deleted.push(id);
+      else missing.push(id);
+    } catch (e) {
+      if (e instanceof CampaignDeleteBlockedError) blocked.push(id);
+      else throw e;
+    }
   }
-  return { deleted, missing };
+  return { deleted, missing, blocked };
 }
 
 export async function deleteAllCampaigns(tenantId: string): Promise<number> {
