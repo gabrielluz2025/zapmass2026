@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.81] - 2026-09-04
+### Corrigido
+- **Conexões e Painel zeravam envios após deploy**: o contador do chip vivia só na RAM. Agora lê os envios reais do Postgres por canal — o painel, a aba Conexões e o desempenho por chip da campanha mostram quantas mensagens cada WhatsApp mandou.
+
 ## [2.3.80] - 2026-09-04
 ### Corrigido
 - **Prospecção enviava e o card ficava 0% em rascunho**: apagar a campanha no timeout/deploy soltava os jobs (`campaign_id` NULL). Agora o status `RUNNING` grava antes da fila, jobs órfãos religam sozinhos e campanha com envio na fila não pode ser apagada.

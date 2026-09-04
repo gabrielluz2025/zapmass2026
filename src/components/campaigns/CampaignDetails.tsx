@@ -931,6 +931,18 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       }
     }
 
+    const jobStats = campaign.channelSendStats || [];
+    for (const js of jobStats) {
+      if (!js.connectionId) continue;
+      const cur = perChip.get(js.connectionId) || { sent: 0, replied: 0 };
+      cur.sent = Math.max(cur.sent, js.sent || 0);
+      perChip.set(js.connectionId, cur);
+      const jobFails = (js.failed || 0) + (js.dead || 0);
+      if (jobFails > 0) {
+        failedPerChip.set(js.connectionId, Math.max(failedPerChip.get(js.connectionId) || 0, jobFails));
+      }
+    }
+
     const delivered = counts.DELIVERED + counts.READ + counts.REPLIED;
     const read = counts.READ + counts.REPLIED;
     const replied = counts.REPLIED;
@@ -964,7 +976,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       successPct, deliveryPct, readPct, replyPct,
       avgResponseSec, chipBreakdown, hourBreakdown, peakHour, failedPerChip
     };
-  }, [detailedReport, connections, replyPhonesFromLogs]);
+  }, [detailedReport, connections, replyPhonesFromLogs, campaign.channelSendStats]);
 
   const metrics = useMemo(
     () =>
@@ -1735,16 +1747,24 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               { label: 'Pulados', value: listSkipped, filter: 'SKIPPED' as ReportFilter, color: '#fb923c', hint: 'já receberam em 24 h' }
             ];
             const selectedIds = campaign.selectedConnectionIds || [];
+            const jobByConn = new Map((campaign.channelSendStats || []).map((s) => [s.connectionId, s]));
             const chipRows = selectedIds.map((id) => {
               const conn = connections.find((c) => c.id === id);
               const limit = Number(conn?.dailyLimit) || 0;
-              const sentToday = Number(conn?.messagesSentToday) || 0;
+              const job = jobByConn.get(id);
+              const campaignSent = job?.sent || 0;
+              const campaignFail = (job?.failed || 0) + (job?.dead || 0);
+              const sentToday = Math.max(Number(conn?.messagesSentToday) || 0, campaignSent);
               const online = conn?.status === ConnectionStatus.CONNECTED;
+              const phone = conn?.phoneNumber?.trim() || '';
               return {
                 id,
                 name: conn?.name || id.slice(0, 12),
+                phone,
                 limit,
                 sentToday,
+                campaignSent,
+                campaignFail,
                 remaining: limit > 0 ? Math.max(0, limit - sentToday) : null,
                 online
               };
@@ -1824,7 +1844,14 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                             {chip.limit > 0 ? (
                               <>
                                 <div className="text-[11px] tabular-nums mt-1" style={{ color: 'var(--text-2)' }}>
-                                  {chip.sentToday}/{chip.limit} hoje
+                                  {chip.campaignSent.toLocaleString('pt-BR')} nesta campanha
+                                  {chip.campaignFail > 0
+                                    ? ` · ${chip.campaignFail.toLocaleString('pt-BR')} falhas`
+                                    : ''}
+                                </div>
+                                <div className="text-[10px] tabular-nums" style={{ color: 'var(--text-3)' }}>
+                                  {chip.phone ? `${chip.phone} · ` : ''}
+                                  {chip.sentToday.toLocaleString('pt-BR')}/{chip.limit} hoje no chip
                                   {!chip.online ? ' · fora da cota do dia' : ''}
                                 </div>
                                 <div className="h-1 rounded-full overflow-hidden mt-1" style={{ background: 'var(--surface-2)' }}>
@@ -1833,7 +1860,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                               </>
                             ) : (
                               <div className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
-                                {chip.online ? 'sem teto diário neste chip' : 'reconecte para voltar a enviar'}
+                                {chip.campaignSent.toLocaleString('pt-BR')} nesta campanha
+                                {chip.campaignFail > 0
+                                  ? ` · ${chip.campaignFail.toLocaleString('pt-BR')} falhas`
+                                  : ''}
+                                {chip.phone ? ` · ${chip.phone}` : ''}
+                                {!chip.online ? ' · reconecte para voltar a enviar' : ''}
                               </div>
                             )}
                           </div>

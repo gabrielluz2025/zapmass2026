@@ -1102,6 +1102,31 @@ export const recordConnectionDispatch = (connectionId: string) => {
     emitWarmupChipStats();
 };
 
+/** Garante que o histórico do chip não fique abaixo dos envios já gravados em campaign_jobs. */
+export const applyCampaignSentFloors = (floors: Map<string, number>): boolean => {
+    let changed = false;
+    for (const [connectionId, campaignSentToday] of floors) {
+        const floor = Math.max(0, Math.floor(Number(campaignSentToday) || 0));
+        if (!connectionId || floor <= 0) continue;
+        const stats = getOrCreateChipStats(connectionId);
+        const entry = ensureTodayEntry(stats);
+        const warmup = Math.max(0, entry.warmupSent || 0);
+        const minSent = warmup + floor;
+        if (entry.sent < minSent) {
+            const delta = minSent - entry.sent;
+            entry.sent = minSent;
+            stats.totalSent += delta;
+            stats.lastActiveAt = Date.now();
+            changed = true;
+        }
+    }
+    if (changed) {
+        scheduleWarmupStatsSave();
+        emitWarmupChipStats();
+    }
+    return changed;
+};
+
 const recordWarmupSent = (fromId: string, toPhone: string) => {
     recordWarmupExchange(fromId, toPhone, connectionsInfo);
 };

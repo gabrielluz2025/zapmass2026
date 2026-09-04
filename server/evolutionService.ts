@@ -134,6 +134,7 @@ import {
     finalizeCampaignJob,
     isBackpressureActive,
     getCampaignJobStatus,
+    countSentJobsByConnection,
 } from './campaignJobsResilience.js';
 import { loadCampaignProgressSeed, shouldSkipSettledCampaignEnqueue } from './campaignProgressSeed.js';
 import { fullSyncIntervalMs } from '../shared/dailyFullSync.js';
@@ -179,6 +180,7 @@ import {
     getCampaignGeoOwner,
     publishOwnerEvent,
     recordConnectionDispatch,
+    applyCampaignSentFloors,
 } from './whatsappService.js';
 
 registerAntiBanPublishFn((tenantId, event, payload) => {
@@ -3218,6 +3220,51 @@ function applySettingsToInstance(conn: EvolutionInstance) {
 function brazilTodayKey(ts: number = Date.now()): string {
     const d = new Date(ts - 3 * 60 * 60 * 1000); // UTC → UTC-3
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+let connectionSendHydrateTimer: ReturnType<typeof setInterval> | null = null;
+
+/** RAM/arquivo de conexões zeram no deploy; campaign_jobs é a fonte dos envios de disparo. */
+async function hydrateConnectionSendCountersFromJobs(): Promise<void> {
+    try {
+        const counts = await countSentJobsByConnection();
+        if (counts.size === 0) return;
+        const floors = new Map<string, number>();
+        let changed = 0;
+        const today = brazilTodayKey();
+        for (const [id, conn] of connections.entries()) {
+            const row = counts.get(id);
+            if (!row) continue;
+            const nextToday = Math.max(conn.messagesSentToday || 0, row.sentToday);
+            if (nextToday > (conn.messagesSentToday || 0)) {
+                conn.messagesSentToday = nextToday;
+                conn.lastLimitResetDate = today;
+                mergeConnectionSettingsCache(id, {
+                    messagesSentToday: nextToday,
+                    lastLimitResetDate: today,
+                });
+                changed += 1;
+            }
+            if (row.sentToday > 0) floors.set(id, row.sentToday);
+        }
+        if (changed > 0) saveConnectionsSettings();
+        applyCampaignSentFloors(floors);
+        if (changed > 0) {
+            const owners = new Set<string>();
+            for (const id of connections.keys()) {
+                const uid = resolveOwnerUid(id);
+                if (uid) owners.add(uid);
+            }
+            for (const uid of owners) {
+                publishOwnerEvent(uid, 'connections-update', filterByConnectionScope(uid, getConnections()));
+            }
+            log('info', 'Contadores de envio hidratados do Postgres', { chips: changed });
+        }
+    } catch (err) {
+        log('warn', 'hydrateConnectionSendCountersFromJobs falhou', {
+            error: err instanceof Error ? err.message : String(err),
+        });
+    }
 }
 
 function checkAndResetDailyLimits(conn: EvolutionInstance) {
@@ -8660,6 +8707,13 @@ export function init(socketIO: SocketIOServer) {
         // Boot replay: processa respostas recebidas enquanto o ZapMass estava offline
         // (chip permaneceu open, webhooks não foram entregues)
         void lastHeartbeatP.then((lh) => runBootInboundReplay(lh));
+
+        void hydrateConnectionSendCountersFromJobs();
+        if (!connectionSendHydrateTimer) {
+            connectionSendHydrateTimer = setInterval(() => {
+                void hydrateConnectionSendCountersFromJobs();
+            }, 60_000);
+        }
 
         return reconcileConnectionHealth();
     });

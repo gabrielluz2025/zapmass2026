@@ -4,7 +4,7 @@
  */
 import React, { useDeferredValue, useMemo, useState } from 'react';
 import type { Campaign, Contact, Conversation, SystemLog, WarmupChipStats, WhatsAppConnection } from '../../types';
-import { ConnectionStatus } from '../../types';
+import { ConnectionStatus, CampaignStatus } from '../../types';
 import {
   Activity,
   AlertTriangle,
@@ -169,8 +169,26 @@ export const DashboardIntelPanel: React.FC<Props> = ({
       else if (temp === 'warm') warm++;
       else cold++;
     }
+    let jobFloor = 0;
+    const now = new Date();
+    const sameDay = (iso?: string) => {
+      if (!iso) return false;
+      const d = new Date(iso);
+      return (
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate()
+      );
+    };
+    for (const c of campaigns) {
+      const touchedToday =
+        c.status === CampaignStatus.RUNNING || sameDay(c.createdAt) || sameDay(c.lastRunAt);
+      if (!touchedToday) continue;
+      jobFloor += (c.channelSendStats || []).reduce((n, s) => n + (s.sent || 0), 0);
+    }
+    sentToday = Math.max(sentToday, jobFloor);
     return { online, total: connections.length, sentToday, queue, hot, warm, cold, blocked };
-  }, [connections, warmupChipStats, circuitBreakerOpenIds]);
+  }, [connections, warmupChipStats, circuitBreakerOpenIds, campaigns]);
 
   const funnelDailyBuckets = useMemo(() => dailySendMapFromRecord(funnelSentByDay), [funnelSentByDay]);
   const deliveredBuckets = useMemo(() => dailySendMapFromRecord(funnelDeliveredByDay), [funnelDeliveredByDay]);

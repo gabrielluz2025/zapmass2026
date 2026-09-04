@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.81',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Painel e Conexões voltam a contar envios por chip depois do deploy — cada WhatsApp mostra quantas mensagens realmente saíram' },
+    ],
+  },
+  {
     version: '2.3.80',
     date: '04/09/2026',
     highlights: [

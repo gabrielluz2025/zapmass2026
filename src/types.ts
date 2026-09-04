@@ -340,6 +340,15 @@ export interface Campaign {
   dailySchedule?: CampaignDailySchedule;
   /** Prospecção da base: onda 0 + nurture semanal + lembretes para silenciosos. */
   prospecting?: CampaignProspecting;
+  /** Envios reais por chip (Postgres campaign_jobs) — não depende da RAM do canal. */
+  channelSendStats?: Array<{
+    connectionId: string;
+    sent: number;
+    failed: number;
+    dead: number;
+    pending: number;
+    sending: number;
+  }>;
 }
 
 export interface DashboardMetrics {

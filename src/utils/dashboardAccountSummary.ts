@@ -78,6 +78,17 @@ export function computeAccountDashboardSummary(
     if (breakers.has(conn.id)) pausedChannels++;
   }
 
+  let jobSentFloor = 0;
+  for (const c of campaigns) {
+    const touchedToday =
+      c.status === CampaignStatus.RUNNING ||
+      sameLocalDay(c.createdAt) ||
+      Boolean(c.lastRunAt && sameLocalDay(c.lastRunAt));
+    if (!touchedToday || !c.channelSendStats?.length) continue;
+    jobSentFloor += c.channelSendStats.reduce((n, s) => n + (s.sent || 0), 0);
+  }
+  sentToday = Math.max(sentToday, jobSentFloor);
+
   let runningCampaigns = 0;
   let scheduledCampaigns = 0;
   for (const c of campaigns) {

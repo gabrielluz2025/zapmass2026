@@ -12,6 +12,7 @@ import { healCampaignDocument } from '../../src/utils/campaignMetrics.js';
 import {
   campaignJobsStillActive,
   countCampaignJobsByStatus,
+  countTenantCampaignJobsByConnection,
   countTenantCampaignJobsByStatus,
   reattachOrphanCampaignJobs,
 } from '../campaignJobsResilience.js';
@@ -79,12 +80,14 @@ export async function listCampaigns(tenantId: string): Promise<Campaign[]> {
     [tenantId]
   );
   const jobMap = await countTenantCampaignJobsByStatus(tenantId);
+  const byConn = await countTenantCampaignJobsByConnection(tenantId);
   const out: Campaign[] = [];
   for (const row of r.rows) {
     const raw = rowToCampaign(row);
     const withJobs = applyJobCountersToCampaign(raw, jobMap.get(raw.id));
     const healed = healCampaignDocument(withJobs);
-    out.push(healed);
+    const channelSendStats = byConn.get(raw.id);
+    out.push(channelSendStats?.length ? { ...healed, channelSendStats } : healed);
     persistHealedCampaignCounters(tenantId, raw, healed);
   }
   return out;
@@ -104,7 +107,9 @@ export async function getCampaign(tenantId: string, campaignId: string): Promise
   const withJobs = applyJobCountersToCampaign(raw, await countCampaignJobsByStatus(campaignId));
   const healed = healCampaignDocument(withJobs);
   persistHealedCampaignCounters(tenantId, raw, healed);
-  return healed;
+  const byConn = await countTenantCampaignJobsByConnection(tenantId);
+  const channelSendStats = byConn.get(campaignId);
+  return channelSendStats?.length ? { ...healed, channelSendStats } : healed;
 }
 
 export async function getCampaignDoc(

@@ -24,6 +24,26 @@ describe('dashboardAccountSummary', () => {
     expect(summary.pausedChannels).toBe(1);
   });
 
+  it('usa envios dos jobs quando o chip ainda mostra 0 depois do deploy', () => {
+    const summary = computeAccountDashboardSummary(
+      [{ id: 'c1', status: ConnectionStatus.CONNECTED, messagesSentToday: 0, queueSize: 0 } as never],
+      [
+        {
+          id: 'p1',
+          status: CampaignStatus.PAUSED,
+          createdAt: new Date().toISOString(),
+          channelSendStats: [
+            { connectionId: 'c1', sent: 200, failed: 10, dead: 0, pending: 0, sending: 0 },
+            { connectionId: 'c2', sent: 112, failed: 4, dead: 0, pending: 0, sending: 0 }
+          ]
+        } as never
+      ],
+      [],
+      []
+    );
+    expect(summary.sentToday).toBe(312);
+  });
+
   it('resume metricas rapidas de operacoes', () => {
     const ops = computeAdminOpsSnapshot(
       [{ id: 'c1', status: ConnectionStatus.DISCONNECTED, queueSize: 5 } as never],

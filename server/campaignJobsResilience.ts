@@ -359,6 +359,104 @@ export async function countTenantCampaignJobsByStatus(
   return out;
 }
 
+export type CampaignChannelSendStat = {
+  connectionId: string;
+  sent: number;
+  failed: number;
+  dead: number;
+  pending: number;
+  sending: number;
+};
+
+export type ConnectionSentCounts = {
+  sentToday: number;
+  sentTotal: number;
+};
+
+export async function countSentJobsByConnection(): Promise<Map<string, ConnectionSentCounts>> {
+  const out = new Map<string, ConnectionSentCounts>();
+  if (!isZapmassPostgresConfigured()) return out;
+  const pool = getZapmassPool();
+  if (!pool) return out;
+  try {
+    const r = await pool.query<{ connection_id: string; sent_today: string; sent_total: string }>(
+      `SELECT connection_id,
+              COUNT(*) FILTER (WHERE status = 'sent')::text AS sent_total,
+              COUNT(*) FILTER (
+                WHERE status = 'sent'
+                  AND (COALESCE(sent_at, updated_at) AT TIME ZONE 'America/Sao_Paulo')::date
+                    = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')::date
+              )::text AS sent_today
+         FROM zapmass.campaign_jobs
+        GROUP BY connection_id`
+    );
+    for (const row of r.rows) {
+      const id = String(row.connection_id || '').trim();
+      if (!id) continue;
+      out.set(id, {
+        sentToday: parseInt(row.sent_today, 10) || 0,
+        sentTotal: parseInt(row.sent_total, 10) || 0,
+      });
+    }
+  } catch (err) {
+    console.error('[CampaignJobs] Erro ao contar envios por canal:', (err as Error)?.message);
+  }
+  return out;
+}
+
+export async function countTenantCampaignJobsByConnection(
+  tenantId: string
+): Promise<Map<string, CampaignChannelSendStat[]>> {
+  const out = new Map<string, CampaignChannelSendStat[]>();
+  const uid = String(tenantId || '').trim();
+  if (!uid || !isUuid(uid) || !isZapmassPostgresConfigured()) return out;
+  const pool = getZapmassPool();
+  if (!pool) return out;
+  try {
+    const r = await pool.query<{
+      campaign_id: string;
+      connection_id: string;
+      status: string;
+      cnt: string;
+    }>(
+      `SELECT campaign_id::text AS campaign_id, connection_id, status, COUNT(*)::text AS cnt
+         FROM zapmass.campaign_jobs
+        WHERE tenant_id = $1::uuid AND campaign_id IS NOT NULL
+        GROUP BY campaign_id, connection_id, status`,
+      [uid]
+    );
+    const nested = new Map<string, Map<string, CampaignChannelSendStat>>();
+    for (const row of r.rows) {
+      const cid = String(row.campaign_id || '').trim();
+      const connId = String(row.connection_id || '').trim();
+      if (!cid || !connId) continue;
+      let byConn = nested.get(cid);
+      if (!byConn) {
+        byConn = new Map();
+        nested.set(cid, byConn);
+      }
+      let stat = byConn.get(connId);
+      if (!stat) {
+        stat = { connectionId: connId, sent: 0, failed: 0, dead: 0, pending: 0, sending: 0 };
+        byConn.set(connId, stat);
+      }
+      const n = parseInt(row.cnt, 10) || 0;
+      const status = String(row.status || '');
+      if (status === 'sent') stat.sent += n;
+      else if (status === 'failed') stat.failed += n;
+      else if (status === 'dead') stat.dead += n;
+      else if (status === 'pending') stat.pending += n;
+      else if (status === 'sending') stat.sending += n;
+    }
+    for (const [cid, byConn] of nested) {
+      out.set(cid, [...byConn.values()]);
+    }
+  } catch (err) {
+    console.error('[CampaignJobs] Erro ao contar jobs por canal:', (err as Error)?.message);
+  }
+  return out;
+}
+
 export type SettledCampaignJob = {
   idempotencyKey: string;
   toNumber: string;
