@@ -207,7 +207,12 @@ export async function redispatchCampaign(
 /** Altera chips de disparo de campanha ativa/pausada. */
 export async function updateCampaignChannels(
   campaignId: string,
-  connectionIds: string[]
+  connectionIds: string[],
+  extras?: {
+    poolId?: string | null;
+    channelWeights?: Record<string, number>;
+    poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+  }
 ): Promise<{ remappedJobs: number; onlineCount: number }> {
   const path = `/api/campaigns/${encodeURIComponent(campaignId)}/channels`;
   const j = await apiFetchJson<{
@@ -217,7 +222,12 @@ export async function updateCampaignChannels(
     error?: string;
   }>(path, {
     method: 'POST',
-    body: JSON.stringify({ connectionIds }),
+    body: JSON.stringify({
+      connectionIds,
+      ...(extras?.poolId !== undefined ? { poolId: extras.poolId } : {}),
+      ...(extras?.channelWeights ? { channelWeights: extras.channelWeights } : {}),
+      ...(extras?.poolStrategy ? { poolStrategy: extras.poolStrategy } : {}),
+    }),
   });
   if (j.ok === false) throw new Error(j.error || 'Não foi possível alterar os chips.');
   return {

@@ -7495,6 +7495,7 @@ export async function updateCampaignChannels(
         channelWeights?: Record<string, number>;
         poolStrategy?: PoolStrategy;
         remigratePendingJobs?: boolean;
+        poolId?: string | null;
     }
 ): Promise<{ ok: boolean; error?: string; remappedJobs?: number; onlineCount?: number }> {
     const cid = String(campaignId || '').trim();
@@ -7537,6 +7538,11 @@ export async function updateCampaignChannels(
         docPatch.channelWeights = channelWeights;
     }
     if (options.poolStrategy) docPatch.poolStrategy = options.poolStrategy;
+    if (options.poolId) {
+        docPatch.poolId = options.poolId;
+    } else if (options.poolId === null) {
+        docPatch.poolId = null;
+    }
     if (
         campaign.scheduleStartSnapshot &&
         typeof campaign.scheduleStartSnapshot === 'object'
@@ -7544,6 +7550,7 @@ export async function updateCampaignChannels(
         docPatch.scheduleStartSnapshot = {
             ...campaign.scheduleStartSnapshot,
             connectionIds: filtered,
+            ...(options.poolId ? { poolId: options.poolId } : options.poolId === null ? { poolId: undefined } : {}),
         };
     }
     await mergeUpdateCampaign(tenantId, cid, docPatch);
@@ -7562,6 +7569,10 @@ export async function updateCampaignChannels(
         strategy: poolStrategy,
         channelWeights: channelWeights || {},
         connectionIds: filtered,
+        poolId:
+            options.poolId === null
+                ? undefined
+                : options.poolId || campaign.poolId || campaign.scheduleStartSnapshot?.poolId,
     });
 
     let remappedJobs = 0;
@@ -7615,6 +7626,47 @@ export async function updateCampaignChannels(
     });
 
     return { ok: true, remappedJobs, onlineCount };
+}
+
+/**
+ * Quando o pool ganha/perde chip, campanhas ativas que usam esse pool
+ * passam a dividir a fila com o conjunto novo.
+ */
+export async function syncCampaignsToUpdatedPool(
+    tenantId: string,
+    pool: { id: string; connectionIds: string[]; channelWeights?: Record<string, number>; strategy?: PoolStrategy }
+): Promise<{ campaigns: number; remappedJobs: number }> {
+    const { listActiveCampaignIdsForPool } = await import('./repositories/campaignsRepository.js');
+    const ids = await listActiveCampaignIdsForPool(tenantId, pool.id);
+    let campaigns = 0;
+    let remappedJobs = 0;
+    for (const campaignId of ids) {
+        const result = await updateCampaignChannels(tenantId, campaignId, {
+            connectionIds: pool.connectionIds,
+            channelWeights: pool.channelWeights,
+            poolStrategy: pool.strategy,
+            poolId: pool.id,
+            remigratePendingJobs: true,
+        });
+        if (result.ok) {
+            campaigns += 1;
+            remappedJobs += result.remappedJobs || 0;
+        } else {
+            log('warn', 'syncCampaignsToUpdatedPool: campanha não atualizada', {
+                campaignId,
+                error: result.error,
+            });
+        }
+    }
+    if (campaigns > 0) {
+        log('info', 'Pool atualizado — campanhas redistribuídas', {
+            poolId: pool.id,
+            campaigns,
+            remappedJobs,
+            chips: pool.connectionIds.length,
+        });
+    }
+    return { campaigns, remappedJobs };
 }
 
 /**

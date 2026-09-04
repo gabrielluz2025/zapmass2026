@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.75',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Editar campanha deixa trocar canal e pool mesmo com chip offline' },
+      { type: 'improvement', text: 'Novo chip no pool passa a receber parte da fila das campanhas que já usam aquele pool' },
+    ],
+  },
+  {
     version: '2.3.74',
     date: '04/09/2026',
     highlights: [

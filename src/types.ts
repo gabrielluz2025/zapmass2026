@@ -275,6 +275,9 @@ export interface Campaign {
   failedCount: number;
   status: CampaignStatus;
   selectedConnectionIds: string[];
+  /** Pool de chips usado no disparo — ao incluir canal no pool, as campanhas ativas redistribuem a fila. */
+  poolId?: string;
+  poolStrategy?: 'round_robin' | 'weighted' | 'priority';
   /** Peso relativo por chip (1 = base) para distribuir envios; opcional. */
   channelWeights?: Record<string, number>;
   contactListId?: string; 

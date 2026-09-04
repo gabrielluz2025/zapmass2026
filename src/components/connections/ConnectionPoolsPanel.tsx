@@ -100,8 +100,14 @@ export const ConnectionPoolsPanel: React.FC<ConnectionPoolsPanelProps> = ({ conn
         toast.success(`Pool "${created.name}" criado!`);
       } else if (editing) {
         const updated = await updateConnectionPool(editing, payload);
-        setPools((prev) => prev.map((p) => (p.id === editing ? updated : p)));
-        toast.success(`Pool "${updated.name}" atualizado!`);
+        setPools((prev) => prev.map((p) => (p.id === editing ? updated.pool : p)));
+        if (updated.campaignsUpdated > 0) {
+          toast.success(
+            `Pool "${updated.pool.name}" atualizado — ${updated.campaignsUpdated} campanha(s) passam a dividir com os chips novos (${updated.remappedJobs} mensagem(ns) remapeada(s)).`
+          );
+        } else {
+          toast.success(`Pool "${updated.pool.name}" atualizado!`);
+        }
       }
       setEditing(null);
     } catch (err) {
@@ -136,7 +142,7 @@ export const ConnectionPoolsPanel: React.FC<ConnectionPoolsPanelProps> = ({ conn
             Pools de Chips
           </h3>
           <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-2)' }}>
-            Agrupe chips para usar em campanhas com failover automático.
+            Agrupe chips para usar em campanhas. Se incluir um canal num pool que já dispara, as mensagens pendentes passam a ser divididas com ele.
           </p>
         </div>
         <div className="flex gap-2">

@@ -18,6 +18,7 @@ describe('campaignMapper', () => {
         successCount: 2,
         failedCount: 1,
         selectedConnectionIds: ['c1'],
+        poolId: 'pool_abc',
         createdAt: '2026-01-01T00:00:00.000Z',
         dailySchedule: { enabled: true, days: [{ dayIndex: 0, limitPerChannel: 80 }] }
       },
@@ -27,6 +28,7 @@ describe('campaignMapper', () => {
     expect(c.status).toBe(CampaignStatus.RUNNING);
     expect(c.totalContacts).toBe(10);
     expect(c.selectedConnectionIds).toEqual(['c1']);
+    expect(c.poolId).toBe('pool_abc');
     expect(c.dailySchedule?.enabled).toBe(true);
     expect(c.dailySchedule?.days?.[0]?.limitPerChannel).toBe(80);
   });

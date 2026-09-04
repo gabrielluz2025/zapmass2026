@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.75] - 2026-09-04
+### Corrigido
+- **Editar campanha não trocava canal/pool**: chips offline estavam travados e o passo só avançava com canal online. Agora dá para trocar pool ou chips mesmo com canal restaurado offline.
+### Melhorado
+- **Incluir chip num pool existente**: campanhas ativas daquele pool passam a dividir a fila com o canal novo (jobs pendentes são remapeados).
+
 ## [2.3.74] - 2026-09-04
 ### Corrigido
 - **Bate-papo zerava quando a API caía**: se os canais ficavam sem dono no boot, o prune apagava todas as conversas e gravava `conversations_cache.json` vazio. Agora o prune não zera a inbox, a gravação é atômica e o SIGTERM faz flush.

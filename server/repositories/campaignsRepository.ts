@@ -86,6 +86,32 @@ export async function resolveCampaignTenantId(campaignId: string): Promise<strin
   return r.rows[0]?.tenant_id ?? null;
 }
 
+export async function listActiveCampaignIdsForPool(
+  tenantId: string,
+  poolId: string
+): Promise<string[]> {
+  const db = getZapmassPool();
+  const pid = String(poolId || '').trim();
+  if (!db || !isUuid(tenantId) || !pid) return [];
+  try {
+    const r = await db.query<{ id: string }>(
+      `SELECT id::text
+       FROM zapmass.campaigns
+       WHERE tenant_id = $1::uuid
+         AND status NOT IN ('COMPLETED', 'FAILED')
+         AND (
+           COALESCE(doc->>'poolId', '') = $2
+           OR COALESCE(doc->'scheduleStartSnapshot'->>'poolId', '') = $2
+         )`,
+      [tenantId, pid]
+    );
+    return r.rows.map((row) => row.id).filter(Boolean);
+  } catch (e) {
+    console.warn('[campaigns] listActiveCampaignIdsForPool falhou:', (e as Error)?.message || e);
+    return [];
+  }
+}
+
 export async function createCampaign(
   tenantId: string,
   payload: Record<string, unknown>

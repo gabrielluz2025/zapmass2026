@@ -178,6 +178,8 @@ interface NewCampaignWizardProps {
     channelWeights?: Record<string, number>;
     poolStrategy?: 'round_robin' | 'weighted' | 'priority';
     poolId?: string;
+    /** Todos os chips escolhidos (inclui offline na edição). */
+    selectedConnectionIds?: string[];
     /** Gatilhos avançados por etapa (motor multi-etapas persistente). Opcional. */
     stageConfigs?: CampaignStageConfig[];
     /**
@@ -1152,6 +1154,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   };
 
   const connectedIds = getConnectedSelectedIds();
+  const hasChannelSelection = resolvedConnectionIds.length > 0;
+  const canGoFromChannels = isEditMode ? hasChannelSelection : connectedIds.length > 0;
 
   const previewSample = useMemo((): CampaignPreviewSample => {
     const pick = (c: Contact) => {
@@ -1228,7 +1232,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       campaignFlowMode === 'reply' ||
       (prospectingSilentBody.trim().length > 0 &&
         prospectingResponderSteps.filter((s) => s.body.trim().length > 0).length >= 2));
-  const canGoFromChannels = connectedIds.length > 0;
   const scheduleSlots = useMemo((): CampaignScheduleSlot[] => {
     if (!repeatWeekly) {
       const ymd = onceScheduleDate.trim();
@@ -1595,6 +1598,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         messageStages: campaignFlowMode === 'single' ? [] : stagesBodies.slice(1),
         replyFlow: campaignFlowMode === 'reply' ? replyFlow : undefined,
         connectedIds,
+        selectedConnectionIds: resolvedConnectionIds,
         numbers,
         recipients: buildRecipients(),
         contactListMeta,
@@ -2607,7 +2611,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h3 className="ui-title text-[15px]">Chips do WhatsApp</h3>
-                    <p className="ui-subtitle text-[12.5px]">Escolha quais canais vão participar do disparo.</p>
+                    <p className="ui-subtitle text-[12.5px]">
+                      {isEditMode
+                        ? 'Troque o pool ou os chips. Offline também pode entrar — o disparo usa os que estiverem online.'
+                        : 'Escolha quais canais vão participar do disparo.'}
+                    </p>
                   </div>
                   <Badge variant="neutral">{connectedIds.length} selecionado{connectedIds.length !== 1 ? 's' : ''}</Badge>
                 </div>
@@ -2746,7 +2754,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                           style={{
                             background: isSel ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
                             border: isSel ? '1.5px solid rgba(16,185,129,0.25)' : '1.5px solid var(--border-subtle)',
-                            cursor: isOnline ? 'pointer' : 'not-allowed',
+                            cursor: isOnline || isEditMode ? 'pointer' : 'not-allowed',
                             opacity: isOnline ? 1 : 0.6
                           }}
                         >
@@ -2754,7 +2762,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                             type="checkbox"
                             className="sr-only"
                             checked={isSel}
-                            disabled={!isOnline}
+                            disabled={!isOnline && !isEditMode}
                             onChange={(e) => {
                               const newIds = e.target.checked
                                 ? [...selectedConnectionIds, conn.id]

@@ -364,6 +364,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
       connectionIds?: string[];
       channelWeights?: Record<string, number>;
       poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+      poolId?: string | null;
     };
     const connectionIds = Array.isArray(body.connectionIds)
       ? body.connectionIds.map((id) => String(id || '').trim()).filter(Boolean)
@@ -381,6 +382,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
             ? body.channelWeights
             : undefined,
         poolStrategy: body.poolStrategy,
+        poolId: body.poolId === undefined ? undefined : body.poolId,
       });
       if (!result.ok) {
         return res.status(400).json({ ok: false, error: result.error || 'Não foi possível alterar os chips.' });

@@ -40,7 +40,7 @@ export async function createConnectionPool(
 export async function updateConnectionPool(
   id: string,
   payload: Partial<Pick<ConnectionPool, 'name' | 'connectionIds' | 'channelWeights' | 'strategy'>>
-): Promise<ConnectionPool> {
+): Promise<{ pool: ConnectionPool; campaignsUpdated: number; remappedJobs: number }> {
   const res = await fetch(apiUrl(`/api/connection-pools/${id}`), {
     method: 'PUT',
     headers: await authHeaders(),
@@ -48,7 +48,11 @@ export async function updateConnectionPool(
   });
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || 'Erro ao atualizar pool.');
-  return data.pool as ConnectionPool;
+  return {
+    pool: data.pool as ConnectionPool,
+    campaignsUpdated: Number(data.campaignsUpdated) || 0,
+    remappedJobs: Number(data.remappedJobs) || 0,
+  };
 }
 
 export async function deleteConnectionPool(id: string): Promise<void> {

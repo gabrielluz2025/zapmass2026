@@ -318,6 +318,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     messageStages: string[];
     replyFlow?: CampaignReplyFlow;
     connectedIds: string[];
+    selectedConnectionIds?: string[];
     numbers: string[];
     recipients: Array<{ phone: string; vars: Record<string, string> }>;
     contactListMeta: { id?: string; name?: string };
@@ -451,6 +452,11 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     const editId = wizardDraft?.editCampaignId;
     if (!editId) return;
 
+    const channelIds =
+      payload.selectedConnectionIds && payload.selectedConnectionIds.length > 0
+        ? payload.selectedConnectionIds
+        : payload.connectedIds;
+
     const patch: Record<string, unknown> = {
       name: payload.name,
       message: payload.message,
@@ -461,16 +467,20 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       humanizedPauses: payload.humanizedPauses,
       channelWeights: payload.channelWeights,
       poolStrategy: payload.poolStrategy,
-      poolId: payload.poolId,
+      poolId: payload.poolId ?? null,
+      selectedConnectionIds: channelIds,
       dailySchedule: payload.dailySchedule,
     };
 
     try {
       await apiUpdateCampaign(editId, patch);
 
-      // Remapeia jobs pendentes para os novos chips (mesma lógica de "trocar chips")
-      if (payload.connectedIds.length > 0) {
-        await updateCampaignChannels(editId, payload.connectedIds);
+      if (channelIds.length > 0) {
+        await updateCampaignChannels(editId, channelIds, {
+          poolId: payload.poolId ?? null,
+          channelWeights: payload.channelWeights,
+          poolStrategy: payload.poolStrategy,
+        });
       }
 
       toast.success('Campanha atualizada com sucesso.');

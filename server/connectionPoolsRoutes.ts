@@ -65,7 +65,17 @@ export function registerConnectionPoolsRoutes(app: Express): void {
     try {
       const pool = await updateConnectionPoolPg(ctx.tenantId, req.params.id, { name, connectionIds, channelWeights, strategy });
       if (!pool) return res.status(404).json({ ok: false, error: 'Pool não encontrado.' });
-      return res.json({ ok: true, pool });
+      let campaignsUpdated = 0;
+      let remappedJobs = 0;
+      try {
+        const { syncCampaignsToUpdatedPool } = await import('./evolutionService.js');
+        const sync = await syncCampaignsToUpdatedPool(ctx.tenantId, pool);
+        campaignsUpdated = sync.campaigns;
+        remappedJobs = sync.remappedJobs;
+      } catch (syncErr) {
+        console.warn('[connection-pools PUT] sync campanhas:', (syncErr as Error)?.message || syncErr);
+      }
+      return res.json({ ok: true, pool, campaignsUpdated, remappedJobs });
     } catch (err: unknown) {
       return res.status(500).json({ ok: false, error: (err as Error)?.message || 'Erro ao atualizar pool.' });
     }
