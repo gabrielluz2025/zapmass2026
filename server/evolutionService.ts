@@ -662,7 +662,8 @@ function resolveOwnerUid(connectionId: string): string | undefined {
     return (
         ownerUidFromConnectionId(connectionId) ||
         connections.get(connectionId)?.ownerUid ||
-        connectionsSettingsCache[connectionId]?.ownerUid
+        connectionsSettingsCache[connectionId]?.ownerUid ||
+        retiredConnectionOwners.get(connectionId)
     );
 }
 
@@ -847,8 +848,8 @@ export async function pruneConnectingZombiesForOwner(ownerUid: string): Promise<
                 }
                 await api.delete(`/instance/delete/${evoInst(instanceName)}`);
                 stopWatchingConnection(instanceName);
+                rememberConnectionOwner(instanceName, uid);
                 connections.delete(instanceName);
-                chatStore.purgeConversationsForConnection(instanceName);
                 deleted.push(instanceName);
                 log('info', `Zumbi Evolution removido: ${instanceName} (${state})`);
             } catch (error: any) {
@@ -1132,22 +1133,23 @@ export async function getInboxPageForOwner(
     opts?: { cursor?: number | null; limit?: number; reset?: boolean }
 ) {
     const { socketInboxPagePayload } = await import('./conversationsEmit.js');
-    return socketInboxPagePayload(
+    const page = await socketInboxPagePayload(
         ownerUid,
         authUid,
         chatStore.getConversations(),
         resolveConnectionOwnerUid,
         opts
     );
+    const visible = page.conversations.filter((c) => !chatStore.isConversationDeleted(c.id));
+    if (visible.length === page.conversations.length) return page;
+    return { ...page, conversations: visible, total: Math.max(0, page.total - (page.conversations.length - visible.length)) };
 }
 
 /** Reemite inbox do RAM para o socket — sem findChats (sync leve ao focar aba / reconectar). */
 export async function hydrateInboxFromArchiveForOwner(ownerUid: string): Promise<number> {
     const uid = String(ownerUid || '').trim();
     if (!uid || uid === 'anonymous') return 0;
-    const scoped = filterByConnectionScope(uid, getConnections());
-    const connectionIds = scoped.map((c) => c.id).filter(Boolean);
-    return chatStore.hydrateInboxStubsFromArchive(uid, connectionIds);
+    return chatStore.hydrateInboxStubsFromArchive(uid);
 }
 
 /** Go: hidrata arquivo + reconnect nos chips abertos para puxar HistorySync do celular. */
@@ -1206,13 +1208,8 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
     const scopedForReemit = filterByConnectionScope(uid, getConnections());
     const hasOpenChip = scopedForReemit.some((c) => String(c.status || '').toUpperCase() === 'CONNECTED');
     if (isInboxPaginationEnabled()) {
+        await hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
         let page = await getInboxPageForOwner(uid, uid, { reset: true });
-        if (page.total === 0 && hasOpenChip && isGoWebhookInboxMode()) {
-            const hydrated = await hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
-            if (hydrated > 0) {
-                page = await getInboxPageForOwner(uid, uid, { reset: true });
-            }
-        }
         if (page.total === 0 && hasOpenChip && !isGoWebhookInboxMode()) {
             log('info', 'reemitConversationsForOwner: RAM vazia com chips abertos — sync completo', {
                 ownerUid: uid,
@@ -1233,6 +1230,7 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
         return;
     }
     const { socketConversationsPayload } = await import('./conversationsEmit.js');
+    await hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
     publishOwnerEvent(
         uid,
         'conversations-update',
@@ -2761,6 +2759,9 @@ let io: SocketIOServer | null = null;
 /** IDs de conexões explicitamente deletadas — impede ressurreição por hydrateInstancesFromEvolution. */
 const deletedConnectionIds = new Set<string>();
 const deletedConnectionsFile = path.join(dataDir, 'deleted_connections.json');
+/** Dono do chip após exclusão/ban — bate-papo continua visível como histórico. */
+const retiredConnectionOwners = new Map<string, string>();
+const retiredConnectionOwnersFile = path.join(dataDir, 'retired_connection_owners.json');
 
 function loadDeletedConnections(): void {
     try {
@@ -2776,6 +2777,39 @@ function saveDeletedConnections(): void {
         if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
         fs.writeFileSync(deletedConnectionsFile, JSON.stringify([...deletedConnectionIds]), 'utf8');
     } catch { /* ignora */ }
+}
+
+function loadRetiredConnectionOwners(): void {
+    try {
+        if (fs.existsSync(retiredConnectionOwnersFile)) {
+            const parsed = JSON.parse(fs.readFileSync(retiredConnectionOwnersFile, 'utf8')) as unknown;
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                for (const [id, uid] of Object.entries(parsed as Record<string, unknown>)) {
+                    if (typeof uid === 'string' && uid.trim() && uid !== 'anonymous') {
+                        retiredConnectionOwners.set(id, uid.trim());
+                    }
+                }
+            }
+        }
+    } catch { /* ignora */ }
+}
+
+function saveRetiredConnectionOwners(): void {
+    try {
+        if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+        const obj: Record<string, string> = {};
+        for (const [id, uid] of retiredConnectionOwners.entries()) obj[id] = uid;
+        fs.writeFileSync(retiredConnectionOwnersFile, JSON.stringify(obj), 'utf8');
+    } catch { /* ignora */ }
+}
+
+function rememberConnectionOwner(connectionId: string, ownerUid?: string | null): void {
+    const id = String(connectionId || '').trim();
+    const ou = String(ownerUid || '').trim();
+    if (!id || !ou || ou === 'anonymous') return;
+    if (retiredConnectionOwners.get(id) === ou) return;
+    retiredConnectionOwners.set(id, ou);
+    saveRetiredConnectionOwners();
 }
 
 interface ConnectionSettingsPayload {
@@ -2960,6 +2994,7 @@ function mergeConnectionSettingsCache(connectionId: string, patch: ConnectionSet
         mem.ownerUid = ownerUid;
         connections.set(connectionId, mem);
     }
+    if (ownerUid) rememberConnectionOwner(connectionId, ownerUid);
 }
 
 function applyParsedConnectionSettings(parsed: Record<string, unknown>): void {
@@ -3007,6 +3042,7 @@ function loadConnectionsSettings() {
             fs.mkdirSync(dataDir, { recursive: true });
         }
         loadDeletedConnections();
+        loadRetiredConnectionOwners();
         if (fs.existsSync(connectionsSettingsFile)) {
             const raw = fs.readFileSync(connectionsSettingsFile, 'utf8');
             const loaded = loadConnectionsSettingsFromRaw(raw);
@@ -3037,6 +3073,15 @@ function loadConnectionsSettings() {
         if (bootHealed > 0) {
             saveConnectionsSettings();
         }
+        let seededRetired = 0;
+        for (const [id, val] of Object.entries(connectionsSettingsCache)) {
+            const ou = String(val?.ownerUid || '').trim();
+            if (!ou || ou === 'anonymous') continue;
+            if (retiredConnectionOwners.get(id) === ou) continue;
+            retiredConnectionOwners.set(id, ou);
+            seededRetired += 1;
+        }
+        if (seededRetired > 0) saveRetiredConnectionOwners();
     } catch (err) {
         bootWarn('Falha ao carregar connections_settings.json', { error: err });
     }
@@ -5618,6 +5663,7 @@ export async function deleteConnection(
         ownerUid: resolveOwnerUid(id) ?? null,
     });
     const ownerUid = resolveOwnerUid(id);
+    rememberConnectionOwner(id, ownerUid);
 
     stopWatchingConnection(id);
     stopQrWatch(id);
@@ -5676,7 +5722,6 @@ export async function deleteConnection(
         delete connectionsSettingsCache[id];
         saveConnectionsSettings();
     }
-    const removedChats = chatStore.purgeConversationsForConnection(id);
 
     if (ownerUid) {
         const scoped = filterByConnectionScope(ownerUid, getConnections());
@@ -5692,7 +5737,7 @@ export async function deleteConnection(
         warnUnscopedConnectionEvent(id, 'connection-deleted');
     }
 
-    log('info', `Instância deletada: ${id}`, { removedChats });
+    log('info', `Instância deletada: ${id}`);
 }
 
 /**

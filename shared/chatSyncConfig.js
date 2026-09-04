@@ -8,7 +8,7 @@ export function isEvolutionFullHistorySyncEnabled() {
     if (raw != null && String(raw).trim() !== '') {
         return !['0', 'false', 'no', 'off'].includes(String(raw).trim().toLowerCase());
     }
-    return isFullInboxSyncEnabled();
+    return true;
 }
 /** Mensagens prefetch por conversa “vazia” no sync Evolution (findMessages). */
 export function evolutionSyncMsgPrefetch() {

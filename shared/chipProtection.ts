@@ -75,7 +75,7 @@ export function envChipSyncProfileNormal(): ChipSyncProfile {
   const fullHistory =
     histRaw != null && String(histRaw).trim() !== ''
       ? !['0', 'false', 'no', 'off'].includes(String(histRaw).trim().toLowerCase())
-      : !fullOff;
+      : true;
   const prefetch = Number(process.env.EVOLUTION_SYNC_MSG_PREFETCH ?? 200);
   const sparse = Number(process.env.EVOLUTION_SYNC_SPARSE_CONV_LIMIT ?? 120);
   return {

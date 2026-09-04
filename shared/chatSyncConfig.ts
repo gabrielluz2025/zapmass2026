@@ -14,13 +14,14 @@ export function isFullInboxSyncEnabled(): boolean {
   );
 }
 
-/** Baileys/Evolution: baixar histórico completo do celular na conexão (settings.syncFullHistory). */
+/** Baileys/Evolution: baixar histórico completo do celular na conexão (settings.syncFullHistory / HistorySync no Go).
+ * Default on — independente de WA_FULL_INBOX_SYNC (findChats não existe no Go). */
 export function isEvolutionFullHistorySyncEnabled(): boolean {
   const raw = process.env.EVOLUTION_SYNC_FULL_HISTORY;
   if (raw != null && String(raw).trim() !== '') {
     return !['0', 'false', 'no', 'off'].includes(String(raw).trim().toLowerCase());
   }
-  return isFullInboxSyncEnabled();
+  return true;
 }
 
 /** Mensagens prefetch por conversa “vazia” no sync Evolution (findMessages). */

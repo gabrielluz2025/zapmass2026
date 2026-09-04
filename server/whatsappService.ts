@@ -7224,45 +7224,6 @@ const saveAutoWarmupsToDisk = async () => {
     }
 };
 
-/** Limite diário de mensagens de aquecimento (warmupSent+warmupReceived) por tier.
- *  Calculado em dias desde firstWarmedAt. Dimensionado para cobrir 24h de operação
- *  contínua entre 2–5 chips com intervalo de 10 minutos:
- *    2 chips @10min = 1 par × 2 msgs/rodada × 144 rodadas/dia = 288 msgs/chip/dia
- *    5 chips @10min = 10 pares × 2 × 144 ÷ 5 ≈ 576 msgs/chip/dia */
-const getDailyTarget = (stats: WarmupChipStats | undefined): number => {
-    if (!stats?.firstWarmedAt) return 150; // Novato — permite ~12h contínuo com 2 chips
-    const days = Math.floor((Date.now() - stats.firstWarmedAt) / 86_400_000);
-    if (days < 3)  return 150;  // Novato    (antes: 20)
-    if (days < 7)  return 300;  // Morno     (antes: 50)
-    if (days < 21) return 600;  // Quente    (antes: 120)
-    return 1200;                 // Premium   (antes: 250)
-};
-
-/** Total de mensagens de aquecimento enviadas+recebidas hoje pelo chip (UTC-3).
- *  Usa warmupSent/warmupReceived (separados de campanhas e mensagens manuais).
- *  Se o campo não existir ainda (dados legados), usa sent+received como fallback. */
-const getTodayCount = (stats: WarmupChipStats | undefined): number => {
-    if (!stats) return 0;
-    const key = todayKey();
-    const row = stats.dailyHistory?.find((d) => d.date === key);
-    if (!row) return 0;
-    // Prefere contadores exclusivos de aquecimento; fallback para legado
-    const hasWarmupCounters = (row.warmupSent !== undefined) || (row.warmupReceived !== undefined);
-    if (hasWarmupCounters) {
-        return (row.warmupSent ?? 0) + (row.warmupReceived ?? 0);
-    }
-    // Legado: usa sent+received (chips sem dados novos)
-    return (row.sent ?? 0) + (row.received ?? 0);
-};
-
-/** Retorna true se o chip ainda tem capacidade de envio hoje. */
-const chipHasDailyCapacity = (connectionId: string): boolean => {
-    const stats = warmupChipStats.get(connectionId);
-    const used = getTodayCount(stats);
-    const limit = getDailyTarget(stats);
-    return used < limit;
-};
-
 const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
     const allowedIds = new Set(connectionIds.filter(Boolean));
     const rawConns = _warmupGetConnectionsFn ? _warmupGetConnectionsFn() : getConnections();
@@ -7275,30 +7236,8 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
         return;
     }
 
-    // Filtra apenas chips que ainda não atingiram a meta diária de aquecimento
-    const availableConns = activeConns.filter((c) => chipHasDailyCapacity(c.id));
-    if (availableConns.length < 2) {
-        const allFull = activeConns.every((c) => !chipHasDailyCapacity(c.id));
-        if (allFull) {
-            // Log diagnóstico: mostra contadores por chip para facilitar debug
-            const counters = activeConns.map((c) => {
-                const st = warmupChipStats.get(c.id);
-                const used = getTodayCount(st);
-                const limit = getDailyTarget(st);
-                return `${c.id.slice(-6)}:${used}/${limit}`;
-            }).join(', ');
-            console.log(`[AutoWarmup] [${uid}] Todos os chips atingiram a meta de aquecimento hoje. Aguardando próximo dia. (${counters})`);
-        } else {
-            const counters = activeConns.map((c) => {
-                const st = warmupChipStats.get(c.id);
-                const used = getTodayCount(st);
-                const limit = getDailyTarget(st);
-                return `${c.id.slice(-6)}:${used}/${limit}`;
-            }).join(', ');
-            console.log(`[AutoWarmup] [${uid}] Menos de 2 chips com capacidade disponível. (${counters})`);
-        }
-        return;
-    }
+    // Sem teto diário: enquanto o aquecimento estiver ativo, os chips conversam 24h.
+    const availableConns = activeConns;
 
     const pairs: Array<[WarmupConnRef, WarmupConnRef]> = [];
     for (let i = 0; i < availableConns.length; i++) {
@@ -7315,10 +7254,6 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
             console.log(`[AutoWarmup] [${uid}] Aquecimento foi interrompido.`);
             break;
         }
-        if (!chipHasDailyCapacity(a.id) || !chipHasDailyCapacity(b.id)) {
-            console.log(`[AutoWarmup] [${uid}] Par ${a.id} <-> ${b.id} atingiu meta diária, pulando.`);
-            continue;
-        }
         const phoneA = String(a.phoneNumber || '').replace(/\D/g, '');
         const phoneB = String(b.phoneNumber || '').replace(/\D/g, '');
         if (!phoneA || !phoneB) continue;
@@ -7330,7 +7265,7 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
 
             if (!activeAutoWarmups.has(uid)) break;
 
-            if (chipHasDailyCapacity(b.id) && chipHasDailyCapacity(a.id)) {
+            {
                 const msgBtoA = WARMUP_MESSAGES[Math.floor(Math.random() * WARMUP_MESSAGES.length)];
                 await sendWarmupMessage(b.id, phoneA, msgBtoA, a.id);
             }

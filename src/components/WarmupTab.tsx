@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Flame, Play, Pause, TrendingUp, MessageCircle, Clock, Zap, RefreshCw, AlertTriangle,
   BarChart3, CalendarDays, ArrowUpRight, ArrowDownRight, Trash2, X, CheckCircle2,
-  AlertCircle, Timer, Wifi, WifiOff, Target, Activity, Sparkles, Server
+  AlertCircle, Timer, Wifi, WifiOff, Server
 } from 'lucide-react';
 import { useZapMassCore } from '../context/ZapMassContext';
 import { useAuth } from '../context/AuthContext';
@@ -44,7 +44,6 @@ interface Maturity {
   glow: string;
   bg: string;
   gradient: string;
-  dailyTarget: number;
   progress: number;
   days: number;
   nextTierDays: number;
@@ -53,10 +52,10 @@ interface Maturity {
 
 const computeMaturity = (stats?: WarmupChipStats): Maturity => {
   const base = {
-    novato:  { tier: 'novato'  as const, label: 'Novato',  color: '#f59e0b', glow: 'rgba(245,158,11,0.25)', bg: 'rgba(245,158,11,0.08)',  gradient: 'linear-gradient(135deg, #f59e0b22, #f59e0b08)', dailyTarget: 20,  nextTierDays: 3,  icon: '🌱' },
-    morno:   { tier: 'morno'   as const, label: 'Morno',   color: '#f97316', glow: 'rgba(249,115,22,0.25)',  bg: 'rgba(249,115,22,0.08)',   gradient: 'linear-gradient(135deg, #f9731622, #f9731608)', dailyTarget: 50,  nextTierDays: 7,  icon: '🔥' },
-    quente:  { tier: 'quente'  as const, label: 'Quente',  color: '#10b981', glow: 'rgba(16,185,129,0.25)',  bg: 'rgba(16,185,129,0.08)',   gradient: 'linear-gradient(135deg, #10b98122, #10b98108)', dailyTarget: 120, nextTierDays: 21, icon: '⚡' },
-    premium: { tier: 'premium' as const, label: 'Premium', color: '#8b5cf6', glow: 'rgba(139,92,246,0.25)',  bg: 'rgba(139,92,246,0.08)',   gradient: 'linear-gradient(135deg, #8b5cf622, #8b5cf608)', dailyTarget: 250, nextTierDays: 999, icon: '👑' },
+    novato:  { tier: 'novato'  as const, label: 'Novato',  color: '#f59e0b', glow: 'rgba(245,158,11,0.25)', bg: 'rgba(245,158,11,0.08)',  gradient: 'linear-gradient(135deg, #f59e0b22, #f59e0b08)', nextTierDays: 3,  icon: '🌱' },
+    morno:   { tier: 'morno'   as const, label: 'Morno',   color: '#f97316', glow: 'rgba(249,115,22,0.25)',  bg: 'rgba(249,115,22,0.08)',   gradient: 'linear-gradient(135deg, #f9731622, #f9731608)', nextTierDays: 7,  icon: '🔥' },
+    quente:  { tier: 'quente'  as const, label: 'Quente',  color: '#10b981', glow: 'rgba(16,185,129,0.25)',  bg: 'rgba(16,185,129,0.08)',   gradient: 'linear-gradient(135deg, #10b98122, #10b98108)', nextTierDays: 21, icon: '⚡' },
+    premium: { tier: 'premium' as const, label: 'Premium', color: '#8b5cf6', glow: 'rgba(139,92,246,0.25)',  bg: 'rgba(139,92,246,0.08)',   gradient: 'linear-gradient(135deg, #8b5cf622, #8b5cf608)', nextTierDays: 999, icon: '👑' },
   };
   if (!stats?.firstWarmedAt) return { ...base.novato, progress: 0, days: 0 };
   const days = Math.max(0, Math.floor((Date.now() - stats.firstWarmedAt) / 86_400_000));
@@ -543,17 +542,17 @@ export const WarmupTab: React.FC = () => {
             </span>
           )}
           <span className="text-[11px] w-full sm:w-auto" style={{ color: 'var(--text-3)' }}>
-            Meta diária de aquecimento: ao atingir o limite do chip, ele pausa sozinho e <strong>retoma no dia seguinte</strong>.
+            Aquecimento contínuo 24h enquanto estiver ativo — <strong>sem limite diário</strong>.
           </span>
         </div>
 
         {/* ═══ LEGENDA DE MATURIDADE ══════════════════════════════════════════ */}
         <div className="flex flex-wrap gap-2">
           {[
-            { tier: 'novato', label: 'Novato', sub: '<3 dias · até 20 msg/dia', color: '#f59e0b', icon: '🌱' },
-            { tier: 'morno',  label: 'Morno',  sub: '3–7 dias · até 50 msg/dia',  color: '#f97316', icon: '🔥' },
-            { tier: 'quente', label: 'Quente', sub: '7–21 dias · até 120 msg/dia', color: '#10b981', icon: '⚡' },
-            { tier: 'premium',label: 'Premium',sub: '21+ dias · até 250 msg/dia',  color: '#8b5cf6', icon: '👑' },
+            { tier: 'novato', label: 'Novato', sub: '<3 dias', color: '#f59e0b', icon: '🌱' },
+            { tier: 'morno',  label: 'Morno',  sub: '3–7 dias',  color: '#f97316', icon: '🔥' },
+            { tier: 'quente', label: 'Quente', sub: '7–21 dias', color: '#10b981', icon: '⚡' },
+            { tier: 'premium',label: 'Premium',sub: '21+ dias',  color: '#8b5cf6', icon: '👑' },
           ].map((t) => (
             <div
               key={t.tier}
@@ -599,7 +598,6 @@ export const WarmupTab: React.FC = () => {
               const prev7 = getLastNDays(chipStats, 14).slice(0, 7).reduce((a, b) => a + b.sent + b.received, 0);
               const trend = prev7 === 0 ? (weeklyTotal > 0 ? 100 : 0) : Math.round(((weeklyTotal - prev7) / Math.max(1, prev7)) * 100);
               const totalMsgs = (chipStats?.totalSent || 0) + (chipStats?.totalReceived || 0);
-              const targetPct = Math.min(100, Math.round((todayTotal / maturity.dailyTarget) * 100));
               const score = chipStats ? deriveChipScore(chipStats) : 0;
               const isWarming = channel.status === 'warming';
 
@@ -698,31 +696,16 @@ export const WarmupTab: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Meta diária com barra */}
+                    {/* Volume de hoje — sem teto */}
                     <div className="mb-3">
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[10.5px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-3)' }}>
-                          <Target className="w-3 h-3" /> Meta diária
+                        <span className="text-[10.5px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+                          Volume hoje
                         </span>
-                        <span className="text-[11px] font-bold tabular-nums" style={{ color: targetPct >= 100 ? '#10b981' : maturity.color }}>
-                          {todayTotal} / {maturity.dailyTarget}
-                          {targetPct >= 100 && <CheckCircle2 className="w-3 h-3 inline ml-1" />}
+                        <span className="text-[11px] font-bold tabular-nums" style={{ color: maturity.color }}>
+                          {todayTotal} msgs
                         </span>
                       </div>
-                      <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
-                        <div
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{ width: `${targetPct}%`, background: targetPct >= 100 ? '#10b981' : `linear-gradient(90deg, ${maturity.color}, ${maturity.color}cc)` }}
-                        />
-                      </div>
-                      {targetPct >= 100 && (
-                        <div className="flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-lg" style={{ background: 'rgba(16,185,129,0.10)', border: '1px solid rgba(16,185,129,0.2)' }}>
-                          <CheckCircle2 className="w-3 h-3 flex-shrink-0" style={{ color: '#10b981' }} />
-                          <span className="text-[10.5px] font-semibold" style={{ color: '#10b981' }}>
-                            Meta atingida hoje — retoma automaticamente amanhã
-                          </span>
-                        </div>
-                      )}
                     </div>
 
                     {/* Stats 3 colunas */}
@@ -896,7 +879,7 @@ export const WarmupTab: React.FC = () => {
                   ))}
                 </div>
 
-                {/* Taxa de falha + meta diária */}
+                {/* Taxa de falha + volume hoje */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-3 rounded-xl" style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}>
                     <div className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--text-3)' }}>Taxa de falha</div>
@@ -909,14 +892,12 @@ export const WarmupTab: React.FC = () => {
                     </div>
                   </div>
                   <div className="p-3 rounded-xl" style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}>
-                    <div className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--text-3)' }}>Meta diária</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--text-3)' }}>Volume hoje</div>
                     <div className="flex items-end gap-2">
                       <span className="text-[24px] font-extrabold tabular-nums" style={{ color: maturity.color }}>{today.sent + today.received}</span>
-                      <span className="text-[11px] font-semibold mb-1" style={{ color: 'var(--text-3)' }}>/ {maturity.dailyTarget}</span>
+                      <span className="text-[11px] font-semibold mb-1" style={{ color: 'var(--text-3)' }}>msgs</span>
                     </div>
-                    <div className="h-1.5 rounded-full overflow-hidden mt-1" style={{ background: 'var(--surface-2)' }}>
-                      <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.round(((today.sent + today.received) / maturity.dailyTarget) * 100))}%`, background: maturity.color }} />
-                    </div>
+                    <p className="text-[10.5px] mt-1" style={{ color: 'var(--text-3)' }}>Sem teto — aquecimento livre 24h</p>
                   </div>
                 </div>
 
@@ -961,10 +942,10 @@ export const WarmupTab: React.FC = () => {
                     <TrendingUp className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: maturity.color }} />
                     <div className="text-[12px] leading-relaxed" style={{ color: 'var(--text-2)' }}>
                       <strong style={{ color: maturity.color }}>Recomendação para este chip:</strong>{' '}
-                      {maturity.tier === 'novato' && 'Volume baixo (até 20 msg/dia). Evite disparos — aguarde 3 dias de aquecimento.'}
-                      {maturity.tier === 'morno' && 'Pode iniciar disparos leves (até 50 msg/dia). Continue aquecendo para subir de nível.'}
-                      {maturity.tier === 'quente' && 'Chip em boa forma — disparos médios (até 120 msg/dia). Em breve atinge Premium.'}
-                      {maturity.tier === 'premium' && 'Chip premium! Volume alto (até 250 msg/dia) com baixo risco de bloqueio.'}
+                      {maturity.tier === 'novato' && 'Chip novo: aqueça sem pausa diária. Evite disparos pesados nos primeiros 3 dias.'}
+                      {maturity.tier === 'morno' && 'Já pode iniciar disparos leves. Continue aquecendo 24h para subir de nível.'}
+                      {maturity.tier === 'quente' && 'Chip em boa forma — disparos médios. Em breve atinge Premium.'}
+                      {maturity.tier === 'premium' && 'Chip premium: aquecimento livre 24h e melhor margem para campanhas.'}
                     </div>
                   </div>
                 </div>

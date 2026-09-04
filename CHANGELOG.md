@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.76] - 2026-09-04
+### Alterado
+- **Aquecimento sem meta diária**: chips aquecem 24h enquanto o aquecimento estiver ativo — não pausam mais ao atingir um teto.
+### Melhorado
+- **Bate-papo permanente**: conversas do celular, disparos e histórico ficam salvos. Só saem da lista se você apagar a conversa. Chip bloqueado, offline ou excluído não apaga o histórico.
+- **Sincronizar do celular**: ao abrir o bate-papo (1×/dia) e no botão Atualizar, o Go puxa o HistorySync do WhatsApp.
+
 ## [2.3.75] - 2026-09-04
 ### Corrigido
 - **Editar campanha não trocava canal/pool**: chips offline estavam travados e o passo só avançava com canal online. Agora dá para trocar pool ou chips mesmo com canal restaurado offline.

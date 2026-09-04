@@ -99,6 +99,8 @@ services:
       WA_SYNC_CONV_EMIT_EVERY: ${WA_SYNC_CONV_EMIT_EVERY:-}
       # 1 = puxar inbox do telefone ao conectar; 0 = só tempo real (campanhas, envios, mensagens recebidas).
       WA_FULL_INBOX_SYNC: ${WA_FULL_INBOX_SYNC:-0}
+      # HistorySync do celular (Evolution Go / settings.syncFullHistory). Default on.
+      EVOLUTION_SYNC_FULL_HISTORY: ${EVOLUTION_SYNC_FULL_HISTORY:-1}
       # 1 (default): arquivar mensagens no Firestore (users/{uid}/waChatThreads) — Firebase Admin obrigatório.
       WA_CHAT_ARCHIVE: ${WA_CHAT_ARCHIVE:-1}
       # Assistente IA (Gemini) — exportado por deployment/vps-deploy.sh antes do stack deploy.
@@ -154,6 +156,7 @@ services:
       WWEBJS_WEB_VERSION_URL: ${WWEBJS_WEB_VERSION_URL:-}
       WA_SYNC_CONV_EMIT_EVERY: ${WA_SYNC_CONV_EMIT_EVERY:-}
       WA_FULL_INBOX_SYNC: ${WA_FULL_INBOX_SYNC:-0}
+      EVOLUTION_SYNC_FULL_HISTORY: ${EVOLUTION_SYNC_FULL_HISTORY:-1}
       WA_CHAT_ARCHIVE: ${WA_CHAT_ARCHIVE:-1}
     extra_hosts:
       - "host.docker.internal:host-gateway"

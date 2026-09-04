@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.76',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Aquecimento sem meta diária: roda 24h enquanto estiver ativo' },
+      { type: 'improvement', text: 'Bate-papo guarda conversas do celular e dos disparos; só sai da lista se você apagar — mesmo com chip bloqueado' },
+    ],
+  },
+  {
     version: '2.3.75',
     date: '04/09/2026',
     highlights: [

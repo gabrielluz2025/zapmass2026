@@ -148,20 +148,19 @@ export const WaWebChatApp: React.FC<{
     chipsConnected: connectedChannels.length
   });
 
-  /** Sync leve ao abrir; full 1×/dia só na Evolution API (Go = inbox via webhook). */
+  /** Sync leve ao abrir; full 1×/dia puxa o histórico do celular (Go = HistorySync). */
   const initialFullSyncDoneRef = useRef(false);
   const emptyInboxRecoveryRef = useRef(false);
 
   useEffect(() => {
-    if (!isBackendConnected || !socket?.connected || connectedChannels.length === 0 || !tenantUid) return;
+    if (!isBackendConnected || !socket?.connected || !tenantUid) return;
     if (initialFullSyncDoneRef.current) return;
     initialFullSyncDoneRef.current = true;
-    if (isGoWebhookInbox || isInboxFullSyncDoneToday(tenantUid)) {
+    if (connectedChannels.length === 0 || isInboxFullSyncDoneToday(tenantUid)) {
       requestSync({ full: false });
       return;
     }
     markInboxFullSyncDoneForToday(tenantUid);
-    // runResync já chama requestSync internamente — evitar emit duplicado no socket
     runResync({ full: true });
   }, [
     isBackendConnected,
@@ -170,10 +169,9 @@ export const WaWebChatApp: React.FC<{
     tenantUid,
     runResync,
     requestSync,
-    isGoWebhookInbox,
   ]);
 
-  /** Chips online mas inbox vazia — sync leve (full no Go não traz histórico). */
+  /** Inbox vazia com chips online — tenta HistorySync / arquivo. */
   useEffect(() => {
     if (!isBackendConnected || !socket?.connected || connectedChannels.length === 0) return;
     if (conversations.length > 0) {
@@ -183,8 +181,7 @@ export const WaWebChatApp: React.FC<{
     if (emptyInboxRecoveryRef.current) return;
     emptyInboxRecoveryRef.current = true;
     const t = window.setTimeout(() => {
-      requestSync({ full: false });
-      if (!isGoWebhookInbox) runResync({ full: true });
+      runResync({ full: true });
     }, 2800);
     return () => window.clearTimeout(t);
   }, [
@@ -192,9 +189,7 @@ export const WaWebChatApp: React.FC<{
     socket,
     connectedChannels.length,
     conversations.length,
-    requestSync,
     runResync,
-    isGoWebhookInbox,
   ]);
 
   useEffect(() => {
@@ -849,13 +844,12 @@ export const WaWebChatApp: React.FC<{
   );
 
   const handleRefresh = useCallback(() => {
-    // Go: force reconnect HistorySync; Evolution API: sync leve (full diário já no boot).
-    runResync({ full: false, force: true });
+    runResync({ full: true, force: true });
     if (selectedId) void loadMoreHistory(selectedId, true);
     toast.success(
       isGoWebhookInbox
         ? 'Reimportando conversas do WhatsApp…'
-        : 'Atualizando conversas recentes…',
+        : 'Atualizando conversas do celular…',
       { duration: 2500 }
     );
   }, [runResync, isGoWebhookInbox, selectedId, loadMoreHistory]);
@@ -1064,7 +1058,7 @@ export const WaWebChatApp: React.FC<{
   const handleDeleteConversation = useCallback(() => {
     if (!selected?.id) return;
     const ok = window.confirm(
-      'Remover esta conversa apenas da tela local?\n\nO histórico no WhatsApp não é apagado.'
+      'Remover esta conversa do bate-papo?\n\nEla some da lista e só volta se você receber ou enviar de novo. O WhatsApp no celular não é apagado.'
     );
     if (!ok) return;
     void deleteLocalConversations([selected.id]).then((n) => {

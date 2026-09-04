@@ -323,8 +323,8 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
             <p className="text-sm font-medium" style={{ color: 'var(--wa-text-2)' }}>
               {connectionFilterId !== 'ALL' || unreadOnly
                 ? 'Nenhuma conversa com esses filtros'
-                : chipsConnected === 0
-                  ? 'Nenhum chip conectado'
+                : conversations.length === 0 && chipsConnected === 0
+                  ? 'Nenhuma conversa salva ainda'
                   : isGoWebhookInbox
                     ? 'Aguardando conversas do WhatsApp'
                     : 'Sua inbox está vazia'}
@@ -333,7 +333,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
               {chipsConnected === 0
                 ? 'Vá em Conexões e escaneie o QR do WhatsApp.'
                 : isGoWebhookInbox
-                  ? 'O histórico chega via sincronização do celular. Use o botão abaixo se demorar.'
+                    ? 'Conversas do celular e dos disparos aparecem aqui. Use Sincronizar se a lista ainda estiver vazia.'
                   : 'Novas mensagens aparecerão aqui automaticamente.'}
             </p>
             {!syncing && !historyImporting && chipsConnected > 0 && connectionFilterId === 'ALL' && !unreadOnly && (

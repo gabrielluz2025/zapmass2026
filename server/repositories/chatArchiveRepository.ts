@@ -214,7 +214,7 @@ export async function listInboxThreadStubsPg(
   if (!isUuid(tenantId)) return [];
   const pool = getZapmassPool();
   if (!pool) return [];
-  const limit = Math.max(1, Math.min(400, opts?.limit ?? 60));
+  const limit = Math.max(1, Math.min(2000, opts?.limit ?? 60));
   const cursorMs =
     opts?.cursorMs != null && Number.isFinite(Number(opts.cursorMs)) ? Number(opts.cursorMs) : null;
   try {
@@ -240,6 +240,7 @@ export async function listInboxThreadStubsPg(
         contactName: row.contact_name || `+${phone}`,
         contactPhone: row.contact_phone || `+${phone}`,
         connectionId: conn,
+        connectionOwnerUid: tenantId,
         unreadCount: 0,
         lastMessage: '',
         lastMessageTime: '',

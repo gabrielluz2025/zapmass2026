@@ -110,6 +110,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     const projectRoot = path.resolve(process.cwd());
     const dataDir = path.resolve(projectRoot, process.env.DATA_DIR || 'data');
     const conversationsCacheFile = path.join(dataDir, 'conversations_cache.json');
+    const deletedConversationsFile = path.join(dataDir, 'deleted_conversations.json');
 
     function loadConversationsFromCache() {
         try {
@@ -175,6 +176,36 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     /** ownerUid do tenant atual — usado para escopo seguro em emitConversationsUpdate. */
     let ownerUidForScope: string | null = null;
     const deletedConversationIds = new Set<string>();
+    function persistDeletedConversationIds() {
+        try {
+            if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+            atomicWriteJsonFile(deletedConversationsFile, [...deletedConversationIds]);
+        } catch (err: any) {
+            console.warn('[evolutionChat] Falha ao persistir deleted_conversations.json:', err?.message);
+        }
+    }
+    function loadDeletedConversationIds() {
+        try {
+            if (!fs.existsSync(deletedConversationsFile)) return;
+            const parsed = JSON.parse(fs.readFileSync(deletedConversationsFile, 'utf-8'));
+            if (!Array.isArray(parsed)) return;
+            for (const id of parsed) {
+                if (typeof id === 'string' && id.trim()) deletedConversationIds.add(id);
+            }
+            if (deletedConversationIds.size > 0) {
+                const before = conversations.length;
+                conversations = conversations.filter((c) => !deletedConversationIds.has(c.id));
+                if (conversations.length !== before) {
+                    console.info(
+                        `[evolutionChat] ${before - conversations.length} conversa(s) do cache ignoradas (apagadas pelo usuário).`
+                    );
+                }
+            }
+        } catch (err: any) {
+            console.warn('[evolutionChat] Falha ao carregar deleted_conversations.json:', err?.message);
+        }
+    }
+    loadDeletedConversationIds();
     /** Evita corrida quando vários canais sincronizam findChats em paralelo. */
     let storeLock: Promise<void> = Promise.resolve();
     /** Debounce de 120ms para evitar dezenas de emits em sequência (ex: sync inicial de 1300+ conversas). */
@@ -378,7 +409,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     }
 
     function allowDeletedConversation(conversationId: string) {
+        if (!deletedConversationIds.has(conversationId)) return;
         deletedConversationIds.delete(conversationId);
+        persistDeletedConversationIds();
     }
 
     const persistConversationDeltaArchive = (
@@ -428,6 +461,13 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             conv = removeDuplicateConversationId(originalId, conv);
         }
         if (deletedConversationIds.has(conv.id)) return;
+        const ownerStamp =
+            conv.connectionOwnerUid ||
+            archiveCtx?.resolveConnectionOwnerUid(conv.connectionId) ||
+            archiveCtx?.ownerUidFromConnectionId(conv.connectionId);
+        if (ownerStamp && conv.connectionOwnerUid !== ownerStamp) {
+            conv = { ...conv, connectionOwnerUid: ownerStamp };
+        }
         const idx = conversations.findIndex((c) => c.id === conv.id);
         const prev = idx >= 0 ? conversations[idx] : null;
         if (idx >= 0) {
@@ -695,29 +735,31 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
     async function hydrateInboxStubsFromArchive(
         ownerUid: string,
-        connectionIds: string[]
+        connectionIds?: string[]
     ): Promise<number> {
-        const allowed = new Set(connectionIds.filter(Boolean));
-        if (allowed.size === 0) return 0;
+        const restrict = Array.isArray(connectionIds) && connectionIds.length > 0;
+        const allowed = new Set((connectionIds || []).filter(Boolean));
         const { usePostgresChatArchive } = await import('./chatArchiveStore.js');
         if (!usePostgresChatArchive()) return 0;
         const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
         const { listInboxThreadStubsPg } = await import('./repositories/chatArchiveRepository.js');
         const tenantId = resolvePostgresTenantId(ownerUid);
-        const stubs = await listInboxThreadStubsPg(tenantId, { limit: 400 });
+        const stubs = await listInboxThreadStubsPg(tenantId, { limit: 2000 });
         let touched = 0;
         for (const stub of stubs) {
-            if (!allowed.has(stub.connectionId)) continue;
+            if (restrict && !allowed.has(stub.connectionId)) continue;
+            if (deletedConversationIds.has(stub.id)) continue;
             const canonicalId = resolveCanonicalConversationId(stub.connectionId, stub.id, {
                 contactPhone: stub.contactPhone,
             });
-            const normalized = { ...stub, id: canonicalId };
-            if (conversations.some((c) => c.id === canonicalId)) {
-                upsertConversation(normalized, { skipArchive: true });
-            } else {
-                upsertConversation(normalized, { skipArchive: true });
-                touched += 1;
-            }
+            if (deletedConversationIds.has(canonicalId)) continue;
+            const normalized = {
+                ...stub,
+                id: canonicalId,
+                connectionOwnerUid: stub.connectionOwnerUid || ownerUid,
+            };
+            upsertConversation(normalized, { skipArchive: true });
+            touched += 1;
         }
         if (touched > 0) {
             collapseStoredConversations();
@@ -2125,6 +2167,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const before = conversations.length;
         conversations = conversations.filter((c) => !idSet.has(c.id));
         conversationIds.forEach((id) => deletedConversationIds.add(id));
+        persistDeletedConversationIds();
         const removed = before - conversations.length;
         if (removed > 0) {
             emitConversationsRemoved(conversationIds);
@@ -2203,6 +2246,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     return {
         init,
         getConversations: () => [...conversations],
+        isConversationDeleted: (id: string) => deletedConversationIds.has(id),
         pruneConversationsWithoutResolvableOwner,
         ensurePhoneStubs,
         flushConversationsCache,

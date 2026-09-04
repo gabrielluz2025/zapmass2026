@@ -163,7 +163,9 @@ export async function socketInboxPagePayload(
       });
       const ramIds = new Set(scoped.map((c) => c.id));
       for (const stub of pgStubs) {
-        if (!ramIds.has(stub.id)) scoped.push(stub);
+        if (!ramIds.has(stub.id)) {
+          scoped.push({ ...stub, connectionOwnerUid: tenantUid });
+        }
       }
     } catch {
       /* ignore */
@@ -192,7 +194,7 @@ export function conversationsPayloadForViewer(
   const scoped = filterByConnectionScope(
     tenantUid,
     allConversations.map((c) => {
-      const connectionOwnerUid = resolveConnectionOwner?.(c.connectionId);
+      const connectionOwnerUid = resolveConnectionOwner?.(c.connectionId) || c.connectionOwnerUid;
       return {
         ...c,
         connectionId: c.connectionId,
