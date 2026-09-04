@@ -4,13 +4,24 @@ import { evaluateCampaignDispatchGuard } from '../server/campaignChipGuard.js';
 describe('evaluateCampaignDispatchGuard', () => {
   const usable = (id: string) => id === 'chip-a';
 
-  it('pausa em ban cooldown mesmo com chip ok', async () => {
+  it('não pausa em ban cooldown quando há chip online', async () => {
     const r = await evaluateCampaignDispatchGuard({
       ownerUid: 't1',
       channelIds: ['chip-a', 'chip-b'],
       chipProtectionLockUntil: new Date(Date.now() + 3600_000).toISOString(),
       chipProtectionLockReason: 'ban_cooldown',
       isChannelUsable: usable,
+    });
+    expect(r.action).toBe('proceed');
+  });
+
+  it('pausa em ban cooldown só se nenhum chip estiver disponível', async () => {
+    const r = await evaluateCampaignDispatchGuard({
+      ownerUid: 't1',
+      channelIds: ['chip-x'],
+      chipProtectionLockUntil: new Date(Date.now() + 3600_000).toISOString(),
+      chipProtectionLockReason: 'ban_cooldown',
+      isChannelUsable: () => false,
     });
     expect(r.action).toBe('pause');
     if (r.action === 'pause') expect(r.reason).toBe('ban_cooldown');

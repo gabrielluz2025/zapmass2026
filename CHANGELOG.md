@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.67] - 2026-09-04
+### Corrigido
+- **Campanha caía no anti-ban no 1º job e não disparava**: logout/apagar canal gerava 401 (`loggedOut`) e o tenant ficava 48h em cooldown — a campanha inteira pausava mesmo com chips online. Agora o lock só pausa se nenhum canal estiver disponível; exclusão/logout não conta como ban; campanhas já travadas retomam no próximo tick.
+
 ## [2.3.66] - 2026-09-04
 ### Corrigido
 - **Prospecção com fluxo por respostas era recusada no disparo**: o servidor exigia 2 passos do plano semanal mesmo quando o wizard usa Lead Quente / nurture. Agora, com fluxo por respostas, só o lembrete dos silenciosos é necessário — o plano semanal vem do nurture.

@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.67',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Campanha não inicia no anti-ban: logout/apagar canal não trava mais o disparo 48h; segue nos chips online e retoma sozinha' },
+    ],
+  },
+  {
     version: '2.3.66',
     date: '04/09/2026',
     highlights: [

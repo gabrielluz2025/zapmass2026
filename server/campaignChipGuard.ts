@@ -70,13 +70,16 @@ export async function evaluateCampaignDispatchGuard(params: {
   const banLock = lockActive(params.chipProtectionLockUntil) && lockReason === 'ban_cooldown';
   const stormLock = lockActive(params.chipProtectionLockUntil) && lockReason === 'reconnect_storm';
 
-  if (banLock) {
+  // Lock de 48h no tenant NÃO pausa a campanha se ainda houver chip online.
+  // Logout/apagar canal gerava 401 e travava o disparo inteiro (anti-ban no 1º job).
+  // Chip em quarentena já sai de `usable`; só pausa quando nenhum canal restou.
+  if (banLock && usable.length === 0) {
     return {
       action: 'pause',
       reason: 'ban_cooldown',
       autoResumeAt: lockUntilMs(params.chipProtectionLockUntil),
       message:
-        'Campanha pausada automaticamente: banimento recente no WhatsApp. Jobs agendados para outro dia mantêm o horário. Retomada automática após o cooldown.',
+        'Campanha pausada: cooldown pós-banimento e nenhum chip online/disponível. Retomada automática quando um canal voltar ou o lock expirar.',
     };
   }
 

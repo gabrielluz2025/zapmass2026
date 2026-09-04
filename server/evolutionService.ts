@@ -1275,7 +1275,7 @@ export async function refreshConnectionsForCampaign(connectionIds: string[]): Pr
 export function anySelectedConnectionsOpenInMemory(connectionIds: string[]): boolean {
     for (const id of connectionIds) {
         const c = connections.get(id);
-        if (c?.status === 'open' && c.phoneNumber?.trim()) return true;
+        if (isEvolutionOpenState(c?.status) && c.phoneNumber?.trim()) return true;
     }
     return false;
 }
@@ -1837,7 +1837,14 @@ function applyConnectionStateUpdate(
             // Heurística de "rapid_close" foi removida — causava falsos positivos em
             // reconexões legítimas (deploy, queda de rede, restart do Evolution API).
             const statusReason = parseStatusReason(data);
-            if (isBanStatusReason(statusReason)) {
+            const userInitiatedClose =
+                isManualLogoutHoldActive(instance) || deletedConnectionIds.has(instance);
+            if (userInitiatedClose) {
+                // Logout / apagar canal: Evolution manda 401 loggedOut — não é ban.
+                log('info', `[BanDetect] Close ignorado (logout/exclusão): ${instance}`, {
+                    statusReason,
+                });
+            } else if (isBanStatusReason(statusReason)) {
                 recordChipBan(instance, statusReason);
                 log('warn', `[BanDetect] ${instance}: ban detectado via statusReason=${statusReason}`);
                 void import('./chipProtectionService.js').then((m) =>
@@ -4840,7 +4847,7 @@ async function filterActiveConnections(connectionIds: string[]): Promise<string[
     const active: string[] = [];
     for (const connId of connectionIds) {
         const ram = connections.get(connId);
-        const ramOpen = ram?.status === 'open' && Boolean(ram.phoneNumber?.trim());
+        const ramOpen = isEvolutionOpenState(ram?.status) && Boolean(ram.phoneNumber?.trim());
         // Webhook Connected já marcou o chip na RAM: incluir sem esperar probe HTTP
         // (o parser Go costumava recusar chips visivelmente Online).
         if (ramOpen) {
@@ -5456,6 +5463,8 @@ export async function deleteConnection(
     clearAutoReconnect(id);
     pairingStartedAt.delete(id);
     countZeroRecoveryAttempts.delete(id);
+    // Logout no Evolution dispara 401 — sem este hold o tenant entra em ban_cooldown 48h.
+    markManualLogoutHold(id);
 
     try {
         try {
@@ -5969,7 +5978,7 @@ function isCampaignChannelUsable(connectionId: string): boolean {
     const conn = connections.get(id);
     // Aceita o chip se a RAM diz 'open' OU se tivemos prova HTTP positiva recente (últimos 60s).
     // Isso evita que um RAM desatualizado (após restart/debounce do hydrate) cause failover falso.
-    const ramOpen = conn?.status === 'open';
+    const ramOpen = isEvolutionOpenState(conn?.status);
     if (!ramOpen) {
         const recent = lastConnectionStateCheck.get(id);
         const recentlyProvedOpen = recent && recent.state && (Date.now() - recent.at < 60_000);
@@ -6225,10 +6234,10 @@ export function getCampaignProtectionSnapshot(ownerUid: string): {
 
 /** Retoma campanhas pausadas pela proteção quando chips/locks permitem. */
 export async function tickAutoResumeProtectedCampaigns(): Promise<void> {
-    const now = Date.now();
     for (const [campaignId, state] of campaignsById.entries()) {
         if (!state.isRunning || !state.protectionPaused) continue;
-        if (state.protectionPauseUntil && state.protectionPauseUntil > now) continue;
+        // Sempre reavalia o guard: lock de 48h não pode impedir retomada se já
+        // houver chip online (regra nova) ou se o código de proteção mudou no deploy.
 
         const ids = state.connectionIds || [];
         if (ids.length === 0) continue;
@@ -6248,7 +6257,7 @@ export async function tickAutoResumeProtectedCampaigns(): Promise<void> {
             ...ctx,
             isChannelUsable: isCampaignChannelUsable,
         });
-        if (guard.action === 'proceed') {
+        if (guard.action !== 'pause') {
             resumeCampaignFromProtection(campaignId, state.ownerUid);
         }
     }
@@ -8094,8 +8103,11 @@ export async function startCampaign(
         void import('./chipProtectionService.js').then((m) =>
             m.refreshEffectiveProtection(ownerUid)
         );
-        // Garante status RUNNING no Firestore independente de o socket chegar ao frontend.
-        void persistCampaignProgressToFirestore(ownerUid, cid, 0, 0, 0, 'RUNNING');
+        // Não sobrescrever PAUSED se o 1º job já ativou proteção durante o enqueue.
+        const runtimeAfterEnqueue = campaignsById.get(cid);
+        if (!runtimeAfterEnqueue?.protectionPaused) {
+            void persistCampaignProgressToFirestore(ownerUid, cid, 0, 0, 0, 'RUNNING');
+        }
     } catch (err: any) {
         // Falha de enfileiramento (Redis fora, etc.): cancela campanha em RAM
         // e propaga para o socket handler avisar a UI.
