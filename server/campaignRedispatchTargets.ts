@@ -12,6 +12,8 @@ import {
   campaignLogPayloadMatchesCampaign,
   logPayloadPhoneKey,
 } from '../src/utils/campaignReportFromLogs.js';
+import { loadCampaignRecipientSnapshot } from './campaignRecipientSnapshot.js';
+import { listSettledCampaignJobs } from './campaignJobsResilience.js';
 import { normalizePhoneKey } from './replyFlowEngine.js';
 import { getZapmassPool } from './db/postgres.js';
 import { listCampaignLogs, type CampaignLogRow } from './repositories/campaignsRepository.js';
@@ -56,10 +58,25 @@ async function loadPhonesFromContactList(tenantId: string, listId: string): Prom
 /** Planejados: união snapshot + lista (snapshot parcial não pode esconder contatos da lista). */
 async function resolvePlannedPhonesForRedispatch(
   tenantId: string,
+  campaignId: string,
   campaign: Pick<Campaign, 'contactListId' | 'scheduleStartSnapshot' | 'totalContacts'>
 ): Promise<Set<string>> {
   const fromSnapshot = collectPlannedRecipientPhones(campaign, [], []);
   const merged = new Set(fromSnapshot);
+
+  const fileSnap = loadCampaignRecipientSnapshot(campaignId);
+  if (fileSnap?.numbers?.length) {
+    for (const n of fileSnap.numbers) {
+      const rk = recipientKeyForCampaignReport(n);
+      if (rk) merged.add(rk);
+    }
+  }
+  if (fileSnap?.recipients?.length) {
+    for (const r of fileSnap.recipients) {
+      const rk = recipientKeyForCampaignReport(r.phone);
+      if (rk) merged.add(rk);
+    }
+  }
 
   const listId = campaign.contactListId?.trim();
   if (listId) {
@@ -68,6 +85,49 @@ async function resolvePlannedPhonesForRedispatch(
   }
 
   return merged;
+}
+
+export function phoneMatchKeys(phone: string): string[] {
+  const n = normalizePhoneKey(phone);
+  const keys = new Set<string>();
+  if (n.length >= 8) keys.add(n);
+  if (n.length >= 10) {
+    keys.add(n.slice(-11));
+    keys.add(n.slice(-10));
+  }
+  return [...keys];
+}
+
+export function plannedPhonesMissingFromJobs(
+  planned: Iterable<string>,
+  jobPhones: Iterable<string>
+): string[] {
+  const existing = new Set<string>();
+  for (const p of jobPhones) {
+    for (const k of phoneMatchKeys(p)) existing.add(k);
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of planned) {
+    const n = normalizePhoneKey(p);
+    if (n.length < 8 || seen.has(n)) continue;
+    if (phoneMatchKeys(n).some((k) => existing.has(k))) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
+}
+
+/** Contatos da etapa 0 que ainda não foram entregues (não reenvia sent/dead). */
+export async function resolveUnsentTargetsFromCampaignJobs(
+  tenantId: string,
+  campaignId: string,
+  campaign: Pick<Campaign, 'contactListId' | 'scheduleStartSnapshot' | 'totalContacts'>
+): Promise<Array<{ phone: string; stepIndex: number }>> {
+  const planned = await resolvePlannedPhonesForRedispatch(tenantId, campaignId, campaign);
+  const settled = await listSettledCampaignJobs(campaignId);
+  const jobPhones = settled.map((j) => j.toNumber);
+  return plannedPhonesMissingFromJobs(planned, jobPhones).map((phone) => ({ phone, stepIndex: 0 }));
 }
 
 /** Contatos da etapa 0 que ainda não receberam "Mensagem enviada" (snapshot/lista + logs). */
@@ -79,7 +139,7 @@ export async function resolveUnsentStep0TargetsFromSnapshot(
   const logRows = await listCampaignLogs(tenantId, campaignId, { limit: 2000, offset: 0 });
   const logs = logsForSentDetection(logRows, campaignId);
   const sentPhones = collectSentPhonesFromCampaignLogs(logs, campaignId);
-  const plannedPhones = await resolvePlannedPhonesForRedispatch(tenantId, campaign);
+  const plannedPhones = await resolvePlannedPhonesForRedispatch(tenantId, campaignId, campaign);
 
   const targets: Array<{ phone: string; stepIndex: number }> = [];
   for (const phone of plannedPhones) {

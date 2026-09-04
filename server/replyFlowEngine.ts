@@ -266,6 +266,26 @@ export function sanitizeReplyFlowMeta(raw: unknown): ReplyFlowDefMeta {
     };
 }
 
+/** Lê o fluxo por respostas do documento da campanha (inclui snapshot, se o doc principal estiver vazio). */
+export function parseReplyFlowDefFromCampaignDoc(
+    docData: Record<string, unknown> | null | undefined
+): { steps: ReplyFlowStepDef[]; meta: ReplyFlowDefMeta } | null {
+    if (!docData) return null;
+    const snap = docData.scheduleStartSnapshot;
+    const snapRf =
+        snap && typeof snap === 'object' ? (snap as Record<string, unknown>).replyFlow : undefined;
+    const candidates = [docData.replyFlow, snapRf];
+    for (const raw of candidates) {
+        if (!raw || typeof raw !== 'object') continue;
+        const rf = raw as Record<string, unknown>;
+        if (!rf.enabled || !Array.isArray(rf.steps)) continue;
+        const sanitized = sanitizeReplyFlowSteps(rf.steps as Parameters<typeof sanitizeReplyFlowSteps>[0]);
+        if (sanitized.length === 0) continue;
+        return { steps: sanitized, meta: sanitizeReplyFlowMeta(rf) };
+    }
+    return null;
+}
+
 export {
     cleanReplyTriggerToken,
     matchReplyTriggerToken,
@@ -319,6 +339,25 @@ export class ReplyFlowEngine {
     registerDef(campaignId: string, steps: ReplyFlowStepDef[], meta?: ReplyFlowDefMeta) {
         if (!campaignId || steps.length === 0) return;
         this.defs.set(campaignId, { steps, meta: meta || {} });
+    }
+
+    hasDef(campaignId: string): boolean {
+        return Boolean(this.defs.get(campaignId)?.steps?.length);
+    }
+
+    async ensureDefLoaded(campaignId: string, ownerUid?: string): Promise<boolean> {
+        if (this.hasDef(campaignId)) return true;
+        const def = await this.loadDefFromFirestore(campaignId, ownerUid);
+        return Boolean(def?.steps?.length);
+    }
+
+    /** Após hidratar defs no boot, religa timeouts das sessões restauradas. */
+    rescheduleTimeouts(): void {
+        for (const [key, session] of this.sessions) {
+            const colonIdx = key.indexOf(':');
+            if (colonIdx <= 0) continue;
+            this.scheduleStepTimeout(key.slice(0, colonIdx), key.slice(colonIdx + 1), session);
+        }
     }
 
     openSession(params: {
@@ -600,40 +639,45 @@ export class ReplyFlowEngine {
         ownerUid?: string
     ): Promise<{ steps: ReplyFlowStepDef[]; meta: ReplyFlowDefMeta } | null> {
         try {
+            let docData: Record<string, unknown> | undefined;
+            let uid = String(ownerUid || '').trim();
+
+            if (usePostgresCampaigns()) {
+                if (!uid) {
+                    const { resolveCampaignTenantId } = await import('./repositories/campaignsRepository.js');
+                    uid = (await resolveCampaignTenantId(campaignId)) || '';
+                }
+                if (uid) {
+                    docData = (await fetchCampaignDoc(uid, campaignId)) ?? undefined;
+                }
+                const fromPg = parseReplyFlowDefFromCampaignDoc(docData);
+                if (fromPg) {
+                    this.defs.set(campaignId, fromPg);
+                    return fromPg;
+                }
+            }
+
             const admin = getFirebaseAdmin();
             if (!admin) return null;
             const db = getFirestore(admin);
 
-            let docData: Record<string, unknown> | undefined;
-
-            if (ownerUid) {
-                if (usePostgresCampaigns()) {
-                    docData = (await fetchCampaignDoc(ownerUid, campaignId)) ?? undefined;
-                } else {
-                    const docSnap = await db.doc(`users/${ownerUid}/campaigns/${campaignId}`).get();
-                    if (docSnap.exists) docData = docSnap.data() as Record<string, unknown>;
-                }
+            if (uid && !docData) {
+                const docSnap = await db.doc(`users/${uid}/campaigns/${campaignId}`).get();
+                if (docSnap.exists) docData = docSnap.data() as Record<string, unknown>;
             }
 
             if (!docData) {
-                // Fallback: busca pelo campo `id` na collectionGroup (sem __name__ que não funciona).
                 const snap = await db.collectionGroup('campaigns').where('id', '==', campaignId).limit(1).get();
                 if (!snap.empty) docData = snap.docs[0].data() as Record<string, unknown>;
             }
 
-            if (docData?.replyFlow && typeof docData.replyFlow === 'object') {
-                const rf = docData.replyFlow as Record<string, unknown>;
-                if (rf.enabled && Array.isArray(rf.steps)) {
-                    const sanitized = sanitizeReplyFlowSteps(rf.steps as any[]);
-                    const meta = sanitizeReplyFlowMeta(rf);
-                    if (sanitized.length > 0) {
-                        this.defs.set(campaignId, { steps: sanitized, meta });
-                        return { steps: sanitized, meta };
-                    }
-                }
+            const parsed = parseReplyFlowDefFromCampaignDoc(docData);
+            if (parsed) {
+                this.defs.set(campaignId, parsed);
+                return parsed;
             }
         } catch (e) {
-            console.warn('[ReplyFlow] Erro ao buscar campanha no Firestore:', e);
+            console.warn('[ReplyFlow] Erro ao buscar definição da campanha:', e);
         }
         return null;
     }
@@ -675,11 +719,15 @@ export class ReplyFlowEngine {
             def = (await this.loadDefFromFirestore(session.campaignId, session.ownerUid)) ?? undefined;
         }
         if (!def?.steps?.length) {
-            this.disposeSession(key, session);
+            this.callbacks.onLog?.('Fluxo por resposta sem definição da campanha — sessão mantida', {
+                campaignId: session.campaignId,
+                connectionId,
+                phoneDigits,
+            });
             return { handled: false };
         }
 
-        if (this.callbacks.isCampaignPaused?.(session.campaignId)) return { handled: false };
+        // Pausar o disparo em massa NÃO pode silenciar gatilhos de quem já recebeu.
 
         const tBody = String(bodyText || '').trim();
         const meta = def.meta || {};

@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.82',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Gatilhos de resposta voltam a disparar depois do deploy ou com a campanha pausada — o fluxo recarrega do servidor e não some mais' },
+      { type: 'fix', text: 'Botão “Enviar para quem não recebeu”: coloca na fila só quem ainda não ganhou a mensagem, sem repetir os já entregues' },
+    ],
+  },
+  {
     version: '2.3.81',
     date: '04/09/2026',
     highlights: [

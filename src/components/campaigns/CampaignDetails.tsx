@@ -1269,7 +1269,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         mode: 'resume',
         connectionIds: onlineIds,
       });
-      toast.success(`Campanha retomada — ${n} contato(s) na fila (de onde parou).`);
+      toast.success(
+        n > 1500
+          ? `Enfileirando ${n} contato(s) que ainda não receberam — o disparo segue em segundo plano.`
+          : `Campanha retomada — ${n} contato(s) na fila (quem ainda não recebeu).`
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro ao retomar campanha.';
       toast.error(msg);
@@ -1518,9 +1522,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
   const canResumeSameCampaign =
     !isScheduled &&
+    !isDone &&
     (metrics.pending > 0 ||
       performance.counts.PENDING > 0 ||
       performance.counts.FAILED > 0 ||
+      isPaused ||
       (isWaitingForReplies && !isRunning));
 
   const statusLabel = isWaitingForReplies
@@ -1580,11 +1586,13 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                       ? handleRetryFailed()
                       : void handleResumeRedispatch()
                   }
-                  title="Reenviar falhas ou retomar etapas pendentes na mesma campanha"
+                  title="Envia só para quem ainda não recebeu, sem repetir os já entregues"
                 >
                   {performance.counts.FAILED > 0 && !isWaitingForReplies && metrics.pending === 0
                     ? 'Reenviar falhas'
-                    : 'Retomar disparo'}
+                    : metrics.pending > 0
+                      ? 'Enviar para quem não recebeu'
+                      : 'Retomar disparo'}
                 </Button>
               )}
               {(isWaitingForReplies || isRunning || isDone) && (

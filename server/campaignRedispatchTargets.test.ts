@@ -12,10 +12,67 @@ vi.mock('./db/postgres.js', () => ({
   getZapmassPool: vi.fn(),
 }));
 
+vi.mock('./campaignJobsResilience.js', () => ({
+  listSettledCampaignJobs: vi.fn(),
+  listCampaignJobToNumbers: vi.fn(),
+}));
+
 import { getZapmassPool } from './db/postgres.js';
 import { getContactListById } from './repositories/contactListsRepository.js';
 import { listCampaignLogs } from './repositories/campaignsRepository.js';
-import { resolveUnsentStep0TargetsFromSnapshot } from './campaignRedispatchTargets.js';
+import { listSettledCampaignJobs } from './campaignJobsResilience.js';
+import {
+  plannedPhonesMissingFromJobs,
+  resolveUnsentStep0TargetsFromSnapshot,
+  resolveUnsentTargetsFromCampaignJobs,
+} from './campaignRedispatchTargets.js';
+
+describe('plannedPhonesMissingFromJobs', () => {
+  it('pula quem já tem job, mesmo com DDD/9 diferentes', () => {
+    const missing = plannedPhonesMissingFromJobs(
+      ['5548999887766', '5548988776655', '4899771122'],
+      ['48999887766']
+    );
+    expect(missing).toContain('5548988776655');
+    expect(missing.some((p) => p.endsWith('99887766'))).toBe(false);
+  });
+
+  it('devolve todos se ainda não há jobs', () => {
+    expect(plannedPhonesMissingFromJobs(['5548999112233'], [])).toEqual(['5548999112233']);
+  });
+});
+
+describe('resolveUnsentTargetsFromCampaignJobs', () => {
+  beforeEach(() => {
+    vi.mocked(listSettledCampaignJobs).mockReset();
+    vi.mocked(getContactListById).mockReset();
+    vi.mocked(getZapmassPool).mockReset();
+  });
+
+  it('não reenvia sent/dead e devolve o restante da lista', async () => {
+    vi.mocked(listSettledCampaignJobs).mockResolvedValue([
+      { idempotencyKey: 'k1', toNumber: '48999887766', stageIndex: 0 },
+    ]);
+    vi.mocked(getContactListById).mockResolvedValue({
+      id: 'list1',
+      name: 'Lista',
+      contactIds: ['c1', 'c2'],
+    } as never);
+    vi.mocked(getZapmassPool).mockReturnValue({
+      query: vi.fn().mockResolvedValue({
+        rows: [{ phone: '5548999887766' }, { phone: '5548988776655' }],
+      }),
+    } as never);
+
+    const targets = await resolveUnsentTargetsFromCampaignJobs('tenant-1', 'c1', {
+      contactListId: 'list1',
+      totalContacts: 2,
+    });
+
+    expect(targets.some((t) => t.phone.endsWith('99887766'))).toBe(false);
+    expect(targets.some((t) => t.phone.endsWith('88776655'))).toBe(true);
+  });
+});
 
 describe('resolveUnsentStep0TargetsFromSnapshot', () => {
   beforeEach(() => {

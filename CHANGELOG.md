@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.82] - 2026-09-04
+### Corrigido
+- **Gatilhos de resposta paravam após deploy/pausa**: a definição do fluxo sumia da RAM e, sem Firebase, não voltava. Agora recarrega do Postgres, não apaga a sessão se a definição atrasar, e pausar o disparo em massa não silencia quem já recebeu.
+- **Retomar reenviava quem já tinha recebido ou não enfileirava o restante**: o fallback usava logs vazios. Agora a retomada usa `campaign_jobs` (só quem ainda não foi entregue) e enfileira em lote — bases grandes não estouram o timeout.
+
 ## [2.3.81] - 2026-09-04
 ### Corrigido
 - **Conexões e Painel zeravam envios após deploy**: o contador do chip vivia só na RAM. Agora lê os envios reais do Postgres por canal — o painel, a aba Conexões e o desempenho por chip da campanha mostram quantas mensagens cada WhatsApp mandou.

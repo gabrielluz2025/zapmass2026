@@ -547,6 +547,23 @@ export async function reattachOrphanCampaignJobs(tenantId: string): Promise<numb
 }
 
 /** Jobs já encerrados: não reenviar nem recontar. */
+export async function listCampaignJobToNumbers(campaignId: string): Promise<string[]> {
+  const cid = String(campaignId || '').trim();
+  if (!cid || !isUuid(cid) || !isZapmassPostgresConfigured()) return [];
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  try {
+    const r = await pool.query<{ to_number: string }>(
+      `SELECT DISTINCT to_number
+         FROM zapmass.campaign_jobs
+        WHERE campaign_id = $1::uuid`,
+      [cid]
+    );
+    return r.rows.map((row) => String(row.to_number || '')).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 export async function listSettledCampaignJobs(campaignId: string): Promise<SettledCampaignJob[]> {
   const cid = String(campaignId || '').trim();
   if (!cid || !isZapmassPostgresConfigured()) return [];

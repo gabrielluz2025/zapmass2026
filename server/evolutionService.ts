@@ -74,6 +74,7 @@ import {
     sanitizeReplyFlowMeta,
     type CampaignRecipient,
     type ReplyFlowSession,
+    parseReplyFlowDefFromCampaignDoc,
 } from './replyFlowEngine.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
@@ -231,7 +232,7 @@ import {
     updateContactStateOnFailure,
 } from './campaignMultiStepEngine.js';
 import { isCampaignFlowContinuation } from './campaignFlowContinuation.js';
-import { usePostgresCampaigns } from './campaignStore.js';
+import { updateCampaignFields, usePostgresCampaigns } from './campaignStore.js';
 import { countWaitingReplyForCampaign, getContactStateSummary } from './repositories/campaignContactStateRepository.js';
 import {
     markProspectingSilentBumpSent,
@@ -3694,6 +3695,8 @@ interface CampaignRuntimeState {
 
 const campaignsById = new Map<string, CampaignRuntimeState>();
 const campaignPendingJobs = new Map<string, number>();
+/** Enfileiramento em background (bases grandes) — o stall watchdog não pode retomar no meio. */
+const campaignEnqueueInFlight = new Set<string>();
 /** Motor lazy: armazena stageConfigs por campaignId para lookups durante processamento. */
 const campaignStageConfigsById = new Map<string, CampaignStageConfig[]>();
 
@@ -4528,6 +4531,7 @@ async function tryReopenReplyFlowFromContext(connectionId: string, phoneDigits: 
             convKey: `${connectionId}:${variant}`,
             remoteJid,
         });
+        await replyFlowEngine.ensureDefLoaded(ctx.campaignId, ctx.ownerUid);
         log('info', 'Sessão reply flow reaberta a partir de contexto Redis', {
             connectionId,
             phoneDigits: variant,
@@ -4539,8 +4543,35 @@ async function tryReopenReplyFlowFromContext(connectionId: string, phoneDigits: 
 }
 
 const REPLYFLOW_SESSION_KEY_PREFIX = 'zapmass:rf:sess:';
+const REDISPATCH_BACKGROUND_THRESHOLD = 1_500;
 
-/** Re-enfileira respostas pendentes após queda, ban temporário ou restart. */
+/** Recarrega definições de fluxo por respostas após deploy (RAM zera; Redis/PG ficam). */
+async function hydrateReplyFlowDefsFromPostgres(): Promise<number> {
+    if (!usePostgresCampaigns()) return 0;
+    ensureReplyFlowEngine();
+    try {
+        const { listCampaignsWithReplyFlow } = await import('./repositories/campaignsRepository.js');
+        const rows = await listCampaignsWithReplyFlow(400);
+        let loaded = 0;
+        for (const row of rows) {
+            const parsed = parseReplyFlowDefFromCampaignDoc(row.doc);
+            if (!parsed) continue;
+            replyFlowEngine.registerDef(row.id, parsed.steps, parsed.meta);
+            loaded++;
+        }
+        if (loaded > 0) {
+            log('info', `[ReplyFlow] ${loaded} definição(ões) recarregada(s) do Postgres`, { loaded });
+        }
+        return loaded;
+    } catch (e) {
+        log('warn', '[ReplyFlow] hydrateReplyFlowDefsFromPostgres falhou', {
+            error: (e as Error)?.message,
+        });
+        return 0;
+    }
+}
+
+/** Re-enfileira respostas pendentes e restaura sessões à espera de gatilho após queda/restart. */
 export async function recoverStuckReplyFlowSessions(): Promise<number> {
     const conn = getRedisConnection();
     if (!conn) return 0;
@@ -4549,8 +4580,11 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
         return 0;
     }
     ensureReplyFlowEngine();
+    await hydrateReplyFlowDefsFromPostgres();
 
     let recovered = 0;
+    let pendingRequeued = 0;
+    const campaignIds = new Set<string>();
     let cursor = '0';
     try {
     do {
@@ -4565,8 +4599,7 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
             } catch {
                 continue;
             }
-            const pending = sess?.pendingOutbound;
-            if (!pending?.message?.trim() || !sess?.campaignId) continue;
+            if (!sess?.campaignId) continue;
 
             const keyBody = key.slice(REPLYFLOW_SESSION_KEY_PREFIX.length);
             const colonIdx = keyBody.indexOf(':');
@@ -4575,6 +4608,12 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
             const phoneDigits = keyBody.slice(colonIdx + 1);
 
             replyFlowEngine.restoreSession(connectionId, phoneDigits, sess);
+            campaignIds.add(sess.campaignId);
+            recovered++;
+
+            const pending = sess.pendingOutbound;
+            if (!pending?.message?.trim()) continue;
+
             pending.enqueuedAt = Date.now();
             void saveReplyFlowSessionToRedis(connectionId, phoneDigits, sess);
 
@@ -4600,7 +4639,7 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
                 },
                 5000 + Math.random() * 5000
             );
-            recovered++;
+            pendingRequeued++;
             log('info', 'Sessão reply flow retomada após queda', {
                 connectionId,
                 phoneDigits,
@@ -4613,6 +4652,20 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
     } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
         log('warn', '[ReplyFlow] recoverStuckReplyFlowSessions falhou', { error: message, recovered });
+    }
+
+    for (const campaignId of campaignIds) {
+        const ownerUid = campaignsById.get(campaignId)?.ownerUid;
+        await replyFlowEngine.ensureDefLoaded(campaignId, ownerUid);
+    }
+    replyFlowEngine.rescheduleTimeouts();
+
+    if (recovered > 0) {
+        log('info', `[ReplyFlow] ${recovered} sessão(ões) restaurada(s) do Redis`, {
+            recovered,
+            pendingRequeued,
+            campaigns: campaignIds.size,
+        });
     }
 
     return recovered;
@@ -4882,8 +4935,8 @@ async function tryRestoreReplyFlowSession(connectionId: string, phoneDigits: str
                 campaignId: sess.campaignId,
                 awaitingAfterStep: sess.awaitingAfterStep,
             });
-            // Recarrega a definição da campanha se necessário
             replyFlowEngine.restoreSession(connectionId, variant, sess);
+            await replyFlowEngine.ensureDefLoaded(sess.campaignId, sess.ownerUid);
             return;
         }
     }
@@ -7881,7 +7934,7 @@ export async function redispatchCampaign(
         targets = rows.map((r) => ({ phone: r.contactId, stepIndex: r.stepIndex }));
     }
 
-    if (targets.length === 0) {
+    if (mode === 'failed' && targets.length === 0) {
         const snap = await buildCampaignReportSnapshot(tenantId, campaignId);
         const failedRows = (snap?.rows || []).filter((r) => {
             const st = String(r.status || '').toUpperCase();
@@ -7906,10 +7959,26 @@ export async function redispatchCampaign(
         }
     }
 
+    let usedJobsAsUnsentSource = false;
+    if (mode === 'resume') {
+        const { resolveUnsentTargetsFromCampaignJobs } = await import('./campaignRedispatchTargets.js');
+        const { listCampaignJobToNumbers, listSettledCampaignJobs } = await import('./campaignJobsResilience.js');
+        const [existingJobs, settledJobs] = await Promise.all([
+            listCampaignJobToNumbers(campaignId),
+            listSettledCampaignJobs(campaignId),
+        ]);
+        if (existingJobs.length > 0 || settledJobs.length > 0) {
+            usedJobsAsUnsentSource = true;
+            if (targets.length === 0) {
+                targets = await resolveUnsentTargetsFromCampaignJobs(tenantId, campaignId, campaign);
+            }
+        }
+    }
+
     targets = await refreshRedispatchTargetPhones(tenantId, targets);
 
-    // Fluxo por resposta não grava campaign_contact_state — retomar via snapshot − enviados.
-    if (targets.length === 0 && mode === 'resume') {
+    // Sem jobs: fallback antigo (snapshot − logs). Com jobs, NÃO reenvia quem já tem linha.
+    if (targets.length === 0 && mode === 'resume' && !usedJobsAsUnsentSource) {
         const { resolveUnsentStep0TargetsFromSnapshot } = await import('./campaignRedispatchTargets.js');
         targets = await resolveUnsentStep0TargetsFromSnapshot(tenantId, campaignId, campaign);
     }
@@ -7961,7 +8030,8 @@ export async function redispatchCampaign(
         }
     }
 
-    const replyFlow = campaign.replyFlow;
+    const snapRf = campaign.scheduleStartSnapshot?.replyFlow;
+    const replyFlow = campaign.replyFlow?.enabled ? campaign.replyFlow : snapRf;
     const sanitizedReplySteps =
         replyFlow?.enabled && Array.isArray(replyFlow.steps) && replyFlow.steps.length >= 1
             ? sanitizeReplyFlowSteps(replyFlow.steps)
@@ -7970,6 +8040,9 @@ export async function redispatchCampaign(
     if (useReplyFlow) {
         ensureReplyFlowEngine();
         replyFlowEngine.registerDef(campaignId, sanitizedReplySteps, sanitizeReplyFlowMeta(replyFlow));
+        void updateCampaignFields(tenantId, campaignId, {
+            replyFlow: { ...replyFlow, enabled: true, steps: sanitizedReplySteps },
+        }).catch(() => undefined);
     }
 
     const templates = (
@@ -7986,95 +8059,21 @@ export async function redispatchCampaign(
 
     campaignsById.set(campaignId, {
         ownerUid: tenantId,
-        total: baseProcessed + targets.length,
+        total: Math.max(baseProcessed + targets.length, prev?.total ?? 0, campaign.totalContacts ?? 0),
         processed: baseProcessed,
         successCount: prev?.successCount ?? campaign.successCount ?? 0,
         failCount: prev?.failCount ?? campaign.failedCount ?? 0,
         lastLoggedProcessed: prev?.lastLoggedProcessed ?? baseProcessed,
         isRunning: true,
-        startedAt: prev?.startedAt ?? Date.now(),
+        startedAt: Date.now(),
         recentOutcomes: prev?.recentOutcomes ?? [],
         _recipientVars: recipientVars,
+        connectionIds: [...activeConnectionIds],
     });
-    campaignPendingJobs.set(campaignId, (campaignPendingJobs.get(campaignId) || 0) + targets.length);
     void saveCampaignRuntimeToRedis(campaignId);
 
-    let enqueued = 0;
     try {
-        for (let i = 0; i < targets.length; i++) {
-            const { phone, stepIndex } = targets[i];
-            const cleanPhone = normalizePhoneKey(phone);
-            const assignedConnectionId = activeConnectionIds[i % activeConnectionIds.length];
-            const staggerDelay = i * dispatchSettings.minDelayMs;
-            const vars = recipientVars.get(cleanPhone) || {};
-
-            if (useLazyMotor && stageConfigs?.[stepIndex]) {
-                const stage = stageConfigs[stepIndex];
-                const personalizedMessage = applyMessageVars(stage.body, cleanPhone, vars, i);
-                await enqueueCampaignItem(
-                    {
-                        connectionId: assignedConnectionId,
-                        to: phone,
-                        message: personalizedMessage,
-                        campaignId,
-                        ownerUid: tenantId,
-                        stageIndex: stepIndex,
-                        rotationIndex: i,
-                        sendAsMedia: hasMedia && stepIndex === 0,
-                        skipFrequencyCap,
-                        multiStepContact: { contactId: cleanPhone, stepIndex },
-                    },
-                    staggerDelay
-                );
-            } else if (useReplyFlow && stepIndex === 0) {
-                const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars, i);
-                await enqueueCampaignItem(
-                    {
-                        connectionId: assignedConnectionId,
-                        to: phone,
-                        message: personalizedMessage,
-                        campaignId,
-                        ownerUid: tenantId,
-                        rotationIndex: i,
-                        sendAsMedia: hasMedia,
-                        skipFrequencyCap,
-                        replyFlowOpen: {
-                            campaignId,
-                            phoneDigits: cleanPhone,
-                            vars,
-                            ownerUid: tenantId,
-                        },
-                    },
-                    staggerDelay
-                );
-            } else {
-                const template = templates[stepIndex] || templates[0] || campaign.message;
-                const personalizedMessage = applyMessageVars(template, cleanPhone, vars, i);
-                await enqueueCampaignItem(
-                    {
-                        connectionId: assignedConnectionId,
-                        to: phone,
-                        message: personalizedMessage,
-                        campaignId,
-                        ownerUid: tenantId,
-                        stageIndex: stepIndex,
-                        rotationIndex: i,
-                        sendAsMedia: hasMedia && stepIndex === 0,
-                        skipFrequencyCap,
-                    },
-                    staggerDelay
-                );
-            }
-            enqueued++;
-        }
-
-        emitCampaignLog(
-            'INFO',
-            `Reenvio na mesma campanha: ${enqueued} contato(s) (${mode})`,
-            { campaignId, mode, enqueued, stepIndex: options.stepIndex },
-            tenantId
-        );
-        void persistCampaignProgressToFirestore(
+        await persistCampaignProgressToFirestore(
             tenantId,
             campaignId,
             prev?.successCount ?? campaign.successCount ?? 0,
@@ -8082,11 +8081,117 @@ export async function redispatchCampaign(
             baseProcessed,
             'RUNNING'
         );
-        publishOwnerEvent(tenantId, 'campaign-started', { total: enqueued, campaignId, redispatch: true });
-        return { ok: true, enqueued };
+    } catch (e) {
+        log('warn', 'redispatchCampaign: falha ao persistir RUNNING antes do enqueue', {
+            campaignId,
+            error: (e as Error)?.message,
+        });
+    }
+
+    const pendingEnqueue: Array<{ item: MessageQueueItem; delayMs: number }> = [];
+    for (let i = 0; i < targets.length; i++) {
+        const { phone, stepIndex } = targets[i];
+        const cleanPhone = normalizePhoneKey(phone);
+        const assignedConnectionId = activeConnectionIds[i % activeConnectionIds.length];
+        const staggerDelay = i * dispatchSettings.minDelayMs;
+        const vars = recipientVars.get(cleanPhone) || {};
+
+        if (useLazyMotor && stageConfigs?.[stepIndex]) {
+            const stage = stageConfigs[stepIndex];
+            const personalizedMessage = applyMessageVars(stage.body, cleanPhone, vars, i);
+            pendingEnqueue.push({
+                item: {
+                    connectionId: assignedConnectionId,
+                    to: phone,
+                    message: personalizedMessage,
+                    campaignId,
+                    ownerUid: tenantId,
+                    stageIndex: stepIndex,
+                    rotationIndex: i,
+                    sendAsMedia: hasMedia && stepIndex === 0,
+                    skipFrequencyCap,
+                    multiStepContact: { contactId: cleanPhone, stepIndex },
+                },
+                delayMs: staggerDelay,
+            });
+        } else if (useReplyFlow && stepIndex === 0) {
+            const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars, i);
+            pendingEnqueue.push({
+                item: {
+                    connectionId: assignedConnectionId,
+                    to: phone,
+                    message: personalizedMessage,
+                    campaignId,
+                    ownerUid: tenantId,
+                    rotationIndex: i,
+                    sendAsMedia: hasMedia,
+                    skipFrequencyCap,
+                    replyFlowOpen: {
+                        campaignId,
+                        phoneDigits: cleanPhone,
+                        vars,
+                        ownerUid: tenantId,
+                    },
+                },
+                delayMs: staggerDelay,
+            });
+        } else {
+            const template = templates[stepIndex] || templates[0] || campaign.message;
+            const personalizedMessage = applyMessageVars(template, cleanPhone, vars, i);
+            pendingEnqueue.push({
+                item: {
+                    connectionId: assignedConnectionId,
+                    to: phone,
+                    message: personalizedMessage,
+                    campaignId,
+                    ownerUid: tenantId,
+                    stageIndex: stepIndex,
+                    rotationIndex: i,
+                    sendAsMedia: hasMedia && stepIndex === 0,
+                    skipFrequencyCap,
+                },
+                delayMs: staggerDelay,
+            });
+        }
+    }
+
+    const finishRedispatchEnqueue = async () => {
+        try {
+            await enqueueCampaignItemsBulk(pendingEnqueue);
+            emitCampaignLog(
+                'INFO',
+                `Reenvio na mesma campanha: ${pendingEnqueue.length} contato(s) (${mode})`,
+                { campaignId, mode, enqueued: pendingEnqueue.length, stepIndex: options.stepIndex },
+                tenantId
+            );
+            publishOwnerEvent(tenantId, 'campaign-started', {
+                total: pendingEnqueue.length,
+                campaignId,
+                redispatch: true,
+            });
+        } catch (err: unknown) {
+            campaignEnqueueInFlight.delete(campaignId);
+            campaignsById.delete(campaignId);
+            campaignPendingJobs.delete(campaignId);
+            const msg = err instanceof Error ? err.message : String(err);
+            log('error', 'redispatchCampaign falhou ao enfileirar', { campaignId, error: msg });
+            emitCampaignLog('ERROR', `Falha ao enfileirar retomada: ${msg}`, { campaignId }, tenantId);
+            throw err;
+        } finally {
+            campaignEnqueueInFlight.delete(campaignId);
+        }
+    };
+
+    campaignEnqueueInFlight.add(campaignId);
+    if (pendingEnqueue.length > REDISPATCH_BACKGROUND_THRESHOLD) {
+        void finishRedispatchEnqueue().catch(() => undefined);
+        return { ok: true, enqueued: pendingEnqueue.length };
+    }
+
+    try {
+        await finishRedispatchEnqueue();
+        return { ok: true, enqueued: pendingEnqueue.length };
     } catch (err: unknown) {
-        campaignsById.delete(campaignId);
-        campaignPendingJobs.delete(campaignId);
         const msg = err instanceof Error ? err.message : String(err);
         return { ok: false, enqueued: 0, error: msg || 'Falha ao enfileirar reenvio.' };
     }
@@ -8300,6 +8405,23 @@ export async function startCampaign(
                 campaignId: cid,
                 error: (e as Error)?.message,
             });
+        }
+        const persistPatch: Record<string, unknown> = {};
+        if (useReplyFlow) {
+            persistPatch.replyFlow = {
+                ...(replyFlow || {}),
+                enabled: true,
+                steps: sanitizedReplySteps,
+            };
+        }
+        if (prospecting?.enabled) persistPatch.prospecting = prospecting;
+        if (Object.keys(persistPatch).length > 0) {
+            void updateCampaignFields(ownerUid, cid, persistPatch).catch((e) =>
+                log('warn', 'startCampaign: falha ao persistir replyFlow/prospecting', {
+                    campaignId: cid,
+                    error: (e as Error)?.message,
+                })
+            );
         }
     }
 
@@ -8841,6 +8963,7 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
     for (const [campaignId, state] of campaignsById.entries()) {
         if (!state.isRunning || state.processed > 0) continue;
         if (pausedCampaigns.has(campaignId) || state.protectionPaused) continue;
+        if (campaignEnqueueInFlight.has(campaignId)) continue;
 
         const startedAt = state.startedAt ?? 0;
         if (startedAt > 0 && now - startedAt < CAMPAIGN_STALL_MS) continue;

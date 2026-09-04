@@ -368,6 +368,33 @@ export async function listRunningCampaigns(limit = 50): Promise<RunningCampaignR
   return r.rows;
 }
 
+export type ReplyFlowCampaignRow = {
+  id: string;
+  tenant_id: string;
+  doc: Record<string, unknown>;
+};
+
+/** Campanhas com fluxo por respostas (para reidratar defs após deploy). */
+export async function listCampaignsWithReplyFlow(limit = 200): Promise<ReplyFlowCampaignRow[]> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const r = await pool.query<ReplyFlowCampaignRow>(
+    `SELECT id::text, tenant_id::text, doc
+       FROM zapmass.campaigns
+      WHERE status NOT IN ('COMPLETED', 'FAILED')
+        AND (
+          COALESCE(doc->'replyFlow'->>'enabled', '') IN ('true', 't')
+          OR COALESCE(doc->'scheduleStartSnapshot'->'replyFlow'->>'enabled', '') IN ('true', 't')
+          OR jsonb_typeof(doc->'replyFlow') = 'object'
+          OR jsonb_typeof(doc->'scheduleStartSnapshot'->'replyFlow') = 'object'
+        )
+      ORDER BY updated_at DESC
+      LIMIT $1`,
+    [limit]
+  );
+  return r.rows;
+}
+
 export async function listDueScheduledCampaigns(limit = 5): Promise<DueScheduledRow[]> {
   const pool = getZapmassPool();
   if (!pool) return [];

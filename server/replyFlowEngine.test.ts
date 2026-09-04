@@ -213,6 +213,58 @@ describe('ReplyFlowEngine resume', () => {
     });
     expect(enqueued).toHaveLength(2);
   });
+
+  it('mantém a sessão se a definição ainda não carregou (não mata o gatilho)', async () => {
+    const engine = new ReplyFlowEngine({
+      enqueue: () => undefined,
+    });
+    engine.openSession({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      campaignId: 'camp-sem-def',
+      vars: {},
+      toRaw: '5548999999999',
+    });
+    const result = await engine.handleIncoming({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      bodyText: '1',
+    });
+    expect(result.handled).toBe(false);
+    expect(engine.hasSession('conn1', '5548999999999')).toBe(true);
+  });
+
+  it('responde gatilho mesmo com a campanha pausada', async () => {
+    const enqueued: string[] = [];
+    const engine = new ReplyFlowEngine({
+      enqueue: (item) => {
+        enqueued.push(item.message);
+      },
+      isCampaignPaused: () => true,
+    });
+    engine.registerDef('camp1', [
+      {
+        body: 'Escolha',
+        acceptAnyReply: false,
+        validTokens: [],
+        invalidReplyBody: '',
+        options: [{ tokens: ['1'], reply: 'Beleza!' }],
+      },
+    ]);
+    engine.openSession({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      campaignId: 'camp1',
+      vars: {},
+      toRaw: '5548999999999',
+    });
+    await engine.handleIncoming({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      bodyText: '1',
+    });
+    expect(enqueued).toEqual(['Beleza!']);
+  });
 });
 
 describe('findConfiguredOptOutReply', () => {
@@ -232,6 +284,21 @@ describe('findConfiguredOptOutReply', () => {
   it('devolve o texto do gatilho SAIR, não a confirmação genérica', () => {
     expect(findConfiguredOptOutReply(steps, 'SAir')).toBe('Tudo bem, removemos você da lista.');
     expect(findConfiguredOptOutReply(steps, 'quero')).toBeNull();
+  });
+});
+
+describe('parseReplyFlowDefFromCampaignDoc', () => {
+  it('usa o snapshot se o doc principal veio vazio', async () => {
+    const { parseReplyFlowDefFromCampaignDoc } = await import('./replyFlowEngine.js');
+    const parsed = parseReplyFlowDefFromCampaignDoc({
+      scheduleStartSnapshot: {
+        replyFlow: {
+          enabled: true,
+          steps: [{ body: 'Oi', acceptAnyReply: true, validTokens: [], invalidReplyBody: '' }],
+        },
+      },
+    });
+    expect(parsed?.steps[0]?.body).toBe('Oi');
   });
 });
 
