@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { collectInboundReplayCandidates } from './inboundMissedReplay.js';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  collectInboundReplayCandidates,
+  replayMissedInboundForConnection,
+  resolveInboundReplayWindowStart,
+} from './inboundMissedReplay.js';
 import type { Conversation } from './types.js';
 
 describe('collectInboundReplayCandidates', () => {
@@ -73,3 +77,67 @@ describe('collectInboundReplayCandidates', () => {
     expect(collectInboundReplayCandidates('conn1', convs, windowStart)).toHaveLength(0);
   });
 });
+
+describe('resolveInboundReplayWindowStart', () => {
+  it('manual ignora lastClosedAt recente e usa 72h', () => {
+    const now = Date.now();
+    const lastClosed = now - 60_000;
+    const start = resolveInboundReplayWindowStart(now, lastClosed, true);
+    expect(now - start).toBe(72 * 3600_000);
+  });
+
+  it('auto usa lastClosedAt quando existe', () => {
+    const now = Date.now();
+    const lastClosed = now - 10 * 60_000;
+    const start = resolveInboundReplayWindowStart(now, lastClosed, false);
+    expect(start).toBe(lastClosed);
+  });
+});
+
+describe('replayMissedInboundForConnection', () => {
+  it('no clique manual varre 72h mesmo com close recente', async () => {
+    const now = Date.now();
+    const convs: Conversation[] = [
+      {
+        id: 'conn1:5548999999999@s.whatsapp.net',
+        contactName: 'João',
+        contactPhone: '+5548999999999',
+        connectionId: 'conn1',
+        unreadCount: 1,
+        lastMessage: 'quero',
+        lastMessageTime: '',
+        lastMessageTimestamp: now - 2 * 3600_000,
+        messages: [
+          {
+            id: 'm-old-window',
+            text: 'quero',
+            timestamp: new Date(now - 2 * 3600_000).toISOString(),
+            timestampMs: now - 2 * 3600_000,
+            sender: 'them',
+            status: 'delivered',
+            type: 'text',
+          },
+        ],
+        tags: [],
+      },
+    ];
+    const processInbound = vi.fn().mockResolvedValue(undefined);
+    const result = await replayMissedInboundForConnection(
+      'conn1',
+      'uid1',
+      {
+        getConversations: () => convs,
+        loadChatHistory: async () => ({ ok: true }),
+        getLastClosedAt: () => now - 30_000,
+        processInbound,
+        log: () => undefined,
+      },
+      { manual: true }
+    );
+    expect(result.scanned).toBe(1);
+    expect(result.replayed).toBe(1);
+    expect(result.windowHours).toBe(72);
+    expect(processInbound).toHaveBeenCalledTimes(1);
+  });
+});
+

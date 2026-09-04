@@ -70,11 +70,17 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
       const data = await res.json().catch(() => ({})) as Record<string, unknown>;
       if (!res.ok) throw new Error(String(data?.error || 'Erro ao reprocessar.'));
       const replayed = Number(data?.replayed ?? 0);
+      const skipped = Number(data?.skipped ?? 0);
+      const scanned = Number(data?.scanned ?? 0);
       const enrolled = Number(data?.enrolled ?? 0);
-      if (replayed === 0) {
-        toast('Nenhuma resposta pendente encontrada.', { icon: 'ℹ️' });
-      } else {
+      if (replayed > 0) {
         toast.success(`${replayed} resposta(s) reprocessada(s)${enrolled > 0 ? ` · ${enrolled} leads inscritos` : ''}.`);
+      } else if (skipped > 0) {
+        toast(`${skipped} resposta(s) já tinham sido processadas.`, { icon: '✓' });
+      } else if (scanned === 0) {
+        toast('Nenhuma resposta recente neste canal (72h). Abra o bate-papo se o contato já falou e tente de novo.', { icon: 'ℹ️' });
+      } else {
+        toast('Nenhuma resposta pendente encontrada.', { icon: 'ℹ️' });
       }
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Falha ao reprocessar respostas.');
@@ -602,7 +608,10 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                 <div className="min-w-0">
                   <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">Ritmo — 7 dias</p>
                   <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
-                    {dispatchInsights.weekTotal.toLocaleString('pt-BR')} disparos na semana
+                    {dispatchInsights.weekTotal.toLocaleString('pt-BR')} disparos
+                    {dispatchInsights.warmupWeekTotal > 0
+                      ? ` · ${dispatchInsights.warmupWeekTotal.toLocaleString('pt-BR')} aquecimento`
+                      : ''}
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -640,10 +649,15 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                   height={34}
                 />
                 <div className="text-right shrink-0">
-                  <p className="text-[8px] font-bold uppercase text-slate-400">Hoje</p>
+                  <p className="text-[8px] font-bold uppercase text-slate-400">Hoje disparo</p>
                   <p className="text-sm font-black tabular-nums" style={{ color: dispatchInsights.temp.color }}>
                     {dispatchInsights.sentToday.toLocaleString('pt-BR')}
                   </p>
+                  {dispatchInsights.warmupToday > 0 ? (
+                    <p className="text-[8px] font-bold text-amber-500 tabular-nums">
+                      +{dispatchInsights.warmupToday.toLocaleString('pt-BR')} aquec.
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <div className="flex justify-between mt-1.5 px-0.5">
@@ -659,7 +673,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
               <div className="p-3 rounded-xl" style={{ background: 'var(--surface-2)' }}>
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <Send className="w-3.5 h-3.5 text-emerald-500" />
-                  <span className="text-[9px] font-black text-slate-400 uppercase">Hoje</span>
+                  <span className="text-[9px] font-black text-slate-400 uppercase">Disparo hoje</span>
                   {connection.dailyLimit && connection.dailyLimit > 0 ? (
                     <span className="text-[8px] ml-auto font-bold opacity-60">meta {connection.dailyLimit}</span>
                   ) : null}
@@ -675,11 +689,32 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
               </div>
               <div className="p-3 rounded-xl" style={{ background: 'var(--surface-2)' }}>
                 <div className="flex items-center gap-1.5 mb-1.5">
+                  <Flame className="w-3.5 h-3.5 text-amber-500" />
+                  <span className="text-[9px] font-black text-slate-400 uppercase">Aquecimento</span>
+                </div>
+                <span className="text-xl font-black text-slate-900 dark:text-white tabular-nums">
+                  {dispatchInsights.warmupToday.toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="p-3 rounded-xl" style={{ background: 'var(--surface-2)' }}>
+                <div className="flex items-center gap-1.5 mb-1.5">
                   <ListOrdered className="w-3.5 h-3.5 text-blue-500" />
                   <span className="text-[9px] font-black text-slate-400 uppercase">Fila</span>
                 </div>
                 <span className={`text-xl font-black tabular-nums ${connection.queueSize > 50 ? 'text-amber-500' : 'text-slate-900 dark:text-white'}`}>
                   {connection.queueSize}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl" style={{ background: 'var(--surface-2)' }}>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <Clock className="w-3.5 h-3.5 text-sky-500" />
+                  <span className="text-[9px] font-black text-slate-400 uppercase">Uptime</span>
+                </div>
+                <span className="text-xl font-black text-slate-900 dark:text-white tabular-nums">
+                  {formatUptime(connection.connectedSince)}
                 </span>
               </div>
             </div>
@@ -693,14 +728,16 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                 ) : null}
                 <Zap className="w-3 h-3 text-purple-500 mx-auto mb-1" />
                 <span className="text-xs font-black text-slate-900 dark:text-white tabular-nums block">
-                  {(chipStats?.totalSent ?? connection.totalMessagesSent ?? 0).toLocaleString()}
+                  {dispatchInsights.totalCampaign.toLocaleString()}
                 </span>
-                <span className="text-[8px] font-black text-slate-400 uppercase">Total</span>
+                <span className="text-[8px] font-black text-slate-400 uppercase">Disparo</span>
               </div>
               <div className="p-2.5 rounded-xl text-center" style={{ background: 'var(--surface-2)' }}>
-                <Clock className="w-3 h-3 text-sky-500 mx-auto mb-1" />
-                <span className="text-xs font-black text-slate-900 dark:text-white tabular-nums block">{formatUptime(connection.connectedSince)}</span>
-                <span className="text-[8px] font-black text-slate-400 uppercase">Uptime</span>
+                <Flame className="w-3 h-3 text-amber-500 mx-auto mb-1" />
+                <span className="text-xs font-black text-slate-900 dark:text-white tabular-nums block">
+                  {dispatchInsights.totalWarmup.toLocaleString()}
+                </span>
+                <span className="text-[8px] font-black text-slate-400 uppercase">Aquec.</span>
               </div>
               <div className="p-2.5 rounded-xl text-center" style={{ background: 'var(--surface-2)' }}>
                 {healthScore >= 70

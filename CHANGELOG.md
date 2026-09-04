@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.70] - 2026-09-04
+### Corrigido
+- **Buscar respostas no chip**: o botão Respostas usava a janela do último close (às vezes minutos) e só olhava o histórico em RAM — dava “nenhuma pendente” mesmo com conversas. Agora varre 72h, puxa o arquivo/inbox e o toast diz se já tinha sido processada.
+- **Conectar não religava o canal**: clique em Conectar podia ficar preso no hold de logout e só tentava restart em background, sem QR. Agora limpa o hold, tenta restaurar a sessão e, se não voltar, gera o QR.
+### Melhorado
+- **Contagem de disparo vs aquecimento**: o card de conexões mostra separado (hoje, semana e total) — o limite diário da campanha não mistura mais com o aquecimento.
+
 ## [2.3.69] - 2026-09-04
 ### Corrigido
 - **Mesmo contato recebia o disparo/confirmação várias vezes**: após deploy o watchdog via só os 400 primeiros jobs da fila, achava a campanha vazia (0% com jobs só atrasados) e reenfileirava tudo — cada chip (Disparo 01, 02, 03…) mandava de novo. Agora a fila é contada inteira, jobId é estável por contato e o SAIR não gera segunda confirmação no replay.

@@ -385,6 +385,10 @@ export interface WarmupDailyEntry {
   sent: number;
   received: number;
   failed: number;
+  /** Envios só do auto-aquecimento (chip↔chip). */
+  warmupSent?: number;
+  /** Recebidos só do auto-aquecimento. */
+  warmupReceived?: number;
 }
 export interface WarmupChipStats {
   connectionId: string;

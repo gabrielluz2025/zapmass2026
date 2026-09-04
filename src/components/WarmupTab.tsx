@@ -75,13 +75,24 @@ const getLastNDays = (stats: WarmupChipStats | undefined, n: number) => {
   return Array.from({ length: n }, (_, i) => {
     const key = brazilDayKey(nowMs - (n - 1 - i) * 86_400_000);
     const e = dict.get(key);
-    return { date: key, sent: e?.sent || 0, received: e?.received || 0, failed: e?.failed || 0 };
+    const hasWarmup = (e?.warmupSent !== undefined) || (e?.warmupReceived !== undefined);
+    return {
+      date: key,
+      sent: hasWarmup ? (e?.warmupSent || 0) : (e?.sent || 0),
+      received: hasWarmup ? (e?.warmupReceived || 0) : (e?.received || 0),
+      failed: e?.failed || 0,
+    };
   });
 };
 
 const getTodayCounts = (stats?: WarmupChipStats) => {
   const row = stats?.dailyHistory?.find((d) => d.date === brazilDayKey());
-  return { sent: row?.sent || 0, received: row?.received || 0, failed: row?.failed || 0 };
+  const hasWarmup = (row?.warmupSent !== undefined) || (row?.warmupReceived !== undefined);
+  return {
+    sent: hasWarmup ? (row?.warmupSent || 0) : (row?.sent || 0),
+    received: hasWarmup ? (row?.warmupReceived || 0) : (row?.received || 0),
+    failed: row?.failed || 0,
+  };
 };
 
 const formatLastActive = (ts?: number) => {
@@ -338,8 +349,16 @@ export const WarmupTab: React.FC = () => {
       const s = warmupChipStats[ch.connectionId];
       if (!s) continue;
       const row = s.dailyHistory?.find((d) => d.date === todayKey);
-      todayTotal += (row?.sent || 0) + (row?.received || 0);
-      totalAllMsgs += s.totalSent + s.totalReceived;
+      const hasWarmupCounters =
+        (row?.warmupSent !== undefined) || (row?.warmupReceived !== undefined);
+      todayTotal += hasWarmupCounters
+        ? (row?.warmupSent ?? 0) + (row?.warmupReceived ?? 0)
+        : (row?.sent || 0) + (row?.received || 0);
+      const histWarmup = (s.dailyHistory || []).reduce(
+        (n, d) => n + (d.warmupSent || 0) + (d.warmupReceived || 0),
+        0
+      );
+      totalAllMsgs += histWarmup > 0 ? histWarmup : s.totalSent + s.totalReceived;
       if (ch.enabled) scores.push(deriveChipScore(s));
     }
     return { todayTotal, totalAllMsgs, avgScore: scores.length ? Math.round(scores.reduce((a, b) => a + b) / scores.length) : 0 };

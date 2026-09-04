@@ -163,7 +163,7 @@ export const ConnectionListRow: React.FC<ConnectionListRowProps> = ({
                 background: dispatchInsights.temp.bg,
                 color: dispatchInsights.temp.color
               }}
-              title={`${dispatchInsights.weekTotal} disparos na semana`}
+              title={`${dispatchInsights.weekTotal} disparos · ${dispatchInsights.warmupWeekTotal} aquecimento na semana`}
             >
               <TempIcon className="w-3 h-3" />
               {dispatchInsights.temp.label}
@@ -206,8 +206,8 @@ export const ConnectionListRow: React.FC<ConnectionListRowProps> = ({
         <div className="hidden md:grid grid-cols-4 gap-3 text-center shrink-0">
           <MetricCell
             icon={<Send className="w-3 h-3" style={{ color: '#10b981' }} />}
-            label="Hoje"
-            value={connection.messagesSentToday.toLocaleString('pt-BR')}
+            label="Disparo"
+            value={dispatchInsights.sentToday.toLocaleString('pt-BR')}
           />
           <MetricCell
             icon={<ListOrdered className="w-3 h-3" style={{ color: '#3b82f6' }} />}

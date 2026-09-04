@@ -5387,35 +5387,64 @@ export async function disconnectConnection(id: string): Promise<void> {
 }
 
 /**
- * Reconecta uma instância
+ * Reconecta uma instância (clique do usuário em Conectar / Reiniciar).
+ * Limpa o hold de logout: o pedido é explícito. Tenta restaurar a sessão;
+ * se não voltar, gera QR em vez de ficar preso em "conectando".
  */
 export async function reconnectConnection(id: string) {
     try {
-        log('info', `Reconectando instância: ${id}`);
+        log('info', `Reconectando instância (pedido do usuário): ${id}`);
         emitConnectionProgress(id, 'loading-whatsapp-web');
+        clearManualLogoutHold(id);
+        pairingStartedAt.set(id, Date.now());
 
-        const live = (await getConnectionState(id)).toLowerCase();
-        if (isEvolutionOpenState(live) && isPairedConnection(id) && !isManualLogoutHoldActive(id)) {
+        invalidateConnectionStateCache(id);
+        let live = (await getConnectionState(id, { skipCache: true })).toLowerCase();
+        if (isEvolutionOpenState(live) && isPairedConnection(id)) {
             applyConnectionStateUpdate(id, 'open', {});
             log('info', `Instância já aberta: ${id}`);
             return;
         }
 
         const conn = connections.get(id);
-        if (
-            isPairedConnection(id) &&
-            !isManualLogoutHoldActive(id) &&
-            (live === 'close' || live === 'connecting')
-        ) {
+        if (isPairedConnection(id) && (live === 'close' || live === 'connecting' || live === 'created')) {
             if (conn) {
                 conn.status = 'connecting';
                 connections.set(id, conn);
             }
             emitConnectionsUpdateForConnection(id);
             clearAutoReconnect(id);
-            scheduleEvolutionAutoReconnect(id, { immediate: true });
-            log('info', `Auto-reconnect imediato (canal pareado): ${id}`);
-            return;
+            try {
+                await ensureGoInstanceUuidResolved(id);
+                try {
+                    await api.post(`/instance/restart/${evoInst(id)}`, {});
+                    await sleep(3500);
+                } catch {
+                    await api.post(`/instance/connect/${evoInst(id)}`, { forceReconnect: true });
+                    await sleep(2000);
+                }
+            } catch (err: any) {
+                log('warn', `restart/connect falhou em reconnect ${id}`, { error: err?.message });
+            }
+
+            live = (await getConnectionState(id, { skipCache: true })).toLowerCase();
+            if (isEvolutionOpenState(live)) {
+                applyConnectionStateUpdate(id, 'open', {});
+                log('info', `Sessão restaurada após restart: ${id}`);
+                return;
+            }
+            if (live === 'connecting' || live === 'created') {
+                applyConnectionStateUpdate(id, live, {});
+                watchConnectionUntilOpen(id);
+                await sleep(4000);
+                live = (await getConnectionState(id, { skipCache: true })).toLowerCase();
+                if (isEvolutionOpenState(live)) {
+                    applyConnectionStateUpdate(id, 'open', {});
+                    log('info', `Sessão abriu após connecting: ${id}`);
+                    return;
+                }
+            }
+            log('info', `Sessão não voltou (${live}) — gerando QR: ${id}`);
         }
 
         const extracted = await fetchConnectQr(id);
@@ -5427,8 +5456,6 @@ export async function reconnectConnection(id: string) {
             applyConnectionStateUpdate(id, 'connecting', {});
         }
 
-        // Garante que o webhook esteja registrado tambem na reconexao
-        // (instancias antigas podem estar com URL/token desatualizados).
         setupWebhook(id).catch((err) => {
             log('warn', 'Re-setupWebhook falhou em reconnect', {
                 instance: id,
@@ -5437,9 +5464,16 @@ export async function reconnectConnection(id: string) {
         });
 
         log('info', `Instância reconectada: ${id}`);
-
     } catch (error: any) {
         log('error', `Erro ao reconectar ${id}`, { error: error.message });
+        emitConnectionProgress(id, 'failed');
+        const ownerUid = resolveOwnerUid(id);
+        if (ownerUid) {
+            publishOwnerEvent(ownerUid, 'socket-operation-error', {
+                op: 'reconnect-connection',
+                error: error?.message || 'Falha ao reconectar o canal.',
+            });
+        }
     }
 }
 
@@ -10028,18 +10062,40 @@ export async function triggerInboundReplayForConnection(connectionId: string): P
     scanned: number;
     replayed: number;
     skipped: number;
+    windowHours: number;
 }> {
     const ownerUid = resolveOwnerUid(connectionId);
     const { replayMissedInboundForConnection } = await import('./inboundMissedReplay.js');
     await recoverStuckReplyFlowSessions();
-    const result = await replayMissedInboundForConnection(connectionId, ownerUid, {
-        getConversations: () => chatStore.getConversations(),
-        loadChatHistory: (conversationId, limit) =>
-            chatStore.loadChatHistory(conversationId, limit, true),
-        getLastClosedAt: (id) => connectionsSettingsCache[id]?.lastClosedAt,
-        processInbound: processInboundAutomationMessage,
-        log: (message, payload) => log('info', message, payload),
-    });
+    const result = await replayMissedInboundForConnection(
+        connectionId,
+        ownerUid,
+        {
+            getConversations: () => chatStore.getConversations(),
+            loadChatHistory: (conversationId, limit) =>
+                chatStore.loadChatHistory(conversationId, limit, true),
+            getLastClosedAt: (id) => connectionsSettingsCache[id]?.lastClosedAt,
+            processInbound: processInboundAutomationMessage,
+            log: (message, payload) => log('info', message, payload),
+            prefetchInbox: async () => {
+                if (ownerUid) {
+                    await chatStore
+                        .hydrateInboxStubsFromArchive(ownerUid, [connectionId])
+                        .catch(() => 0);
+                }
+                if (!isGoWebhookInboxMode()) {
+                    await chatStore
+                        .syncChatsForConnection(connectionId, {
+                            sparseLimit: 80,
+                            msgPrefetch: 40,
+                            prefetchBatchSize: 6,
+                        })
+                        .catch(() => 0);
+                }
+            },
+        },
+        { manual: true }
+    );
     void syncHotLeadsAfterInboundReplay(ownerUid, connectionId);
     return result;
 }

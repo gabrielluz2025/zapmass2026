@@ -38,6 +38,24 @@ describe('channelDispatchInsights', () => {
     expect(days[0].sent).toBe(9);
   });
 
+  it('separa disparo de campanha do aquecimento', () => {
+    const dk = brazilDayKey();
+    const row = buildChannelDispatchInsights(
+      conn({ messagesSentToday: 156 }),
+      {
+        connectionId: 'c1',
+        totalSent: 401,
+        totalReceived: 0,
+        totalFailed: 0,
+        dailyHistory: [{ date: dk, sent: 200, received: 0, failed: 0, warmupSent: 44 }]
+      }
+    );
+    expect(row.sentToday).toBe(156);
+    expect(row.warmupToday).toBe(44);
+    expect(row.totalCampaign).toBe(357);
+    expect(row.totalWarmup).toBe(44);
+  });
+
   it('computeChannelDispatchTemp classifica quente com alto volume', () => {
     const last7 = Array.from({ length: 7 }, (_, i) => ({
       date: `2026-06-0${i + 1}`,

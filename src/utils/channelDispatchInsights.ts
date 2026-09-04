@@ -13,6 +13,7 @@ export interface ChannelDispatchTempInfo {
 export interface ChannelDailySent {
   date: string;
   sent: number;
+  warmupSent: number;
 }
 
 /** Gera chave YYYY-MM-DD para uma data em UTC-3 (horário de Brasília, fixo desde 2019).
@@ -22,25 +23,40 @@ export const brazilDayKey = (ts: number = Date.now()): string => {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 };
 
+export function campaignSentFromEntry(entry?: { sent?: number; warmupSent?: number } | null): number {
+  if (!entry) return 0;
+  const warmup = Math.max(0, entry.warmupSent || 0);
+  return Math.max(0, (entry.sent || 0) - warmup);
+}
+
+export function warmupSentFromEntry(entry?: { warmupSent?: number } | null): number {
+  return Math.max(0, entry?.warmupSent || 0);
+}
+
 /** Últimos N dias de disparos do canal (zeros nos dias sem histórico).
  *  Usa UTC-3 (Brasília) para gerar as chaves de data — alinhado com o servidor após correção de timezone. */
 export function getChannelLastNSentDays(
   stats: WarmupChipStats | undefined,
   n: number,
-  sentTodayLive = 0
+  sentTodayLive = 0,
+  warmupTodayLive = 0
 ): ChannelDailySent[] {
-  const dict = new Map((stats?.dailyHistory || []).map((d) => [d.date, d.sent || 0]));
+  const dict = new Map((stats?.dailyHistory || []).map((d) => [d.date, d]));
   const out: ChannelDailySent[] = [];
   const nowMs = Date.now();
-  // Usa UTC-3 para chave "hoje" — garante que bate com as entradas gravadas pelo servidor
   const todayKeyBrazil = brazilDayKey(nowMs);
   for (let i = n - 1; i >= 0; i--) {
-    // Cada dia anterior: subtrai i dias em ms a partir de hoje UTC-3
     const dayMs = nowMs - i * 24 * 60 * 60 * 1000;
     const key = brazilDayKey(dayMs);
+    const entry = dict.get(key);
     const isToday = key === todayKeyBrazil;
-    const sent = isToday ? Math.max(dict.get(key) || 0, sentTodayLive) : dict.get(key) || 0;
-    out.push({ date: key, sent });
+    const campaignHist = campaignSentFromEntry(entry);
+    const warmupHist = warmupSentFromEntry(entry);
+    out.push({
+      date: key,
+      sent: isToday ? Math.max(campaignHist, sentTodayLive) : campaignHist,
+      warmupSent: isToday ? Math.max(warmupHist, warmupTodayLive) : warmupHist,
+    });
   }
   return out;
 }
@@ -88,21 +104,34 @@ export function buildChannelDispatchInsights(
 ): {
   last7: ChannelDailySent[];
   sentToday: number;
+  warmupToday: number;
   weekTotal: number;
+  warmupWeekTotal: number;
+  totalCampaign: number;
+  totalWarmup: number;
   temp: ChannelDispatchTempInfo;
 } {
-  const liveCount = Math.max(connection.messagesSentToday || 0, 0);
-  // Usa warmup stats do dia atual como fallback para quando o servidor
-  // reinicia e o contador in-memory ainda não foi recarregado do disco.
-  const todayFromStats = (() => {
-    if (!stats?.dailyHistory?.length) return 0;
-    const key = brazilDayKey();
-    const entry = stats.dailyHistory.find((d) => d.date === key);
-    return entry?.sent || 0;
-  })();
-  const sentToday = Math.max(liveCount, todayFromStats);
-  const last7 = getChannelLastNSentDays(stats, 7, sentToday);
+  const liveCampaign = Math.max(connection.messagesSentToday || 0, 0);
+  const todayKey = brazilDayKey();
+  const todayEntry = stats?.dailyHistory?.find((d) => d.date === todayKey);
+  const warmupToday = warmupSentFromEntry(todayEntry);
+  const campaignFromStats = campaignSentFromEntry(todayEntry);
+  const sentToday = Math.max(liveCampaign, campaignFromStats);
+  const last7 = getChannelLastNSentDays(stats, 7, sentToday, warmupToday);
   const weekTotal = last7.reduce((n, d) => n + d.sent, 0);
+  const warmupWeekTotal = last7.reduce((n, d) => n + d.warmupSent, 0);
+  const totalWarmup = (stats?.dailyHistory || []).reduce((n, d) => n + warmupSentFromEntry(d), 0);
+  const mixedTotal = stats?.totalSent ?? connection.totalMessagesSent ?? 0;
+  const totalCampaign = Math.max(0, mixedTotal - totalWarmup);
   const temp = computeChannelDispatchTemp(sentToday, last7, connection.dailyLimit);
-  return { last7, sentToday, weekTotal, temp };
+  return {
+    last7,
+    sentToday,
+    warmupToday,
+    weekTotal,
+    warmupWeekTotal,
+    totalCampaign,
+    totalWarmup,
+    temp,
+  };
 }

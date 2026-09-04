@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.70',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Botão Respostas varre 72h e o arquivo do bate-papo — não some mais com “nenhuma pendente” por janela curta' },
+      { type: 'fix', text: 'Conectar no chip offline restaura a sessão ou mostra o QR; não fica preso após desconectar' },
+      { type: 'improvement', text: 'Card de conexões separa disparo de campanha e aquecimento (hoje, semana e total)' },
+    ],
+  },
+  {
     version: '2.3.69',
     date: '04/09/2026',
     highlights: [
