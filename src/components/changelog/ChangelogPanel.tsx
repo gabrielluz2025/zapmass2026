@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.69',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Mesmo número não recebe o disparo duas vezes: fila grande não é reenfileirada no deploy e o SAIR não dispara confirmação duplicada' },
+    ],
+  },
+  {
     version: '2.3.68',
     date: '04/09/2026',
     highlights: [

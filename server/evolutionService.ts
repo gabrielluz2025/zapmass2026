@@ -61,6 +61,7 @@ import {
     type PhonebookNameIndex,
 } from './evolutionContactName.js';
 import { buildPhoneDigitLookupKeys, normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
+import { canonicalBrazilMobileKey } from '../src/utils/brPhoneNormalize.js';
 import { LID_SEND_BLOCKED_MSG } from './evolutionLidResolve.js';
 import {
     ReplyFlowEngine,
@@ -91,6 +92,7 @@ import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
 import { getReconnectStormProgress } from './chipProtectionService.js';
 import {
     CAMPAIGN_RESUME_GRACE_MS,
+    isInCampaignResumeGrace,
     isInDeployGraceWindow,
     processUptimeMs,
 } from '../shared/deployGrace.js';
@@ -103,8 +105,10 @@ import {
 import { checkInboundAutomationAllowed } from './inboundAutomationGuard.js';
 import {
   buildInboundAutomationDedupeKey,
+  buildInboundBodyDedupeKey,
   isInboundAutomationProcessed,
   markInboundAutomationProcessed,
+  tryClaimInboundAutomation,
 } from './inboundAutomationDedupe.js';
 import type { InboundProcessParams } from './inboundMissedReplay.js';
 import { validateCampaignContentHash } from './campaignContentHashLock.js';
@@ -119,6 +123,8 @@ import {
     registerAntiBanPublishFn,
 } from './antiBanProactiveNotifications.js';
 import { computeDailyScheduleDelayMs } from './campaignDailyScheduleDelay.js';
+import { buildCampaignSendJobId, isDuplicateBullmqJobError } from './campaignJobIdentity.js';
+import { countQueueJobsForCampaign, collectCampaignJobCountsFromQueue } from './campaignQueueScan.js';
 import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
 import { refreshRedispatchTargetPhones } from './campaignRedispatchPhoneRefresh.js';
 import {
@@ -5850,10 +5856,8 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
     if (item.campaignId) {
         campaignPendingJobs.set(item.campaignId, (campaignPendingJobs.get(item.campaignId) || 0) + 1);
     }
-    // jobId estável: inclui stageIndex para evitar colisão entre etapas do mesmo contato.
-    // O sufixo Date.now() permanece para evitar duplicação ao reenfileirar após pausa/retry.
-    const stageTag = item.stageIndex != null ? `s${item.stageIndex}` : 's0';
-    const jobId = `${item.campaignId || 'direct'}__${item.connectionId}__${item.to}__${stageTag}__${Date.now()}`;
+    // jobId estável por campanha+contato+etapa: redispatch/deploy não duplica o mesmo número.
+    const jobId = buildCampaignSendJobId(item);
 
     const addPromise = queue.add('send', item, {
         jobId,
@@ -5894,6 +5898,13 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
             if (pending <= 0) campaignPendingJobs.delete(item.campaignId);
             else campaignPendingJobs.set(item.campaignId, pending);
         }
+        if (isDuplicateBullmqJobError(err)) {
+            log('info', 'Job de campanha já na fila — não duplica envio', {
+                campaignId: item.campaignId,
+                to: item.to,
+            });
+            return;
+        }
         throw err;
     } finally {
         if (timeoutId) clearTimeout(timeoutId);
@@ -5930,8 +5941,7 @@ async function enqueueCampaignItemsBulk(
             if (item.campaignId) {
                 campaignPendingJobs.set(item.campaignId, (campaignPendingJobs.get(item.campaignId) || 0) + 1);
             }
-            const stageTag = item.stageIndex != null ? `s${item.stageIndex}` : 's0';
-            const jobId = `${item.campaignId || 'direct'}__${item.connectionId}__${item.to}__${stageTag}__${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const jobId = buildCampaignSendJobId(item);
             if (item.campaignId && item.ownerUid) {
                 void registerCampaignJob({
                     idempotencyKey: jobId,
@@ -5966,6 +5976,13 @@ async function enqueueCampaignItemsBulk(
                     if (pending <= 0) campaignPendingJobs.delete(item.campaignId);
                     else campaignPendingJobs.set(item.campaignId, pending);
                 }
+            }
+            if (isDuplicateBullmqJobError(err)) {
+                log('info', 'Lote com job já existente na fila — ignorado para não duplicar disparo', {
+                    size: chunk.length,
+                    campaignId: chunk[0]?.item.campaignId,
+                });
+                continue;
             }
             throw err;
         }
@@ -7949,11 +7966,17 @@ export async function startCampaign(
     const enqueuedCountPerDayPerChannel: Record<string, Record<number, number>> = {};
     const enqueuedIndexPerDayPerChannel: Record<string, Record<number, number>> = {};
     const pendingEnqueue: Array<{ item: MessageQueueItem; delayMs: number }> = [];
+    const seenPhones = new Set<string>();
 
     try {
         for (let i = 0; i < numbers.length; i++) {
             const num = numbers[i];
             const cleanPhone = normalizePhoneKey(num);
+            if (cleanPhone.length < 8) continue;
+            const phoneCanon = canonicalBrazilMobileKey(cleanPhone) || cleanPhone;
+            if (seenPhones.has(phoneCanon) || seenPhones.has(cleanPhone)) continue;
+            seenPhones.add(phoneCanon);
+            seenPhones.add(cleanPhone);
             const vars = recipientVars.get(cleanPhone) || {};
             const assignedConnectionId = usePoolDispatch
                 ? pickInitialDispatchChannel({
@@ -8341,11 +8364,7 @@ async function reconcileRunningCampaignsFromPostgres(): Promise<void> {
             if (pendingMem > 0) continue;
 
             const queue = getCampaignQueue();
-            let pendingQueue = 0;
-            if (queue) {
-                const jobs = await queue.getJobs(['active', 'waiting', 'delayed'], 0, 200);
-                pendingQueue = jobs.filter((j) => j.data?.campaignId === campaignId).length;
-            }
+            const pendingQueue = await countQueueJobsForCampaign(queue, campaignId);
             if (pendingQueue > 0) {
                 campaignPendingJobs.set(campaignId, pendingQueue);
                 continue;
@@ -8354,7 +8373,7 @@ async function reconcileRunningCampaignsFromPostgres(): Promise<void> {
             log('warn', `[reconcile] Campanha RUNNING ${campaignId} sem jobs — retomando do snapshot`, {
                 tenantId,
             });
-            await redispatchCampaign(tenantId, campaignId, { mode: 'resume', skipFrequencyCap: true });
+            await redispatchCampaign(tenantId, campaignId, { mode: 'resume', skipFrequencyCap: false });
         }
     } catch (e: unknown) {
         log('warn', '[reconcile] Falha ao reconciliar campanhas RUNNING do Postgres', {
@@ -8368,17 +8387,7 @@ async function reconcilePendingJobsFromRedis() {
     const queue = getCampaignQueue();
     if (!queue) return;
     try {
-        const jobs = await queue.getJobs(['active', 'waiting', 'delayed']);
-        // Agrupa: counts + ownerUid por campaignId
-        const counts = new Map<string, number>();
-        const ownerByC = new Map<string, string>();
-        for (const j of jobs) {
-            const cid = j.data?.campaignId;
-            if (!cid) continue;
-            counts.set(cid, (counts.get(cid) || 0) + 1);
-            const uid = j.data?.ownerUid || j.data?.replyFlowOpen?.ownerUid;
-            if (uid && !ownerByC.has(cid)) ownerByC.set(cid, uid);
-        }
+        const { counts, ownerByCampaign: ownerByC } = await collectCampaignJobCountsFromQueue(queue);
 
         for (const [cid, count] of counts) {
             if (!campaignPendingJobs.has(cid)) {
@@ -8409,6 +8418,7 @@ const campaignStallNotified = new Set<string>();
  * Detecta campanhas RUNNING com 0 envios por >2 min e corrige ou pausa com motivo claro.
  */
 export async function tickCampaignStallWatchdog(): Promise<void> {
+    if (isInCampaignResumeGrace()) return;
     ensureCampaignWorker();
     const queue = getCampaignQueue();
     const now = Date.now();
@@ -8421,11 +8431,11 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
         if (startedAt > 0 && now - startedAt < CAMPAIGN_STALL_MS) continue;
 
         const pendingMem = campaignPendingJobs.get(campaignId) || 0;
-        let pendingQueue = 0;
-        if (queue) {
+        let pendingQueue = pendingMem;
+        if (pendingMem <= 0 && queue) {
             try {
-                const jobs = await queue.getJobs(['active', 'waiting', 'delayed'], 0, 400);
-                pendingQueue = jobs.filter((j) => j.data?.campaignId === campaignId).length;
+                pendingQueue = await countQueueJobsForCampaign(queue, campaignId);
+                if (pendingQueue > 0) campaignPendingJobs.set(campaignId, pendingQueue);
             } catch {
                 pendingQueue = pendingMem;
             }
@@ -8441,7 +8451,7 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
             });
             const result = await redispatchCampaign(state.ownerUid, campaignId, {
                 mode: 'resume',
-                skipFrequencyCap: true,
+                skipFrequencyCap: false,
             });
             if (result.ok) {
                 emitCampaignLog(
@@ -8534,6 +8544,17 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
     } = params;
 
     if (dedupeKey && (await isInboundAutomationProcessed(dedupeKey))) {
+        return;
+    }
+    const bodyDedupeKey = buildInboundBodyDedupeKey(instance, phoneDigits, bodyText);
+    if (bodyDedupeKey && (await isInboundAutomationProcessed(bodyDedupeKey))) {
+        return;
+    }
+    // Corpo primeiro: webhook e replay usam messageId diferente para o mesmo "SAIR".
+    if (bodyDedupeKey && !(await tryClaimInboundAutomation(bodyDedupeKey))) {
+        return;
+    }
+    if (dedupeKey && !(await tryClaimInboundAutomation(dedupeKey))) {
         return;
     }
 

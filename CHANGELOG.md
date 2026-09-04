@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.69] - 2026-09-04
+### Corrigido
+- **Mesmo contato recebia o disparo/confirmação várias vezes**: após deploy o watchdog via só os 400 primeiros jobs da fila, achava a campanha vazia (0% com jobs só atrasados) e reenfileirava tudo — cada chip (Disparo 01, 02, 03…) mandava de novo. Agora a fila é contada inteira, jobId é estável por contato e o SAIR não gera segunda confirmação no replay.
+
 ## [2.3.68] - 2026-09-04
 ### Corrigido
 - **Resposta do gatilho SAIR era substituída pelo texto genérico da LGPD**: o opt-out global rodava antes do fluxo por respostas e enviava “Sua solicitação foi processada…”. Agora o texto configurado no gatilho da campanha é o que o contato recebe.

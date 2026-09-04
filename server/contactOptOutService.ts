@@ -319,6 +319,12 @@ export type HandleInboundOptOutParams = {
 export async function handleInboundOptOut(params: HandleInboundOptOutParams): Promise<boolean> {
   if (!matchesInboundOptOutTrigger(params.bodyText)) return false;
 
+  const already = await isContactOptedOut(params.tenantId, params.phoneDigits);
+  if (already) {
+    // Replay/webhook duplicado após deploy — não manda a confirmação de novo.
+    return true;
+  }
+
   const keyword = String(params.bodyText || '').trim();
   const result = await processContactOptOut({
     tenantId: params.tenantId,
