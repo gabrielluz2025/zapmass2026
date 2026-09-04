@@ -15,6 +15,7 @@ import {
   updateCampaignFields,
   usePostgresCampaigns
 } from './campaignStore.js';
+import { loadCampaignRecipientSnapshot } from './campaignRecipientSnapshot.js';
 
 const RETRY_DELAY_MS = 5 * 60 * 1000;
 /** Evita duas réplicas da API iniciarem o mesmo SCHEDULE em paralelo (lock em Firestore). */
@@ -257,7 +258,12 @@ async function processOneCampaign(
       return;
     }
 
-    const numbersRaw = Array.isArray(snap?.numbers) ? snap!.numbers : [];
+    const snapFile = loadCampaignRecipientSnapshot(campaignId);
+    const numbersRaw = Array.isArray(snap?.numbers) && snap!.numbers.length > 0
+      ? snap!.numbers
+      : Array.isArray(snapFile?.numbers)
+        ? snapFile.numbers
+        : [];
     const numbers = Array.from(
       new Set(
         numbersRaw
@@ -266,6 +272,11 @@ async function processOneCampaign(
       )
     );
     if (numbers.length === 0) return;
+
+    const recipients =
+      Array.isArray(snap?.recipients) && snap.recipients.length > 0
+        ? snap.recipients
+        : snapFile?.recipients;
 
     const stagesFromSnap = Array.isArray(snap?.messageStages)
       ? (snap!.messageStages as string[]).map((s) => String(s || '').trim()).filter((s) => s.length > 0)
@@ -308,7 +319,7 @@ async function processOneCampaign(
         stages,
         connectionIds,
         cid,
-        snap?.recipients,
+        recipients,
         snap?.replyFlow as Parameters<typeof evolutionService.startCampaign>[5],
         ownerUid,
         scheduledWeights,

@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.65] - 2026-09-04
+### Corrigido
+- **Apagar canal com UUID inválido no Evolution**: o Go rejeitava o identificador e o ZapMass abortava a exclusão. Agora o canal é removido localmente mesmo se o Evolution não reconhecer o ID.
+- **Campanha de prospecção grande não abria / não iniciava**: a lista da API deixava de enviar dezenas de milhares de telefones no JSON; o enfileiramento passou a usar lotes (addBulk); o snapshot pesado vai para arquivo. O botão Confirmar e a tela de detalhes deixam de travar.
+
 ## [2.3.64] - 2026-09-03
 ### Corrigido
 - **Prospecção em base grande travava o disparo**: o modal de pré-voo recomeçava a verificação do motor e dos canais a cada re-render (lista enorme de destinatários). Agora a checagem roda uma vez ao abrir e o botão Confirmar não fica bloqueado no loop de “Verificando…”.

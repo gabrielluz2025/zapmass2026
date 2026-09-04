@@ -14,6 +14,11 @@ import {
   mergeUpdateCampaign
 } from './repositories/campaignsRepository.js';
 import {
+  campaignForClientList,
+  saveCampaignRecipientSnapshot,
+  purgeCampaignRecipientSnapshot,
+} from './campaignRecipientSnapshot.js';
+import {
   getContactStateSummary,
   listFailedContactsAtStep,
 } from './repositories/campaignContactStateRepository.js';
@@ -33,7 +38,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
     const campaigns = await listCampaigns(ctx.tenantId);
-    return res.json({ ok: true, campaigns });
+    return res.json({ ok: true, campaigns: campaigns.map(campaignForClientList) });
   });
 
   app.post('/api/campaigns', async (req: Request, res: Response) => {
@@ -44,8 +49,32 @@ export function registerCampaignsDataRoutes(app: Express): void {
       return res.status(400).json({ ok: false, error: 'Corpo inválido.' });
     }
     try {
-      const { id, campaign } = await createCampaign(ctx.tenantId, body);
-      return res.json({ ok: true, id, campaign });
+      const snap = body.scheduleStartSnapshot as
+        | {
+            numbers?: string[];
+            recipients?: Array<{ phone: string; vars: Record<string, string> }>;
+          }
+        | undefined;
+      const numbers = Array.isArray(snap?.numbers) ? snap.numbers : [];
+      const heavy = numbers.length > 1_500;
+      const bodyToSave = heavy
+        ? {
+            ...body,
+            scheduleStartSnapshot: {
+              ...(snap as object),
+              numbers: [],
+              recipients: undefined,
+            },
+          }
+        : body;
+      const { id, campaign } = await createCampaign(ctx.tenantId, bodyToSave);
+      if (heavy) {
+        saveCampaignRecipientSnapshot(id, {
+          numbers,
+          recipients: snap?.recipients,
+        });
+      }
+      return res.json({ ok: true, id, campaign: campaignForClientList(campaign) });
     } catch (e) {
       console.error('[api/campaigns POST]', e);
       return res.status(400).json({ ok: false, error: 'Não foi possível criar a campanha.' });
@@ -70,6 +99,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
       const ok = await deleteCampaign(ctx.tenantId, id);
       if (!ok) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
       evolutionService.purgeCampaignMediaFiles(id);
+      purgeCampaignRecipientSnapshot(id);
       return res.json({ ok: true });
     } catch (e) {
       console.error('[api/campaigns DELETE]', id, e);
@@ -94,6 +124,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
       const { deleted, missing } = await deleteCampaigns(ctx.tenantId, ids);
       for (const id of deleted) {
         evolutionService.purgeCampaignMediaFiles(id);
+        purgeCampaignRecipientSnapshot(id);
       }
       return res.json({ ok: true, deleted, missing });
     } catch (e) {

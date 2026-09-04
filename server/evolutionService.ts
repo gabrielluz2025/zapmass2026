@@ -32,6 +32,7 @@ import {
     EVOLUTION_GO_UNREACHABLE_HINT,
     EVOLUTION_GO_LICENSE_HINT,
 } from './evolutionGoLicense.js';
+import { saveCampaignRecipientSnapshot } from './campaignRecipientSnapshot.js';
 import { attachEvolutionAxiosRetry } from './evolutionAxiosRetry.js';
 import { notifyTenant } from './tenantNotifyService.js';
 import { getEffectiveRedisUrl } from './redisConfig.js';
@@ -5474,7 +5475,9 @@ export async function deleteConnection(
         );
         const instanceMissing =
             status === 404 ||
-            /record not found|not found|does not exist|instance.*not.*found/i.test(msg);
+            /record not found|not found|does not exist|instance.*not.*found|invalid UUID|missing-go-uuid|UUID length|não reconheceu o identificador/i.test(
+                msg
+            );
         // Evolution Go inacessível (ENOTFOUND/ECONNREFUSED) → limpar localmente sem bloquear
         const networkUnreachable =
             !error?.response &&
@@ -5885,6 +5888,78 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
         throw err;
     } finally {
         if (timeoutId) clearTimeout(timeoutId);
+    }
+}
+
+const ENQUEUE_BULK_CHUNK = 80;
+
+/** Enfileira milhares de jobs em lotes (addBulk) — o add um-a-um trava campanhas de base grande. */
+async function enqueueCampaignItemsBulk(
+    entries: Array<{ item: MessageQueueItem; delayMs: number }>
+): Promise<void> {
+    if (entries.length === 0) return;
+    if (entries.length === 1) {
+        await enqueueCampaignItem(entries[0].item, entries[0].delayMs);
+        return;
+    }
+    const queue = getCampaignQueue();
+    if (!queue) {
+        throw new Error('Fila Redis indisponível. Verifique REDIS_URL/serviço Redis na VPS.');
+    }
+    if (isBullmqRecoveryPending('campaign-queue')) {
+        throw new Error('Redis sob stress (memória cheia). Aguarde alguns segundos e tente novamente.');
+    }
+    const backpressure = await isBackpressureActive().catch(() => false);
+    if (backpressure) {
+        throw new Error('Sistema sob backpressure — tente novamente em instantes.');
+    }
+
+    for (let offset = 0; offset < entries.length; offset += ENQUEUE_BULK_CHUNK) {
+        const chunk = entries.slice(offset, offset + ENQUEUE_BULK_CHUNK);
+        const jobs = chunk.map(({ item, delayMs }) => {
+            bumpQueueSize(item.connectionId, 1);
+            if (item.campaignId) {
+                campaignPendingJobs.set(item.campaignId, (campaignPendingJobs.get(item.campaignId) || 0) + 1);
+            }
+            const stageTag = item.stageIndex != null ? `s${item.stageIndex}` : 's0';
+            const jobId = `${item.campaignId || 'direct'}__${item.connectionId}__${item.to}__${stageTag}__${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            if (item.campaignId && item.ownerUid) {
+                void registerCampaignJob({
+                    idempotencyKey: jobId,
+                    campaignId: item.campaignId,
+                    tenantId: item.ownerUid,
+                    connectionId: item.connectionId,
+                    toNumber: item.to,
+                    stageIndex: item.stageIndex ?? 0,
+                    payload: item as unknown as Record<string, unknown>,
+                }).catch(() => undefined);
+            }
+            return {
+                name: 'send' as const,
+                data: item,
+                opts: {
+                    jobId,
+                    attempts: 3,
+                    backoff: { type: 'exponential' as const, delay: 5000 },
+                    delay: Math.max(0, delayMs),
+                    removeOnComplete: bullmqRemoveOnComplete(),
+                    removeOnFail: bullmqRemoveOnFail(),
+                },
+            };
+        });
+        try {
+            await queue.addBulk(jobs);
+        } catch (err) {
+            for (const { item } of chunk) {
+                bumpQueueSize(item.connectionId, -1);
+                if (item.campaignId) {
+                    const pending = (campaignPendingJobs.get(item.campaignId) || 1) - 1;
+                    if (pending <= 0) campaignPendingJobs.delete(item.campaignId);
+                    else campaignPendingJobs.set(item.campaignId, pending);
+                }
+            }
+            throw err;
+        }
     }
 }
 
@@ -7698,6 +7773,12 @@ export async function startCampaign(
     if (connectionIds.length === 0 || numbers.length === 0) return false;
 
     const cid = campaignId || `campaign_${Date.now()}`;
+    if (numbers.length > 1_500) {
+        saveCampaignRecipientSnapshot(cid, {
+            numbers: numbers.map((n) => String(n || '')),
+            recipients,
+        });
+    }
 
     const persistCampaignMediaPayload = (storageKey: string, payload?: CampaignMediaPayload) => {
         if (!storageKey || !payload) return;
@@ -7858,6 +7939,7 @@ export async function startCampaign(
     }
     const enqueuedCountPerDayPerChannel: Record<string, Record<number, number>> = {};
     const enqueuedIndexPerDayPerChannel: Record<string, Record<number, number>> = {};
+    const pendingEnqueue: Array<{ item: MessageQueueItem; delayMs: number }> = [];
 
     try {
         for (let i = 0; i < numbers.length; i++) {
@@ -7930,29 +8012,28 @@ export async function startCampaign(
             }
 
             if (useLazyMotor) {
-                // Motor lazy: apenas etapa 0 enfileirada agora; etapas seguintes após conclusão/resposta
                 const firstStage = validStageConfigs[0];
                 const personalizedMessage = applyMessageVars(firstStage.body, cleanPhone, vars, i);
-            await enqueueCampaignItem(
-                {
-                    connectionId: assignedConnectionId,
-                    to: num,
-                    message: personalizedMessage,
-                    campaignId: cid,
+                pendingEnqueue.push({
+                    item: {
+                        connectionId: assignedConnectionId,
+                        to: num,
+                        message: personalizedMessage,
+                        campaignId: cid,
                         ownerUid,
                         stageIndex: 0,
                         rotationIndex: i,
-                    sendAsMedia: hasMedia,
+                        sendAsMedia: hasMedia,
                         multiStepContact: { contactId: cleanPhone, stepIndex: 0 },
                         skipFrequencyCap: skipFrequencyCap === true,
                         alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
                     },
-                    staggerDelay
-                );
+                    delayMs: staggerDelay,
+                });
             } else if (useReplyFlow) {
                 const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars, i);
-                await enqueueCampaignItem(
-                    {
+                pendingEnqueue.push({
+                    item: {
                         connectionId: assignedConnectionId,
                         to: num,
                         message: personalizedMessage,
@@ -7962,39 +8043,40 @@ export async function startCampaign(
                         sendAsMedia: hasMedia,
                         skipFrequencyCap: skipFrequencyCap === true,
                         alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
-                    replyFlowOpen: {
-                        campaignId: cid,
-                        phoneDigits: cleanPhone,
-                        vars,
-                        ownerUid,
+                        replyFlowOpen: {
+                            campaignId: cid,
+                            phoneDigits: cleanPhone,
+                            vars,
+                            ownerUid,
+                        },
                     },
-                },
-                staggerDelay
-            );
-        } else {
-            for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
+                    delayMs: staggerDelay,
+                });
+            } else {
+                for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
                     const personalizedMessage = applyMessageVars(templates[stageIndex], cleanPhone, vars, i);
-                    // Delay entre etapas: usa o mesmo intervalo configurado entre contatos.
                     const interStageMinDelay = dispatchSettings.minDelayMs;
                     const stageDelay = staggerDelay + stageIndex * interStageMinDelay;
-                await enqueueCampaignItem(
-                    {
-                        connectionId: assignedConnectionId,
-                        to: num,
-                        message: personalizedMessage,
-                        campaignId: cid,
+                    pendingEnqueue.push({
+                        item: {
+                            connectionId: assignedConnectionId,
+                            to: num,
+                            message: personalizedMessage,
+                            campaignId: cid,
                             ownerUid,
                             stageIndex,
                             rotationIndex: i,
-                        sendAsMedia: hasMedia && stageIndex === 0,
+                            sendAsMedia: hasMedia && stageIndex === 0,
                             skipFrequencyCap: skipFrequencyCap === true,
                             alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
-                    },
-                    stageDelay
-                );
+                        },
+                        delayMs: stageDelay,
+                    });
+                }
             }
         }
-        }
+
+        await enqueueCampaignItemsBulk(pendingEnqueue);
 
         emitCampaignLog(
             'INFO',

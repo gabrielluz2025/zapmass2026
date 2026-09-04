@@ -159,7 +159,8 @@ async function confirmCampaignStartedViaApi(
  */
 function startCampaignAckTimeoutMs(
   media?: { dataBase64?: string },
-  connectionIdsCount: number = 1
+  connectionIdsCount: number = 1,
+  contactCount: number = 0
 ): number {
   const b64 = media?.dataBase64;
   if (b64) {
@@ -168,9 +169,10 @@ function startCampaignAckTimeoutMs(
     const ms = 50_000 + (approxBytes / 100_000) * 1_000;
     return Math.min(900_000, Math.max(120_000, Math.ceil(ms)));
   }
-  // Base 30s + 3s por chip (verificação de conexão pode demorar por chip)
   const n = Math.max(1, Math.min(24, Number(connectionIdsCount) || 1));
-  return Math.min(75_000, 30_000 + n * 3_000);
+  const contacts = Math.max(0, Number(contactCount) || 0);
+  const extra = Math.min(120_000, Math.floor(contacts / 80) * 1_000);
+  return Math.min(180_000, 45_000 + n * 3_000 + extra);
 }
 
 const INITIAL_METRICS: DashboardMetrics = {
@@ -3973,14 +3975,18 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       ...(options?.prospecting?.enabled ? { prospecting: options.prospecting } : {}),
       createdAt: new Date().toISOString(),
       scheduleStartSnapshot: {
-        numbers: cleanNumbers,
+        numbers: cleanNumbers.length > 1_500 ? [] : cleanNumbers,
         message: stagesForDoc[0] || message,
         messageStages: stagesForDoc,
         connectionIds: targetConnections,
         delaySeconds: options?.delaySeconds,
         delaySecondsMax: options?.delaySecondsMax,
         humanizedPauses: options?.humanizedPauses !== false,
-        ...(cleanRecipients && cleanRecipients.length > 0 ? { recipients: cleanRecipients } : {}),
+        ...(cleanNumbers.length > 1_500
+          ? {}
+          : cleanRecipients && cleanRecipients.length > 0
+            ? { recipients: cleanRecipients }
+            : {}),
         ...(options?.replyFlow?.enabled ? { replyFlow: options.replyFlow } : {}),
         ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
           ? { channelWeights: options.channelWeights }
@@ -3998,7 +4004,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       new Promise<never>((_, reject) =>
         setTimeout(
           () => reject(new Error('Tempo esgotado ao salvar a campanha. Verifique sua conexão e tente de novo.')),
-          20_000
+          90_000
         )
       )
     ]);
@@ -4008,7 +4014,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     try {
       const ackTimeoutMs = startCampaignAckTimeoutMs(
         options?.mediaAttachment || options?.followUpMediaAttachment,
-        targetConnections.length
+        targetConnections.length,
+        cleanNumbers.length
       );
       const response = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
         let done = false;
@@ -4238,14 +4245,18 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         : {}),
       nextRunAt: nextRun,
       scheduleStartSnapshot: {
-        numbers: cleanNumbers,
+        numbers: cleanNumbers.length > 1_500 ? [] : cleanNumbers,
         message: stagesForDoc[0] || message,
         messageStages: stagesForDoc,
         connectionIds: targetConnections,
         delaySeconds: options?.delaySeconds,
         delaySecondsMax: options?.delaySecondsMax,
         humanizedPauses: options?.humanizedPauses !== false,
-        ...(cleanRecipients && cleanRecipients.length > 0 ? { recipients: cleanRecipients } : {}),
+        ...(cleanNumbers.length > 1_500
+          ? {}
+          : cleanRecipients && cleanRecipients.length > 0
+            ? { recipients: cleanRecipients }
+            : {}),
         ...(options?.replyFlow?.enabled ? { replyFlow: options.replyFlow } : {}),
         ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
           ? { channelWeights: options.channelWeights }

@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.65',
+    date: '04/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Apagar canal: se o Evolution não reconhecer o ID, o chip é removido no ZapMass mesmo assim' },
+      { type: 'fix', text: 'Prospecção de base grande: lista/detalhes não travam; disparo enfileira em lote (não fica preso no “não iniciou”)' },
+    ],
+  },
+  {
     version: '2.3.64',
     date: '03/09/2026',
     highlights: [
