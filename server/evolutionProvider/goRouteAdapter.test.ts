@@ -95,6 +95,24 @@ describe('adaptEvolutionApiRequestToGo', () => {
         expect(r.headers.instanceId).toBe(validUuid);
         expect(r.syntheticResponse).toBeUndefined();
     });
+
+    it('findMessages → resposta sintética vazia (Go não expõe histórico)', () => {
+        const r = adaptEvolutionApiRequestToGo(
+            {
+                method: 'post',
+                url: '/chat/findMessages/conn_abc',
+                data: { where: { key: { remoteJid: '5511999999999@s.whatsapp.net' } } },
+                headers: {},
+            },
+            tokenStore
+        );
+        expect(r.syntheticResponse?.status).toBe(200);
+        expect(r.syntheticResponse?.data).toEqual([]);
+    });
+
+    it('extrai id de findMessages em /chat/', () => {
+        expect(extractInstanceIdFromApiPath('/chat/findMessages/conn_1_2')).toBe('conn_1_2');
+    });
 });
 
 describe('normalizeGoResponseToApiV2', () => {

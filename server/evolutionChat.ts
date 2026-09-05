@@ -822,6 +822,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             emitConversationDelta(conversationId);
             return conv!.messages.length;
         }
+        if (isGoWebhookInboxMode()) return conv?.messages?.length || 0;
         const jids = remoteJidsForMessageFetch(conv, parsed.remoteJid);
         const fetched = await fetchMessagesFromAlternateJids(parsed.connectionId, jids, limit);
         if (fetched.length === 0) return conv?.messages?.length || 0;
@@ -1659,6 +1660,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         maxTotal: number,
         opts?: { beforeTimestampMs?: number }
     ): Promise<any[]> {
+        if (isGoWebhookInboxMode()) return [];
         const pageSize = 100;
         const maxPages = Math.min(80, Math.ceil(maxTotal / pageSize) + 3);
         const collected: any[] = [];
@@ -1991,20 +1993,6 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         }
 
         const requested = Math.max(50, Math.min(limit, MAX_MESSAGES));
-        if (isGoWebhookInboxMode()) {
-            const convAfterArchive = conversations.find((c) => c.id === conversationId);
-            const have = convAfterArchive?.messages?.length || 0;
-            const activityHint =
-                Boolean((convAfterArchive?.lastMessage || '').trim()) ||
-                (convAfterArchive?.unreadCount || 0) > 0 ||
-                (convAfterArchive?.lastMessageTimestamp || 0) > 0;
-            // Go alimenta por webhook — se a lista tem preview mas a thread está vazia,
-            // tenta Postgres/arquivo e findMessages antes de devolver vazio.
-            if (have >= Math.min(requested, 40) || (!activityHint && have > 0)) {
-                const msgs = prepareConversationHistoryForClient(convAfterArchive!, requested);
-                return { ok: true, total: have, messages: msgs };
-            }
-        }
 
         let conv = conversations.find((c) => c.id === conversationId);
         if (conv) {
@@ -2022,6 +2010,13 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         absorbSiblingThreadMessages(conversationId);
         conv = conversations.find((c) => c.id === conversationId);
+
+        if (isGoWebhookInboxMode()) {
+            const have = conv?.messages?.length || 0;
+            const msgs = conv ? prepareConversationHistoryForClient(conv, requested) : [];
+            return { ok: true, total: have, messages: msgs };
+        }
+
         const oldestLocalMs =
             conv?.messages?.length && conv.messages.length > 0
                 ? Math.min(...conv.messages.map((m) => m.timestampMs || 0).filter((t) => t > 0))
@@ -2272,6 +2267,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         }
     }
 
+    const profilePicFailUntil = new Map<string, number>();
+
     async function fetchConversationPicture(
         conversationId: string,
         opts?: { silentEmit?: boolean }
@@ -2281,6 +2278,11 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         const conv = conversations.find((c) => c.id === conversationId);
         if (conv?.profilePicUrl?.startsWith('data:')) return conv.profilePicUrl;
+        if (isLidJid(parsed.remoteJid)) return conv?.profilePicUrl || null;
+
+        const picCooldownKey = `${parsed.connectionId}:${parsed.remoteJid}`;
+        const cooldownUntil = profilePicFailUntil.get(picCooldownKey) || 0;
+        if (Date.now() < cooldownUntil) return conv?.profilePicUrl || null;
         if (conv?.profilePicUrl?.startsWith('http')) {
             const mirrored = await normalizeProfilePictureUrl(conv.profilePicUrl);
             if (mirrored) {
@@ -2325,6 +2327,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 return pic;
             }
         } catch (error: any) {
+            profilePicFailUntil.set(picCooldownKey, Date.now() + 15 * 60_000);
             console.warn('[EvolutionChat] fetchProfilePicture:', error?.message || error);
         }
         return null;

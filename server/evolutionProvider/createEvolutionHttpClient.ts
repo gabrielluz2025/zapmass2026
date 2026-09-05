@@ -37,11 +37,19 @@ export function createEvolutionHttpClient(tokenStore: InstanceTokenStore): Axios
     });
 
     if (isEvolutionGoEngine()) {
+        // Um único interceptor: axios executa request hooks na ordem inversa do registro;
+        // separar adapt + adapter fazia o adapter rodar antes de __synthetic existir → HTTP real (404).
         client.interceptors.request.use((config: InternalAxiosRequestConfig) => {
             const adapted = adaptEvolutionApiRequestToGo(config, tokenStore);
             if (adapted.syntheticResponse) {
-                (config as InternalAxiosRequestConfig & { __synthetic?: unknown }).__synthetic =
-                    adapted.syntheticResponse;
+                const syn = adapted.syntheticResponse;
+                config.adapter = async () => ({
+                    data: syn.data,
+                    status: syn.status,
+                    statusText: 'OK',
+                    headers: {},
+                    config,
+                });
             }
             config.url = adapted.url;
             if (adapted.data !== undefined) config.data = adapted.data;
@@ -59,21 +67,6 @@ export function createEvolutionHttpClient(tokenStore: InstanceTokenStore): Axios
             },
             (error) => Promise.reject(error)
         );
-
-        client.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-            const syn = (config as InternalAxiosRequestConfig & { __synthetic?: { status: number; data: unknown } })
-                .__synthetic;
-            if (syn) {
-                config.adapter = async () => ({
-                    data: syn.data,
-                    status: syn.status,
-                    statusText: 'OK',
-                    headers: {},
-                    config,
-                });
-            }
-            return config;
-        });
     }
 
     attachEvolutionAxiosRetry(client);

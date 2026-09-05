@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.88',
+    date: '05/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Evolution Go: findMessages deixa de gerar 404 (adapter axios corrigido); histórico vem de webhook/arquivo; menos spam de foto de perfil em @lid' },
+    ],
+  },
+  {
     version: '2.3.87',
     date: '05/09/2026',
     highlights: [

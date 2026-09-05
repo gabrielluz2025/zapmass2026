@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.88] - 2026-09-05
+### Corrigido
+- **findMessages 404 no Evolution Go**: interceptors axios rodavam na ordem errada — resposta sintética nunca aplicava e o Go recebia POST `/chat/findMessages` inexistente.
+- **Histórico no Go**: `loadChatHistory` e prefetch usam só RAM + arquivo Postgres (webhook/History Sync), sem chamar findMessages.
+- **Spam de fetchProfilePicture 400**: contatos @lid não disparam avatar na API; falhas entram em cooldown de 15 min.
+
 ## [2.3.87] - 2026-09-05
 ### Corrigido
 - **Thread vazio com conversa na lista (Evolution Go)**: stubs do History Sync tinham horário/não lidas mas zero mensagens; agora o servidor prefetch automático, busca por JID alternativo (@lid + telefone), arquivo Postgres e threads irmãs; o cliente tenta carregar até 5× ao abrir o chat.
