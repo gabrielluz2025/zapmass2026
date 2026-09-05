@@ -2,7 +2,7 @@ import { vpsDataEnabled } from './auth/dataMode.js';
 import type { Conversation } from './types.js';
 import { getCrmContactIndexes } from './crmContactIndexCache.js';
 import {
-  buildPhoneDigitLookupKeys,
+  buildStrongPhoneMergeKeys,
   looksLikeLongLidDigits,
   normalizePhoneDigits
 } from '../src/utils/contactPhoneLookup.js';
@@ -34,8 +34,8 @@ function resolveCrmPhoneByDigitIndex(
 ): LidPeerFields | null {
   for (const raw of candidates) {
     const digits = normalizePhoneDigits(raw);
-    if (!digits || digits.length < 8) continue;
-    for (const key of buildPhoneDigitLookupKeys(digits)) {
+    if (!digits || digits.length < 10) continue;
+    for (const key of buildStrongPhoneMergeKeys(digits)) {
       const hit = byDigits.get(key);
       if (hit) return peerFromE164Digits(hit);
     }
@@ -50,14 +50,9 @@ function resolveCrmPhoneByNameIndex(
 ): LidPeerFields | null {
   const key = normalizeNameKey(displayName);
   if (!key || key === 'contato' || key === 'contact') return null;
+  if (key.length < 8) return null;
   const direct = byName.get(key);
   if (direct) return peerFromE164Digits(direct);
-  for (const [crmKey, e164] of byName) {
-    if (crmKey.startsWith(key) || key.startsWith(crmKey)) {
-      const peer = peerFromE164Digits(e164);
-      if (peer) return peer;
-    }
-  }
   return null;
 }
 

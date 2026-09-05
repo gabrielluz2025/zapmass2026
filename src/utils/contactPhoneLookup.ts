@@ -1,5 +1,7 @@
 /** Cruzamento telefone ↔ agenda ZapMass (BR: 55, 9º dígito, sufixos). */
 
+import { canonicalBrazilMobileKey } from './brPhoneNormalize';
+
 export function normalizePhoneDigits(raw: string): string {
   return String(raw || '').replace(/\D/g, '');
 }
@@ -62,6 +64,25 @@ export function buildPhoneDigitLookupKeys(digits: string): string[] {
   const d = normalizePhoneDigits(digits);
   if (!d) return [];
   addCore(d);
+  return Array.from(set);
+}
+
+/**
+ * Chaves fortes para unir threads (mesmo contato).
+ * Não usa sufixo de 8–9 dígitos — isso misturava pessoas com o mesmo final.
+ */
+export function buildStrongPhoneMergeKeys(digits: string): string[] {
+  const d = normalizePhoneDigits(digits);
+  if (!d || d.length < 10 || looksLikeLongLidDigits(d)) return [];
+  const set = new Set<string>();
+  for (const k of buildPhoneDigitLookupKeys(d)) {
+    if (k.length >= 10 && k.length <= 13) set.add(k);
+  }
+  set.add(d);
+  if (d.startsWith('55') && d.length >= 12) {
+    const canon = canonicalBrazilMobileKey(d);
+    if (canon.length >= 12 && canon.length <= 13) set.add(canon);
+  }
   return Array.from(set);
 }
 

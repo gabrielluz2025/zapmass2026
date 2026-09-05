@@ -1,6 +1,6 @@
 import type { ChatMessage, Conversation } from '../types';
 import {
-  buildPhoneDigitLookupKeys,
+  buildStrongPhoneMergeKeys,
   looksLikeLongLidDigits,
   normalizePhoneDigits,
   pickContactDisplayName
@@ -60,21 +60,12 @@ export function stableWhatsappPicKey(url: string | undefined | null): string {
   }
 }
 
-function normalizedInboxName(name: string | undefined | null): string {
-  return String(name || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function phoneKeysForConversation(conv: Conversation): string[] {
   const keys = new Set<string>();
   const addDigits = (raw: string) => {
     const d = normalizePhoneDigits(raw);
-    if (d.length < 8 || looksLikeLongLidDigits(d)) return;
-    for (const k of buildPhoneDigitLookupKeys(d)) keys.add(k);
+    if (d.length < 10 || looksLikeLongLidDigits(d)) return;
+    for (const k of buildStrongPhoneMergeKeys(d)) keys.add(k);
   };
 
   addDigits(conv.contactPhone || '');
@@ -215,30 +206,6 @@ function collapseGroup(group: Conversation[]): Conversation[] {
       const prev = keyToIdx.get(k);
       if (prev != null) unite(i, prev);
       else keyToIdx.set(k, i);
-    }
-  }
-
-  const picToIdx = new Map<string, number>();
-  for (let i = 0; i < group.length; i++) {
-    const pic = stableWhatsappPicKey(group[i].profilePicUrl);
-    if (!pic) continue;
-    const prev = picToIdx.get(pic);
-    if (prev != null) unite(i, prev);
-    else picToIdx.set(pic, i);
-  }
-
-  const nameToIdx = new Map<string, number>();
-  for (let i = 0; i < group.length; i++) {
-    const nm = normalizedInboxName(group[i].contactName);
-    if (nm.length < 6 || looksLikeLongLidDigits(nm)) continue;
-    const jid = remoteJidFromConversationId(group[i].id);
-    const isLid = isLidJid(jid);
-    const prev = nameToIdx.get(nm);
-    if (prev != null) {
-      const prevLid = isLidJid(remoteJidFromConversationId(group[prev].id));
-      if (isLid || prevLid) unite(i, prev);
-    } else {
-      nameToIdx.set(nm, i);
     }
   }
 

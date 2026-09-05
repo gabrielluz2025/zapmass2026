@@ -383,12 +383,15 @@ export const WaWebChatApp: React.FC<{
       const phoneDigits = String(digits || '').replace(/\D/g, '');
       if (!phoneDigits) return;
 
-      const matchesDigits = (cd: string) =>
-        !!cd &&
-        (cd === phoneDigits ||
-          cd.endsWith(phoneDigits) ||
-          phoneDigits.endsWith(cd) ||
-          (cd.length >= 10 && phoneDigits.length >= 10 && cd.slice(-10) === phoneDigits.slice(-10)));
+      const matchesDigits = (cd: string) => {
+        if (!cd || cd.length < 10 || phoneDigits.length < 10) return false;
+        if (cd === phoneDigits) return true;
+        const a = cd.length >= 10 ? cd.slice(-11) : cd;
+        const b = phoneDigits.length >= 10 ? phoneDigits.slice(-11) : phoneDigits;
+        const a10 = cd.slice(-10);
+        const b10 = phoneDigits.slice(-10);
+        return a === b || (a10.length === 10 && a10 === b10);
+      };
 
       const candidates = sortedConversations.filter((c) =>
         matchesDigits((c.contactPhone || '').replace(/\D/g, ''))

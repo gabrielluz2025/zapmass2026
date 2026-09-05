@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.85] - 2026-09-05
+### Corrigido
+- **Bate-papo misturava conversas**: o sistema unia threads por sufixo de telefone, nome igual ou foto. Pessoas diferentes no mesmo chip viravam um chat só. Agora só junta @lid + número quando o telefone é o mesmo (chave forte); homônimos e foto sozinha ficam separados.
+
 ## [2.3.84] - 2026-09-05
 ### Corrigido
 - **Disparo saía à noite (ex.: 00:29) mesmo com horário no cronograma**: o atraso era só na fila; retry/deploy/retomada ignoravam a janela e o dia seguinte começava à meia-noite. Agora o envio só ocorre dentro do horário de Brasília (períodos da campanha ou 8h–20h) e, se estiver fora, o job espera a próxima janela.

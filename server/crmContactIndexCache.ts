@@ -3,7 +3,7 @@ import { vpsDataEnabled } from './auth/dataMode.js';
 import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
 import {
   buildCrmNameIndex,
-  buildPhoneDigitLookupKeys,
+  buildStrongPhoneMergeKeys,
   looksLikeLongLidDigits,
   normalizePhoneDigits
 } from '../src/utils/contactPhoneLookup.js';
@@ -52,7 +52,7 @@ export async function getCrmContactIndexes(tenantUid: string): Promise<CrmContac
     if (plausiblePhoneDigits(digits) && !looksLikeLongLidDigits(digits)) {
       const e164 = normalizeBRPhone(digits) || normalizeOutboundDigits(digits);
       if (e164) {
-        for (const key of buildPhoneDigitLookupKeys(digits)) {
+        for (const key of buildStrongPhoneMergeKeys(digits)) {
           if (!byDigits.has(key)) byDigits.set(key, e164);
         }
       }

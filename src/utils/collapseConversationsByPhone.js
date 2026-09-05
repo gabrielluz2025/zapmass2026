@@ -1,4 +1,4 @@
-import { buildPhoneDigitLookupKeys, looksLikeLongLidDigits, normalizePhoneDigits, pickContactDisplayName } from './contactPhoneLookup';
+import { buildStrongPhoneMergeKeys, looksLikeLongLidDigits, normalizePhoneDigits, pickContactDisplayName } from './contactPhoneLookup';
 function remoteJidFromConversationId(id) {
     const colon = id.indexOf(':');
     return colon >= 0 ? id.slice(colon + 1) : id;
@@ -63,9 +63,9 @@ function phoneKeysForConversation(conv) {
     const keys = new Set();
     const addDigits = (raw) => {
         const d = normalizePhoneDigits(raw);
-        if (d.length < 8 || looksLikeLongLidDigits(d))
+        if (d.length < 10 || looksLikeLongLidDigits(d))
             return;
-        for (const k of buildPhoneDigitLookupKeys(d))
+        for (const k of buildStrongPhoneMergeKeys(d))
             keys.add(k);
     };
     addDigits(conv.contactPhone || '');
@@ -198,34 +198,6 @@ function collapseGroup(group) {
                 unite(i, prev);
             else
                 keyToIdx.set(k, i);
-        }
-    }
-    const picToIdx = new Map();
-    for (let i = 0; i < group.length; i++) {
-        const pic = stableWhatsappPicKey(group[i].profilePicUrl);
-        if (!pic)
-            continue;
-        const prev = picToIdx.get(pic);
-        if (prev != null)
-            unite(i, prev);
-        else
-            picToIdx.set(pic, i);
-    }
-    const nameToIdx = new Map();
-    for (let i = 0; i < group.length; i++) {
-        const nm = normalizedInboxName(group[i].contactName);
-        if (nm.length < 6 || looksLikeLongLidDigits(nm))
-            continue;
-        const jid = remoteJidFromConversationId(group[i].id);
-        const isLid = isLidJid(jid);
-        const prev = nameToIdx.get(nm);
-        if (prev != null) {
-            const prevLid = isLidJid(remoteJidFromConversationId(group[prev].id));
-            if (isLid || prevLid)
-                unite(i, prev);
-        }
-        else {
-            nameToIdx.set(nm, i);
         }
     }
     const clusters = new Map();

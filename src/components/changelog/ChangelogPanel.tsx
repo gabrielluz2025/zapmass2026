@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.85',
+    date: '05/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Bate-papo não mistura mais conversas: só une o mesmo número (@lid + WhatsApp); nome igual ou foto sozinha não junta pessoas diferentes' },
+    ],
+  },
+  {
     version: '2.3.84',
     date: '05/09/2026',
     highlights: [

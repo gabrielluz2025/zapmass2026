@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { collapseConversationsByPhone } from './collapseConversationsByPhone';
+import { collapseConversationsByPhone as collapseFromJs } from './collapseConversationsByPhone.js';
+import { buildStrongPhoneMergeKeys } from './contactPhoneLookup';
 import type { Conversation } from '../types';
 
 describe('collapseConversationsByPhone', () => {
@@ -71,7 +73,38 @@ describe('collapseConversationsByPhone', () => {
     expect(out).toHaveLength(2);
   });
 
-  it('une threads do mesmo chip com a mesma foto real do WhatsApp', () => {
+  it('nao une so pelo sufixo de 8 digitos (DDDs diferentes)', () => {
+    const conn = 'conn_suf';
+    const out = collapseConversationsByPhone([
+      {
+        id: `${conn}:554799127801@s.whatsapp.net`,
+        connectionId: conn,
+        contactName: 'A',
+        contactPhone: '+554799127801',
+        unreadCount: 0,
+        lastMessage: 'a',
+        lastMessageTime: '',
+        lastMessageTimestamp: 1,
+        messages: [],
+        tags: []
+      },
+      {
+        id: `${conn}:554899127801@s.whatsapp.net`,
+        connectionId: conn,
+        contactName: 'B',
+        contactPhone: '+554899127801',
+        unreadCount: 0,
+        lastMessage: 'b',
+        lastMessageTime: '',
+        lastMessageTimestamp: 2,
+        messages: [],
+        tags: []
+      }
+    ]);
+    expect(out).toHaveLength(2);
+  });
+
+  it('nao une so pela foto do WhatsApp (pessoas diferentes podem repetir CDN)', () => {
     const conn = 'conn_pic';
     const pic = 'https://pps.whatsapp.net/v/t61.24694-24/abc123/foto.jpg?oe=TOKEN';
     const out = collapseConversationsByPhone([
@@ -102,11 +135,10 @@ describe('collapseConversationsByPhone', () => {
         tags: []
       }
     ]);
-    expect(out).toHaveLength(1);
-    expect(out[0].id).toBe(`${conn}:554799127801@s.whatsapp.net`);
+    expect(out).toHaveLength(2);
   });
 
-  it('une @lid e nome igual ignorando maiúsculas', () => {
+  it('nao une so pelo nome (homonimos)', () => {
     const conn = 'conn_name';
     const out = collapseConversationsByPhone([
       {
@@ -134,6 +166,44 @@ describe('collapseConversationsByPhone', () => {
         tags: []
       }
     ]);
-    expect(out).toHaveLength(1);
+    expect(out).toHaveLength(2);
+  });
+
+  it('chaves fortes nao incluem sufixo de 8 digitos', () => {
+    const keys = buildStrongPhoneMergeKeys('554799127801');
+    expect(keys.some((k) => k.length < 10)).toBe(false);
+    expect(keys).not.toContain('99127801');
+    expect(keys).not.toContain('4799127801'.slice(-8));
+  });
+
+  it('arquivo .js do servidor tambem nao une pelo sufixo de 8 digitos', () => {
+    const conn = 'conn_js';
+    const out = collapseFromJs([
+      {
+        id: `${conn}:554799127801@s.whatsapp.net`,
+        connectionId: conn,
+        contactName: 'A',
+        contactPhone: '+554799127801',
+        unreadCount: 0,
+        lastMessage: 'a',
+        lastMessageTime: '',
+        lastMessageTimestamp: 1,
+        messages: [],
+        tags: []
+      },
+      {
+        id: `${conn}:554899127801@s.whatsapp.net`,
+        connectionId: conn,
+        contactName: 'B',
+        contactPhone: '+554899127801',
+        unreadCount: 0,
+        lastMessage: 'b',
+        lastMessageTime: '',
+        lastMessageTimestamp: 2,
+        messages: [],
+        tags: []
+      }
+    ]);
+    expect(out).toHaveLength(2);
   });
 });
