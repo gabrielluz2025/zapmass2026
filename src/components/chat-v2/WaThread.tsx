@@ -160,6 +160,10 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
   }, [conversation?.id]);
 
   const messages = conversation?.messages ?? [];
+  const threadHasActivity =
+    Boolean((conversation?.lastMessage || '').trim()) ||
+    (conversation?.unreadCount || 0) > 0 ||
+    (conversation?.lastMessageTimestamp || 0) > 0;
   const virtualRows = useMemo(() => buildVirtualRows(messages), [messages]);
 
   const virtualizer = useVirtualizer({
@@ -427,7 +431,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
           className="wa-chat-wallpaper absolute inset-0 overflow-y-auto"
           onScroll={handleScroll}
         >
-          {(!historyExhausted && (messages.length > 0 || Boolean((conversation?.lastMessage || '').trim()))) && (
+          {(!historyExhausted && (messages.length > 0 || threadHasActivity)) && (
             <div className="flex flex-col items-center pt-3 sticky top-0 z-[1] gap-1">
               <button
                 type="button"
@@ -461,8 +465,8 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
             <p className="text-center text-[13px] py-12" style={{ color: 'var(--wa-text-3)' }}>
               {isDraft
                 ? 'Nova conversa — envie a primeira mensagem pelo canal escolhido abaixo.'
-                : (conversation?.lastMessage || '').trim()
-                  ? 'Histórico ainda não carregou — use “Carregar mensagens anteriores” ou atualize a página.'
+                : threadHasActivity
+                  ? 'Histórico ainda não carregou — toque em “Carregar mensagens anteriores” ou aguarde alguns segundos.'
                   : 'Nenhuma mensagem nesta conversa ainda.'}
             </p>
           )}

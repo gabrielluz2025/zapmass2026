@@ -27,9 +27,21 @@ export async function mergeChatArchiveIntoConversation(
   const ownerUid =
     hooks.resolveConnectionOwnerUid(connectionId) || hooks.ownerUidFromConnectionId(connectionId);
   if (!ownerUid) return;
-  const digitsOnly = jid.split('@')[0]?.replace(/\D/g, '') || '';
-  const cpGuess = digitsOnly.length >= 10 ? `+${digitsOnly}` : '';
-  const threadId = threadIdFromConversationId(conversationId, cpGuess);
+  const convMeta = hooks.getConversations().find((c) => c.id === conversationId);
+  const altRaw = String(convMeta?.waJidAlt || '').trim();
+  const altPhone =
+    altRaw && !altRaw.toLowerCase().endsWith('@lid')
+      ? altRaw.split('@')[0]?.replace(/\D/g, '') || ''
+      : '';
+  const cpDigits = String(convMeta?.contactPhone || '').replace(/\D/g, '');
+  const cpGuess =
+    (cpDigits.length >= 10 && cpDigits.length <= 13 ? cpDigits : '') ||
+    (altPhone.length >= 10 && altPhone.length <= 13 ? altPhone : '') ||
+    (jid.toLowerCase().endsWith('@lid') ? '' : jid.split('@')[0]?.replace(/\D/g, '') || '');
+  const threadId = threadIdFromConversationId(
+    conversationId,
+    cpGuess ? `+${cpGuess}` : ''
+  );
   if (!threadId) return;
 
   const archived = await loadChatArchiveMessages(

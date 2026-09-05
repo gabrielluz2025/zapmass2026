@@ -3,6 +3,17 @@ import { FieldValue, getFirestore, type DocumentData } from 'firebase-admin/fire
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import type { ChatMessage } from './types.js';
 
+function plausibleArchivePhoneDigits(raw: string): string {
+  const d = String(raw || '').replace(/\D/g, '');
+  if (d.length < 10 || d.length > 13) return '';
+  if (d.length >= 14) return '';
+  return d;
+}
+
+function isLongInternalWaDigits(digits: string): boolean {
+  return digits.length >= 14 && /^\d+$/.test(digits);
+}
+
 const MAX_TEXT_LEN = 12000;
 const MAX_MEDIA_PREVIEW = 512;
 /** Máximo de escritas por batch (Firestore: 500; margem para set do thread). */
@@ -23,10 +34,15 @@ export function threadIdFromConversationId(conversationId: string, contactPhone?
     const h = createHash('sha256').update(jid).digest('hex');
     return `grp_${h}`;
   }
-  const fromPhone = (contactPhone || '').replace(/\D/g, '');
-  if (fromPhone.length >= 10 && fromPhone.length <= 15) return `p_${fromPhone}`;
+  const fromPhone = plausibleArchivePhoneDigits(contactPhone || '');
+  if (fromPhone) return `p_${fromPhone}`;
   const digits = jid.split('@')[0]?.replace(/\D/g, '') || '';
-  if (digits.length >= 10 && digits.length <= 15) return `p_${digits}`;
+  const fromJid = plausibleArchivePhoneDigits(digits);
+  if (fromJid) return `p_${fromJid}`;
+  if (jid.toLowerCase().endsWith('@lid') || isLongInternalWaDigits(digits)) {
+    const h = createHash('sha256').update(jid).digest('hex');
+    return `lid_${h.slice(0, 24)}`;
+  }
   return null;
 }
 

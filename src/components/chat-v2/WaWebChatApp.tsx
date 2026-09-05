@@ -13,7 +13,7 @@ import {
 import { useClientCrm } from '../chat/useClientCrm';
 import { useSendChatMedia } from './hooks/useSendChatMedia';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
-import { ensureLatestPreviewInMessages } from '../../utils/chatMessageMerge';
+import { ensureLatestPreviewInMessages, mergeChatMessageLists } from '../../utils/chatMessageMerge';
 import { buildCanonicalConversationId } from '../../utils/conversationId';
 import { OPEN_CHAT_BY_CONVERSATION_ID_KEY } from '../../utils/openChatByConversationIdNav';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
@@ -364,18 +364,46 @@ export const WaWebChatApp: React.FC<{
   const resolveConversationById = useCallback(
     (id: string | null): Conversation | null => {
       if (!id) return null;
-      const direct = sortedConversations.find((c) => c.id === id);
-      if (direct) return ensureLatestPreviewInMessages(direct);
-      const tail = id.includes(':') ? id.slice(id.indexOf(':') + 1) : id;
-      const digits = tail.split('@')[0]?.replace(/\D/g, '') || '';
-      if (digits.length < 8) return null;
-      const hit = sortedConversations.find((c) => {
-        const cp = (c.contactPhone || '').replace(/\D/g, '');
-        const cid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
-        const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
-        return cp === digits || jidD === digits;
+      let base = sortedConversations.find((c) => c.id === id) ?? null;
+      if (!base) {
+        const tail = id.includes(':') ? id.slice(id.indexOf(':') + 1) : id;
+        const digits = tail.split('@')[0]?.replace(/\D/g, '') || '';
+        if (digits.length >= 8) {
+          base =
+            sortedConversations.find((c) => {
+              const cp = (c.contactPhone || '').replace(/\D/g, '');
+              const cid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
+              const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
+              return cp === digits || jidD === digits;
+            }) ?? null;
+        }
+      }
+      if (!base) return null;
+      const phone = normalizePhoneDigits(base.contactPhone || '');
+      const alt = base.waJidAlt || '';
+      const siblings = sortedConversations.filter((c) => {
+        if (c.connectionId !== base!.connectionId || c.id === base!.id) return false;
+        const cp = normalizePhoneDigits(c.contactPhone || '');
+        if (phone.length >= 10 && cp === phone) return true;
+        if (alt && c.waJidAlt === alt) return true;
+        return false;
       });
-      return hit ? ensureLatestPreviewInMessages(hit) : null;
+      if (siblings.length === 0) return ensureLatestPreviewInMessages(base);
+      const mergedMsgs = siblings.reduce(
+        (acc, s) => mergeChatMessageLists(acc, s.messages || []),
+        base.messages || []
+      );
+      const bestTs = Math.max(
+        base.lastMessageTimestamp ?? 0,
+        ...siblings.map((s) => s.lastMessageTimestamp ?? 0)
+      );
+      const withSiblingMeta: Conversation = {
+        ...base,
+        messages: mergedMsgs,
+        lastMessageTimestamp: bestTs,
+        unreadCount: siblings.reduce((n, s) => n + (s.unreadCount || 0), base.unreadCount || 0),
+      };
+      return ensureLatestPreviewInMessages(withSiblingMeta);
     },
     [sortedConversations]
   );
@@ -402,6 +430,13 @@ export const WaWebChatApp: React.FC<{
 
   const selectChat = useCallback(
     (id: string) => {
+      historyInitializedRef.current.delete(id);
+      setHistoryExhausted((prev) => {
+        if (!prev[id]) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       setSelectedId(id);
       setMobileShowThread(true);
       setQuoteMessage(null);
@@ -714,20 +749,49 @@ export const WaWebChatApp: React.FC<{
     if (!selected?.id || !socket?.connected) return;
     const id = selected.id;
     const msgCount = selected.messages?.length || 0;
-    const needsLoad =
-      msgCount === 0 &&
-      (Boolean((selected.lastMessage || '').trim()) ||
-        (selected.unreadCount || 0) > 0 ||
-        (selected.lastMessageTimestamp || 0) > 0);
-    if (!needsLoad) {
-      if (msgCount > 0) historyInitializedRef.current.add(id);
+    const hasActivity =
+      Boolean((selected.lastMessage || '').trim()) ||
+      (selected.unreadCount || 0) > 0 ||
+      (selected.lastMessageTimestamp || 0) > 0;
+    if (msgCount > 0) {
+      historyInitializedRef.current.add(id);
       return;
     }
-    if (historyInitializedRef.current.has(id)) return;
-    void loadMoreHistory(id, true).then((ok) => {
-      if (ok) historyInitializedRef.current.add(id);
-    });
-  }, [selected?.id, selected?.messages?.length, selected?.lastMessage, selected?.unreadCount, selected?.lastMessageTimestamp, socket?.connected, loadMoreHistory]);
+    if (!hasActivity) return;
+
+    let cancelled = false;
+    const run = async (attempt: number) => {
+      if (cancelled) return;
+      const ok = await loadMoreHistory(id, true);
+      const loaded =
+        ok &&
+        (sortedConversations.find((c) => c.id === id)?.messages?.length ||
+          resolveConversationById(id)?.messages?.length ||
+          0) > 0;
+      if (loaded) {
+        historyInitializedRef.current.add(id);
+        return;
+      }
+      if (attempt < 5 && !cancelled) {
+        await new Promise((r) => window.setTimeout(r, 1200 * attempt));
+        return run(attempt + 1);
+      }
+    };
+    void run(1);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selected?.id,
+    selected?.messages?.length,
+    selected?.lastMessage,
+    selected?.unreadCount,
+    selected?.lastMessageTimestamp,
+    socket?.connected,
+    loadMoreHistory,
+    sortedConversations,
+    resolveConversationById,
+  ]);
 
   const isSelectedDraft = useMemo(() => {
     if (!selected?.id) return false;

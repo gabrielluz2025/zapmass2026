@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.87',
+    date: '05/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Lista mostra conversa mas thread vazio: prefetch de histórico no Go, busca por @lid/telefone alternativo e retry automático ao abrir o chat' },
+    ],
+  },
+  {
     version: '2.3.86',
     date: '05/09/2026',
     highlights: [

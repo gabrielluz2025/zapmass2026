@@ -683,6 +683,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             if (typeof stub.unreadCount === 'number' && stub.unreadCount > 0) {
                 existing.unreadCount = Math.max(existing.unreadCount || 0, stub.unreadCount);
             }
+            scheduleConversationPrefetch(conversationId, 80);
             return;
         }
         upsertConversation(
@@ -701,6 +702,149 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             },
             { skipArchive: true }
         );
+        scheduleConversationPrefetch(conversationId, 80);
+    }
+
+    const prefetchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    function remoteJidsForMessageFetch(
+        conv: Conversation | undefined,
+        primaryRemoteJid: string
+    ): string[] {
+        const out: string[] = [];
+        const add = (jid: string) => {
+            const j = String(jid || '').trim();
+            if (!j || !j.includes('@') || out.includes(j)) return;
+            out.push(j);
+        };
+        add(primaryRemoteJid);
+        const altRaw = String(conv?.waJidAlt || '').trim();
+        if (altRaw) add(altRaw.includes('@') ? altRaw : `${altRaw}@s.whatsapp.net`);
+        const phone = normalizePhoneDigits(conv?.contactPhone || '');
+        if (phone.length >= 10 && phone.length <= 13 && !looksLikeLongLidDigits(phone)) {
+            add(`${phone}@s.whatsapp.net`);
+        }
+        if (conv) {
+            for (const other of conversations) {
+                if (other.connectionId !== conv.connectionId || other.id === conv.id) continue;
+                const cp = normalizePhoneDigits(other.contactPhone || '');
+                if (phone && cp === phone) {
+                    const parsedOther = parseConversationId(other.id);
+                    if (parsedOther) add(parsedOther.remoteJid);
+                }
+                if (conv.waJidAlt && other.waJidAlt === conv.waJidAlt) {
+                    const parsedOther = parseConversationId(other.id);
+                    if (parsedOther) add(parsedOther.remoteJid);
+                }
+            }
+        }
+        return out;
+    }
+
+    function absorbSiblingThreadMessages(conversationId: string): number {
+        const conv = conversations.find((c) => c.id === conversationId);
+        if (!conv) return 0;
+        const phone = normalizePhoneDigits(conv.contactPhone || '');
+        const byId = new Map<string, ChatMessage>();
+        for (const m of conv.messages || []) {
+            if (m?.id) byId.set(m.id, m);
+        }
+        let absorbed = 0;
+        for (const other of conversations) {
+            if (other.id === conversationId || other.connectionId !== conv.connectionId) continue;
+            const otherPhone = normalizePhoneDigits(other.contactPhone || '');
+            const samePhone = phone.length >= 10 && otherPhone === phone;
+            const sameAlt = Boolean(conv.waJidAlt && other.waJidAlt === conv.waJidAlt);
+            if (!samePhone && !sameAlt) continue;
+            for (const m of other.messages || []) {
+                if (!m?.id || byId.has(m.id)) continue;
+                byId.set(m.id, m);
+                absorbed++;
+            }
+        }
+        if (absorbed > 0) {
+            conv.messages = Array.from(byId.values()).sort(
+                (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
+            );
+        }
+        return conv.messages?.length || 0;
+    }
+
+    async function fetchMessagesFromAlternateJids(
+        connectionId: string,
+        jids: string[],
+        maxTotal: number,
+        opts?: { beforeTimestampMs?: number }
+    ): Promise<any[]> {
+        const byKey = new Map<string, any>();
+        for (const jid of jids) {
+            const batch = await fetchMessages(connectionId, jid, maxTotal, opts);
+            for (const m of batch) {
+                const id = String(m?.key?.id || m?.id || '');
+                const key = id || JSON.stringify(m?.key || m);
+                if (!byKey.has(key)) byKey.set(key, m);
+            }
+            if (byKey.size >= maxTotal) break;
+        }
+        return Array.from(byKey.values())
+            .sort(
+                (a, b) =>
+                    (Number(a?.messageTimestamp || a?.key?.messageTimestamp || 0) || 0) -
+                    (Number(b?.messageTimestamp || b?.key?.messageTimestamp || 0) || 0)
+            )
+            .slice(-maxTotal);
+    }
+
+    function scheduleConversationPrefetch(conversationId: string, limit = 80): void {
+        const prev = prefetchTimers.get(conversationId);
+        if (prev) clearTimeout(prev);
+        prefetchTimers.set(
+            conversationId,
+            setTimeout(() => {
+                prefetchTimers.delete(conversationId);
+                void prefetchConversationMessages(conversationId, limit).catch(() => undefined);
+            }, 350)
+        );
+    }
+
+    async function prefetchConversationMessages(conversationId: string, limit = 80): Promise<number> {
+        const parsed = parseConversationId(conversationId);
+        if (!parsed) return 0;
+        absorbSiblingThreadMessages(conversationId);
+        let conv = conversations.find((c) => c.id === conversationId);
+        const before = conv?.messages?.length || 0;
+        if (before >= Math.min(limit, 40)) return before;
+        if (archiveCtx) {
+            await mergeChatArchiveIntoConversation(conversationId, limit, evoChatArchiveHooks());
+        }
+        conv = conversations.find((c) => c.id === conversationId);
+        if ((conv?.messages?.length || 0) > before) {
+            emitConversationDelta(conversationId);
+            return conv!.messages.length;
+        }
+        const jids = remoteJidsForMessageFetch(conv, parsed.remoteJid);
+        const fetched = await fetchMessagesFromAlternateJids(parsed.connectionId, jids, limit);
+        if (fetched.length === 0) return conv?.messages?.length || 0;
+        const converted = fetched
+            .map((m) => evolutionRawToChatMessage(m, true))
+            .filter((m): m is ChatMessage => Boolean(m))
+            .sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
+        if (!conv) return 0;
+        const byId = new Map<string, ChatMessage>();
+        for (const m of conv.messages || []) byId.set(m.id, m);
+        for (const m of converted) byId.set(m.id, m);
+        conv.messages = Array.from(byId.values()).sort(
+            (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
+        );
+        const last = conv.messages[conv.messages.length - 1];
+        if (last) {
+            conv.lastMessage = last.text || conv.lastMessage;
+            conv.lastMessageTime = last.timestamp || conv.lastMessageTime;
+            conv.lastMessageTimestamp = last.timestampMs || conv.lastMessageTimestamp;
+        }
+        upsertConversation(conv, { skipArchive: true });
+        emitConversationDelta(conversationId);
+        return conv.messages.length;
     }
 
     function scheduleHistorySyncFlush(instance: string): void {
@@ -1839,7 +1983,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         limit = 500,
         skipMedia = true
     ): Promise<{ ok: boolean; total: number; error?: string; messages?: ChatMessage[] }> {
-        const parsed = parseConversationId(conversationId);
+        let parsed = parseConversationId(conversationId);
         if (!parsed) return { ok: false, total: 0, error: 'conversationId inválido.' };
 
         if (archiveCtx) {
@@ -1863,17 +2007,33 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         }
 
         let conv = conversations.find((c) => c.id === conversationId);
+        if (conv) {
+            const canonical = resolveCanonicalConversationId(parsed.connectionId, conversationId, {
+                contactPhone: conv.contactPhone,
+                waJidAlt: conv.waJidAlt
+            });
+            if (canonical !== conversationId) {
+                absorbSiblingThreadMessages(conversationId);
+                conversationId = canonical;
+                parsed = parseConversationId(conversationId)!;
+                conv = conversations.find((c) => c.id === conversationId);
+            }
+        }
+
+        absorbSiblingThreadMessages(conversationId);
+        conv = conversations.find((c) => c.id === conversationId);
         const oldestLocalMs =
             conv?.messages?.length && conv.messages.length > 0
                 ? Math.min(...conv.messages.map((m) => m.timestampMs || 0).filter((t) => t > 0))
                 : undefined;
 
-        let fetched = await fetchMessages(parsed.connectionId, parsed.remoteJid, requested);
+        const jids = remoteJidsForMessageFetch(conv, parsed.remoteJid);
+        let fetched = await fetchMessagesFromAlternateJids(parsed.connectionId, jids, requested);
         const beforeMerge = conv?.messages?.length || 0;
 
         // Segunda passagem: mensagens mais antigas que as já em cache (paginação real no DB Evolution).
         if (oldestLocalMs && oldestLocalMs > 0 && beforeMerge > 0) {
-            const older = await fetchMessages(parsed.connectionId, parsed.remoteJid, requested, {
+            const older = await fetchMessagesFromAlternateJids(parsed.connectionId, jids, requested, {
                 beforeTimestampMs: oldestLocalMs - 1,
             });
             if (older.length > 0) {

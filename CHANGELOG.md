@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.87] - 2026-09-05
+### Corrigido
+- **Thread vazio com conversa na lista (Evolution Go)**: stubs do History Sync tinham horário/não lidas mas zero mensagens; agora o servidor prefetch automático, busca por JID alternativo (@lid + telefone), arquivo Postgres e threads irmãs; o cliente tenta carregar até 5× ao abrir o chat.
+- **Arquivo de chat @lid**: threadId estável por LID (não trata dígitos internos como telefone BR).
+
 ## [2.3.86] - 2026-09-05
 ### Corrigido
 - **Bate-papo abria vazio com preview na lista**: no Evolution Go o histórico não era buscado quando a RAM só tinha metadados; agora tenta arquivo/Postgres e findMessages antes de devolver thread vazia.
