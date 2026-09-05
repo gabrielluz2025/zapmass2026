@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.84',
+    date: '05/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Campanha com horário de início/fim não dispara mais de madrugada — 00:29 fica bloqueado e o envio espera a próxima janela em Brasília' },
+    ],
+  },
+  {
     version: '2.3.83',
     date: '04/09/2026',
     highlights: [

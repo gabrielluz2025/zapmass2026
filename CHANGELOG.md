@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.84] - 2026-09-05
+### Corrigido
+- **Disparo saía à noite (ex.: 00:29) mesmo com horário no cronograma**: o atraso era só na fila; retry/deploy/retomada ignoravam a janela e o dia seguinte começava à meia-noite. Agora o envio só ocorre dentro do horário de Brasília (períodos da campanha ou 8h–20h) e, se estiver fora, o job espera a próxima janela.
+
 ## [2.3.83] - 2026-09-04
 ### Corrigido
 - **API travava após deploy (site “caiu”)**: cada frame de QR virava um job na fila e o Node parava de responder health. Agora há no máximo 1 job de QR por chip e QR atrasado é descartado.

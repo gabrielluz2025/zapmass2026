@@ -124,7 +124,12 @@ import {
     emitAntiBanAlert,
     registerAntiBanPublishFn,
 } from './antiBanProactiveNotifications.js';
-import { computeDailyScheduleDelayMs } from './campaignDailyScheduleDelay.js';
+import {
+    computeDailyScheduleDelayMs,
+    msUntilNextDailyScheduleWindow,
+    parseCampaignDailySchedule,
+    type DailyScheduleWindow,
+} from './campaignDailyScheduleDelay.js';
 import { buildCampaignSendJobId, isDuplicateBullmqJobError } from './campaignJobIdentity.js';
 import { countQueueJobsForCampaign, collectCampaignJobCountsFromQueue } from './campaignQueueScan.js';
 import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
@@ -232,7 +237,7 @@ import {
     updateContactStateOnFailure,
 } from './campaignMultiStepEngine.js';
 import { isCampaignFlowContinuation } from './campaignFlowContinuation.js';
-import { updateCampaignFields, usePostgresCampaigns } from './campaignStore.js';
+import { fetchCampaignDoc, updateCampaignFields, usePostgresCampaigns } from './campaignStore.js';
 import { countWaitingReplyForCampaign, getContactStateSummary } from './repositories/campaignContactStateRepository.js';
 import {
     markProspectingSilentBumpSent,
@@ -3699,6 +3704,42 @@ const campaignPendingJobs = new Map<string, number>();
 const campaignEnqueueInFlight = new Set<string>();
 /** Motor lazy: armazena stageConfigs por campaignId para lookups durante processamento. */
 const campaignStageConfigsById = new Map<string, CampaignStageConfig[]>();
+/** Janela de horário da campanha — checada de novo na hora do envio. */
+const campaignDailyScheduleById = new Map<string, DailyScheduleWindow>();
+
+function rememberCampaignDailySchedule(campaignId: string, raw: unknown): void {
+    const parsed = parseCampaignDailySchedule(raw);
+    if (parsed) campaignDailyScheduleById.set(campaignId, parsed);
+}
+
+async function resolveCampaignDailySchedule(
+    campaignId: string | undefined,
+    ownerUid?: string
+): Promise<DailyScheduleWindow | null> {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return null;
+    const cached = campaignDailyScheduleById.get(cid);
+    if (cached) return cached;
+    const uid = String(ownerUid || '').trim();
+    if (!uid) return null;
+    try {
+        const doc = await fetchCampaignDoc(uid, cid);
+        const parsed =
+            parseCampaignDailySchedule(doc?.dailySchedule) ||
+            parseCampaignDailySchedule(
+                doc?.scheduleStartSnapshot && typeof doc.scheduleStartSnapshot === 'object'
+                    ? (doc.scheduleStartSnapshot as { dailySchedule?: unknown }).dailySchedule
+                    : undefined
+            );
+        if (parsed) {
+            campaignDailyScheduleById.set(cid, parsed);
+            return parsed;
+        }
+    } catch {
+        /* sem janela persistida */
+    }
+    return null;
+}
 
 let replyFlowEngine: ReplyFlowEngine;
 
@@ -6806,6 +6847,28 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
     }
 
+    // Janela da campanha (Brasília): nunca disparar fora do horário — mesmo após delay/retry/deploy.
+    if (!item.replyFlowResponse && !item.nurtureFollowUp && item.campaignId) {
+        const schedule = await resolveCampaignDailySchedule(
+            item.campaignId,
+            campaignState?.ownerUid || item.ownerUid
+        );
+        if (schedule?.enabled) {
+            const waitMs = msUntilNextDailyScheduleWindow(Date.now(), schedule);
+            if (waitMs > 0) {
+                const delayMs = Math.max(30_000, Math.min(waitMs, 6 * 3600_000));
+                emitCampaignLog(
+                    'WARN',
+                    'Fora do horário de disparo da campanha (Brasília) — envio adiado.',
+                    { campaignId: item.campaignId, waitMin: Math.round(waitMs / 60_000) },
+                    campaignState?.ownerUid || item.ownerUid
+                );
+                await job.moveToDelayed(Date.now() + delayMs, token);
+                throw new DelayedError();
+            }
+        }
+    }
+
     // replyFlowResponse: contato já respondeu — enviar imediatamente independente do horário.
     if (!item.replyFlowResponse && dispatchSettings.sleepMode && isBrazilNightHour() && !hasSleepModeOverride(item.campaignId)) {
         const ownerUid = campaignState?.ownerUid;
@@ -8044,6 +8107,10 @@ export async function redispatchCampaign(
             replyFlow: { ...replyFlow, enabled: true, steps: sanitizedReplySteps },
         }).catch(() => undefined);
     }
+    rememberCampaignDailySchedule(
+        campaignId,
+        campaign.dailySchedule || campaign.scheduleStartSnapshot?.dailySchedule
+    );
 
     const templates = (
         campaign.messageStages?.length ? campaign.messageStages : [campaign.message]
@@ -8415,6 +8482,7 @@ export async function startCampaign(
             };
         }
         if (prospecting?.enabled) persistPatch.prospecting = prospecting;
+        if (dailySchedule?.enabled) persistPatch.dailySchedule = dailySchedule;
         if (Object.keys(persistPatch).length > 0) {
             void updateCampaignFields(ownerUid, cid, persistPatch).catch((e) =>
                 log('warn', 'startCampaign: falha ao persistir replyFlow/prospecting', {
@@ -8456,6 +8524,7 @@ export async function startCampaign(
 
     const dailyScheduleEnabled = dailySchedule?.enabled && Array.isArray(dailySchedule?.days) && dailySchedule.days.length > 0;
     if (dailyScheduleEnabled) {
+        rememberCampaignDailySchedule(cid, dailySchedule);
         log('info', 'Campanha com cronograma diário — jobs espaçados pelos dias do plano', {
             campaignId: cid,
             days: dailySchedule?.days?.length,
