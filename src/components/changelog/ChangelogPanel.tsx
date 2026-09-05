@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.86',
+    date: '05/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Thread vazio com preview na lista: Evolution Go busca histórico de verdade; contatos @lid deixam de aparecer como telefone de 15 dígitos' },
+    ],
+  },
+  {
     version: '2.3.85',
     date: '05/09/2026',
     highlights: [

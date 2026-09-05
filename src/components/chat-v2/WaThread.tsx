@@ -427,7 +427,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
           className="wa-chat-wallpaper absolute inset-0 overflow-y-auto"
           onScroll={handleScroll}
         >
-          {!historyExhausted && messages.length > 0 && (
+          {(!historyExhausted && (messages.length > 0 || Boolean((conversation?.lastMessage || '').trim()))) && (
             <div className="flex flex-col items-center pt-3 sticky top-0 z-[1] gap-1">
               <button
                 type="button"
@@ -450,11 +450,20 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
             </div>
           )}
 
+          {messages.length === 0 && loadingHistory && (
+            <div className="flex flex-col items-center gap-2 py-12" style={{ color: 'var(--wa-text-3)' }}>
+              <Loader2 className="w-6 h-6 animate-spin opacity-70" aria-hidden />
+              <p className="text-center text-[13px]">Carregando mensagens…</p>
+            </div>
+          )}
+
           {messages.length === 0 && !loadingHistory && (
             <p className="text-center text-[13px] py-12" style={{ color: 'var(--wa-text-3)' }}>
               {isDraft
                 ? 'Nova conversa — envie a primeira mensagem pelo canal escolhido abaixo.'
-                : 'Nenhuma mensagem nesta conversa ainda.'}
+                : (conversation?.lastMessage || '').trim()
+                  ? 'Histórico ainda não carregou — use “Carregar mensagens anteriores” ou atualize a página.'
+                  : 'Nenhuma mensagem nesta conversa ainda.'}
             </p>
           )}
 

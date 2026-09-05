@@ -13,6 +13,7 @@ import {
 import { useClientCrm } from '../chat/useClientCrm';
 import { useSendChatMedia } from './hooks/useSendChatMedia';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
+import { ensureLatestPreviewInMessages } from '../../utils/chatMessageMerge';
 import { buildCanonicalConversationId } from '../../utils/conversationId';
 import { OPEN_CHAT_BY_CONVERSATION_ID_KEY } from '../../utils/openChatByConversationIdNav';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
@@ -360,10 +361,44 @@ export const WaWebChatApp: React.FC<{
     contactByPhoneKey,
   ]);
 
-  const selected = useMemo(
-    () => sortedConversations.find((c) => c.id === selectedId) ?? null,
-    [sortedConversations, selectedId]
+  const resolveConversationById = useCallback(
+    (id: string | null): Conversation | null => {
+      if (!id) return null;
+      const direct = sortedConversations.find((c) => c.id === id);
+      if (direct) return ensureLatestPreviewInMessages(direct);
+      const tail = id.includes(':') ? id.slice(id.indexOf(':') + 1) : id;
+      const digits = tail.split('@')[0]?.replace(/\D/g, '') || '';
+      if (digits.length < 8) return null;
+      const hit = sortedConversations.find((c) => {
+        const cp = (c.contactPhone || '').replace(/\D/g, '');
+        const cid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
+        const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
+        return cp === digits || jidD === digits;
+      });
+      return hit ? ensureLatestPreviewInMessages(hit) : null;
+    },
+    [sortedConversations]
   );
+
+  const selected = useMemo(
+    () => resolveConversationById(selectedId),
+    [resolveConversationById, selectedId]
+  );
+
+  useEffect(() => {
+    if (!selectedId) return;
+    if (sortedConversations.some((c) => c.id === selectedId)) return;
+    const tail = selectedId.includes(':') ? selectedId.slice(selectedId.indexOf(':') + 1) : selectedId;
+    const digits = tail.split('@')[0]?.replace(/\D/g, '') || '';
+    if (digits.length < 8) return;
+    const hit = sortedConversations.find((c) => {
+      const cp = (c.contactPhone || '').replace(/\D/g, '');
+      const cid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
+      const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
+      return cp === digits || jidD === digits;
+    });
+    if (hit && hit.id !== selectedId) setSelectedId(hit.id);
+  }, [selectedId, sortedConversations]);
 
   const selectChat = useCallback(
     (id: string) => {
@@ -622,6 +657,11 @@ export const WaWebChatApp: React.FC<{
       });
       const prevCount =
         sortedConversations.find((c) => c.id === conversationId)?.messages.length || 0;
+      const convHint = sortedConversations.find((c) => c.id === conversationId);
+      const activityHint =
+        Boolean((convHint?.lastMessage || '').trim()) ||
+        (convHint?.unreadCount || 0) > 0 ||
+        (convHint?.lastMessageTimestamp || 0) > 0;
       try {
         const res = await loadChatHistory(
           conversationId,
@@ -639,9 +679,14 @@ export const WaWebChatApp: React.FC<{
           }
           return false;
         }
-        // Só avança o nível APÓS sucesso confirmado
-        historyRequestedRef.current.set(conversationId, nextLevel);
-        const grew = res.total > prevCount;
+        const newTotal = res.total;
+        const grew = newTotal > prevCount;
+        if (newTotal > 0 || grew) {
+          historyRequestedRef.current.set(conversationId, nextLevel);
+        }
+        if (newTotal === 0 && prevCount === 0 && activityHint) {
+          return false;
+        }
         if (!grew && nextLevel >= HISTORY_LEVELS[HISTORY_LEVELS.length - 1]) {
           setHistoryExhausted((prev) => ({ ...prev, [conversationId]: true }));
         } else if (grew) {
@@ -651,7 +696,7 @@ export const WaWebChatApp: React.FC<{
             return next;
           });
         }
-        return true;
+        return newTotal > 0 || grew;
       } finally {
         loadingHistoryById.current.delete(conversationId);
         setLoadingHistoryIds((prev) => {
@@ -667,12 +712,22 @@ export const WaWebChatApp: React.FC<{
 
   useEffect(() => {
     if (!selected?.id || !socket?.connected) return;
-    if (historyInitializedRef.current.has(selected.id)) return;
     const id = selected.id;
+    const msgCount = selected.messages?.length || 0;
+    const needsLoad =
+      msgCount === 0 &&
+      (Boolean((selected.lastMessage || '').trim()) ||
+        (selected.unreadCount || 0) > 0 ||
+        (selected.lastMessageTimestamp || 0) > 0);
+    if (!needsLoad) {
+      if (msgCount > 0) historyInitializedRef.current.add(id);
+      return;
+    }
+    if (historyInitializedRef.current.has(id)) return;
     void loadMoreHistory(id, true).then((ok) => {
       if (ok) historyInitializedRef.current.add(id);
     });
-  }, [selected?.id, socket?.connected, loadMoreHistory]);
+  }, [selected?.id, selected?.messages?.length, selected?.lastMessage, selected?.unreadCount, selected?.lastMessageTimestamp, socket?.connected, loadMoreHistory]);
 
   const isSelectedDraft = useMemo(() => {
     if (!selected?.id) return false;

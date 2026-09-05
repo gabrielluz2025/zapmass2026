@@ -37,8 +37,19 @@ export function isLidConvId(convId: string): boolean {
 function plausiblyPhoneDigits(d: string): boolean {
   const x = normalizeDigits(d);
   if (x.length < 8 || x.length > 15) return false;
+  if (looksLikeLongLidDigits(x)) return false;
   if (x.startsWith('55') && x.length < 12) return false;
   return true;
+}
+
+/** Rótulo legível para @lid ou dígitos internos do WhatsApp (não é telefone). */
+export function lidOrInternalDigitsLabel(conv: Conversation): string {
+  const tail = conv.id.includes(':') ? conv.id.slice(conv.id.lastIndexOf(':') + 1) : conv.id;
+  const jidDigits = /^(\d{8,})@/i.exec(tail.trim());
+  const raw = jidDigits?.[1] || normalizeDigits(conv.contactPhone || '');
+  if (!raw || raw.length < 8) return 'Contato WhatsApp';
+  if (raw.length >= 14) return `Contato · …${raw.slice(-4)}`;
+  return `+${raw.slice(0, 4)}…${raw.slice(-4)}`;
 }
 
 function bestPhoneDigitsForAgenda(conv: Conversation): string {
@@ -230,13 +241,21 @@ export function inboxListTitle(disp: ConversationDisplay | undefined, conv: Conv
   if (disp?.phoneSecondary) return disp.phoneSecondary;
   if (disp?.whatsappSubtitle) return disp.whatsappSubtitle;
   const lookupDigits = normalizeDigits(phoneRawForContactLookup(conv));
-  if (lookupDigits.length >= 8) return formatPhoneDisplay(lookupDigits);
+  if (lookupDigits.length >= 8 && !looksLikeLongLidDigits(lookupDigits)) {
+    return formatPhoneDisplay(lookupDigits);
+  }
   const phone = normalizeDigits(conv.contactPhone || '');
-  if (phone.length >= 8) return formatPhoneDisplay(phone);
+  if (phone.length >= 8 && !looksLikeLongLidDigits(phone)) return formatPhoneDisplay(phone);
+  if (isLidConvId(conv.id)) return lidOrInternalDigitsLabel(conv);
   const tail = conv.id.includes(':') ? conv.id.slice(conv.id.lastIndexOf(':') + 1) : conv.id;
   const jidDigits = /^(\d{8,})@/i.exec(tail.trim());
-  if (jidDigits) return `+${jidDigits[1].slice(0, 4)}…${jidDigits[1].slice(-4)}`;
-  return 'Sem nome';
+  if (jidDigits) {
+    const d = jidDigits[1];
+    if (looksLikeLongLidDigits(d)) return lidOrInternalDigitsLabel(conv);
+    if (d.length >= 14) return `Contato · …${d.slice(-4)}`;
+    return `+${d.slice(0, 4)}…${d.slice(-4)}`;
+  }
+  return 'Contato WhatsApp';
 }
 
 export function unreadCount(conv: Conversation): number {

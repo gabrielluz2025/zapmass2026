@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.86] - 2026-09-05
+### Corrigido
+- **Bate-papo abria vazio com preview na lista**: no Evolution Go o histórico não era buscado quando a RAM só tinha metadados; agora tenta arquivo/Postgres e findMessages antes de devolver thread vazia.
+- **Contatos @lid apareciam como telefone gigante** (+208023…): rótulo legível na lista e no cabeçalho.
+- **Carregamento de histórico parava cedo**: conversa com preview/não lidas tenta de novo; thread mostra “Carregando…” e botão de histórico mesmo sem mensagens locais.
+
 ## [2.3.85] - 2026-09-05
 ### Corrigido
 - **Bate-papo misturava conversas**: o sistema unia threads por sufixo de telefone, nome igual ou foto. Pessoas diferentes no mesmo chip viravam um chat só. Agora só junta @lid + número quando o telefone é o mesmo (chave forte); homônimos e foto sozinha ficam separados.

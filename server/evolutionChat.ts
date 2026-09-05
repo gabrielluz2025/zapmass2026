@@ -1846,13 +1846,22 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             await mergeChatArchiveIntoConversation(conversationId, limit, evoChatArchiveHooks());
         }
 
+        const requested = Math.max(50, Math.min(limit, MAX_MESSAGES));
         if (isGoWebhookInboxMode()) {
             const convAfterArchive = conversations.find((c) => c.id === conversationId);
-            const msgs = convAfterArchive?.messages || [];
-            return { ok: true, total: msgs.length, messages: msgs };
+            const have = convAfterArchive?.messages?.length || 0;
+            const activityHint =
+                Boolean((convAfterArchive?.lastMessage || '').trim()) ||
+                (convAfterArchive?.unreadCount || 0) > 0 ||
+                (convAfterArchive?.lastMessageTimestamp || 0) > 0;
+            // Go alimenta por webhook — se a lista tem preview mas a thread está vazia,
+            // tenta Postgres/arquivo e findMessages antes de devolver vazio.
+            if (have >= Math.min(requested, 40) || (!activityHint && have > 0)) {
+                const msgs = prepareConversationHistoryForClient(convAfterArchive!, requested);
+                return { ok: true, total: have, messages: msgs };
+            }
         }
 
-        const requested = Math.max(50, Math.min(limit, MAX_MESSAGES));
         let conv = conversations.find((c) => c.id === conversationId);
         const oldestLocalMs =
             conv?.messages?.length && conv.messages.length > 0
