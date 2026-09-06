@@ -14,6 +14,13 @@ export const INBOX_PAGE_SIZE_DEFAULT = (() => {
   return Math.max(20, Math.min(150, Math.floor(raw)));
 })();
 
+/** Primeira página ao conectar (maior que scroll pages — evita inbox “cortada”). */
+export const INBOX_FIRST_PAGE_SIZE = (() => {
+  const raw = Number(process.env.CHAT_INBOX_FIRST_PAGE_SIZE ?? 120);
+  if (!Number.isFinite(raw)) return 120;
+  return Math.max(INBOX_PAGE_SIZE_DEFAULT, Math.min(300, Math.floor(raw)));
+})();
+
 export function isInboxPaginationEnabled(): boolean {
   const raw = process.env.CHAT_INBOX_PAGINATION?.trim().toLowerCase();
   if (raw === '0' || raw === 'false' || raw === 'no') return false;

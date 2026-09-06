@@ -390,6 +390,11 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
             Carregando mais…
           </p>
         )}
+        {!inboxLoadingMore && inboxHasMore && totalSystem > conversations.length && (
+          <p className="text-center text-xs py-2 px-3" style={{ color: 'var(--wa-text-3)' }}>
+            Mostrando {conversations.length} de {totalSystem} — role para carregar ou aguarde a importação
+          </p>
+        )}
       </div>
     </aside>
   );

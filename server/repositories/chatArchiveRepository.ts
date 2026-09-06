@@ -230,9 +230,33 @@ export async function listInboxThreadStubsPg(
     );
     const out: Conversation[] = [];
     for (const row of r.rows) {
-      const phone = (row.contact_phone || '').replace(/\D/g, '');
       const conn = (row.last_connection_id || '').trim();
-      if (!conn || phone.length < 8) continue;
+      if (!conn) continue;
+
+      if (row.thread_id.startsWith('lid_')) {
+        const cp = (row.contact_phone || '').trim();
+        if (!cp.includes('@')) continue;
+        const remoteJid = cp.includes('@') ? cp : `${cp}@lid`;
+        const id = `${conn}:${remoteJid}`;
+        const ts = Number(row.updated_ms) || Date.now();
+        out.push({
+          id,
+          contactName: row.contact_name || 'Contato',
+          contactPhone: cp.replace(/@.+$/, '').replace(/\D/g, '') || '',
+          connectionId: conn,
+          connectionOwnerUid: tenantId,
+          unreadCount: 0,
+          lastMessage: '',
+          lastMessageTime: '',
+          lastMessageTimestamp: ts,
+          messages: [],
+          tags: ['Arquivo'],
+        });
+        continue;
+      }
+
+      const phone = (row.contact_phone || '').replace(/\D/g, '');
+      if (phone.length < 8) continue;
       const id = `${conn}:${phone}@s.whatsapp.net`;
       const ts = Number(row.updated_ms) || Date.now();
       out.push({

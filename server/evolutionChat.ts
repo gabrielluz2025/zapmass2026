@@ -426,12 +426,15 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (!ownerUid || ownerUid === 'anonymous') return;
         const threadId = threadIdFromConversationId(next.id, next.contactPhone);
         if (!threadId) return;
+        const jidPart = next.id.includes(':') ? next.id.split(':').slice(1).join(':') : '';
+        const archiveContactPhone =
+            jidPart.toLowerCase().endsWith('@lid') ? jidPart : next.contactPhone || '';
         const prevIds = new Set((prev?.messages || []).map((m) => m.id));
         const delta = (next.messages || []).filter((m) => m?.id && !prevIds.has(m.id));
         if (delta.length === 0) return;
         void appendChatArchiveMessages(ownerUid, threadId, {
             contactName: next.contactName || 'Contato',
-            contactPhone: next.contactPhone || '',
+            contactPhone: archiveContactPhone,
             connectionId: next.connectionId
         }, delta).catch(() => undefined);
     };

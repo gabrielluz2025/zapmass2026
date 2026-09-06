@@ -9,6 +9,7 @@ import { enrichConversationsWithCrmPhones } from './contactPhoneEnrich.js';
 import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
 import { usePostgresChatArchive } from './chatArchiveStore.js';
 import {
+  INBOX_FIRST_PAGE_SIZE,
   INBOX_PAGE_SIZE_DEFAULT,
   sliceInboxPage,
   sortConversationsByActivity,
@@ -159,7 +160,10 @@ export async function socketInboxPagePayload(
   if (opts?.cursor == null && usePostgresChatArchive()) {
     try {
       const pgStubs = await listInboxThreadStubsPg(resolvePostgresTenantId(tenantUid), {
-        limit: Math.min(200, (opts?.limit ?? INBOX_PAGE_SIZE_DEFAULT) * 3),
+        limit: Math.min(
+          2000,
+          Math.max(200, (opts?.reset ? INBOX_FIRST_PAGE_SIZE : (opts?.limit ?? INBOX_PAGE_SIZE_DEFAULT)) * 4)
+        ),
       });
       const ramIds = new Set(scoped.map((c) => c.id));
       for (const stub of pgStubs) {
@@ -172,7 +176,10 @@ export async function socketInboxPagePayload(
     }
   }
   const sorted = sortConversationsByActivity(scoped);
-  const page = sliceInboxPage(sorted, { cursor: opts?.cursor, limit: opts?.limit ?? INBOX_PAGE_SIZE_DEFAULT });
+  const pageLimit =
+    opts?.limit ??
+    (opts?.reset ? INBOX_FIRST_PAGE_SIZE : INBOX_PAGE_SIZE_DEFAULT);
+  const page = sliceInboxPage(sorted, { cursor: opts?.cursor, limit: pageLimit });
   const withPhones = await enrichConversationsWithCrmPhones(tenantUid, page.conversations);
   const withNames = await enrichConversationsWithCrmNames(tenantUid, withPhones);
   return {

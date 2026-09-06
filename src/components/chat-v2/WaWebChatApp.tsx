@@ -78,7 +78,7 @@ export const WaWebChatApp: React.FC<{
   const tenantUid = effectiveWorkspaceUid ?? user?.uid ?? '';
   const crm = useClientCrm(user?.uid);
   const conversations = useZapMassConversations();
-  const { inboxHasMore, inboxLoadingMore, loadMoreInbox } = useZapMassInboxPagination();
+  const { inboxHasMore, inboxLoadingMore, loadMoreInbox, inboxTotal } = useZapMassInboxPagination();
   const connections = useZapMassConnectionsSlice();
   const { systemMetrics } = useZapMassUiSnapshot();
   const isGoWebhookInbox = systemMetrics.whatsappEngine === 'evolution-go';
@@ -172,10 +172,26 @@ export const WaWebChatApp: React.FC<{
     requestSync,
   ]);
 
-  /** Inbox vazia com chips online — tenta HistorySync / arquivo. */
+  /** Inbox vazia ou incompleta com chips online — HistorySync / arquivo. */
   useEffect(() => {
     if (!isBackendConnected || !socket?.connected || connectedChannels.length === 0) return;
-    if (conversations.length > 0) {
+    const loaded = conversations.length;
+    if (loaded > 0 && inboxTotal > 0 && loaded >= inboxTotal) {
+      emptyInboxRecoveryRef.current = false;
+      return;
+    }
+    if (loaded > 0 && inboxHasMore) return;
+    if (loaded > 0 && inboxTotal > loaded + 15) {
+      if (!emptyInboxRecoveryRef.current) {
+        emptyInboxRecoveryRef.current = true;
+        const t = window.setTimeout(() => {
+          runResync({ full: true });
+        }, 1200);
+        return () => window.clearTimeout(t);
+      }
+      return;
+    }
+    if (loaded > 0) {
       emptyInboxRecoveryRef.current = false;
       return;
     }
@@ -190,6 +206,8 @@ export const WaWebChatApp: React.FC<{
     socket,
     connectedChannels.length,
     conversations.length,
+    inboxTotal,
+    inboxHasMore,
     runResync,
   ]);
 
@@ -1273,6 +1291,7 @@ export const WaWebChatApp: React.FC<{
         inboxHasMore={inboxHasMore}
         inboxLoadingMore={inboxLoadingMore}
         onLoadMore={loadMoreInbox}
+        totalSystem={inboxTotal || sortedConversations.length}
         onRequestPicture={requestConversationPicture}
         inboxTab={inboxTab}
         onInboxTabChange={handleInboxTabChange}

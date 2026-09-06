@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.89] - 2026-09-05
+### Corrigido
+- **Inbox incompleta no Evolution Go**: primeira página passa de 60→120 conversas; carrega páginas automaticamente até ~2000; HistorySync dispara quando RAM vazia ou pós-restart.
+- **Threads @lid no Postgres**: arquivo guarda JID completo e reidrata stubs na lista após restart.
+- **UI**: barra “Mostrando X de Y” quando ainda há conversas para importar.
+
 ## [2.3.88] - 2026-09-05
 ### Corrigido
 - **findMessages 404 no Evolution Go**: interceptors axios rodavam na ordem errada — resposta sintética nunca aplicava e o Go recebia POST `/chat/findMessages` inexistente.

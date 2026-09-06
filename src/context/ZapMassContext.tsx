@@ -570,6 +570,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [inboxLoadingMore, setInboxLoadingMore] = useState(false);
   const [inboxTotal, setInboxTotal] = useState(0);
   const inboxNextCursorRef = useRef<number | null>(null);
+  const inboxHasMoreRef = useRef(false);
+  const inboxAutoDrainPagesRef = useRef(0);
+  const inboxAutoDrainTimerRef = useRef<number | null>(null);
   const inboxFullRecoveryPendingRef = useRef(false);
   const [systemLogs, setSystemLogs] = useState<SystemLog[]>([]);
   const [warmupQueue, setWarmupQueue] = useState<WarmupItem[]>([]);
@@ -1822,6 +1825,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           return;
         }
         setConversations((prev) => mergeConversationsFromSocketUpdate(prev, pending, ownsConnectionId));
+        setInboxHasMore(false);
+        inboxHasMoreRef.current = false;
+        inboxAutoDrainPagesRef.current = 0;
+        setInboxTotal((prevTotal) => Math.max(prevTotal, pending.length));
       });
     });
 
@@ -1849,8 +1856,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         const list = Array.isArray(data?.conversations) ? data.conversations : [];
         inboxNextCursorRef.current =
           data?.hasMore && data.nextCursor != null ? Number(data.nextCursor) : null;
-        setInboxHasMore(!!data?.hasMore);
+        const hasMore = !!data?.hasMore;
+        setInboxHasMore(hasMore);
+        inboxHasMoreRef.current = hasMore;
         setInboxTotal(Number(data?.total) || 0);
+        if (data?.reset) inboxAutoDrainPagesRef.current = 0;
         setConversations((prev) => {
           if (data?.reset) {
             /** Página inicial é um recorte: não apagar conversas já recebidas no sync completo. */
@@ -1884,6 +1894,23 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
           );
         });
+        if (hasMore && list.length > 0 && inboxAutoDrainPagesRef.current < 35) {
+          if (inboxAutoDrainTimerRef.current != null) {
+            window.clearTimeout(inboxAutoDrainTimerRef.current);
+          }
+          inboxAutoDrainTimerRef.current = window.setTimeout(() => {
+            inboxAutoDrainTimerRef.current = null;
+            if (!socket.connected || !inboxHasMoreRef.current) return;
+            if (inboxAutoDrainPagesRef.current >= 35) return;
+            inboxAutoDrainPagesRef.current += 1;
+            setInboxLoadingMore(true);
+            socket.emit(
+              'request-inbox-page',
+              { cursor: inboxNextCursorRef.current },
+              () => setInboxLoadingMore(false)
+            );
+          }, 160);
+        }
       }
     );
 

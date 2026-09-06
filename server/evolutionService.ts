@@ -1219,7 +1219,18 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
     const hasOpenChip = scopedForReemit.some((c) => String(c.status || '').toUpperCase() === 'CONNECTED');
     if (isInboxPaginationEnabled()) {
         await hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
-        let page = await getInboxPageForOwner(uid, uid, { reset: true });
+        const { INBOX_FIRST_PAGE_SIZE, INBOX_PAGE_SIZE_DEFAULT } = await import('./inboxPagination.js');
+        let page = await getInboxPageForOwner(uid, uid, {
+            reset: true,
+            limit: isGoWebhookInboxMode() ? INBOX_FIRST_PAGE_SIZE : INBOX_PAGE_SIZE_DEFAULT,
+        });
+        if (page.total === 0 && hasOpenChip && isGoWebhookInboxMode()) {
+            log('info', 'reemitConversationsForOwner: Go RAM vazia — HistorySync do celular', {
+                ownerUid: uid,
+            });
+            await syncGoInboxFromPhoneForOwner(uid, { force: true }).catch(() => undefined);
+            return;
+        }
         if (page.total === 0 && hasOpenChip && !isGoWebhookInboxMode()) {
             log('info', 'reemitConversationsForOwner: RAM vazia com chips abertos — sync completo', {
                 ownerUid: uid,
@@ -1228,6 +1239,14 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
             return;
         }
         /** Pós-deploy: RAM só com webhooks recentes, cooldown Redis ainda ativo no processo antigo. */
+        if (hasOpenChip && (await ownerFullSyncIsDue(uid)) && isGoWebhookInboxMode()) {
+            log('info', 'reemitConversationsForOwner: Go sync devido (restart)', {
+                ownerUid: uid,
+                ramTotal: page.total,
+            });
+            await syncGoInboxFromPhoneForOwner(uid, { force: false }).catch(() => undefined);
+            return;
+        }
         if (hasOpenChip && (await ownerFullSyncIsDue(uid)) && !isGoWebhookInboxMode()) {
             log('info', 'reemitConversationsForOwner: sync completo devido (restart)', {
                 ownerUid: uid,

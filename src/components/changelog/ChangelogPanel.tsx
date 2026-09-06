@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.89',
+    date: '05/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Bate-papo traz todas as conversas no Go: paginação automática, HistorySync ao conectar e threads @lid do arquivo Postgres' },
+    ],
+  },
+  {
     version: '2.3.88',
     date: '05/09/2026',
     highlights: [
