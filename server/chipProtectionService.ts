@@ -199,18 +199,10 @@ export async function countNonQuarantinedWarmupChips(
  */
 export async function getWarmupBlockReason(
   tenantId: string,
-  connectionIds?: string[]
+  _connectionIds?: string[]
 ): Promise<string | null> {
-  const { active, reason } = await refreshEffectiveProtection(tenantId);
-  if (!active) return null;
-  if (
-    reason === 'policy_auto_idle' ||
-    reason === 'policy_always' ||
-    reason === 'reconnect_storm' ||
-    reason === 'ban_cooldown'  // ban_cooldown também permite — o warmup ajuda na recuperação
-  ) {
-    return null;
-  }
+  // Aquecimento entre chips próprios nunca é bloqueado pela proteção anti-ban.
+  void tenantId;
   return null;
 }
 
@@ -298,16 +290,8 @@ export async function setChipQuietMode(
 export async function enforceChipProtectionSideEffects(tenantId: string): Promise<void> {
   const { active, reason } = await refreshEffectiveProtection(tenantId);
   if (!active) return;
-  // Políticas quiet/idle e instabilidade não interrompem aquecimento entre chips próprios.
-  if (reason === 'policy_auto_idle' || reason === 'policy_always' || reason === 'reconnect_storm') {
-    return;
-  }
-  if (reason !== 'ban_cooldown') return;
-  const warmup = getAutoWarmupState(tenantId);
-  if (!warmup.active) return;
-  const eligible = await countNonQuarantinedWarmupChips(tenantId, warmup.connectionIds);
-  if (eligible >= 2) return;
-  stopAutoWarmup(tenantId);
+  // Aquecimento nunca é interrompido pela proteção — chips conversam entre si para recuperação.
+  void reason;
 }
 
 export function onConnectionClosed(connectionId: string, wasBan: boolean): void {

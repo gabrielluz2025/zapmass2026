@@ -172,26 +172,10 @@ export const WaWebChatApp: React.FC<{
     requestSync,
   ]);
 
-  /** Inbox vazia ou incompleta com chips online — HistorySync / arquivo. */
+  /** Inbox vazia com chips online — HistorySync só quando não há nenhuma conversa. */
   useEffect(() => {
     if (!isBackendConnected || !socket?.connected || connectedChannels.length === 0) return;
-    const loaded = conversations.length;
-    if (loaded > 0 && inboxTotal > 0 && loaded >= inboxTotal) {
-      emptyInboxRecoveryRef.current = false;
-      return;
-    }
-    if (loaded > 0 && inboxHasMore) return;
-    if (loaded > 0 && inboxTotal > loaded + 15) {
-      if (!emptyInboxRecoveryRef.current) {
-        emptyInboxRecoveryRef.current = true;
-        const t = window.setTimeout(() => {
-          runResync({ full: true });
-        }, 1200);
-        return () => window.clearTimeout(t);
-      }
-      return;
-    }
-    if (loaded > 0) {
+    if (conversations.length > 0) {
       emptyInboxRecoveryRef.current = false;
       return;
     }
@@ -206,8 +190,6 @@ export const WaWebChatApp: React.FC<{
     socket,
     connectedChannels.length,
     conversations.length,
-    inboxTotal,
-    inboxHasMore,
     runResync,
   ]);
 

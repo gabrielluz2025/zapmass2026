@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.90',
+    date: '07/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Chip para de piscar QR durante aquecimento; proteção anti-ban não trava mais o esquentar entre chips' },
+    ],
+  },
+  {
     version: '2.3.89',
     date: '05/09/2026',
     highlights: [

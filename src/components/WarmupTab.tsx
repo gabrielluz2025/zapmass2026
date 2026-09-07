@@ -105,9 +105,6 @@ const formatLastActive = (ts?: number) => {
 
 const formatCountdown = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 
-const isConnectionInQuarantine = (conn: { quarantineUntil?: number }) =>
-  typeof conn.quarantineUntil === 'number' && conn.quarantineUntil > Date.now();
-
 // ─── Sparkline ───────────────────────────────────────────────────────────────
 const Sparkline: React.FC<{ values: number[]; color?: string; width?: number; height?: number }> = ({
   values, color = '#f97316', width = 120, height = 32,
@@ -301,19 +298,15 @@ export const WarmupTab: React.FC = () => {
   const startGlobalWarmup = () => {
     const enabled = channelsRef.current.filter((ch) => ch.enabled);
     const ids = enabled
-      .filter((ch) => {
-        const conn = connections.find((c) => c.id === ch.connectionId);
-        return conn && !isConnectionInQuarantine(conn);
-      })
-      .map((ch) => ch.connectionId);
-    if (enabled.length >= 2 && ids.length < 2) {
-      toast.error(
-        'Chips em quarentena não entram no aquecimento. Ative pelo menos 2 chips saudáveis (ex.: Comercial 03 e comercial 4).'
-      );
-      return;
-    }
+      .map((ch) => ch.connectionId)
+      .filter((id) => {
+        const conn = connections.find((c) => c.id === id);
+        if (!conn) return false;
+        const st = String(conn.status || '').toUpperCase();
+        return st === 'CONNECTED' || st === 'OPEN';
+      });
     if (ids.length < 2) {
-      toast.error('Ative pelo menos 2 chips saudáveis para iniciar o aquecimento.');
+      toast.error('Ative pelo menos 2 chips conectados para iniciar o aquecimento.');
       return;
     }
     if (!socket?.connected) {

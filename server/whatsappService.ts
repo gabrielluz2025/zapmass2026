@@ -7369,6 +7369,16 @@ export const getAutoWarmupState = (uid: string) => {
     };
 };
 
+/** True se o chip participa de auto-aquecimento ativo (HistorySync/restart deve evitar). */
+export function isConnectionInActiveWarmup(connectionId: string): boolean {
+    const id = String(connectionId || '').trim();
+    if (!id) return false;
+    for (const cfg of activeAutoWarmups.values()) {
+        if (cfg.connectionIds.includes(id)) return true;
+    }
+    return false;
+}
+
 export const loadAndResumeAutoWarmups = async () => {
     try {
         const exists = await fs.promises.access(autoWarmupsFile).then(() => true).catch(() => false);

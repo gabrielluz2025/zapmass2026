@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.90] - 2026-09-07
+### Corrigido
+- **Chip piscando (conectado → QR → conectado)**: HistorySync automático deixava de dar restart em chips com aquecimento ativo; queda transitória (<90s) em chip pareado não zera sessão na UI; auto-reconnect usa connect em vez de restart.
+- **Aquecimento travado pela proteção anti-ban**: chips em quarentena entram no aquecimento; proteção nunca interrompe auto-warmup; sync de inbox não reinicia chips durante aquecimento.
+
 ## [2.3.89] - 2026-09-05
 ### Corrigido
 - **Inbox incompleta no Evolution Go**: primeira página passa de 60→120 conversas; carrega páginas automaticamente até ~2000; HistorySync dispara quando RAM vazia ou pós-restart.

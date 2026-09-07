@@ -187,6 +187,8 @@ import {
     publishOwnerEvent,
     recordConnectionDispatch,
     applyCampaignSentFloors,
+    getAutoWarmupState,
+    isConnectionInActiveWarmup,
 } from './whatsappService.js';
 
 registerAntiBanPublishFn((tenantId, event, payload) => {
@@ -1178,6 +1180,14 @@ export async function syncGoInboxFromPhoneForOwner(
     const task = (async (): Promise<{ hydrated: number; triggered: string[] }> => {
         const hydrated = await hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
         const triggered: string[] = [];
+        const warmup = getAutoWarmupState(uid);
+        if (warmup.active) {
+            log('info', 'syncGoInboxFromPhoneForOwner: aquecimento ativo — só arquivo, sem restart', {
+                ownerUid: uid,
+            });
+            await reemitConversationsForOwner(uid);
+            return { hydrated, triggered };
+        }
         const scoped = filterByConnectionScope(uid, getConnections());
         const openIds: string[] = [];
         for (const conn of scoped) {
@@ -1236,15 +1246,6 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
                 ownerUid: uid,
             });
             await syncConnectionsForOwner(uid, { force: true }).catch(() => undefined);
-            return;
-        }
-        /** Pós-deploy: RAM só com webhooks recentes, cooldown Redis ainda ativo no processo antigo. */
-        if (hasOpenChip && (await ownerFullSyncIsDue(uid)) && isGoWebhookInboxMode()) {
-            log('info', 'reemitConversationsForOwner: Go sync devido (restart)', {
-                ownerUid: uid,
-                ramTotal: page.total,
-            });
-            await syncGoInboxFromPhoneForOwner(uid, { force: false }).catch(() => undefined);
             return;
         }
         if (hasOpenChip && (await ownerFullSyncIsDue(uid)) && !isGoWebhookInboxMode()) {
@@ -1667,8 +1668,13 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
             log('info', `Auto-reconnect Evolution: ${connectionId} (tentativa ${attempt}${st.longTail ? ', lento' : ''})`);
             try {
                 await ensureGoInstanceUuidResolved(connectionId);
+                const paired = isPairedConnection(connectionId);
                 try {
-                    await api.post(`/instance/restart/${evoInst(connectionId)}`, {});
+                    if (paired) {
+                        await api.post(`/instance/connect/${evoInst(connectionId)}`, { forceReconnect: true });
+                    } else {
+                        await api.post(`/instance/restart/${evoInst(connectionId)}`, {});
+                    }
                     await sleep(3000);
                 } catch {
                     await api.post(`/instance/connect/${evoInst(connectionId)}`, { forceReconnect: true });
@@ -1866,6 +1872,22 @@ function applyConnectionStateUpdate(
                 pairingStartedAt.set(instance, Date.now());
             }
         } else if (state === 'close') {
+            const statusReasonEarly = parseStatusReason(data);
+            const userInitiatedCloseEarly =
+                isManualLogoutHoldActive(instance) || deletedConnectionIds.has(instance);
+            const openSince = connBefore?.lastOpenAt ?? 0;
+            if (
+                prevStatus === 'open' &&
+                isPairedConnection(instance) &&
+                !userInitiatedCloseEarly &&
+                !isBanStatusReason(statusReasonEarly) &&
+                openSince > 0 &&
+                Date.now() - openSince < 90_000
+            ) {
+                log('info', `Close transitório ignorado (chip pareado, sessão recente): ${instance}`);
+                scheduleEvolutionAutoReconnect(instance);
+                return;
+            }
             stopQrWatch(instance);
             stopWatchingConnection(instance);
             pairingStartedAt.delete(instance);
@@ -3982,6 +4004,10 @@ async function requestGoInboxHistorySync(
 ): Promise<boolean> {
     const id = String(instanceName || '').trim();
     if (!id || !isGoWebhookInboxMode()) return false;
+    if (isConnectionInActiveWarmup(id)) {
+        log('info', `Go inbox history sync adiado — chip em aquecimento: ${id}`);
+        return false;
+    }
     if (!opts?.userInitiated && !isEvolutionFullHistorySyncEnabled()) return false;
     if (goInboxHistorySyncInflight.has(id)) {
         log('info', `Go inbox history sync já em andamento: ${id}`);
