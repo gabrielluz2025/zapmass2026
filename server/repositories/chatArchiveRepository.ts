@@ -235,8 +235,14 @@ export async function listInboxThreadStubsPg(
 
       if (row.thread_id.startsWith('lid_')) {
         const cp = (row.contact_phone || '').trim();
-        if (!cp.includes('@')) continue;
-        const remoteJid = cp.includes('@') ? cp : `${cp}@lid`;
+        let remoteJid = '';
+        if (cp.includes('@')) {
+          remoteJid = cp;
+        } else {
+          const digits = cp.replace(/\D/g, '');
+          if (digits.length >= 8) remoteJid = `${digits}@lid`;
+        }
+        if (!remoteJid) continue;
         const id = `${conn}:${remoteJid}`;
         const ts = Number(row.updated_ms) || Date.now();
         out.push({

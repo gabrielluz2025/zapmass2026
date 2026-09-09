@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.92',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Bate-papo Go: conversas do celular deixam de abrir vazias — HistorySync automático para stubs sem mensagens e arquivo @lid/telefone' },
+    ],
+  },
+  {
     version: '2.3.91',
     date: '09/09/2026',
     highlights: [

@@ -1241,6 +1241,27 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
             await syncGoInboxFromPhoneForOwner(uid, { force: true }).catch(() => undefined);
             return;
         }
+        const sparseEmpty = countSparseEmptyGoInboxStubs(page.conversations);
+        const sparseRatio = page.total > 0 ? sparseEmpty / page.total : 0;
+        const lastSparse = goInboxSparseRecoveryLastRun.get(uid) ?? 0;
+        if (
+            isGoWebhookInboxMode() &&
+            hasOpenChip &&
+            page.total >= 5 &&
+            sparseEmpty >= 8 &&
+            sparseRatio >= 0.35 &&
+            Date.now() - lastSparse > GO_INBOX_SPARSE_RECOVERY_MIN_INTERVAL_MS
+        ) {
+            goInboxSparseRecoveryLastRun.set(uid, Date.now());
+            log('info', 'reemitConversationsForOwner: Go inbox com threads vazias — HistorySync do celular', {
+                ownerUid: uid,
+                total: page.total,
+                sparseEmpty,
+                sparseRatio: Math.round(sparseRatio * 100),
+            });
+            await syncGoInboxFromPhoneForOwner(uid, { force: true }).catch(() => undefined);
+            return;
+        }
         if (page.total === 0 && hasOpenChip && !isGoWebhookInboxMode()) {
             log('info', 'reemitConversationsForOwner: RAM vazia com chips abertos — sync completo', {
                 ownerUid: uid,
@@ -1584,6 +1605,18 @@ function isPairedConnection(connectionId: string): boolean {
 let connectionHealthTimer: ReturnType<typeof setInterval> | null = null;
 /** Dedupe de sync Go inbox por tenant (reconnect HistorySync). */
 const goInboxSyncInFlightByOwner = new Map<string, Promise<{ hydrated: number; triggered: string[] }>>();
+const goInboxSparseRecoveryLastRun = new Map<string, number>();
+const GO_INBOX_SPARSE_RECOVERY_MIN_INTERVAL_MS = 5 * 60 * 1000;
+
+function countSparseEmptyGoInboxStubs(
+    convs: Array<{ messages?: unknown[]; lastMessageTimestamp?: number; unreadCount?: number }>
+): number {
+    return convs.filter(
+        (c) =>
+            (c.messages?.length || 0) === 0 &&
+            ((c.lastMessageTimestamp || 0) > 0 || (c.unreadCount || 0) > 0)
+    ).length;
+}
 /** Dedupe de sync pesado concorrente por tenant. */
 const syncInFlightByOwner = new Map<
     string,
@@ -3969,7 +4002,9 @@ const api = createEvolutionHttpClient({
 
 const chatStore: EvolutionChatStore = createEvolutionChat(api, {
     resolveConnectionOwnerUid,
-    ownerUidFromConnectionId
+    ownerUidFromConnectionId,
+    requestGoInboxHistorySync: (connectionId) =>
+        requestGoInboxHistorySync(connectionId, { force: true, userInitiated: true }),
 });
 
 /** Evita POST repetido em /settings/set na mesma sessão do processo. */

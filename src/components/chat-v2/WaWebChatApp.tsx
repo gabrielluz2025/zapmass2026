@@ -152,6 +152,7 @@ export const WaWebChatApp: React.FC<{
   /** Sync leve ao abrir; full 1×/dia puxa o histórico do celular (Go = HistorySync). */
   const initialFullSyncDoneRef = useRef(false);
   const emptyInboxRecoveryRef = useRef(false);
+  const sparseInboxRecoveryRef = useRef(false);
 
   useEffect(() => {
     if (!isBackendConnected || !socket?.connected || !tenantUid) return;
@@ -172,24 +173,44 @@ export const WaWebChatApp: React.FC<{
     requestSync,
   ]);
 
-  /** Inbox vazia com chips online — HistorySync só quando não há nenhuma conversa. */
+  /** Inbox vazia ou com muitas threads sem mensagens — pede HistorySync do celular (Go). */
   useEffect(() => {
     if (!isBackendConnected || !socket?.connected || connectedChannels.length === 0) return;
-    if (conversations.length > 0) {
-      emptyInboxRecoveryRef.current = false;
-      return;
+    if (conversations.length === 0) {
+      if (emptyInboxRecoveryRef.current) return;
+      emptyInboxRecoveryRef.current = true;
+      const t = window.setTimeout(() => {
+        runResync({ full: true });
+      }, 2800);
+      return () => window.clearTimeout(t);
     }
-    if (emptyInboxRecoveryRef.current) return;
-    emptyInboxRecoveryRef.current = true;
-    const t = window.setTimeout(() => {
-      runResync({ full: true });
-    }, 2800);
-    return () => window.clearTimeout(t);
+    emptyInboxRecoveryRef.current = false;
+
+    const sparseEmpty = conversations.filter(
+      (c) =>
+        (c.messages?.length || 0) === 0 &&
+        ((c.lastMessageTimestamp || 0) > 0 || (c.unreadCount || 0) > 0)
+    ).length;
+    const sparseRatio = sparseEmpty / conversations.length;
+    if (
+      sparseEmpty >= 8 &&
+      sparseRatio >= 0.35 &&
+      !sparseInboxRecoveryRef.current
+    ) {
+      sparseInboxRecoveryRef.current = true;
+      const t = window.setTimeout(() => {
+        runResync({ full: true });
+      }, 3200);
+      return () => window.clearTimeout(t);
+    }
+    if (sparseEmpty < 4) {
+      sparseInboxRecoveryRef.current = false;
+    }
   }, [
     isBackendConnected,
     socket,
     connectedChannels.length,
-    conversations.length,
+    conversations,
     runResync,
   ]);
 

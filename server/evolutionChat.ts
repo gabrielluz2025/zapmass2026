@@ -94,6 +94,10 @@ import {
 export type EvolutionChatArchiveCtx = {
     resolveConnectionOwnerUid: (connectionId: string) => string | undefined;
     ownerUidFromConnectionId: (connectionId: string) => string | undefined;
+    /** Go: reconnect controlado para puxar HistorySync do celular quando thread vazia. */
+    requestGoInboxHistorySync?: (
+        connectionId: string
+    ) => Promise<boolean>;
 };
 
 const MAX_MESSAGES = 10000;
@@ -874,6 +878,17 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             historySyncIdleTimers.delete(instance);
         }
         collapseStoredConversations();
+        const sparse = conversations
+            .filter(
+                (c) =>
+                    c.connectionId === instance &&
+                    (!c.messages || c.messages.length === 0) &&
+                    ((c.lastMessageTimestamp || 0) > 0 || (c.unreadCount || 0) > 0)
+            )
+            .slice(0, 50);
+        for (const c of sparse) {
+            scheduleConversationPrefetch(c.id, 120);
+        }
         emitConversationsUpdate();
     }
 
@@ -907,6 +922,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 connectionOwnerUid: stub.connectionOwnerUid || ownerUid,
             };
             upsertConversation(normalized, { skipArchive: true });
+            scheduleConversationPrefetch(canonicalId, 120);
             touched += 1;
         }
         if (touched > 0) {
@@ -2016,6 +2032,15 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         if (isGoWebhookInboxMode()) {
             const have = conv?.messages?.length || 0;
+            if (
+                have === 0 &&
+                conv &&
+                ((conv.lastMessageTimestamp || 0) > 0 || (conv.unreadCount || 0) > 0)
+            ) {
+                void archiveCtx
+                    ?.requestGoInboxHistorySync?.(parsed.connectionId)
+                    .catch(() => undefined);
+            }
             const msgs = conv ? prepareConversationHistoryForClient(conv, requested) : [];
             return { ok: true, total: have, messages: msgs };
         }

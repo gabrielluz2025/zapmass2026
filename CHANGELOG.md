@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.92] - 2026-09-09
+### Corrigido
+- **Bate-papo com conversas vazias (Evolution Go)**: detecta threads só com metadados e dispara HistorySync do celular; merge do arquivo Postgres tenta IDs alternativos (@lid/telefone); prefetch após sync e ao abrir thread vazia.
+- **Threads @lid no arquivo**: stubs `lid_*` no Postgres deixam de ser ignorados quando o contato não tem `@` no telefone.
+
 ## [2.3.91] - 2026-09-09
 ### Corrigido
 - **Campanha pausada retomava sozinha**: pausa manual persiste no Redis/Postgres (`manualPaused`); stall-watchdog e reconciliação pós-restart não reenfileiram campanhas pausadas; `redispatchCampaign` não limpa mais a pausa automaticamente.

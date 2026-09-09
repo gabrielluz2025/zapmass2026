@@ -1,9 +1,57 @@
+import { createHash } from 'node:crypto';
 import {
   isWaChatArchiveEnabled,
   loadChatArchiveMessages,
   threadIdFromConversationId
 } from './chatArchiveStore.js';
 import type { ChatMessage, Conversation } from './types.js';
+
+function collectArchiveThreadIds(
+  conversationId: string,
+  convMeta: Conversation | undefined,
+  cpGuess: string
+): string[] {
+  const out: string[] = [];
+  const add = (id: string | null | undefined) => {
+    const t = String(id || '').trim();
+    if (t && !out.includes(t)) out.push(t);
+  };
+  const connectionId = conversationId.includes(':')
+    ? conversationId.slice(0, conversationId.indexOf(':'))
+    : '';
+  const jid = conversationId.includes(':') ? conversationId.slice(conversationId.indexOf(':') + 1) : '';
+
+  add(threadIdFromConversationId(conversationId, cpGuess ? `+${cpGuess}` : ''));
+  if (cpGuess) add(`p_${cpGuess}`);
+  if (jid.toLowerCase().endsWith('@lid')) {
+    const h = createHash('sha256').update(jid).digest('hex');
+    add(`lid_${h.slice(0, 24)}`);
+  }
+  const altRaw = String(convMeta?.waJidAlt || '').trim();
+  if (altRaw.includes('@') && connectionId) {
+    add(threadIdFromConversationId(`${connectionId}:${altRaw}`));
+    if (altRaw.toLowerCase().endsWith('@lid')) {
+      const h = createHash('sha256').update(altRaw).digest('hex');
+      add(`lid_${h.slice(0, 24)}`);
+    }
+  }
+  return out;
+}
+
+async function loadArchivedMessagesWithFallbacks(
+  ownerUid: string,
+  conversationId: string,
+  convMeta: Conversation | undefined,
+  cpGuess: string,
+  historyLimit: number
+): Promise<ChatMessage[]> {
+  const limit = Math.max(80, Math.min(historyLimit, 1500));
+  for (const threadId of collectArchiveThreadIds(conversationId, convMeta, cpGuess)) {
+    const archived = await loadChatArchiveMessages(ownerUid, threadId, limit);
+    if (archived.length > 0) return archived;
+  }
+  return [];
+}
 
 export type ChatArchiveMergeHooks = {
   getConversations: () => Conversation[];
@@ -38,18 +86,19 @@ export async function mergeChatArchiveIntoConversation(
     (cpDigits.length >= 10 && cpDigits.length <= 13 ? cpDigits : '') ||
     (altPhone.length >= 10 && altPhone.length <= 13 ? altPhone : '') ||
     (jid.toLowerCase().endsWith('@lid') ? '' : jid.split('@')[0]?.replace(/\D/g, '') || '');
-  const threadId = threadIdFromConversationId(
-    conversationId,
-    cpGuess ? `+${cpGuess}` : ''
-  );
-  if (!threadId) return;
-
-  const archived = await loadChatArchiveMessages(
+  const archived = await loadArchivedMessagesWithFallbacks(
     ownerUid,
-    threadId,
-    Math.max(80, Math.min(historyLimit, 1500))
+    conversationId,
+    convMeta,
+    cpGuess,
+    historyLimit
   );
   if (archived.length === 0) return;
+
+  const threadId =
+    threadIdFromConversationId(conversationId, cpGuess ? `+${cpGuess}` : '') ||
+    collectArchiveThreadIds(conversationId, convMeta, cpGuess)[0] ||
+    '';
 
   const conversations = hooks.getConversations();
   let conv = conversations.find((c) => c.id === conversationId);
