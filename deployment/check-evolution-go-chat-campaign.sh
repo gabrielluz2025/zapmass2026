@@ -30,11 +30,33 @@ bash deployment/check-evolution-go-health.sh || fail=1
 
 section "2/5 Instância Go (token, webhook, chip online)"
 INST_JSON="$(curl -sf -H "apikey: ${GO_KEY}" "http://127.0.0.1:8081/instance/all" 2>/dev/null || echo '{}')"
-TOKEN="$(echo "$INST_JSON" | grep -oE '"token"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
-CONN_NAME="$(echo "$INST_JSON" | grep -oE '"name"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
-JID="$(echo "$INST_JSON" | grep -oE '"jid"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
-WEBHOOK="$(echo "$INST_JSON" | grep -oE '"webhook"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
-CONNECTED="$(echo "$INST_JSON" | grep -oE '"connected"[[:space:]]*:[[:space:]]*true' | head -1 || true)"
+mapfile -t _chip < <(echo "$INST_JSON" | python3 -c "
+import json, sys
+try:
+    rows = json.load(sys.stdin).get('data') or []
+except Exception:
+    rows = []
+online = next((r for r in rows if r.get('connected') is True), None)
+if online:
+    print(online.get('name') or '')
+    print(online.get('token') or '')
+    print(online.get('jid') or '')
+    print(online.get('webhook') or '')
+    print('1')
+else:
+    print('')
+    print('')
+    print('')
+    print('')
+    print('0')
+" 2>/dev/null || printf '%s\n' '' '' '' '' '0')
+CONN_NAME="${_chip[0]:-}"
+TOKEN="${_chip[1]:-}"
+JID="${_chip[2]:-}"
+WEBHOOK="${_chip[3]:-}"
+CONNECTED=""
+[ "${_chip[4]:-0}" = "1" ] && CONNECTED="true"
+unset _chip
 
 echo "    chip: ${CONN_NAME:-?}"
 echo "    jid:  ${JID:-?}"
