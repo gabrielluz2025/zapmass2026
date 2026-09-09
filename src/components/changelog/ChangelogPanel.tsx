@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.98',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Scripts VPS Go: corrige falso ERRO no diagnóstico (SIGPIPE no head -c do JSON)' },
+    ],
+  },
+  {
     version: '2.3.97',
     date: '09/09/2026',
     highlights: [

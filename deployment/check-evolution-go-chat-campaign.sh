@@ -36,26 +36,33 @@ try:
     rows = json.load(sys.stdin).get('data') or []
 except Exception:
     rows = []
-online = next((r for r in rows if r.get('connected') is True), None)
+online = [r for r in rows if r.get('connected') is True]
 if online:
-    print(online.get('name') or '')
-    print(online.get('token') or '')
-    print(online.get('jid') or '')
-    print(online.get('webhook') or '')
+    with_wh = [r for r in online if 'webhook/evolution' in (r.get('webhook') or '')]
+    pool = with_wh or online
+    pool.sort(key=lambda r: r.get('createdAt') or '', reverse=True)
+    pick = pool[0]
+    print(pick.get('name') or '')
+    print(pick.get('token') or '')
+    print(pick.get('jid') or '')
+    print(pick.get('webhook') or '')
     print('1')
+    print(len(online))
 else:
     print('')
     print('')
     print('')
     print('')
     print('0')
-" 2>/dev/null || printf '%s\n' '' '' '' '' '0')
+    print('0')
+" 2>/dev/null || printf '%s\n' '' '' '' '' '0' '0')
 CONN_NAME="${_chip[0]:-}"
 TOKEN="${_chip[1]:-}"
 JID="${_chip[2]:-}"
 WEBHOOK="${_chip[3]:-}"
 CONNECTED=""
 [ "${_chip[4]:-0}" = "1" ] && CONNECTED="true"
+CONNECTED_COUNT="${_chip[5]:-0}"
 unset _chip
 
 echo "    chip: ${CONN_NAME:-?}"
@@ -64,6 +71,9 @@ echo "    webhook: ${WEBHOOK:-vazio}"
 
 if [ -n "$CONNECTED" ]; then
   ok "Chip conectado no Go"
+  if [ "${CONNECTED_COUNT:-0}" -gt 1 ]; then
+    warn "${CONNECTED_COUNT} chips connected=true no Go — use só 1 na UI; diagnóstico usa o mais recente com webhook"
+  fi
 else
   bad "Nenhum chip connected=true — campanhas e bate-papo ficam limitados"
 fi
@@ -110,7 +120,7 @@ else
       -H "apikey: ${TOKEN}" \
       -H "Content-Type: application/json" \
       -d "{\"number\":\"${PHONE}\",\"text\":\"[ZapMass] teste diagnóstico $(date +%H:%M)\",\"delay\":800}" 2>/dev/null || echo '{"error":"request failed"}')"
-    echo "    send/text → ${SEND_JSON}" | head -c 300
+    echo "    send/text → ${SEND_JSON}" | head -c 300 || true
     echo ""
     if echo "$SEND_JSON" | grep -qiE '"message"[[:space:]]*:[[:space:]]*"success"|"id"|messageId'; then
       ok "Go aceitou send/text (campanhas usam o mesmo endpoint)"

@@ -88,7 +88,7 @@ fi
 INST_JSON="$(curl -sS --max-time 20 "${EVO_URL}${INST_PATH}" -H "apikey: ${API_KEY}")"
 if ! echo "$INST_JSON" | grep -q '"name"'; then
   echo "ERR: ${INST_PATH} falhou (401/chave errada ou serviço off?). Resposta:"
-  echo "$INST_JSON" | head -c 400
+  echo "$INST_JSON" | head -c 400 || true
   echo ""
   exit 1
 fi

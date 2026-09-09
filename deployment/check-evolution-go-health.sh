@@ -37,7 +37,7 @@ fi
 echo ""
 echo "==> GET /license/status"
 LICENSE_JSON="$(curl -sf -H "apikey: ${GO_KEY}" "http://127.0.0.1:8081/license/status" || true)"
-echo "${LICENSE_JSON}" | head -c 400
+echo "${LICENSE_JSON}" | head -c 400 || true
 echo ""
 if echo "$LICENSE_JSON" | grep -qiE '"status"[[:space:]]*:[[:space:]]*"active"'; then
   ok "Licença ativa"
@@ -48,7 +48,7 @@ fi
 echo ""
 echo "==> GET /instance/all"
 INST_JSON="$(curl -sf -H "apikey: ${GO_KEY}" "http://127.0.0.1:8081/instance/all" || true)"
-echo "${INST_JSON}" | head -c 1200
+echo "${INST_JSON}" | head -c 1200 || true
 echo ""
 INST_COUNT="$(echo "$INST_JSON" | grep -oE '"name"[[:space:]]*:' | wc -l | tr -d ' ')"
 CONNECTED_COUNT="$(echo "$INST_JSON" | grep -oE '"connected"[[:space:]]*:[[:space:]]*true' | wc -l | tr -d ' ')"
@@ -69,7 +69,7 @@ fi
 echo ""
 echo "==> GET /api/health (ZapMass :3001)"
 HEALTH="$(curl -sf "http://127.0.0.1:3001/api/health" || true)"
-echo "${HEALTH}" | head -c 400
+echo "${HEALTH}" | head -c 400 || true
 echo ""
 if echo "$HEALTH" | grep -qi '"status"[[:space:]]*:[[:space:]]*"ok"'; then
   ok "API ZapMass saudável"
