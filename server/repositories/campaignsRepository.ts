@@ -368,6 +368,21 @@ export async function listRunningCampaigns(limit = 50): Promise<RunningCampaignR
   return r.rows;
 }
 
+/** Campanhas pausadas manualmente no Postgres — reidrata flag após restart. */
+export async function listPausedCampaigns(limit = 50): Promise<RunningCampaignRow[]> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const r = await pool.query<RunningCampaignRow>(
+    `SELECT id::text, tenant_id::text
+     FROM zapmass.campaigns
+     WHERE status = 'PAUSED'
+     ORDER BY updated_at DESC
+     LIMIT $1`,
+    [limit]
+  );
+  return r.rows;
+}
+
 export type ReplyFlowCampaignRow = {
   id: string;
   tenant_id: string;

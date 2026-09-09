@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.91] - 2026-09-09
+### Corrigido
+- **Campanha pausada retomava sozinha**: pausa manual persiste no Redis/Postgres (`manualPaused`); stall-watchdog e reconciliação pós-restart não reenfileiram campanhas pausadas; `redispatchCampaign` não limpa mais a pausa automaticamente.
+- **Chips em aquecimento disparavam campanha**: canais em auto-warmup são excluídos do pool de disparo; jobs tentam failover ou aguardam até o aquecimento terminar.
+
 ## [2.3.90] - 2026-09-07
 ### Corrigido
 - **Chip piscando (conectado → QR → conectado)**: HistorySync automático deixava de dar restart em chips com aquecimento ativo; queda transitória (<90s) em chip pareado não zera sessão na UI; auto-reconnect usa connect em vez de restart.

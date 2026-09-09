@@ -3724,6 +3724,8 @@ interface CampaignRuntimeState {
     isRunning: boolean;
     /** Chips usados no disparo (pool ou seleção manual). */
     connectionIds?: string[];
+    /** Pausa manual pelo usuário — persiste no Redis e bloqueia auto-retomada. */
+    manualPaused?: boolean;
     /** Pausa automática pela proteção anti-ban (distinta de pausa manual). */
     protectionPaused?: boolean;
     protectionPauseReason?: string;
@@ -4865,7 +4867,7 @@ function deserializeRecipientVars(
 }
 
 function syncPausedCampaignFromRuntime(campaignId: string, state: CampaignRuntimeState): void {
-    if (state.protectionPaused) {
+    if (state.manualPaused || state.protectionPaused) {
         pausedCampaigns.add(campaignId);
     }
 }
@@ -4886,6 +4888,7 @@ async function saveCampaignRuntimeToRedis(campaignId: string): Promise<void> {
             lastLoggedProcessed: state.lastLoggedProcessed,
             isRunning: state.isRunning,
             connectionIds: state.connectionIds,
+            manualPaused: state.manualPaused,
             protectionPaused: state.protectionPaused,
             protectionPauseReason: state.protectionPauseReason,
             protectionPauseUntil: state.protectionPauseUntil,
@@ -4923,6 +4926,7 @@ async function loadCampaignRuntimeFromRedis(campaignId: string): Promise<Campaig
             lastLoggedProcessed: parsed.lastLoggedProcessed || 0,
             isRunning: parsed.isRunning !== false,
             connectionIds: Array.isArray(parsed.connectionIds) ? parsed.connectionIds : undefined,
+            manualPaused: parsed.manualPaused,
             protectionPaused: parsed.protectionPaused,
             protectionPauseReason: parsed.protectionPauseReason,
             protectionPauseUntil: parsed.protectionPauseUntil,
@@ -5221,6 +5225,14 @@ function ensureNurtureEnqueue() {
 async function filterActiveConnections(connectionIds: string[]): Promise<string[]> {
     const active: string[] = [];
     for (const connId of connectionIds) {
+        if (isConnectionInActiveWarmup(connId)) {
+            emitCampaignLog(
+                'WARN',
+                `Canal excluído do disparo (em aquecimento): ${connId}`,
+                { connectionId: connId }
+            );
+            continue;
+        }
         const ram = connections.get(connId);
         const ramOpen = isEvolutionOpenState(ram?.status) && Boolean(ram.phoneNumber?.trim());
         // Webhook Connected já marcou o chip na RAM: incluir sem esperar probe HTTP
@@ -6418,6 +6430,7 @@ async function enqueueCampaignItemsBulk(
 function isCampaignChannelUsable(connectionId: string): boolean {
     const id = String(connectionId || '').trim();
     if (!id) return false;
+    if (isConnectionInActiveWarmup(id)) return false;
     const conn = connections.get(id);
     // Aceita o chip se a RAM diz 'open' OU se tivemos prova HTTP positiva recente (últimos 60s).
     // Isso evita que um RAM desatualizado (após restart/debounce do hydrate) cause failover falso.
@@ -6678,7 +6691,7 @@ export function getCampaignProtectionSnapshot(ownerUid: string): {
 /** Retoma campanhas pausadas pela proteção quando chips/locks permitem. */
 export async function tickAutoResumeProtectedCampaigns(): Promise<void> {
     for (const [campaignId, state] of campaignsById.entries()) {
-        if (!state.isRunning || !state.protectionPaused) continue;
+        if (!state.isRunning || !state.protectionPaused || state.manualPaused) continue;
         // Sempre reavalia o guard: lock de 48h não pode impedir retomada se já
         // houver chip online (regra nova) ou se o código de proteção mudou no deploy.
 
@@ -6750,6 +6763,27 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     if (!item.replyFlowResponse && item.campaignId && pausedCampaigns.has(item.campaignId)) {
         await job.moveToDelayed(Date.now() + 3000, token);
+        throw new DelayedError();
+    }
+
+    if (
+        !item.replyFlowResponse &&
+        !item.nurtureFollowUp &&
+        isConnectionInActiveWarmup(item.connectionId)
+    ) {
+        const warmupFailover = await pickHealthyFailoverChannel(
+            item.connectionId,
+            item.alternateChannelIds,
+            item.campaignId,
+            item.rotationIndex
+        );
+        if (warmupFailover && warmupFailover !== item.connectionId) {
+            item.connectionId = warmupFailover;
+            await job.updateData(item).catch(() => undefined);
+            await job.moveToDelayed(Date.now() + 1000, token);
+            throw new DelayedError();
+        }
+        await job.moveToDelayed(Date.now() + 60_000, token);
         throw new DelayedError();
     }
 
@@ -8004,7 +8038,9 @@ export async function redispatchCampaign(
         return { ok: false, enqueued: 0, error: 'Campanha ainda em execução. Aguarde ou pause antes de reenviar.' };
     }
 
-    pausedCampaigns.delete(campaignId);
+    if (pausedCampaigns.has(campaignId)) {
+        return { ok: false, enqueued: 0, error: 'Campanha pausada. Clique em Retomar para continuar.' };
+    }
 
     const stepIdx = typeof options.stepIndex === 'number' ? options.stepIndex : 0;
 
@@ -8974,6 +9010,7 @@ export function init(socketIO: SocketIOServer) {
     // fazendo a 2ª+ etapa nunca disparar e a campanha ser marcada COMPLETED prematuramente.
     void (async () => {
         await reconcilePendingJobsFromRedis();
+        await hydrateManualPausedCampaignsFromPostgres();
         await waitForCampaignResumeGrace();
         await reconcileRunningCampaignsFromPostgres();
         ensureCampaignWorker();
@@ -8990,6 +9027,38 @@ async function waitForCampaignResumeGrace(): Promise<void> {
 }
 
 /** Campanhas RUNNING no Postgres sem runtime/jobs após restart — reidrata ou reenfileira. */
+async function hydrateManualPausedCampaignsFromPostgres(): Promise<void> {
+    try {
+        const { listPausedCampaigns } = await import('./repositories/campaignsRepository.js');
+        const { isZapmassPostgresConfigured } = await import('./db/postgres.js');
+        if (!isZapmassPostgresConfigured()) return;
+
+        const rows = await listPausedCampaigns(50);
+        for (const row of rows) {
+            const campaignId = String(row.id || '').trim();
+            const tenantId = String(row.tenant_id || '').trim();
+            if (!campaignId) continue;
+
+            pausedCampaigns.add(campaignId);
+            if (!campaignsById.has(campaignId)) {
+                await ensureCampaignRuntimeInMemory(campaignId, tenantId);
+            }
+            const state = campaignsById.get(campaignId);
+            if (state && !state.protectionPaused) {
+                state.manualPaused = true;
+            }
+        }
+        if (rows.length > 0) {
+            log('info', `[reconcile] ${rows.length} campanha(s) PAUSED reidratada(s) da memória persistente`);
+        }
+    } catch (e: unknown) {
+        log('warn', '[reconcile] Falha ao reidratar campanhas PAUSED do Postgres', {
+            error: (e as Error)?.message,
+        });
+    }
+}
+
+/** Campanhas RUNNING no Postgres sem runtime/jobs após restart — reidrata ou reenfileira. */
 async function reconcileRunningCampaignsFromPostgres(): Promise<void> {
     try {
         const { listRunningCampaigns } = await import('./repositories/campaignsRepository.js');
@@ -9001,6 +9070,7 @@ async function reconcileRunningCampaignsFromPostgres(): Promise<void> {
             const campaignId = String(row.id || '').trim();
             const tenantId = String(row.tenant_id || '').trim();
             if (!campaignId || !tenantId) continue;
+            if (pausedCampaigns.has(campaignId)) continue;
 
             if (!campaignsById.has(campaignId)) {
                 await ensureCampaignRuntimeInMemory(campaignId, tenantId);
@@ -9076,7 +9146,7 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
 
     for (const [campaignId, state] of campaignsById.entries()) {
         if (!state.isRunning || state.processed > 0) continue;
-        if (pausedCampaigns.has(campaignId) || state.protectionPaused) continue;
+        if (pausedCampaigns.has(campaignId) || state.protectionPaused || state.manualPaused) continue;
         if (campaignEnqueueInFlight.has(campaignId)) continue;
 
         const startedAt = state.startedAt ?? 0;
@@ -10349,6 +10419,9 @@ export function pauseCampaign(campaignId: string, ownerUid?: string) {
     pausedCampaigns.add(campaignId);
     const ou = resolveCampaignOwnerUid(campaignId, ownerUid);
     const state = campaignsById.get(campaignId);
+    if (state) {
+        state.manualPaused = true;
+    }
     log('info', `⏸️ Campanha pausada: ${campaignId}`, { ownerUid: ou });
     if (ou) {
         void persistCampaignProgressToFirestore(
@@ -10360,6 +10433,7 @@ export function pauseCampaign(campaignId: string, ownerUid?: string) {
             'PAUSED'
         );
     }
+    void saveCampaignRuntimeToRedis(campaignId);
     publishOwnerEvent(ou, 'campaign-paused', { campaignId });
 }
 
@@ -10371,6 +10445,7 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
     const ou = resolveCampaignOwnerUid(campaignId, ownerUid) || ownerUid;
     const state = campaignsById.get(campaignId);
     if (state) {
+        state.manualPaused = false;
         state.protectionPaused = false;
         state.protectionPauseReason = undefined;
         state.protectionPauseUntil = undefined;
@@ -10412,6 +10487,7 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
         });
     }
     publishOwnerEvent(ou, 'campaign-resumed', { campaignId });
+    void saveCampaignRuntimeToRedis(campaignId);
     ensureCampaignWorker();
 }
 

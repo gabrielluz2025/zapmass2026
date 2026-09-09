@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.91',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Campanha pausada manualmente não retoma sozinha após restart ou stall-watchdog' },
+      { type: 'fix', text: 'Chips em aquecimento não participam do disparo de campanha — jobs aguardam ou usam outro chip do pool' },
+    ],
+  },
+  {
     version: '2.3.90',
     date: '07/09/2026',
     highlights: [
