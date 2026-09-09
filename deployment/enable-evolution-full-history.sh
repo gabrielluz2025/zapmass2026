@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Ativa histórico completo do WhatsApp (Evolution API ou Evolution Go).
 # Uso: cd /opt/zapmass && bash deployment/enable-evolution-full-history.sh
-# Go + restart chips conectados: RESTART_OPEN=1 bash deployment/enable-evolution-full-history.sh
+# Go + reconnect chips conectados: RESTART_OPEN=1 bash deployment/enable-evolution-full-history.sh
 set -eu
 
 ROOT="${ROOT:-/opt/zapmass}"
@@ -26,15 +26,19 @@ is_evolution_go_engine() {
 read_evolution_api_key() {
   local key cid
   if is_evolution_go_engine; then
-    cid="$(docker compose ps -q evolution-go 2>/dev/null | head -1 || true)"
-    if [ -n "$cid" ]; then
-      key="$(docker exec "$cid" printenv GLOBAL_API_KEY 2>/dev/null || true)"
-      [ -n "$key" ] && printf '%s' "$key" && return 0
-    fi
     if [ -f .env ]; then
       key="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_GO_KEY=' .env 2>/dev/null | tail -1 \
         | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_GO_KEY=//' | tr -d '\r"' \
         | sed 's/^["'\'']//;s/["'\'']$//' || true)"
+      [ -n "$key" ] && printf '%s' "$key" && return 0
+      key="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' .env 2>/dev/null | tail -1 \
+        | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"' \
+        | sed 's/^["'\'']//;s/["'\'']$//' || true)"
+      [ -n "$key" ] && printf '%s' "$key" && return 0
+    fi
+    cid="$(docker compose ps -q evolution-go 2>/dev/null | head -1 || true)"
+    if [ -n "$cid" ]; then
+      key="$(docker exec "$cid" printenv GLOBAL_API_KEY 2>/dev/null | tr -d '\r' || true)"
       [ -n "$key" ] && printf '%s' "$key" && return 0
     fi
     printf '%s' "${EVOLUTION_GO_KEY:-${EVOLUTION_API_KEY:-zapmass-secure-key-2026}}"
@@ -89,10 +93,13 @@ if ! echo "$INST_JSON" | grep -q '"name"'; then
   exit 1
 fi
 
+INST_TMP="$(mktemp /tmp/zapmass-evo-instances.XXXXXX.json)"
+printf '%s' "$INST_JSON" > "$INST_TMP"
 export API_KEY EVO_URL RESTART_OPEN IS_GO
-echo "$INST_JSON" | python3 <<'PY'
+python3 - "$INST_TMP" <<'PY'
 import json, os, sys, urllib.parse, urllib.request
 
+inst_path = sys.argv[1]
 api_key = os.environ.get('API_KEY', '')
 evo_url = os.environ.get('EVO_URL', '').rstrip('/')
 restart_open = os.environ.get('RESTART_OPEN', '0') == '1'
@@ -123,22 +130,26 @@ def is_open(row):
     status = str(row.get('connectionStatus') or row.get('state') or '').lower()
     return status == 'open'
 
-try:
-    data = json.load(sys.stdin)
-except Exception as e:
-    print(f'JSON inválido: {e}')
-    sys.exit(1)
+def go_history_sync(name: str) -> None:
+    enc = urllib.parse.quote(name)
+    # Go não expõe /instance/restart — HistorySync via connect + forceReconnect.
+    req('POST', f'/instance/connect/{enc}', {'forceReconnect': True})
+
+with open(inst_path, encoding='utf-8') as f:
+    data = json.load(f)
 
 rows = data if isinstance(data, list) else data.get('instances') or data.get('data') or []
 if not rows:
     print('Nenhuma instância encontrada.')
     sys.exit(0)
 
+seen = set()
 open_names = []
 for row in rows:
     name = row.get('name') or row.get('instanceName') or ''
-    if not name:
+    if not name or name in seen:
         continue
+    seen.add(name)
     enc = urllib.parse.quote(name)
     status = str(row.get('connectionStatus') or row.get('state') or ('open' if row.get('connected') else 'close')).lower()
     setting = row.get('Setting') or row.get('setting') or {}
@@ -151,10 +162,10 @@ for row in rows:
         print(f'  {name}  connected={open_now}  webhook={"sim" if row.get("webhook") else "nao"}')
         if restart_open and open_now:
             try:
-                req('POST', f'/instance/restart/{enc}', {})
-                print(f'    restart POST OK (HistorySync pode demorar minutos)')
+                go_history_sync(name)
+                print('    connect forceReconnect OK (HistorySync pode demorar minutos)')
             except Exception as e:
-                print(f'    restart falhou: {e}')
+                print(f'    HistorySync falhou: {e}')
         continue
 
     try:
@@ -174,11 +185,12 @@ if is_go and not open_names:
     print('AVISO: nenhum chip CONNECTED no Go — HistorySync só funciona com chip online.')
     print('       Pareie QR em Conexões e rode de novo com RESTART_OPEN=1.')
 PY
+rm -f "$INST_TMP"
 
 echo ""
 echo "==> Concluído."
 if [ "$IS_GO" = "1" ]; then
-  echo "    Go: histórico vem via HistorySync após reconnect (botão Sincronizar do celular no Bate-papo)."
+  echo "    Go: histórico vem via HistorySync após forceReconnect (botão Sincronizar do celular no Bate-papo)."
 else
   echo "    Instâncias open precisam de restart/reconexão para baixar histórico antigo."
 fi

@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.95',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Script enable-evolution-full-history.sh: JSON via arquivo temp e HistorySync Go via connect/forceReconnect' },
+    ],
+  },
+  {
     version: '2.3.94',
     date: '09/09/2026',
     highlights: [
