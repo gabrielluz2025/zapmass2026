@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.100',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'validate-post-deploy: ambiente Go não acusa mais falha falsa na Evolution API :8080' },
+    ],
+  },
+  {
     version: '2.3.99',
     date: '09/09/2026',
     highlights: [

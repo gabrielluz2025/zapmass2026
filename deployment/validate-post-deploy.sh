@@ -57,6 +57,15 @@ bad()  { echo "  ❌ $*"; fail=$((fail + 1)); }
 
 section() { echo ""; echo "==> $*"; echo ""; }
 
+# Evolution Go (:8081) não usa Evolution API legada (:8080) — evita falsos ❌ no pós-deploy.
+if grep -qE '^[[:space:]]*ZAPMASS_WHATSAPP_ENGINE=evolution-go[[:space:]]*$' .env 2>/dev/null; then
+  section "validate-post-deploy (Evolution Go)"
+  echo "  Motor evolution-go — checks da Evolution API legada (:8080) não se aplicam."
+  echo "  Executando check-evolution-go-chat-campaign.sh …"
+  echo ""
+  exec bash "${BASH_SOURCE%/*}/check-evolution-go-chat-campaign.sh"
+fi
+
 section "1/5 — ZapMass (API + commit local)"
 HEALTH="$(curl -sf --max-time 10 "http://127.0.0.1:${HOST_PORT}/api/health" 2>/dev/null || echo '')"
 if [ -n "$HEALTH" ]; then
