@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.94] - 2026-09-09
+### Corrigido
+- **Deploy VPS com Evolution Go**: `enable-evolution-full-history.sh` detecta motor Go, usa porta 8081, `/instance/all` e `EVOLUTION_GO_KEY`/`GLOBAL_API_KEY` (não mais 8080/fetchInstances).
+
 ## [2.3.93] - 2026-09-09
 ### Corrigido
 - **Bate-papo Go — histórico de campanha/celular**: botão vira "Sincronizar do celular" (reconnect + HistorySync); não marca mais histórico esgotado com 1 msg de disparo; sync dispara também com não lidas ou só outbound de campanha.

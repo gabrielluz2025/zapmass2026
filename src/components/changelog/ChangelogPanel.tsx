@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.94',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Script enable-evolution-full-history.sh compatível com Evolution Go (8081, /instance/all, chave Go)' },
+    ],
+  },
+  {
     version: '2.3.93',
     date: '09/09/2026',
     highlights: [
