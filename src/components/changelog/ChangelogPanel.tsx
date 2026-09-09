@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.102',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Reconciler automático Go ↔ ZapMass: remove órfãs, duplicatas UUID e connecting zumbi a cada 15 min' },
+      { type: 'fix', text: 'Delete de canal e auto-reconcile agora apagam instância no Evolution Go (não só settings local)' },
+      { type: 'fix', text: 'Script VPS cleanup compatível com Evolution Go (8081, delete por UUID)' },
+    ],
+  },
+  {
     version: '2.3.101',
     date: '09/09/2026',
     highlights: [

@@ -254,6 +254,37 @@ export function registerAdminConnectionsRoutes(app: Express): void {
     res.json({ ok: result.ok, ...result, reconciledBy: auth.uid });
   });
 
+  /** Lista drift Go ↔ ZapMass (órfãs, duplicatas, connecting zumbis). */
+  app.get('/api/admin/go-instances/drift', async (req: Request, res: Response) => {
+    const auth = await assertAdminFromBearer(req, res);
+    if (!auth) return;
+
+    if (!useEvolutionEngine()) {
+      res.status(400).json({ ok: false, error: 'Disponível apenas com motor Evolution (API ou Go).' });
+      return;
+    }
+
+    const { scanGoInstanceDrift } = await import('./evolutionInstanceReconciler.js');
+    const report = await scanGoInstanceDrift();
+    res.json({ ok: true, report });
+  });
+
+  /** Reconcilia instâncias Go (remove órfãs/duplicatas; dryRun=1 simula). */
+  app.post('/api/admin/go-instances/reconcile', async (req: Request, res: Response) => {
+    const auth = await assertAdminFromBearer(req, res);
+    if (!auth) return;
+
+    if (!useEvolutionEngine()) {
+      res.status(400).json({ ok: false, error: 'Disponível apenas com motor Evolution (API ou Go).' });
+      return;
+    }
+
+    const dryRun = req.query.dryRun === '1' || (req.body as { dryRun?: boolean })?.dryRun === true;
+    const { reconcileGoInstances } = await import('./evolutionInstanceReconciler.js');
+    const result = await reconcileGoInstances({ dryRun, deleteGoOrphans: true });
+    res.json({ ok: result.ok, ...result, reconciledBy: auth.uid });
+  });
+
   /** Reatribui ownerUid de canal legado (reparo manual pós vazamento). */
   app.post('/api/admin/connections/reassign-owner', async (req: Request, res: Response) => {
     const auth = await assertAdminFromBearer(req, res);

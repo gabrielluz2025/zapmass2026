@@ -806,6 +806,55 @@ function isIntentionalPairedConnection(id: string, conn?: EvolutionInstance): bo
  * Só `created`/`connecting` sem telefone e sem settings de pareamento.
  * Nunca `open`/`close` — sessão offline recuperável.
  */
+export function isConnectionTombstoned(connectionId: string): boolean {
+    return deletedConnectionIds.has(String(connectionId || '').trim());
+}
+
+export function isConnectionPairingInProgress(connectionId: string): boolean {
+    const id = String(connectionId || '').trim();
+    return connectionWatchTimers.has(id) || qrWatchTimers.has(id);
+}
+
+export function getPairingStartedAtMs(connectionId: string): number | undefined {
+    return pairingStartedAt.get(String(connectionId || '').trim());
+}
+
+export function invalidateGoInstanceListCache(): void {
+    _instanceListCache = null;
+    _instanceListInflight = null;
+}
+
+export async function listGoInstancesRaw(): Promise<unknown[]> {
+    return fetchGoInstanceList();
+}
+
+/** Remove instância no Evolution Go pelo UUID (órfãs sem settings ZapMass). */
+export async function purgeGoInstanceByUuid(
+    connectionId: string,
+    goUuid: string,
+    reason = 'purge-go-orphan'
+): Promise<void> {
+    const id = String(connectionId || '').trim();
+    const uuid = String(goUuid || '').trim();
+    if (!uuid) return;
+    log('warn', `[GoReconciler] Removendo instância Go`, { connectionId: id, goUuid: uuid, reason });
+    try {
+        await api.delete(`/instance/logout/${id}`);
+    } catch {
+        /* token pode não existir em órfã */
+    }
+    await api.delete(`/instance/delete/${uuid}`);
+    invalidateGoInstanceListCache();
+}
+
+export async function resolveGoInstanceUuid(connectionId: string): Promise<string | undefined> {
+    return ensureGoInstanceUuidResolved(connectionId);
+}
+
+export async function ensureEvolutionGoInstanceExistsPublic(connectionId: string): Promise<boolean> {
+    return ensureEvolutionGoInstanceExists(connectionId);
+}
+
 export function isConnectionEligibleForAutoPruneDelete(id: string, evolutionState?: string): boolean {
     const mem = connections.get(id);
     const status = evolutionState ? mapEvolutionState(evolutionState) : mem?.status;
@@ -841,10 +890,20 @@ export async function pruneConnectingZombiesForOwner(ownerUid: string): Promise<
                 continue;
             }
             if (resolveOwnerUid(instanceName) !== uid) continue;
-            // Conservador: só `created` sem pareamento — connecting/close podem ser sessão ativa ou offline.
-            if (state !== 'created') continue;
             if (connectionWatchTimers.has(instanceName) || qrWatchTimers.has(instanceName)) continue;
-            if (!isConnectionEligibleForAutoPruneDelete(instanceName, state)) continue;
+
+            const staleConnecting =
+                state === 'connecting' &&
+                !connectionWatchTimers.has(instanceName) &&
+                !qrWatchTimers.has(instanceName) &&
+                (() => {
+                    const started = pairingStartedAt.get(instanceName);
+                    const ref = started ?? Date.now();
+                    return Date.now() - ref >= 30 * 60 * 1000;
+                })();
+
+            if (state !== 'created' && !staleConnecting) continue;
+            if (!isConnectionEligibleForAutoPruneDelete(instanceName, state) && !staleConnecting) continue;
 
             try {
                 log('warn', `Auto-prune: removendo zumbi Evolution`, {
@@ -5954,6 +6013,7 @@ export async function deleteConnection(
         }
         await ensureGoInstanceUuidResolved(id);
         await api.delete(`/instance/delete/${evoInst(id)}`);
+        invalidateGoInstanceListCache();
     } catch (error: any) {
         const status = error?.response?.status;
         const msg = String(
@@ -9024,6 +9084,9 @@ export function init(socketIO: SocketIOServer) {
 
         return reconcileConnectionHealth();
     });
+    void import('./evolutionInstanceReconciler.js').then(({ startGoInstanceReconcilerTimer }) => {
+        startGoInstanceReconcilerTimer();
+    });
     if (!connectionHealthTimer) {
         const healthIntervalMs = isInDeployGraceWindow() ? 30_000 : 120_000;
         connectionHealthTimer = setInterval(() => {
@@ -10634,9 +10697,19 @@ export async function autoReconcileConnectionOwners(opts?: { dryRun?: boolean })
 
     for (const action of actions) {
         if (action.kind === 'remove') {
-            delete connectionsSettingsCache[action.connId];
-            connections.delete(action.connId);
-            removed.push(action.connId);
+            try {
+                await deleteConnection(action.connId, {
+                    reason: 'auto-reconcile-remove',
+                    caller: 'autoReconcileConnectionOwners',
+                });
+                removed.push(action.connId);
+            } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                errors.push({ connId: action.connId, error: msg });
+                delete connectionsSettingsCache[action.connId];
+                connections.delete(action.connId);
+                removed.push(action.connId);
+            }
             continue;
         }
 

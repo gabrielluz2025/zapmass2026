@@ -7,6 +7,17 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.102] - 2026-09-09
+### Adicionado
+- **Reconciler Go ↔ ZapMass** (`evolutionInstanceReconciler.ts`): varredura a cada 15 min remove órfãs no motor, duplicatas UUID e `connecting` zumbi (>30 min).
+- **Admin API**: `GET /api/admin/go-instances/drift` e `POST /api/admin/go-instances/reconcile` (dryRun=1).
+- **Scripts VPS**: `vps-reconcile-go-instances.sh`; `vps-cleanup-evolution-instances.sh` compatível com Go (8081 + delete por UUID).
+
+### Corrigido
+- **autoReconcileConnectionOwners**: remoção de canal chama `deleteConnection` no Go (não só apaga settings).
+- **pruneConnectingZombiesForOwner**: remove `connecting` parado >30 min sem pairing ativo.
+- **deleteConnection**: invalida cache `/instance/all` após delete.
+
 ## [2.3.101] - 2026-09-09
 ### Corrigido
 - **validate-post-deploy.sh**: detecta `export ZAPMASS_WHATSAPP_ENGINE=evolution-go` (e container Go) antes de testar :8080.
