@@ -115,12 +115,15 @@ SETTINGS_BODY = {
     'syncFullHistory': True,
 }
 
-def req(method, path, body=None):
+def req(method, path, body=None, headers=None):
     url = f'{evo_url}{path}'
     data_b = json.dumps(body).encode() if body is not None else None
     r = urllib.request.Request(url, data=data_b, method=method)
-    r.add_header('apikey', api_key)
-    r.add_header('Content-Type', 'application/json')
+    h = dict(headers or {})
+    h.setdefault('apikey', api_key)
+    h.setdefault('Content-Type', 'application/json')
+    for k, v in h.items():
+        r.add_header(k, str(v))
     with urllib.request.urlopen(r, timeout=30) as resp:
         return resp.read().decode()
 
@@ -130,10 +133,26 @@ def is_open(row):
     status = str(row.get('connectionStatus') or row.get('state') or '').lower()
     return status == 'open'
 
-def go_history_sync(name: str) -> None:
-    enc = urllib.parse.quote(name)
-    # Go não expõe /instance/restart — HistorySync via connect + forceReconnect.
-    req('POST', f'/instance/connect/{enc}', {'forceReconnect': True})
+def go_history_sync(row: dict) -> None:
+    """Go nativo: POST /instance/reconnect com apikey=token do chip (não a global key)."""
+    token = str(row.get('token') or '').strip()
+    go_uuid = str(row.get('id') or row.get('ID') or '').strip()
+    webhook = str(row.get('webhook') or 'http://zapmass:3001/webhook/evolution').strip()
+    if not token:
+        raise ValueError('instância sem token no /instance/all')
+    inst_headers = {'apikey': token, 'Content-Type': 'application/json'}
+    try:
+        req('POST', '/instance/reconnect', {}, inst_headers)
+        return
+    except Exception:
+        if not go_uuid:
+            raise
+        req(
+            'POST',
+            '/instance/connect',
+            {'webhookUrl': webhook, 'subscribe': ['ALL'], 'immediate': True},
+            {**inst_headers, 'instanceId': go_uuid},
+        )
 
 with open(inst_path, encoding='utf-8') as f:
     data = json.load(f)
@@ -162,8 +181,8 @@ for row in rows:
         print(f'  {name}  connected={open_now}  webhook={"sim" if row.get("webhook") else "nao"}')
         if restart_open and open_now:
             try:
-                go_history_sync(name)
-                print('    connect forceReconnect OK (HistorySync pode demorar minutos)')
+                go_history_sync(row)
+                print('    reconnect OK (HistorySync pode demorar minutos)')
             except Exception as e:
                 print(f'    HistorySync falhou: {e}')
         continue
@@ -190,7 +209,7 @@ rm -f "$INST_TMP"
 echo ""
 echo "==> Concluído."
 if [ "$IS_GO" = "1" ]; then
-  echo "    Go: histórico vem via HistorySync após forceReconnect (botão Sincronizar do celular no Bate-papo)."
+  echo "    Go: histórico vem via POST /instance/reconnect (token do chip) ou botão Sincronizar do celular."
 else
   echo "    Instâncias open precisam de restart/reconexão para baixar histórico antigo."
 fi

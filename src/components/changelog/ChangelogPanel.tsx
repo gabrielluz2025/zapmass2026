@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.96',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Script VPS Go: HistorySync via POST /instance/reconnect com token do chip (corrige 404)' },
+    ],
+  },
+  {
     version: '2.3.95',
     date: '09/09/2026',
     highlights: [

@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.96] - 2026-09-09
+### Corrigido
+- **enable-evolution-full-history.sh (Go)**: HistorySync usa `POST /instance/reconnect` com **token do chip** (não global key nem `/instance/connect/{nome}`).
+
 ## [2.3.95] - 2026-09-09
 ### Corrigido
 - **enable-evolution-full-history.sh (Go)**: corrige leitura do JSON (heredoc) e usa `POST /instance/connect` + `forceReconnect` em vez de `/instance/restart` (404 no Go).
