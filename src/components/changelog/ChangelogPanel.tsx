@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.93',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Go: "Sincronizar do celular" no thread — HistorySync também para contatos de campanha com não lidas ou histórico incompleto' },
+    ],
+  },
+  {
     version: '2.3.92',
     date: '09/09/2026',
     highlights: [

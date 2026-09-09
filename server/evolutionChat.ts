@@ -108,6 +108,36 @@ function evoInst(instanceName: string): string {
     return encodeURIComponent(String(instanceName || '').trim());
 }
 
+/** Go: thread com metadados mas sem histórico inbound completo — pedir HistorySync do celular. */
+function conversationNeedsGoHistorySync(conv: Conversation | undefined): boolean {
+    if (!conv) return false;
+    const msgs = conv.messages || [];
+    const have = msgs.length;
+    const unread = conv.unreadCount || 0;
+    const hasActivity = (conv.lastMessageTimestamp || 0) > 0 || unread > 0;
+    if (!hasActivity) return false;
+    if (have === 0) return true;
+
+    const hasInbound = msgs.some((m) => m.sender !== 'me');
+    if (unread > 0 && !hasInbound) return true;
+
+    const onlyOutbound =
+        have > 0 && msgs.every((m) => m.sender === 'me' || Boolean(m.fromCampaign));
+    if (onlyOutbound && unread > 0) return true;
+    if (onlyOutbound && have <= 3) return true;
+
+    const preview = String(conv.lastMessage || '').trim();
+    if (preview.length >= 4) {
+        const previewHit = msgs.some((m) => {
+            const t = String(m.text || '').trim();
+            return t.length >= 4 && (t.includes(preview.slice(0, 24)) || preview.includes(t.slice(0, 24)));
+        });
+        if (!previewHit) return true;
+    }
+
+    return false;
+}
+
 export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionChatArchiveCtx) {
     let conversations: Conversation[] = [];
     const lastCampaignMessageSentAt = new Map<string, number>();
@@ -2032,17 +2062,16 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         if (isGoWebhookInboxMode()) {
             const have = conv?.messages?.length || 0;
-            if (
-                have === 0 &&
-                conv &&
-                ((conv.lastMessageTimestamp || 0) > 0 || (conv.unreadCount || 0) > 0)
-            ) {
-                void archiveCtx
-                    ?.requestGoInboxHistorySync?.(parsed.connectionId)
-                    .catch(() => undefined);
+            let historySyncTriggered = false;
+            if (conv && conversationNeedsGoHistorySync(conv)) {
+                historySyncTriggered = Boolean(
+                    await archiveCtx
+                        ?.requestGoInboxHistorySync?.(parsed.connectionId)
+                        .catch(() => false)
+                );
             }
             const msgs = conv ? prepareConversationHistoryForClient(conv, requested) : [];
-            return { ok: true, total: have, messages: msgs };
+            return { ok: true, total: have, messages: msgs, historySyncTriggered };
         }
 
         const oldestLocalMs =

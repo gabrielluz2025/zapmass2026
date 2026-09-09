@@ -41,6 +41,7 @@ type Props = {
   avatarSrc: string;
   loadingHistory: boolean;
   historyExhausted: boolean;
+  historyImporting?: boolean;
   canSend: boolean;
   chipsConnected?: number;
   socketStatus: WaSocketStatus;
@@ -100,6 +101,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
   avatarSrc,
   loadingHistory,
   historyExhausted,
+  historyImporting = false,
   canSend,
   chipsConnected = 0,
   socketStatus,
@@ -264,7 +266,8 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
     if (
       el.scrollTop < 180 &&
       !loadingHistory &&
-      !historyExhausted
+      !historyImporting &&
+      (!historyExhausted || isGoWebhookInbox)
     ) {
       scrollPreserveRef.current = {
         id: conversation.id,
@@ -273,7 +276,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
       };
       onLoadOlder();
     }
-  }, [conversation?.id, loadingHistory, historyExhausted, onLoadOlder]);
+  }, [conversation?.id, loadingHistory, historyExhausted, historyImporting, isGoWebhookInbox, onLoadOlder]);
 
   if (!conversation) {
     return (
@@ -431,24 +434,30 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
           className="wa-chat-wallpaper absolute inset-0 overflow-y-auto"
           onScroll={handleScroll}
         >
-          {(!historyExhausted && (messages.length > 0 || threadHasActivity)) && (
+          {((!historyExhausted || isGoWebhookInbox) && (messages.length > 0 || threadHasActivity)) && (
             <div className="flex flex-col items-center pt-3 sticky top-0 z-[1] gap-1">
               <button
                 type="button"
                 className="wa-history-btn"
                 onClick={onLoadOlder}
-                disabled={loadingHistory}
+                disabled={loadingHistory || historyImporting}
               >
-                {loadingHistory ? (
+                {loadingHistory || historyImporting ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <History className="w-4 h-4" />
                 )}
-                Carregar mensagens anteriores
+                {isGoWebhookInbox
+                  ? historyImporting
+                    ? 'Importando do celular…'
+                    : 'Sincronizar do celular'
+                  : 'Carregar mensagens anteriores'}
               </button>
               {isGoWebhookInbox ? (
                 <p className="text-[11px] px-3 text-center" style={{ color: 'var(--wa-text-3)' }}>
-                  Histórico incompleto — puxe para cima para carregar mais
+                  {historyImporting
+                    ? 'Aguarde — o chip está puxando o histórico do WhatsApp…'
+                    : 'Toque para reconectar o chip e importar mensagens antigas do celular'}
                 </p>
               ) : null}
             </div>
@@ -466,7 +475,9 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
               {isDraft
                 ? 'Nova conversa — envie a primeira mensagem pelo canal escolhido abaixo.'
                 : threadHasActivity
-                  ? 'Histórico ainda não carregou — toque em “Carregar mensagens anteriores” ou aguarde alguns segundos.'
+                  ? isGoWebhookInbox
+                    ? 'Histórico ainda não carregou — toque em “Sincronizar do celular” ou aguarde alguns segundos.'
+                    : 'Histórico ainda não carregou — toque em “Carregar mensagens anteriores” ou aguarde alguns segundos.'
                   : 'Nenhuma mensagem nesta conversa ainda.'}
             </p>
           )}

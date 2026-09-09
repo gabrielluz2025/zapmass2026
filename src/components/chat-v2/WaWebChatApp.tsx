@@ -695,9 +695,55 @@ export const WaWebChatApp: React.FC<{
   const loadMoreHistory = useCallback(
     async (conversationId: string, silent = false): Promise<boolean> => {
       if (!conversationId) return false;
-      if (historyExhausted[conversationId]) return false;
-      // Evita carga paralela da mesma conversa
+      if (!isGoWebhookInbox && historyExhausted[conversationId]) return false;
       if (loadingHistoryById.current.has(conversationId)) return false;
+
+      const prevCount =
+        sortedConversations.find((c) => c.id === conversationId)?.messages.length || 0;
+      const convHint = sortedConversations.find((c) => c.id === conversationId);
+      const activityHint =
+        Boolean((convHint?.lastMessage || '').trim()) ||
+        (convHint?.unreadCount || 0) > 0 ||
+        (convHint?.lastMessageTimestamp || 0) > 0;
+
+      if (isGoWebhookInbox) {
+        loadingHistoryById.current.add(conversationId);
+        setLoadingHistoryIds((prev) => {
+          if (prev.has(conversationId)) return prev;
+          const next = new Set(prev);
+          next.add(conversationId);
+          return next;
+        });
+        try {
+          if (!silent) {
+            toast('Sincronizando histórico do celular…', { icon: '📲', duration: 2800 });
+          }
+          runResync({ full: true, force: true });
+          await hydrateFirestoreChatArchive(conversationId, 1500).catch(() => ({ ok: false, total: 0 }));
+          const res = await loadChatHistory(conversationId, 1500, true);
+          if (!res.ok) {
+            if (res.error && !silent) toast.error(res.error);
+            return false;
+          }
+          const grew = (res.total || 0) > prevCount;
+          if (grew) {
+            setHistoryExhausted((prev) => {
+              const next = { ...prev };
+              delete next[conversationId];
+              return next;
+            });
+          }
+          return grew || (res.total || 0) > 0;
+        } finally {
+          loadingHistoryById.current.delete(conversationId);
+          setLoadingHistoryIds((prev) => {
+            if (!prev.has(conversationId)) return prev;
+            const next = new Set(prev);
+            next.delete(conversationId);
+            return next;
+          });
+        }
+      }
 
       const current = historyRequestedRef.current.get(conversationId) || 0;
       const nextLevel =
@@ -711,13 +757,6 @@ export const WaWebChatApp: React.FC<{
         next.add(conversationId);
         return next;
       });
-      const prevCount =
-        sortedConversations.find((c) => c.id === conversationId)?.messages.length || 0;
-      const convHint = sortedConversations.find((c) => c.id === conversationId);
-      const activityHint =
-        Boolean((convHint?.lastMessage || '').trim()) ||
-        (convHint?.unreadCount || 0) > 0 ||
-        (convHint?.lastMessageTimestamp || 0) > 0;
       try {
         const res = await loadChatHistory(
           conversationId,
@@ -763,7 +802,14 @@ export const WaWebChatApp: React.FC<{
         });
       }
     },
-    [historyExhausted, loadChatHistory, sortedConversations]
+    [
+      historyExhausted,
+      hydrateFirestoreChatArchive,
+      isGoWebhookInbox,
+      loadChatHistory,
+      runResync,
+      sortedConversations,
+    ]
   );
 
   useEffect(() => {
@@ -1359,7 +1405,10 @@ export const WaWebChatApp: React.FC<{
         display={selectedDisplay ?? null}
         avatarSrc={selected ? avatarById.get(selected.id) || '' : ''}
         loadingHistory={selectedId ? loadingHistoryIds.has(selectedId) : false}
-        historyExhausted={selected ? !!historyExhausted[selected.id] : true}
+        historyExhausted={
+          selected && !isGoWebhookInbox ? !!historyExhausted[selected.id] : false
+        }
+        historyImporting={historyImporting}
         canSend={!!selected && selectedChipConnected}
         chipsConnected={connectedChannels.length}
         socketStatus={isBackendConnected ? socketStatus : 'offline'}
