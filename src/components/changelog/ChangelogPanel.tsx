@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.101',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'validate-post-deploy: lê export/aspas do ZAPMASS_WHATSAPP_ENGINE e delega ao script Go' },
+    ],
+  },
+  {
     version: '2.3.100',
     date: '09/09/2026',
     highlights: [

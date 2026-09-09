@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.101] - 2026-09-09
+### Corrigido
+- **validate-post-deploy.sh**: detecta `export ZAPMASS_WHATSAPP_ENGINE=evolution-go` (e container Go) antes de testar :8080.
+
 ## [2.3.100] - 2026-09-09
 ### Corrigido
 - **validate-post-deploy.sh**: com `ZAPMASS_WHATSAPP_ENGINE=evolution-go`, delega ao script Go em vez de falhar na Evolution API legada (:8080).

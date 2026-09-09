@@ -58,13 +58,21 @@ bad()  { echo "  ❌ $*"; fail=$((fail + 1)); }
 section() { echo ""; echo "==> $*"; echo ""; }
 
 # Evolution Go (:8081) não usa Evolution API legada (:8080) — evita falsos ❌ no pós-deploy.
-if grep -qE '^[[:space:]]*ZAPMASS_WHATSAPP_ENGINE=evolution-go[[:space:]]*$' .env 2>/dev/null; then
+_whatsapp_engine="$(grep -E '^[[:space:]]*(export[[:space:]]+)?ZAPMASS_WHATSAPP_ENGINE=' .env 2>/dev/null | tail -1 \
+  | sed -E 's/^[[:space:]]*(export[[:space:]]+)?ZAPMASS_WHATSAPP_ENGINE=//' | tr -d '\r"' \
+  | sed "s/^['\"]//;s/['\"]$//" | tr -d '[:space:]' || true)"
+_go_running="$(docker compose ps -q evolution-go 2>/dev/null | head -1 || true)"
+if [ -z "$_go_running" ]; then
+  _go_running="$(docker ps -q --filter 'name=zapmass-evolution-go' 2>/dev/null | head -1 || true)"
+fi
+if echo "$_whatsapp_engine" | grep -qiE 'evolution-go|^go$|evogo' || [ -n "$_go_running" ]; then
   section "validate-post-deploy (Evolution Go)"
-  echo "  Motor evolution-go — checks da Evolution API legada (:8080) não se aplicam."
+  echo "  Motor ${_whatsapp_engine:-evolution-go} — checks da Evolution API legada (:8080) não se aplicam."
   echo "  Executando check-evolution-go-chat-campaign.sh …"
   echo ""
-  exec bash "${BASH_SOURCE%/*}/check-evolution-go-chat-campaign.sh"
+  exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-evolution-go-chat-campaign.sh"
 fi
+unset _whatsapp_engine _go_running
 
 section "1/5 — ZapMass (API + commit local)"
 HEALTH="$(curl -sf --max-time 10 "http://127.0.0.1:${HOST_PORT}/api/health" 2>/dev/null || echo '')"
