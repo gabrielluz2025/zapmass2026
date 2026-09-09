@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.103] - 2026-09-09
+### Corrigido
+- **vps-cleanup-evolution-instances.sh**: lê JSON `{"data":[...]}` do Go; mantém chips pareados (jid) e apaga zumbis de verdade.
+
 ## [2.3.102] - 2026-09-09
 ### Adicionado
 - **Reconciler Go ↔ ZapMass** (`evolutionInstanceReconciler.ts`): varredura a cada 15 min remove órfãs no motor, duplicatas UUID e `connecting` zumbi (>30 min).

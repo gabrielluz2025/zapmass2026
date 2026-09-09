@@ -97,7 +97,24 @@ def req(method, url_path, headers=None):
 
 with open(path, encoding="utf-8") as f:
     data = json.load(f)
-items = data if isinstance(data, list) else data.get("instances") or []
+if isinstance(data, list):
+    items = data
+elif isinstance(data, dict):
+    items = data.get("data") or data.get("instances") or []
+else:
+    items = []
+
+def is_paired_or_online(item: dict) -> bool:
+    if item.get("connected") is True:
+        return True
+    status = str(item.get("connectionStatus") or item.get("state") or item.get("status") or "").lower()
+    if status == "open":
+        return True
+    jid = str(item.get("jid") or "").strip()
+    # Chip pareado (offline ou online) — não apagar
+    if jid and "@s.whatsapp.net" in jid:
+        return True
+    return False
 
 kept = deleted = failed = 0
 for item in items:
@@ -106,14 +123,8 @@ for item in items:
     name = str(item.get("name") or item.get("instanceName") or "").strip()
     if not name.startswith("conn_"):
         continue
-    status = str(item.get("connectionStatus") or item.get("state") or "").lower()
-    connected = item.get("connected") is True
-    if connected or status == "open":
-        print(f"MANTER open: {name}")
-        kept += 1
-        continue
-    if status not in ("created", "connecting", "close", ""):
-        print(f"MANTER ({status}): {name}")
+    if is_paired_or_online(item):
+        print(f"MANTER (online/pareado): {name}")
         kept += 1
         continue
 
@@ -137,7 +148,8 @@ for item in items:
 
     try:
         req("DELETE", delete_path, headers)
-        print(f"apagada ({status or 'unknown'}): {name}")
+        status = str(item.get("connectionStatus") or item.get("state") or "zumbi").lower()
+        print(f"apagada ({status}): {name}")
         deleted += 1
     except Exception as e:
         print(f"falha {name}: {e}")

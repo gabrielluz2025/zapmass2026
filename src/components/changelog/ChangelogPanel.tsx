@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.103',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Script VPS cleanup: parse correto do /instance/all (data[]) — zumbis Go passam a ser apagados' },
+    ],
+  },
+  {
     version: '2.3.102',
     date: '09/09/2026',
     highlights: [
