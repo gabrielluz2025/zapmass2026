@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.97',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Diagnóstico Go: send/text testa chip conectado (conn online), não instância órfã da lista' },
+    ],
+  },
+  {
     version: '2.3.96',
     date: '09/09/2026',
     highlights: [

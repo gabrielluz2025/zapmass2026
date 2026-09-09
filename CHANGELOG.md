@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.97] - 2026-09-09
+### Corrigido
+- **check-evolution-go-chat-campaign.sh**: teste send/text usa token/JID do chip **connected=true** (não a 1ª instância da lista).
+
 ## [2.3.96] - 2026-09-09
 ### Corrigido
 - **enable-evolution-full-history.sh (Go)**: HistorySync usa `POST /instance/reconnect` com **token do chip** (não global key nem `/instance/connect/{nome}`).
