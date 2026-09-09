@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.99',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'CI/deploy: corrige typecheck loadChatHistory (historySyncTriggered) — UI deixa de ficar presa em versão antiga' },
+    ],
+  },
+  {
     version: '2.3.98',
     date: '09/09/2026',
     highlights: [

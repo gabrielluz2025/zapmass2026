@@ -757,7 +757,7 @@ export interface ZapMassContextType {
   markAsRead: (conversationId: string) => void;
   fetchConversationPicture: (conversationId: string) => void;
   deleteLocalConversations: (conversationIds: string[]) => Promise<number>;
-  loadChatHistory: (conversationId: string, limit?: number, includeMedia?: boolean) => Promise<{ ok: boolean; total: number; error?: string; messages?: ChatMessage[] }>;
+  loadChatHistory: (conversationId: string, limit?: number, includeMedia?: boolean) => Promise<{ ok: boolean; total: number; error?: string; messages?: ChatMessage[]; historySyncTriggered?: boolean }>;
   /** Une só o arquivo Firestore na conversa (sem fetch WhatsApp); ao abrir o chat. */
   hydrateFirestoreChatArchive: (
     conversationId: string,

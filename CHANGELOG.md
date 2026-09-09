@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.99] - 2026-09-09
+### Corrigido
+- **CI/deploy**: typecheck de `loadChatHistory` inclui `historySyncTriggered` — builds voltam a passar e a VPS recebe versões novas.
+
 ## [2.3.98] - 2026-09-09
 ### Corrigido
 - **check-evolution-go-health.sh / chat-campaign**: `head -c` em JSON grande não aborta mais o script (SIGPIPE + pipefail → falso ERRO no final).

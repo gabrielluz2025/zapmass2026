@@ -2033,7 +2033,13 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         conversationId: string,
         limit = 500,
         skipMedia = true
-    ): Promise<{ ok: boolean; total: number; error?: string; messages?: ChatMessage[] }> {
+    ): Promise<{
+        ok: boolean;
+        total: number;
+        error?: string;
+        messages?: ChatMessage[];
+        historySyncTriggered?: boolean;
+    }> {
         let parsed = parseConversationId(conversationId);
         if (!parsed) return { ok: false, total: 0, error: 'conversationId inválido.' };
 

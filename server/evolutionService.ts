@@ -9869,7 +9869,13 @@ export async function loadChatHistory(
     conversationId: string,
     limit = 500,
     skipMedia = true
-): Promise<{ ok: boolean; total: number; error?: string; messages?: ChatMessage[] }> {
+): Promise<{
+    ok: boolean;
+    total: number;
+    error?: string;
+    messages?: ChatMessage[];
+    historySyncTriggered?: boolean;
+}> {
     return chatStore.loadChatHistory(conversationId, limit, skipMedia);
 }
 
