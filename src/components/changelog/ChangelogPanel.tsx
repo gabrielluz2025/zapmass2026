@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.109',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Cron semanal automático do checklist Go drift (dom 07:00 BRT, log rotativo)' },
+    ],
+  },
+  {
     version: '2.3.108',
     date: '09/09/2026',
     highlights: [

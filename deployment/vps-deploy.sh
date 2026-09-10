@@ -464,6 +464,10 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
       chmod +x deployment/install-evolution-go-watchdog.sh deployment/watchdog-evolution-go.sh 2>/dev/null || true
       bash deployment/install-evolution-go-watchdog.sh 2>/dev/null || echo "AVISO: watchdog do Evolution Go nao instalado"
     fi
+    if [ -f deployment/install-go-drift-weekly-cron.sh ]; then
+      chmod +x deployment/install-go-drift-weekly-cron.sh deployment/vps-weekly-go-drift-cron.sh 2>/dev/null || true
+      bash deployment/install-go-drift-weekly-cron.sh 2>/dev/null || echo "AVISO: cron semanal Go drift nao instalado"
+    fi
     for _go_cname in zapmass-evolution-go evolution-go; do
       if docker inspect "$_go_cname" >/dev/null 2>&1; then
         docker update --restart=always "$_go_cname" >/dev/null 2>&1 && echo "==> restart=always aplicado: $_go_cname" || true
@@ -532,6 +536,10 @@ else
     if [ -f deployment/install-evolution-go-watchdog.sh ]; then
       chmod +x deployment/install-evolution-go-watchdog.sh deployment/watchdog-evolution-go.sh 2>/dev/null || true
       bash deployment/install-evolution-go-watchdog.sh 2>/dev/null || echo "AVISO: watchdog do Evolution Go nao instalado"
+    fi
+    if [ -f deployment/install-go-drift-weekly-cron.sh ]; then
+      chmod +x deployment/install-go-drift-weekly-cron.sh deployment/vps-weekly-go-drift-cron.sh 2>/dev/null || true
+      bash deployment/install-go-drift-weekly-cron.sh 2>/dev/null || echo "AVISO: cron semanal Go drift nao instalado"
     fi
     for _go_cname in zapmass-evolution-go evolution-go; do
       if docker inspect "$_go_cname" >/dev/null 2>&1; then

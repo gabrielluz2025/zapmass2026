@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Checklist mensal: drift Evolution Go ↔ ZapMass (conn_*).
+# Checklist drift Evolution Go ↔ ZapMass (conn_*). Manual ou via cron semanal.
 # Uso: cd /opt/zapmass && bash deployment/vps-monthly-go-drift-check.sh
 #      FIX=1 bash deployment/vps-monthly-go-drift-check.sh  # limpa zumbis + reconnect (sem apagar chips pareados)
+# Cron semanal (dom 07:00 BRT): sudo bash deployment/install-go-drift-weekly-cron.sh
 set -euo pipefail
 cd "${ROOT:-/opt/zapmass}"
 
@@ -193,6 +194,10 @@ print("      • vps-cleanup + restart repetidos (reconciler ressuscita zumbis)"
 print("")
 print("    Admin (token): GET /api/admin/go-instances/drift")
 print("                   POST /api/admin/go-instances/reconcile?dryRun=1")
+print("")
+print("    Cron semanal automático (dom 07:00 BRT):")
+print("      sudo bash deployment/install-go-drift-weekly-cron.sh")
+print("      tail -80 /var/log/zapmass-go-drift-weekly.log")
 
 sys.exit(1 if issues else 0)
 PY
