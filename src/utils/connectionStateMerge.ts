@@ -1,15 +1,24 @@
 import { ConnectionStatus, type WhatsAppConnection } from '../types';
 
 /**
- * Evita regressão CONNECTED → CONNECTING quando o servidor/envio de socket
- * ainda reflete RAM desatualizada no boot (antes do hydrate/sync Evolution).
+ * Evita regressão CONNECTED → CONNECTING/DISCONNECTED transitório (Evolution/webhook).
  */
 export function mergeConnectionStatus(
   incoming: ConnectionStatus,
-  previous?: ConnectionStatus
+  previous?: ConnectionStatus,
+  meta?: { connectedSince?: number }
 ): ConnectionStatus {
   if (incoming === ConnectionStatus.CONNECTED) return incoming;
   if (previous === ConnectionStatus.CONNECTED && incoming === ConnectionStatus.CONNECTING) {
+    return previous;
+  }
+  const since = meta?.connectedSince ?? 0;
+  if (
+    previous === ConnectionStatus.CONNECTED &&
+    incoming === ConnectionStatus.DISCONNECTED &&
+    since > 0 &&
+    Date.now() - since < 120_000
+  ) {
     return previous;
   }
   if (
@@ -21,19 +30,29 @@ export function mergeConnectionStatus(
   return incoming;
 }
 
+function preservePhone(incoming?: string, previous?: string): string | undefined {
+  const inc = incoming?.trim();
+  if (inc) return inc;
+  const prev = previous?.trim();
+  return prev || undefined;
+}
+
 export function mergeWhatsAppConnectionRow(
   incoming: WhatsAppConnection,
   previous: WhatsAppConnection | undefined,
   qrFromCache: string | undefined
 ): WhatsAppConnection {
-  const status = mergeConnectionStatus(incoming.status, previous?.status);
+  const connectedSince = incoming.connectedSince ?? previous?.connectedSince;
+  const status = mergeConnectionStatus(incoming.status, previous?.status, { connectedSince });
+  const phoneNumber = preservePhone(incoming.phoneNumber, previous?.phoneNumber);
   const shouldClearQr = status === ConnectionStatus.CONNECTED;
   if (shouldClearQr) {
     return {
       ...incoming,
       status,
+      phoneNumber,
       qrCode: undefined,
-      connectedSince: incoming.connectedSince ?? previous?.connectedSince
+      connectedSince,
     };
   }
   const rawQr = qrFromCache ?? previous?.qrCode ?? incoming.qrCode;
@@ -41,7 +60,9 @@ export function mergeWhatsAppConnectionRow(
   return {
     ...incoming,
     status,
-    qrCode
+    phoneNumber,
+    connectedSince,
+    qrCode,
   };
 }
 

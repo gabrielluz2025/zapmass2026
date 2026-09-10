@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { ConnectionStatus, type WhatsAppConnection } from '../types';
-import { mergeWhatsAppConnectionLists, connectionListLooksUnchanged } from './connectionStateMerge';
+import { mergeConnectionStatus, mergeWhatsAppConnectionLists, connectionListLooksUnchanged } from './connectionStateMerge';
+
+describe('mergeConnectionStatus', () => {
+  it('mantém CONNECTED em DISCONNECTED transitório (<120s)', () => {
+    const since = Date.now() - 30_000;
+    expect(
+      mergeConnectionStatus(ConnectionStatus.DISCONNECTED, ConnectionStatus.CONNECTED, {
+        connectedSince: since,
+      })
+    ).toBe(ConnectionStatus.CONNECTED);
+  });
+});
 
 describe('mergeWhatsAppConnectionLists', () => {
   it('preserva canais anteriores ausentes no payload do servidor', () => {
@@ -66,5 +77,12 @@ describe('connectionListLooksUnchanged', () => {
     const a = [base(), { ...base(), id: 'c2', name: 'Chip 2' }];
     const b = [a[1], a[0]];
     expect(connectionListLooksUnchanged(a, b)).toBe(true);
+  });
+
+  it('preserva telefone quando payload incompleto (evita offline falso)', () => {
+    const prev: WhatsAppConnection = { ...base(), phoneNumber: '55479990000' };
+    const inc: WhatsAppConnection = { ...base(), phoneNumber: '' };
+    const merged = mergeWhatsAppConnectionLists([inc], [prev], {});
+    expect(merged[0]?.phoneNumber).toBe('55479990000');
   });
 });

@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.119',
+    date: '10/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Merge de conexão preserva telefone e ignora OFFLINE transitório (<120s)' },
+    ],
+  },
+  {
     version: '2.3.118',
     date: '10/09/2026',
     highlights: [

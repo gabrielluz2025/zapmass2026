@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.119] - 2026-09-10
+### Corrigido
+- **Conexões piscando (2ª rodada)**: preserva telefone/`connectedSince` no merge; grace 120s para OFFLINE transitório; logs de diagnóstico via `/api/debug/conn-client-log`.
+
 ## [2.3.118] - 2026-09-10
 ### Corrigido
 - **Conexões piscando**: sync HTTP vazio não apaga chips; `connection-update` OFFLINE transitório ignorado; merge estável por id/ordem.

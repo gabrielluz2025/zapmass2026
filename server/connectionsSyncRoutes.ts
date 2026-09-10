@@ -7,6 +7,7 @@ import {
   parseBearer,
   resolveAuthPrincipal
 } from './resolveAuth.js';
+import { requireTenant } from './httpTenant.js';
 
 function isLoopbackRequest(req: Request): boolean {
   const ip = String(req.socket.remoteAddress || '').trim();
@@ -66,7 +67,26 @@ export function registerConnectionsSyncRoutes(app: Express): void {
     }
   });
 
-  /** Fallback quando o socket não entrega o QR — o modal faz polling até aparecer. */
+  /** Logs de diagnóstico do cliente (piscar conexões) — aparecem em docker logs. */
+  app.post('/api/debug/conn-client-log', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const events = (req.body as { events?: unknown[] })?.events;
+    if (!Array.isArray(events)) {
+      return res.status(400).json({ ok: false, error: 'Envie { events: [...] }.' });
+    }
+    for (const ev of events.slice(-25)) {
+      console.log(
+        '[conn-client-debug]',
+        JSON.stringify({
+          tenant: ctx.tenantId.slice(0, 8),
+          ...(typeof ev === 'object' && ev ? (ev as Record<string, unknown>) : { ev }),
+        })
+      );
+    }
+    return res.json({ ok: true, received: Math.min(events.length, 25) });
+  });
+
   app.get('/api/connections/:id/qr', async (req: Request, res: Response) => {
     try {
       const token = parseBearer(req);

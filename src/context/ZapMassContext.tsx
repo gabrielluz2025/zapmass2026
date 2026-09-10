@@ -81,6 +81,33 @@ import {
 
 // #region agent log
 const DEBUG_CONN_SESSION = 'facaa2';
+const debugConnPending: Record<string, unknown>[] = [];
+let debugConnFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushDebugConnLogsToServer(): void {
+  if (debugConnPending.length === 0) return;
+  if (debugConnFlushTimer) return;
+  debugConnFlushTimer = setTimeout(() => {
+    debugConnFlushTimer = null;
+    const batch = debugConnPending.splice(0, debugConnPending.length);
+    if (batch.length === 0) return;
+    void import('../utils/sessionAuth.js').then(({ getSessionIdToken }) =>
+      getSessionIdToken()
+        .then((token) =>
+          fetch(apiUrl('/api/debug/conn-client-log'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ events: batch }),
+          })
+        )
+        .catch(() => {})
+    );
+  }, 400);
+}
+
 function debugConnLog(
   hypothesisId: string,
   location: string,
@@ -103,12 +130,22 @@ function debugConnLog(
   } catch {
     /* ignore */
   }
+  debugConnPending.push(entry);
+  if (debugConnPending.length >= 8) {
+    if (debugConnFlushTimer) {
+      clearTimeout(debugConnFlushTimer);
+      debugConnFlushTimer = null;
+    }
+    flushDebugConnLogsToServer();
+  }
   fetch('http://127.0.0.1:7423/ingest/214e345f-fd58-4e2e-94b0-1ded76a89256', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': DEBUG_CONN_SESSION },
     body: JSON.stringify(entry),
   }).catch(() => {});
+  void flushDebugConnLogsToServer();
 }
+
 function connStatusSummary(list: WhatsAppConnection[]): string {
   return list.map((c) => `${c.id.slice(-8)}:${c.status}`).join('|');
 }
@@ -2226,7 +2263,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setConnections((prev) => {
           const current = prev.find((c) => c.id === id);
           if (!current) return prev;
-          const mergedStatus = mergeConnectionStatus(nextStatus, current.status);
+          const mergedStatus = mergeConnectionStatus(nextStatus, current.status, {
+            connectedSince: current.connectedSince,
+          });
           if (mergedStatus === current.status && payload.phoneNumber == null) return prev;
           const updated = prev.map((c) =>
             c.id === id
