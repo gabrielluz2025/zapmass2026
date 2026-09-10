@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.104',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Script vps-keep-single-chip.sh: limpeza VPS em um comando (1 chip, delete Go, validação)' },
+    ],
+  },
+  {
     version: '2.3.103',
     date: '09/09/2026',
     highlights: [

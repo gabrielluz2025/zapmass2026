@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.104] - 2026-09-09
+### Adicionado
+- **vps-keep-single-chip.sh**: limpeza completa na VPS — mantém 1 chip (settings + tombstones + delete forçado no Go), sobe API e valida.
+
 ## [2.3.103] - 2026-09-09
 ### Corrigido
 - **vps-cleanup-evolution-instances.sh**: lê JSON `{"data":[...]}` do Go; mantém chips pareados (jid) e apaga zumbis de verdade.
