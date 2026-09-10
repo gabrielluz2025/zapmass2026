@@ -7360,6 +7360,18 @@ export const startAutoWarmup = async (
     connectionIds: string[],
     intervalMinutes: number
 ): Promise<AutoWarmupStartResult> => {
+    const { buildWarmupDiagnostics } = await import('./warmupDiagnosticsService.js');
+    const diag = await buildWarmupDiagnostics(uid, connectionIds, intervalMinutes);
+    if (!diag.canStart) {
+        const blockers = diag.findings
+            .filter((f) => f.severity === 'blocker')
+            .map((f) => f.title)
+            .join('; ');
+        console.log(`[AutoWarmup] Bloqueado — ${blockers || diag.summary} uid=${uid}`);
+        stopAutoWarmup(uid);
+        return { ok: false, error: blockers || diag.summary };
+    }
+
     const { getWarmupBlockReason } = await import('./chipProtectionService.js');
     const blockReason = await getWarmupBlockReason(uid, connectionIds);
     if (blockReason) {

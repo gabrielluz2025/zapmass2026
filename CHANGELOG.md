@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.112] - 2026-09-10
+### Adicionado
+- **Diagnóstico pré-aquecimento**: API `/api/warmup/diagnostics`, botão "Verificar riscos" na aba Aquecimento e validação automática ao iniciar (chip recém-QR, offline, ban, intervalo agressivo, campanhas ativas, etc.).
+
 ## [2.3.111] - 2026-09-09
 ### Melhorado
 - **Aquecimento automático**: intervalo entre rodadas com jitter (±30%), ordem aleatória dos pares, pausas irregulares (incl. pausas longas ocasionais), ~10% de conversas só com uma mensagem, respeita modo silêncio noturno (20h–8h BRT).

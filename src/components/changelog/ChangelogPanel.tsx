@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.112',
+    date: '10/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Diagnóstico pré-aquecimento: verifica riscos antes de iniciar (chip novo, offline, ban, intervalo)' },
+    ],
+  },
+  {
     version: '2.3.111',
     date: '09/09/2026',
     highlights: [

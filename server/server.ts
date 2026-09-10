@@ -116,6 +116,7 @@ import { registerConnectionsSyncRoutes } from './connectionsSyncRoutes.js';
 import { registerSupportBotRoutes } from './supportBotRoutes.js';
 import { registerNurtureRoutes } from './nurtureRoutes.js';
 import { registerChipProtectionRoutes } from './chipProtectionRoutes.js';
+import { registerWarmupDiagnosticsRoutes } from './warmupDiagnosticsRoutes.js';
 import { registerReplyIntentRoutes } from './replyIntentRoutes.js';
 import { startChipProtectionScheduler } from './chipProtectionScheduler.js';
 import { startProspectingSilentBumpJob } from './prospecting/prospectingSilentBumpJob.js';
@@ -411,6 +412,7 @@ registerConnectionsSyncRoutes(app);
 registerSupportBotRoutes(app);
 registerNurtureRoutes(app);
 registerChipProtectionRoutes(app);
+registerWarmupDiagnosticsRoutes(app);
 registerReplyIntentRoutes(app);
 registerAiAssistantRoutes(app);
 registerAssistantRoutes(app);
@@ -2389,6 +2391,30 @@ const registerSocketHandlers = () => {
       })();
     });
 
+    socket.on('request-warmup-diagnostics', ({ connectionIds, intervalMinutes }: { connectionIds?: string[]; intervalMinutes?: number }) => {
+      void (async () => {
+        try {
+          if (!(await requireActiveSubscription())) return;
+          const ids = Array.isArray(connectionIds)
+            ? connectionIds.filter((id) => ownsConnectionId(id))
+            : [];
+          const interval = Math.max(5, Math.min(120, Number(intervalMinutes) || 15));
+          const { buildWarmupDiagnostics } = await import('./warmupDiagnosticsService.js');
+          const report = await buildWarmupDiagnostics(uid, ids, interval);
+          socket.emit('warmup-diagnostics', report);
+        } catch (e) {
+          reportSocketAsyncError('request-warmup-diagnostics', e);
+          socket.emit('warmup-diagnostics', {
+            ok: false,
+            canStart: false,
+            summary: 'Erro ao analisar aquecimento.',
+            findings: [],
+            recommendations: [],
+          });
+        }
+      })();
+    });
+
     socket.on('start-auto-warmup', ({ connectionIds, intervalMinutes }: { connectionIds?: string[]; intervalMinutes?: number }) => {
       void (async () => {
         try {
@@ -2400,6 +2426,24 @@ const registerSocketHandlers = () => {
           }
           if (ids.length === 0) return;
           const interval = Math.max(5, Math.min(120, Number(intervalMinutes) || 10));
+          const { buildWarmupDiagnostics } = await import('./warmupDiagnosticsService.js');
+          const diag = await buildWarmupDiagnostics(uid, ids, interval);
+          if (!diag.canStart) {
+            const blockers = diag.findings
+              .filter((f) => f.severity === 'blocker')
+              .slice(0, 2)
+              .map((f) => f.title)
+              .join(' · ');
+            socket.emit('warmup-send-error', {
+              error: blockers || diag.summary,
+              diagnostics: diag,
+            });
+            socket.emit('warmup-diagnostics', diag);
+            return;
+          }
+          if (diag.findings.some((f) => f.severity === 'warning')) {
+            socket.emit('warmup-diagnostics', diag);
+          }
           userLog('warmup:auto-start', { connectionIds: ids, intervalMinutes: interval });
           const started = await waService.startAutoWarmup(uid, ids, interval);
           if (started.ok === false) {

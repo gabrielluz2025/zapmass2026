@@ -105,6 +105,32 @@ const formatLastActive = (ts?: number) => {
 
 const formatCountdown = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 
+type WarmupDiagSeverity = 'blocker' | 'warning' | 'info';
+type WarmupDiagnosticFinding = {
+  code: string;
+  severity: WarmupDiagSeverity;
+  title: string;
+  detail: string;
+  connectionId?: string;
+  recommendation?: string;
+};
+type WarmupDiagnosticReport = {
+  ok?: boolean;
+  canStart: boolean;
+  summary: string;
+  pairCount?: number;
+  eligibleConnectedCount?: number;
+  findings: WarmupDiagnosticFinding[];
+  recommendations: string[];
+};
+
+const diagSeverityStyle = (s: WarmupDiagSeverity) =>
+  s === 'blocker'
+    ? { bg: 'rgba(239,68,68,0.1)', border: 'rgba(239,68,68,0.35)', color: '#ef4444' }
+    : s === 'warning'
+      ? { bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.35)', color: '#f59e0b' }
+      : { bg: 'rgba(59,130,246,0.08)', border: 'rgba(59,130,246,0.25)', color: '#3b82f6' };
+
 // ─── Sparkline ───────────────────────────────────────────────────────────────
 const Sparkline: React.FC<{ values: number[]; color?: string; width?: number; height?: number }> = ({
   values, color = '#f97316', width = 120, height = 32,
@@ -171,6 +197,8 @@ export const WarmupTab: React.FC = () => {
   const [confirmClearId, setConfirmClearId] = useState<string | null>(null);
   // Sempre usa modo servidor — roda no backend independente do browser
   const [serverModeActive, setServerModeActive] = useState(false);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagReport, setDiagReport] = useState<WarmupDiagnosticReport | null>(null);
   const channelsRef = useRef<WarmupChannel[]>([]);
   const runWarmupRoundRef = useRef<() => Promise<void>>(async () => {});
 
@@ -261,8 +289,9 @@ export const WarmupTab: React.FC = () => {
 
   useEffect(() => {
     if (!socket) return;
-    const onErr = (data: { from?: string; to?: string; error?: string }) => {
+    const onErr = (data: { from?: string; to?: string; error?: string; diagnostics?: WarmupDiagnosticReport }) => {
       setServerModeActive(false);
+      if (data.diagnostics) setDiagReport(data.diagnostics);
       if (data.error && !data.from) {
         toast.error(data.error);
         return;
@@ -293,6 +322,27 @@ export const WarmupTab: React.FC = () => {
     socket.on('auto-warmup-state', onState);
     return () => { socket.off('auto-warmup-state', onState); };
   }, [socket]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const onDiag = (data: WarmupDiagnosticReport) => {
+      setDiagLoading(false);
+      setDiagReport(data);
+    };
+    socket.on('warmup-diagnostics', onDiag);
+    return () => { socket.off('warmup-diagnostics', onDiag); };
+  }, [socket]);
+
+  const runWarmupDiagnostics = () => {
+    const enabled = channelsRef.current.filter((ch) => ch.enabled);
+    const ids = enabled.map((ch) => ch.connectionId);
+    if (!socket?.connected) {
+      toast.error('Sem conexão com o servidor.');
+      return;
+    }
+    setDiagLoading(true);
+    socket.emit('request-warmup-diagnostics', { connectionIds: ids, intervalMinutes });
+  };
 
   // Sempre usa servidor — emite start-auto-warmup
   const startGlobalWarmup = () => {
@@ -537,7 +587,74 @@ export const WarmupTab: React.FC = () => {
           <span className="text-[11px] w-full sm:w-auto" style={{ color: 'var(--text-3)' }}>
             Variação automática entre mensagens e rodadas · respeita <strong>modo silêncio</strong> (Configurações → Disparo, 20h–8h).
           </span>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={diagLoading || enabledCount < 1}
+            onClick={runWarmupDiagnostics}
+            className="ml-auto shrink-0"
+          >
+            {diagLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <AlertCircle className="w-3.5 h-3.5" />}
+            {diagLoading ? 'Analisando…' : 'Verificar riscos'}
+          </Button>
         </div>
+
+        {diagReport && (
+          <Card className="p-4 space-y-3" style={{ borderColor: diagReport.canStart ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)' }}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h3 className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>Diagnóstico pré-aquecimento</h3>
+                <p className="text-[12px] mt-0.5" style={{ color: diagReport.canStart ? '#10b981' : '#ef4444' }}>
+                  {diagReport.summary}
+                  {typeof diagReport.pairCount === 'number' && diagReport.pairCount > 0
+                    ? ` · ${diagReport.pairCount} par(es)`
+                    : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDiagReport(null)}
+                className="p-1 rounded-lg hover:opacity-80"
+                style={{ color: 'var(--text-3)' }}
+                aria-label="Fechar diagnóstico"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {diagReport.findings.length > 0 ? (
+              <div className="space-y-2">
+                {diagReport.findings.map((f) => {
+                  const st = diagSeverityStyle(f.severity);
+                  return (
+                    <div
+                      key={`${f.code}-${f.connectionId || ''}`}
+                      className="rounded-lg px-3 py-2 text-[12px]"
+                      style={{ background: st.bg, border: `1px solid ${st.border}` }}
+                    >
+                      <p className="font-bold" style={{ color: st.color }}>{f.title}</p>
+                      <p className="mt-0.5" style={{ color: 'var(--text-2)' }}>{f.detail}</p>
+                      {f.recommendation && (
+                        <p className="mt-1 text-[11px]" style={{ color: 'var(--text-3)' }}>
+                          → {f.recommendation}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>Nenhum alerta — pode iniciar com intervalo 15–30 min.</p>
+            )}
+            {diagReport.recommendations.length > 0 && (
+              <ul className="text-[11.5px] list-disc pl-4 space-y-1" style={{ color: 'var(--text-3)' }}>
+                {diagReport.recommendations.map((r) => (
+                  <li key={r}>{r}</li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        )}
 
         {/* ═══ LEGENDA DE MATURIDADE ══════════════════════════════════════════ */}
         <div className="flex flex-wrap gap-2">
