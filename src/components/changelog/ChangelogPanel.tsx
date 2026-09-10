@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.107',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Checklist mensal vps-monthly-go-drift-check.sh (drift Go/settings + FIX=1)' },
+    ],
+  },
+  {
     version: '2.3.106',
     date: '09/09/2026',
     highlights: [

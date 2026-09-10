@@ -50,7 +50,8 @@ if [ "${DRY_RUN:-0}" = "1" ]; then
   exit 0
 fi
 
-log "Reconciler automático na API roda a cada 15 min (GO_INSTANCE_RECONCILE_INTERVAL_MS)."
+log "Reconciler automático na API (GO_INSTANCE_RECONCILE_INTERVAL_MS; repair=GO_INSTANCE_RECONCILE_REPAIR)."
+log "Checklist mensal: bash deployment/vps-monthly-go-drift-check.sh"
 log "Após deploy, aguarde ~3 min do boot ou reinicie API: docker compose restart zapmass"
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
