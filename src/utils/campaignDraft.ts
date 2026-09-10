@@ -1,4 +1,4 @@
-import type { Campaign, CampaignReplyFlow, CampaignReplyFlowStep } from '../types';
+import type { Campaign, CampaignDailySchedule, CampaignReplyFlow, CampaignReplyFlowStep } from '../types';
 import type {
   CampaignWizardDraft,
   CampaignWizardStageDraft,
@@ -11,6 +11,61 @@ const rid = () =>
     : `s-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 const defaultInvalidReply = 'Não entendi. Responda com uma das opções indicadas acima.';
+
+function resolveCampaignDailySchedule(c: Campaign): CampaignDailySchedule | undefined {
+  const fromDoc = c.dailySchedule;
+  if (fromDoc?.enabled && Array.isArray(fromDoc.days) && fromDoc.days.length > 0) {
+    return fromDoc;
+  }
+  const fromSnap = c.scheduleStartSnapshot?.dailySchedule;
+  if (fromSnap?.enabled && Array.isArray(fromSnap.days) && fromSnap.days.length > 0) {
+    return fromSnap;
+  }
+  return undefined;
+}
+
+/** Campos do wizard para cronograma diário (edição / clone). */
+export function extractDailyScheduleDraftFields(
+  c: Campaign
+): Pick<
+  CampaignWizardDraft,
+  | 'dailyScheduleEnabled'
+  | 'dailyScheduleDays'
+  | 'allowedWeekdays'
+  | 'timePeriodEnabled'
+  | 'morningPct'
+  | 'morningStartHour'
+  | 'morningEndHour'
+  | 'afternoonStartHour'
+  | 'afternoonEndHour'
+  | 'initialDailySchedule'
+> {
+  const ds = resolveCampaignDailySchedule(c);
+  if (!ds) {
+    return {
+      dailyScheduleEnabled: false,
+      dailyScheduleDays: [],
+      initialDailySchedule: undefined
+    };
+  }
+  const morning = ds.periods?.find((p) => p.name === 'morning');
+  const afternoon = ds.periods?.find((p) => p.name === 'afternoon');
+  return {
+    dailyScheduleEnabled: true,
+    dailyScheduleDays: ds.days.map((d) => ({
+      dayIndex: d.dayIndex,
+      limitPerChannel: d.limitPerChannel
+    })),
+    allowedWeekdays: ds.allowedWeekdays ?? [0, 1, 2, 3, 4, 5, 6],
+    timePeriodEnabled: Boolean(ds.timePeriodEnabled),
+    morningPct: morning?.pct ?? 50,
+    morningStartHour: morning?.startHour ?? 8,
+    morningEndHour: morning?.endHour ?? 12,
+    afternoonStartHour: afternoon?.startHour ?? 13,
+    afternoonEndHour: afternoon?.endHour ?? 18,
+    initialDailySchedule: ds
+  };
+}
 
 function resolveCampaignReplyFlow(c: Campaign): CampaignReplyFlow | undefined {
   const candidate = c.replyFlow ?? c.scheduleStartSnapshot?.replyFlow;
@@ -123,9 +178,11 @@ export function buildEditDraftFromCampaign(c: Campaign): CampaignWizardDraft {
     name: c.name,
     editMode: true,
     editCampaignId: c.id,
+    step: 2,
     initialChipSelectionMode: hasPool ? 'pool' : 'manual',
     initialPoolId: poolId || '',
-    ...buildCommonDraftFields(c)
+    ...buildCommonDraftFields(c),
+    ...extractDailyScheduleDraftFields(c)
   };
 }
 

@@ -461,7 +461,6 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       name: payload.name,
       message: payload.message,
       messageStages: payload.messageStages,
-      replyFlow: payload.replyFlow ?? null,
       delaySeconds: payload.delaySeconds,
       delaySecondsMax: payload.delaySecondsMax,
       humanizedPauses: payload.humanizedPauses,
@@ -469,8 +468,14 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       poolStrategy: payload.poolStrategy,
       poolId: payload.poolId ?? null,
       selectedConnectionIds: channelIds,
-      dailySchedule: payload.dailySchedule,
     };
+
+    if (payload.replyFlow !== undefined) {
+      patch.replyFlow = payload.replyFlow;
+    }
+    if (payload.dailySchedule?.enabled) {
+      patch.dailySchedule = payload.dailySchedule;
+    }
 
     try {
       await apiUpdateCampaign(editId, patch);
@@ -483,7 +488,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
         });
       }
 
-      toast.success('Campanha atualizada com sucesso.');
+      toast.success('Campanha atualizada. Envios já feitos não foram reiniciados.');
       muteWizardAutosaveBriefly();
       setViewState('list');
       setSubTab('campaigns');

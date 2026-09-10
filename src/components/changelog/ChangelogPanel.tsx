@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.113',
+    date: '10/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Edição de campanha: cronograma diário, troca de chips offline e progresso preservado ao salvar' },
+    ],
+  },
+  {
     version: '2.3.112',
     date: '10/09/2026',
     highlights: [

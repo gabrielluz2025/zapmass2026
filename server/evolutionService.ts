@@ -3884,6 +3884,11 @@ function rememberCampaignDailySchedule(campaignId: string, raw: unknown): void {
     if (parsed) campaignDailyScheduleById.set(campaignId, parsed);
 }
 
+/** Atualiza janela diária em memória após PATCH de edição (sem re-enfileirar). */
+export function syncCampaignDailyScheduleMemory(campaignId: string, raw: unknown): void {
+    rememberCampaignDailySchedule(campaignId, raw);
+}
+
 async function resolveCampaignDailySchedule(
     campaignId: string | undefined,
     ownerUid?: string

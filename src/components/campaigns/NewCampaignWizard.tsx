@@ -939,6 +939,25 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     if (initialDraft.initialPoolId) {
       setSelectedPoolId(initialDraft.initialPoolId);
     }
+    if (typeof initialDraft.dailyScheduleEnabled === 'boolean') {
+      setDailyScheduleEnabled(initialDraft.dailyScheduleEnabled);
+    }
+    if (Array.isArray(initialDraft.dailyScheduleDays)) {
+      setDailyScheduleDays(initialDraft.dailyScheduleDays.map((d) => ({ ...d })));
+    }
+    if (Array.isArray(initialDraft.allowedWeekdays) && initialDraft.allowedWeekdays.length > 0) {
+      setAllowedWeekdays([...initialDraft.allowedWeekdays]);
+    }
+    if (typeof initialDraft.timePeriodEnabled === 'boolean') {
+      setTimePeriodEnabled(initialDraft.timePeriodEnabled);
+    }
+    if (typeof initialDraft.morningPct === 'number') setMorningPct(initialDraft.morningPct);
+    if (typeof initialDraft.morningStartHour === 'number') setMorningStartHour(initialDraft.morningStartHour);
+    if (typeof initialDraft.morningEndHour === 'number') setMorningEndHour(initialDraft.morningEndHour);
+    if (typeof initialDraft.afternoonStartHour === 'number') {
+      setAfternoonStartHour(initialDraft.afternoonStartHour);
+    }
+    if (typeof initialDraft.afternoonEndHour === 'number') setAfternoonEndHour(initialDraft.afternoonEndHour);
     const stageIdx = Number(initialDraft.activeStageIdx);
     setActiveStageIdx(
       Number.isFinite(stageIdx) && stageIdx >= 0 ? Math.floor(stageIdx) : 0
@@ -992,7 +1011,20 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     filterTemps: Array.from(filterTemps),
     filterSearch,
     selectedContactPhones: Array.from(selectedContactPhones),
-    manualSelection
+    manualSelection,
+    ...(dailyScheduleEnabled && dailyScheduleDays.length > 0
+      ? {
+          dailyScheduleEnabled: true,
+          dailyScheduleDays,
+          allowedWeekdays,
+          timePeriodEnabled,
+          morningPct,
+          morningStartHour,
+          morningEndHour,
+          afternoonStartHour,
+          afternoonEndHour
+        }
+      : { dailyScheduleEnabled: false, dailyScheduleDays: [] as typeof dailyScheduleDays })
   });
 
   const autosaveRef = useRef(onAutosave);
@@ -1042,7 +1074,16 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     selectedContactPhones,
     manualSelection,
     channelWeightMode,
-    channelWeightsById
+    channelWeightsById,
+    dailyScheduleEnabled,
+    dailyScheduleDays,
+    allowedWeekdays,
+    timePeriodEnabled,
+    morningPct,
+    morningStartHour,
+    morningEndHour,
+    afternoonStartHour,
+    afternoonEndHour
   ]);
 
   useEffect(() => {
@@ -1266,9 +1307,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     scheduleTimeZone
   ]);
   const scheduleOk =
-    campaignKind === 'prospecting'
-      ? launchMode === 'now'
-      : launchMode === 'now' || scheduleSlots.length > 0;
+    isEditMode
+      ? true
+      : campaignKind === 'prospecting'
+        ? launchMode === 'now'
+        : launchMode === 'now' || scheduleSlots.length > 0;
   // Em modo edição não exige público preenchido — a audiência já existe na campanha
   const canSubmit =
     (isEditMode || canGoFromAudience) &&
@@ -1662,7 +1705,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
       setIsSubmitting(true);
     const submitToastId = 'campaign-submit';
-    toast.loading('Iniciando disparo no servidor…', { id: submitToastId, duration: 120_000 });
+    toast.loading(isEditMode ? 'Salvando alterações…' : 'Iniciando disparo no servidor…', {
+      id: submitToastId,
+      duration: 120_000
+    });
     try {
       await runSingle();
       toast.dismiss(submitToastId);
@@ -1775,7 +1821,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               {isEditMode ? 'Editar campanha · Broadcast Studio' : 'Nova campanha · Broadcast Studio'}
             </h1>
             <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
-              {isEditMode ? 'Edite público, mensagem, canais e salve as alterações' : 'Configure passo a passo: público, mensagem, canais e revisão'}
+              {isEditMode ? 'Edite mensagem, chips e cronograma — o progresso enviado é preservado' : 'Configure passo a passo: público, mensagem, canais e revisão'}
             </p>
           </div>
         </div>
@@ -2617,7 +2663,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         : 'Escolha quais canais vão participar do disparo.'}
                     </p>
                   </div>
-                  <Badge variant="neutral">{connectedIds.length} selecionado{connectedIds.length !== 1 ? 's' : ''}</Badge>
+                  <Badge variant="neutral">
+                    {(isEditMode ? resolvedConnectionIds.length : connectedIds.length)} selecionado
+                    {(isEditMode ? resolvedConnectionIds.length : connectedIds.length) !== 1 ? 's' : ''}
+                  </Badge>
                 </div>
 
                 {/* Alternância manual / pool */}
@@ -2728,7 +2777,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <p className="text-[12.5px] py-4 text-center" style={{ color: 'var(--text-3)' }}>
                     Nenhum chip cadastrado.
                   </p>
-                ) : chipSelectionMode === 'manual' && onlineConnections.length === 0 ? (
+                ) : chipSelectionMode === 'manual' && onlineConnections.length === 0 && !isEditMode ? (
                   <div
                     className="rounded-lg px-4 py-5 text-center"
                     style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
@@ -3483,8 +3532,26 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           {/* STEP 4: Review */}
           {step === 4 && (
             <Card>
-              <h3 className="ui-title text-[15px] mb-1">Revisao final</h3>
-              <p className="ui-subtitle text-[12.5px] mb-4">Confira os dados antes de iniciar o disparo.</p>
+              <h3 className="ui-title text-[15px] mb-1">{isEditMode ? 'Revisão e salvar' : 'Revisao final'}</h3>
+              <p className="ui-subtitle text-[12.5px] mb-4">
+                {isEditMode
+                  ? 'Confira mensagem, chips e cronograma. Salvar não reenvia quem já recebeu.'
+                  : 'Confira os dados antes de iniciar o disparo.'}
+              </p>
+
+              {isEditMode && (
+                <div
+                  className="mb-4 rounded-lg px-4 py-3 text-[12px]"
+                  style={{
+                    background: 'rgba(16,185,129,0.08)',
+                    border: '1px solid rgba(16,185,129,0.25)',
+                    color: 'var(--text-2)'
+                  }}
+                >
+                  <strong>Progresso preservado:</strong> contatos já enviados ou em processamento não voltam para o
+                  início. Só ajustamos mensagem, chips, delays e cotas diárias para os envios pendentes.
+                </div>
+              )}
 
               <CampaignPreflightEstimate
                 recipientCount={reviewRecipientCount}
@@ -3494,6 +3561,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 stageCount={reviewStageCount}
               />
 
+              {!isEditMode && (
               <div
                   className="mb-5 p-4 rounded-xl space-y-3"
                   style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
@@ -3648,6 +3716,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     </div>
                   )}
                 </div>
+              )}
 
               {/* ── Saúde dos chips selecionados ── */}
               {(() => {
@@ -3676,7 +3745,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         ))}
                       </div>
                         <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
-                        Reconecte os chips antes de iniciar ou o disparo pode falhar.
+                        {isEditMode
+                          ? 'Em edição você pode manter chips offline — o disparo usa os que estiverem online.'
+                          : 'Reconecte os chips antes de iniciar ou o disparo pode falhar.'}
                         </p>
                       </div>
                     </div>

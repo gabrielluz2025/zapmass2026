@@ -86,8 +86,40 @@ export function registerCampaignsDataRoutes(app: Express): void {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
     const id = String(req.params.id || '').trim();
-    const ok = await mergeUpdateCampaign(ctx.tenantId, id, req.body as Record<string, unknown>);
+    const raw = req.body as Record<string, unknown>;
+    if (!raw || typeof raw !== 'object') {
+      return res.status(400).json({ ok: false, error: 'Corpo inválido.' });
+    }
+
+    const existing = await getCampaignDoc(ctx.tenantId, id);
+    if (!existing) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
+
+    const patch: Record<string, unknown> = { ...raw };
+    // Edição pelo wizard não deve reiniciar audiência nem contadores.
+    delete patch.numbers;
+    delete patch.processedCount;
+    delete patch.successCount;
+    delete patch.failedCount;
+    delete patch.status;
+    delete patch.recipients;
+    if ('numbers' in raw || 'recipients' in raw) {
+      delete patch.scheduleStartSnapshot;
+    }
+
+    if (patch.dailySchedule && existing.scheduleStartSnapshot && typeof existing.scheduleStartSnapshot === 'object') {
+      patch.scheduleStartSnapshot = {
+        ...(existing.scheduleStartSnapshot as Record<string, unknown>),
+        dailySchedule: patch.dailySchedule,
+      };
+    }
+
+    const ok = await mergeUpdateCampaign(ctx.tenantId, id, patch);
     if (!ok) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
+
+    if (patch.dailySchedule) {
+      evolutionService.syncCampaignDailyScheduleMemory(id, patch.dailySchedule);
+    }
+
     return res.json({ ok: true });
   });
 

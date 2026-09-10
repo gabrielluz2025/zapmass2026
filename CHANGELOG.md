@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.113] - 2026-09-10
+### Corrigido
+- **Edição de campanha**: carrega cronograma diário (cotas por dia/horário), permite trocar chips mesmo offline, abre no passo de mensagem e não reinicia contatos já enviados ao salvar.
+
 ## [2.3.112] - 2026-09-10
 ### Adicionado
 - **Diagnóstico pré-aquecimento**: API `/api/warmup/diagnostics`, botão "Verificar riscos" na aba Aquecimento e validação automática ao iniciar (chip recém-QR, offline, ban, intervalo agressivo, campanhas ativas, etc.).

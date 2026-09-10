@@ -1,4 +1,4 @@
-import type { CampaignProspectingResponderStep, CampaignReplyFlow } from '../types';
+import type { CampaignDailySchedule, CampaignProspectingResponderStep, CampaignReplyFlow } from '../types';
 import type { ContactTemperature } from '../utils/contactTemperature';
 
 /** Etapa do assistente (mensagem + gatilhos do fluxo por resposta). */
@@ -62,6 +62,18 @@ export interface CampaignWizardDraft {
   initialPoolId?: string;
   /** Modo de seleção de chips da campanha original. */
   initialChipSelectionMode?: 'manual' | 'pool';
+  /** Cronograma por dia/horário (edição e autosave). */
+  dailyScheduleEnabled?: boolean;
+  dailyScheduleDays?: Array<{ dayIndex: number; limitPerChannel: number }>;
+  allowedWeekdays?: number[];
+  timePeriodEnabled?: boolean;
+  morningPct?: number;
+  morningStartHour?: number;
+  morningEndHour?: number;
+  afternoonStartHour?: number;
+  afternoonEndHour?: number;
+  /** Snapshot bruto do cronograma (fallback). */
+  initialDailySchedule?: CampaignDailySchedule;
   /** standard = campanha comum; prospecting = prospecção da base inteira. */
   campaignKind?: 'standard' | 'prospecting';
   prospectingSilentWeeks?: number;
