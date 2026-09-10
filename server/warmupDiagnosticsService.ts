@@ -127,7 +127,7 @@ export async function buildWarmupDiagnostics(
 
     chips.push({
       connectionId: id,
-      name: String(conn.name || conn.friendlyName || id),
+      name: String(conn.name || id),
       phone,
       status: st || 'UNKNOWN',
       selected: selected.includes(id),
