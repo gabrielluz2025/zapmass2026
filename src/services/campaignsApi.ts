@@ -26,6 +26,27 @@ export async function apiUpdateCampaign(id: string, patch: Record<string, unknow
   });
 }
 
+/** Salva edição de campanha ativa/pausada sem reiniciar progresso. */
+export async function saveCampaignEdit(
+  campaignId: string,
+  patch: Record<string, unknown>,
+  channelIds: string[],
+  extras?: {
+    poolId?: string | null;
+    channelWeights?: Record<string, number>;
+    poolStrategy?: 'round_robin' | 'weighted' | 'priority';
+  }
+): Promise<void> {
+  await apiUpdateCampaign(campaignId, patch);
+  if (channelIds.length > 0) {
+    await updateCampaignChannels(campaignId, channelIds, {
+      poolId: extras?.poolId ?? null,
+      channelWeights: extras?.channelWeights,
+      poolStrategy: extras?.poolStrategy
+    });
+  }
+}
+
 export async function apiDeleteCampaign(id: string): Promise<void> {
   await apiFetchJson(`/api/campaigns/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

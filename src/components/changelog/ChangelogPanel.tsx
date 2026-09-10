@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.115',
+    date: '10/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Notebook, desktop e equipe sincronizam campanhas/contatos via socket + refetch ao focar aba' },
+    ],
+  },
+  {
+    version: '2.3.114',
+    date: '10/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Painel "Ajustar campanha" com abas — edicao simples sem wizard de 4 passos' },
+    ],
+  },
+  {
     version: '2.3.113',
     date: '10/09/2026',
     highlights: [

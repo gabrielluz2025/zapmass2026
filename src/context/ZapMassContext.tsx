@@ -465,6 +465,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const reloadVpsContactsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsContactListsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsCampaignsRef = useRef<() => Promise<void>>(async () => {});
+  const lastTenantDataRefetchMsRef = useRef(0);
 
   const patchCampaignPersist = useCallback((_uid: string, campaignId: string, patch: Record<string, unknown>) => {
     void apiUpdateCampaign(campaignId, patch);
@@ -1546,6 +1547,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
     syncConnectionsFromApiRef.current = syncConnectionsFromApi;
 
+    const refetchSharedTenantData = (resource?: 'campaigns' | 'contacts' | 'contact-lists') => {
+      const now = Date.now();
+      if (now - lastTenantDataRefetchMsRef.current < 2500) return;
+      lastTenantDataRefetchMsRef.current = now;
+      if (!resource || resource === 'contacts') void reloadVpsContactsRef.current();
+      if (!resource || resource === 'contact-lists') void reloadVpsContactListsRef.current();
+      if (!resource || resource === 'campaigns') void reloadVpsCampaignsRef.current();
+    };
+
     socket.on('connect', () => {
       if (offlineBadgeDelayRef.current) {
         clearTimeout(offlineBadgeDelayRef.current);
@@ -1719,6 +1729,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
         return newMetrics;
       });
+    });
+
+    socket.on('tenant-data-changed', (payload: { resource?: string }) => {
+      const r = payload?.resource;
+      if (r === 'contacts') refetchSharedTenantData('contacts');
+      else if (r === 'contact-lists') refetchSharedTenantData('contact-lists');
+      else if (r === 'campaigns') refetchSharedTenantData('campaigns');
+      else refetchSharedTenantData();
     });
 
     socket.on('funnel-stats-update', (newFunnel: FunnelStats) => {
@@ -2843,10 +2861,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       toast('Campanha retomada!', { icon: '▶️' });
     });
 
-    /** Ao voltar ao separador/desktop: reconectar se o browser suspendeu o WS (sync fica no useWaRealtime da aba chat). */
+    /** Ao voltar ao separador/desktop: reconectar WS e puxar campanhas/contatos do servidor (outro device/equipe). */
     let lastReconnectNudgeMs = 0;
     const onVisibilityOrFocus = () => {
       if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+      refetchSharedTenantData();
       const now = Date.now();
       if (!socket.connected) {
         if (now - lastReconnectNudgeMs < 1200) return;

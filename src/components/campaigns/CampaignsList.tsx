@@ -633,13 +633,13 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                               {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                             </button>
                           )}
-                          {onEdit && (camp.status === CampaignStatus.PAUSED || camp.status === CampaignStatus.DRAFT || camp.status === CampaignStatus.SCHEDULED) && (
+                          {onEdit && camp.status !== CampaignStatus.COMPLETED && (
                             <button
                               type="button"
                               onClick={() => onEdit(camp)}
                               className="w-7 h-7 rounded-md flex items-center justify-center transition-colors hover:bg-[var(--surface-2)]"
                               style={{ color: 'var(--brand-600,#10b981)' }}
-                              title="Editar campanha"
+                              title="Ajustar campanha"
                             >
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
@@ -920,7 +920,7 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
                 <Smartphone className="w-3.5 h-3.5" />
               </button>
             )}
-            {onEdit && (isPaused || campaign.status === CampaignStatus.DRAFT || campaign.status === CampaignStatus.SCHEDULED) && (
+            {onEdit && campaign.status !== CampaignStatus.COMPLETED && (
               <button
                 type="button"
                 onClick={(e) => {
@@ -929,7 +929,7 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
                 }}
                 className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
                 style={{ background: 'rgba(16,185,129,0.12)', color: 'var(--brand-600,#10b981)' }}
-                title="Editar campanha"
+                title="Ajustar campanha"
               >
                 <Pencil className="w-3.5 h-3.5" />
               </button>
@@ -1162,13 +1162,13 @@ const CampaignCompactRow: React.FC<CampaignCompactRowProps> = memo(function Camp
               {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
             </button>
           )}
-          {onEdit && (isPaused || campaign.status === CampaignStatus.DRAFT || campaign.status === CampaignStatus.SCHEDULED) && (
+          {onEdit && campaign.status !== CampaignStatus.COMPLETED && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onEdit(); }}
               className="w-7 h-7 rounded-md flex items-center justify-center transition-colors hover:bg-[var(--surface-2)]"
               style={{ color: 'var(--brand-600,#10b981)' }}
-              title="Editar campanha"
+              title="Ajustar campanha"
             >
               <Pencil className="w-3.5 h-3.5" />
             </button>

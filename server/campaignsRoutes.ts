@@ -31,6 +31,7 @@ import {
   type CampaignReportSnapshot
 } from './campaignReportSnapshot.js';
 import * as evolutionService from './evolutionService.js';
+import { notifyTenantDataChanged } from './tenantDataNotify.js';
 
 export function registerCampaignsDataRoutes(app: Express): void {
   if (!vpsDataEnabled() || !getZapmassPool()) return;
@@ -75,6 +76,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
           recipients: snap?.recipients,
         });
       }
+      notifyTenantDataChanged(ctx.tenantId, 'campaigns');
       return res.json({ ok: true, id, campaign: campaignForClientList(campaign) });
     } catch (e) {
       console.error('[api/campaigns POST]', e);
@@ -120,6 +122,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
       evolutionService.syncCampaignDailyScheduleMemory(id, patch.dailySchedule);
     }
 
+    notifyTenantDataChanged(ctx.tenantId, 'campaigns');
     return res.json({ ok: true });
   });
 
@@ -133,6 +136,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
       if (!ok) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
       evolutionService.purgeCampaignMediaFiles(id);
       purgeCampaignRecipientSnapshot(id);
+      notifyTenantDataChanged(ctx.tenantId, 'campaigns');
       return res.json({ ok: true });
     } catch (e) {
       if (e instanceof CampaignDeleteBlockedError) {
@@ -162,6 +166,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
         evolutionService.purgeCampaignMediaFiles(id);
         purgeCampaignRecipientSnapshot(id);
       }
+      if (deleted.length > 0) notifyTenantDataChanged(ctx.tenantId, 'campaigns');
       return res.json({ ok: true, deleted, missing, blocked });
     } catch (e) {
       console.error('[api/campaigns bulk-delete]', e);
@@ -423,6 +428,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
       if (!result.ok) {
         return res.status(400).json({ ok: false, error: result.error || 'Não foi possível alterar os chips.' });
       }
+      notifyTenantDataChanged(ctx.tenantId, 'campaigns');
       return res.json({
         ok: true,
         remappedJobs: result.remappedJobs ?? 0,

@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   MessageSquare,
   Pause,
+  Pencil,
   Play,
   Printer,
   RefreshCw,
@@ -122,6 +123,7 @@ interface CampaignDetailsProps {
   systemLogs: SystemLog[];
   onBack: () => void;
   onTogglePause: (id: string) => void;
+  onEdit?: (campaign: Campaign) => void;
 }
 
 type ReportStatus = 'PENDING' | 'FAILED' | 'SENT' | 'DELIVERED' | 'READ' | 'REPLIED' | 'SKIPPED';
@@ -367,7 +369,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   connections,
   systemLogs,
   onBack,
-  onTogglePause
+  onTogglePause,
+  onEdit
 }) => {
   const conversations = useZapMassConversations();
   const { contacts, contactLists, campaignGeo, startCampaign, loadChatHistory } = useZapMassCore();
@@ -1564,6 +1567,17 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
             </Button>
 
             <div className="flex items-center gap-2 flex-wrap justify-end">
+              {onEdit && !isDone && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  leftIcon={<Pencil className="w-3.5 h-3.5" />}
+                  onClick={() => onEdit(campaign)}
+                  title="Ajustar mensagem, chips e cronograma sem reiniciar envios"
+                >
+                  Ajustar
+                </Button>
+              )}
               {showPauseResume && (
                 <Button
                   variant={pauseAction ? 'secondary' : 'primary'}

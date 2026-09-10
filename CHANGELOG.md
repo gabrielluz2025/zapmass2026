@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.115] - 2026-09-10
+### Corrigido
+- **Sync multi-dispositivo/equipe**: evento socket `tenant-data-changed` após CRUD de campanhas/contatos/listas + refetch automático ao voltar à aba.
+
+## [2.3.114] - 2026-09-10
+### Melhorado
+- **Ajustar campanha**: painel dedicado com abas (Mensagem, Chips, Ritmo e dias) substitui o wizard confuso; disponível também em campanhas em execução e na tela de detalhes.
+
 ## [2.3.113] - 2026-09-10
 ### Corrigido
 - **Edição de campanha**: carrega cronograma diário (cotas por dia/horário), permite trocar chips mesmo offline, abre no passo de mensagem e não reinicia contatos já enviados ao salvar.

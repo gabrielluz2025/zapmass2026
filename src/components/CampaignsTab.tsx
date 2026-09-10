@@ -13,7 +13,7 @@ import { useZapMassCore } from '../context/ZapMassContext';
 import { useAuth } from '../context/AuthContext';
 import { isWhatsAppRiskAcknowledged, saveWhatsAppRiskAck } from '../utils/whatsappRiskStorage';
 import { appendAudit } from '../utils/campaignMissionStorage';
-import { buildDraftFromCampaign, buildEditDraftFromCampaign } from '../utils/campaignDraft';
+import { buildDraftFromCampaign } from '../utils/campaignDraft';
 import {
   clearCampaignWizardDraft,
   loadCampaignWizardSession,
@@ -37,7 +37,8 @@ import { CampaignInsightsBanner } from './campaigns/CampaignInsightsBanner';
 import { WhatsAppRiskAcceptModal } from './legal/WhatsAppRiskAcceptModal';
 import { CampaignPreviewModal } from './campaigns/CampaignPreviewModal';
 import { CampaignChangeChannelsDialog } from './campaigns/CampaignChangeChannelsDialog';
-import { apiUpdateCampaign, updateCampaignChannels } from '../services/campaignsApi';
+import { CampaignEditDialog } from './campaigns/CampaignEditDialog';
+import { saveCampaignEdit, updateCampaignChannels } from '../services/campaignsApi';
 import type { Campaign } from '../types';
 
 interface CampaignsTabProps {
@@ -98,6 +99,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   const [dismissedInsights, setDismissedInsights] = useState<string[]>(loadDismissed);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [changeChannelsCampaign, setChangeChannelsCampaign] = useState<Campaign | null>(null);
+  const [editCampaign, setEditCampaign] = useState<Campaign | null>(null);
   const [changingChannels, setChangingChannels] = useState(false);
   const ignoreWizardAutosaveRef = useRef(false);
 
@@ -248,6 +250,9 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   };
 
   const activeCampaign = campaigns.find((c) => c.id === selectedCampaignId);
+  const editCampaignLive = editCampaign
+    ? campaigns.find((c) => c.id === editCampaign.id) ?? editCampaign
+    : null;
 
   const openDetails = (id: string) => {
     setSelectedCampaignId(id);
@@ -447,7 +452,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     }
   };
 
-  /** Salva alterações de uma campanha existente (modo edição do wizard). */
+  /** Salva alterações de uma campanha existente (modo edição legado do wizard). */
   const handleEditCampaignSubmit = async (payload: Parameters<typeof executeSubmitCampaign>[0]) => {
     const editId = wizardDraft?.editCampaignId;
     if (!editId) return;
@@ -478,15 +483,11 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     }
 
     try {
-      await apiUpdateCampaign(editId, patch);
-
-      if (channelIds.length > 0) {
-        await updateCampaignChannels(editId, channelIds, {
-          poolId: payload.poolId ?? null,
-          channelWeights: payload.channelWeights,
-          poolStrategy: payload.poolStrategy,
-        });
-      }
+      await saveCampaignEdit(editId, patch, channelIds, {
+        poolId: payload.poolId ?? null,
+        channelWeights: payload.channelWeights,
+        poolStrategy: payload.poolStrategy,
+      });
 
       toast.success('Campanha atualizada. Envios já feitos não foram reiniciados.');
       muteWizardAutosaveBriefly();
@@ -742,9 +743,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
             setSubTab('campaigns');
           }}
           onTogglePause={toggleCampaignStatus}
+          onEdit={(c) => setEditCampaign(c)}
         />
-      ) : (
-        <CampaignStudioShell
           campaigns={campaigns}
           connections={connections}
           subTab={subTab}
@@ -876,7 +876,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 onDelete={handleDeleteCampaign}
                 onDeleteMany={handleDeleteManyCampaigns}
                 onClone={(c) => openWizardWithDraft(buildDraftFromCampaign(c))}
-                onEdit={(c) => openWizardWithDraft(buildEditDraftFromCampaign(c))}
+                onEdit={(c) => setEditCampaign(c)}
                 onChangeChannels={setChangeChannelsCampaign}
               />
             </div>
@@ -945,6 +945,13 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           ))}
         </div>
       </Modal>
+
+      <CampaignEditDialog
+        isOpen={editCampaignLive != null}
+        campaign={editCampaignLive}
+        connections={connections}
+        onClose={() => setEditCampaign(null)}
+      />
 
       <CampaignChangeChannelsDialog
         isOpen={changeChannelsCampaign != null}

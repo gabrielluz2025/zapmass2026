@@ -27,6 +27,7 @@ import {
   fetchAndPersistContactProfilePicture,
   fetchAndPersistContactProfilePicturesBatch
 } from './contactProfilePicture.js';
+import { notifyTenantDataChanged } from './tenantDataNotify.js';
 import {
   SAVE_TO_CHIP_MAX_BATCH,
   saveContactToChip,
@@ -266,6 +267,7 @@ export function registerContactsDataRoutes(app: Express): void {
       invalidateCrmContactIndexCache(ctx.tenantId);
     invalidateContactsCountCache(ctx.tenantId);
       invalidateContactsCountCache(ctx.tenantId);
+      notifyTenantDataChanged(ctx.tenantId, 'contacts');
       return res.json({ ok: true, contact: created, id: created.id });
     } catch (e) {
       console.error('[api/contacts POST]', e);
@@ -311,6 +313,7 @@ export function registerContactsDataRoutes(app: Express): void {
       }
       invalidateCrmContactIndexCache(ctx.tenantId);
       invalidateContactsCountCache(ctx.tenantId);
+      notifyTenantDataChanged(ctx.tenantId, 'contacts');
       return res.json({ ok: true, ids, count: ids.length });
     } catch (e) {
       console.error('[api/contacts/bulk]', e);
@@ -810,6 +813,7 @@ export function registerContactsDataRoutes(app: Express): void {
         phoneDigits: updated.phone
       });
     }
+    notifyTenantDataChanged(ctx.tenantId, 'contacts');
     return res.json({ ok: true, contact: updated });
   });
 
@@ -897,6 +901,7 @@ export function registerContactsDataRoutes(app: Express): void {
     await bulkUpdateContacts(ctx.tenantId, items);
     invalidateCrmContactIndexCache(ctx.tenantId);
     invalidateContactsCountCache(ctx.tenantId);
+    notifyTenantDataChanged(ctx.tenantId, 'contacts');
     return res.json({ ok: true, count: items.length });
   });
 
@@ -908,6 +913,7 @@ export function registerContactsDataRoutes(app: Express): void {
     if (!ok) return res.status(404).json({ ok: false, error: 'Contato não encontrado.' });
     invalidateCrmContactIndexCache(ctx.tenantId);
     invalidateContactsCountCache(ctx.tenantId);
+    notifyTenantDataChanged(ctx.tenantId, 'contacts');
     return res.json({ ok: true });
   });
 
@@ -924,6 +930,7 @@ export function registerContactsDataRoutes(app: Express): void {
     const body = req.body as Partial<ContactList>;
     try {
       const created = await createContactList(ctx.tenantId, body);
+      notifyTenantDataChanged(ctx.tenantId, 'contact-lists');
       return res.json({ ok: true, list: created, id: created.id });
     } catch (e) {
       console.error('[api/contact-lists POST]', e);
@@ -940,6 +947,7 @@ export function registerContactsDataRoutes(app: Express): void {
       if (!updated) {
         return res.status(404).json({ ok: false, error: 'Lista não encontrada.' });
       }
+      notifyTenantDataChanged(ctx.tenantId, 'contact-lists');
       return res.json({ ok: true, list: updated });
     } catch (e) {
       console.error('[api/contact-lists PATCH]', e);
@@ -969,6 +977,7 @@ export function registerContactsDataRoutes(app: Express): void {
       if (!result) {
         return res.status(404).json({ ok: false, error: 'Lista não encontrada.' });
       }
+      notifyTenantDataChanged(ctx.tenantId, 'contact-lists');
       return res.json({ ok: true, list: result.list, added: result.added });
     } catch (e) {
       console.error('[api/contact-lists append]', e);
@@ -981,6 +990,7 @@ export function registerContactsDataRoutes(app: Express): void {
     if (!ctx) return;
     const ok = await deleteContactList(ctx.tenantId, String(req.params.id || '').trim());
     if (!ok) return res.status(404).json({ ok: false, error: 'Lista não encontrada.' });
+    notifyTenantDataChanged(ctx.tenantId, 'contact-lists');
     return res.json({ ok: true });
   });
 
