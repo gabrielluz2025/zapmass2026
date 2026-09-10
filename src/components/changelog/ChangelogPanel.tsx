@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.117',
+    date: '10/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Importação por planilha não some mais; notebook/desktop/equipe recebem contatos e listas em tempo real' },
+    ],
+  },
+  {
     version: '2.3.116',
     date: '10/09/2026',
     highlights: [

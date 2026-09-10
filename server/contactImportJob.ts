@@ -12,6 +12,7 @@ import {
 import { invalidateCrmContactIndexCache } from './crmContactIndexCache.js';
 import { invalidateContactsCountCache } from './repositories/contactsRepository.js';
 import { runAddressNormalizationBatch } from './addressNormalizationJob.js';
+import { notifyTenantDataChanged } from './tenantDataNotify.js';
 
 export type ContactImportJobStatus =
   | 'staging'
@@ -368,6 +369,7 @@ async function finishListPhase(job: ContactImportJob): Promise<void> {
     job.message = 'Importação concluída.';
     job.finishedAt = Date.now();
     job.updatedAt = Date.now();
+    notifyTenantDataChanged(job.tenantId, 'contacts');
     void runAddressNormalizationBatch(job.tenantId, 200).catch(() => undefined);
     return;
   }
@@ -405,12 +407,15 @@ async function finishListPhase(job: ContactImportJob): Promise<void> {
       : 'Importação concluída.';
     job.finishedAt = Date.now();
     job.updatedAt = Date.now();
+    notifyTenantDataChanged(job.tenantId, 'contacts');
+    notifyTenantDataChanged(job.tenantId, 'contact-lists');
     void runAddressNormalizationBatch(job.tenantId, 200).catch(() => undefined);
   } catch (e) {
     job.status = 'error';
     job.phase = 'error';
     job.lastError = e instanceof Error ? e.message : String(e);
     job.message = 'Contatos gravados, mas falhou ao atualizar a lista.';
+    notifyTenantDataChanged(job.tenantId, 'contacts');
     job.finishedAt = Date.now();
     job.updatedAt = Date.now();
   }

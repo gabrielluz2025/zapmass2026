@@ -16,6 +16,13 @@ import {
   subscribeFileImportProgress,
   type FileImportJobState,
 } from '../utils/fileImportProgressStore';
+import {
+  getFileImportPreviewSnapshot,
+  setFileImportPreviewSnapshot,
+  type FileImportPreviewFilter,
+  type FileImportPreviewRow,
+  type ImportTargetMode,
+} from '../utils/fileImportPreviewStore';
 import { ReligiousMemberProfileModalFields } from './religious/ReligiousMemberProfileModalFields';
 import {
   buildReligiousProfileComplete,
@@ -273,8 +280,6 @@ function buildContactExportColWidths(religiousExtras: ReturnType<typeof religiou
   ];
 }
 
-type FileImportPreviewFilter = 'all' | 'problem' | 'duplicate' | 'ready';
-
 type FileImportRow = {
   id: string;
   lineNumber: number;
@@ -291,8 +296,6 @@ type FileImportRowView = FileImportRow & {
   duplicateName?: string;
   problems: string[];
 };
-
-type ImportTargetMode = 'none' | 'existing' | 'new';
 
 function listNameFromImportFile(fileName: string): string {
   const base = String(fileName || '')
@@ -1215,6 +1218,46 @@ export const ContactsTab: React.FC = () => {
   /** Congela duplicados contra a base no momento de abrir o ficheiro (evita travar com milhares de contactos + snapshots ao vivo). */
   const fileImportDupBasisRef = useRef<FileImportDupBasis | null>(null);
   const fileImportTableScrollRef = useRef<HTMLDivElement>(null);
+  const fileImportPreviewRestoredRef = useRef(false);
+
+  useEffect(() => {
+    if (fileImportPreviewRestoredRef.current) return;
+    fileImportPreviewRestoredRef.current = true;
+    const snap = getFileImportPreviewSnapshot();
+    if (!snap?.open || fileImportPipelineBusy.current || getFileImportProgress().docked) return;
+    setFileImportOpen(true);
+    setFileImportRows(snap.rows as FileImportRow[]);
+    setFileImportLabel(snap.label);
+    setFileImportFilter(snap.filter);
+    setFileImportTargetMode(snap.targetMode);
+    setFileImportTargetListId(snap.targetListId);
+    setFileImportNewListName(snap.newListName);
+  }, []);
+
+  useEffect(() => {
+    if (!fileImportOpen || fileImportDocked) {
+      if (!fileImportOpen && !fileImportDocked) setFileImportPreviewSnapshot(null);
+      return;
+    }
+    setFileImportPreviewSnapshot({
+      open: true,
+      rows: fileImportRows as FileImportPreviewRow[],
+      label: fileImportLabel,
+      filter: fileImportFilter,
+      targetMode: fileImportTargetMode,
+      targetListId: fileImportTargetListId,
+      newListName: fileImportNewListName,
+    });
+  }, [
+    fileImportOpen,
+    fileImportDocked,
+    fileImportRows,
+    fileImportLabel,
+    fileImportFilter,
+    fileImportTargetMode,
+    fileImportTargetListId,
+    fileImportNewListName,
+  ]);
 
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -3476,6 +3519,7 @@ export const ContactsTab: React.FC = () => {
       }
       void refreshContactsSavedTotal?.();
       void refreshContacts?.();
+      void refreshContactLists?.();
       if (sj.status === 'done') {
         if (sj.listId) {
           setActiveFilter(`list:${sj.listId}`);
@@ -3495,7 +3539,7 @@ export const ContactsTab: React.FC = () => {
     } finally {
       fileImportPipelineBusy.current = false;
     }
-  }, [refreshContacts, refreshContactsSavedTotal]);
+  }, [refreshContacts, refreshContactsSavedTotal, refreshContactLists]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3577,6 +3621,7 @@ export const ContactsTab: React.FC = () => {
       setFileImportTargetMode('none');
       setFileImportTargetListId('');
       setFileImportNewListName('');
+      setFileImportPreviewSnapshot(null);
     };
 
     if (fileImportPipelineBusy.current) {
@@ -6128,6 +6173,7 @@ export const ContactsTab: React.FC = () => {
                 onClick={() => {
                   if (autoFixProgress) return;
                   setFileImportOpen(false);
+                  setFileImportPreviewSnapshot(null);
                 }}
                 className="p-2 rounded-lg hover:bg-white/60 dark:hover:bg-slate-800 shrink-0"
               >

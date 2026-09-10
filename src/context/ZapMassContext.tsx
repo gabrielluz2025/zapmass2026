@@ -291,6 +291,15 @@ function appendContactsPage(prev: Contact[], batch: Contact[]): Contact[] {
   return prev.concat(batch);
 }
 
+/** 1ª página de um refetch: atualiza topo sem esconder contatos já carregados (evita “sumiu” na UI). */
+function mergeContactsRefreshFirstPage(prev: Contact[], batch: Contact[]): Contact[] {
+  if (batch.length === 0) return prev;
+  if (prev.length === 0) return batch;
+  const batchIds = new Set(batch.map((c) => c.id));
+  const rest = prev.filter((c) => !batchIds.has(c.id));
+  return batch.concat(rest);
+}
+
 function upsertContactInSortedList(prev: Contact[], contact: Contact): Contact[] {
   const phoneKey = normPhoneKey(contact.phone);
   const without = prev.filter((c) => {
@@ -466,6 +475,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const reloadVpsContactListsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsCampaignsRef = useRef<() => Promise<void>>(async () => {});
   const lastTenantDataRefetchMsRef = useRef(0);
+  const tenantDataRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadAllContactsRef = useRef<() => Promise<void>>(async () => {});
 
   const patchCampaignPersist = useCallback((_uid: string, campaignId: string, patch: Record<string, unknown>) => {
     void apiUpdateCampaign(campaignId, patch);
@@ -977,7 +988,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         contactsBootstrapRetryRef.current = 0;
         dismissApiOfflineToast();
         if (opts.reset && offset === batch.length) {
-          setContacts(batch);
+          setContacts((prev) => mergeContactsRefreshFirstPage(prev, batch));
         } else {
           setContacts((prev) => appendContactsPage(prev, batch));
         }
@@ -1187,6 +1198,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!uid || loadAllContactsInFlightRef.current || !contactsHasMore) return;
     await syncContactPage(uid, contactsVpsOffsetRef.current);
   }, [contactsHasMore]);
+
+  loadAllContactsRef.current = loadAllContacts;
 
   const loadMoreContacts = useCallback(async (): Promise<void> => {
     await loadAllContacts();
@@ -1547,13 +1560,34 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
     syncConnectionsFromApiRef.current = syncConnectionsFromApi;
 
+    const runTenantDataRefetch = (resource?: 'campaigns' | 'contacts' | 'contact-lists') => {
+      lastTenantDataRefetchMsRef.current = Date.now();
+      if (!resource || resource === 'contacts') {
+        void reloadVpsContactsRef.current().then(() => {
+          void loadAllContactsRef.current();
+        });
+      } else if (resource === 'contact-lists') {
+        void reloadVpsContactListsRef.current();
+      } else if (resource === 'campaigns') {
+        void reloadVpsCampaignsRef.current();
+      }
+      if (!resource) {
+        void reloadVpsContactListsRef.current();
+        void reloadVpsCampaignsRef.current();
+      }
+    };
+
     const refetchSharedTenantData = (resource?: 'campaigns' | 'contacts' | 'contact-lists') => {
       const now = Date.now();
-      if (now - lastTenantDataRefetchMsRef.current < 2500) return;
-      lastTenantDataRefetchMsRef.current = now;
-      if (!resource || resource === 'contacts') void reloadVpsContactsRef.current();
-      if (!resource || resource === 'contact-lists') void reloadVpsContactListsRef.current();
-      if (!resource || resource === 'campaigns') void reloadVpsCampaignsRef.current();
+      const minGapMs = 900;
+      const waitMs = Math.max(0, minGapMs - (now - lastTenantDataRefetchMsRef.current));
+      if (tenantDataRefetchTimerRef.current) {
+        clearTimeout(tenantDataRefetchTimerRef.current);
+      }
+      tenantDataRefetchTimerRef.current = setTimeout(() => {
+        tenantDataRefetchTimerRef.current = null;
+        runTenantDataRefetch(resource);
+      }, waitMs);
     };
 
     socket.on('connect', () => {
@@ -2886,6 +2920,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityOrFocus);
       window.removeEventListener('focus', onVisibilityOrFocus);
+      if (tenantDataRefetchTimerRef.current) {
+        clearTimeout(tenantDataRefetchTimerRef.current);
+        tenantDataRefetchTimerRef.current = null;
+      }
       resetCampaignRecipientErrorBurst(campaignRecipientErrorBurstRef);
       if (conversationsSocketRafRef.current != null) {
         cancelAnimationFrame(conversationsSocketRafRef.current);
