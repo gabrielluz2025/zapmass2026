@@ -61,4 +61,10 @@ describe('connectionListLooksUnchanged', () => {
     const b = [{ ...base() }];
     expect(connectionListLooksUnchanged(a, b)).toBe(true);
   });
+
+  it('ignora reordenação com mesmos dados (evita piscar na UI)', () => {
+    const a = [base(), { ...base(), id: 'c2', name: 'Chip 2' }];
+    const b = [a[1], a[0]];
+    expect(connectionListLooksUnchanged(a, b)).toBe(true);
+  });
 });

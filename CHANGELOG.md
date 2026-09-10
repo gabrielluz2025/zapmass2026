@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.118] - 2026-09-10
+### Corrigido
+- **Conexões piscando**: sync HTTP vazio não apaga chips; `connection-update` OFFLINE transitório ignorado; merge estável por id/ordem.
+
 ## [2.3.117] - 2026-09-10
 ### Corrigido
 - **Importação planilha / sync equipe**: job de import no servidor emite `tenant-data-changed`; refetch de contatos não apaga a base visível (merge da 1ª página); preview da planilha sobrevive ao trocar de aba; debounce de sync com fila trailing.

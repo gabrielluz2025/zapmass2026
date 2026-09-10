@@ -61,7 +61,7 @@ export function mergeWhatsAppConnectionLists(
       merged.push(mergeWhatsAppConnectionRow(prev, prev, qrById[prev.id]));
     }
   }
-  return merged;
+  return merged.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /** Campos que, se mudarem, devem forçar re-render da lista de conexões. */
@@ -70,9 +70,10 @@ export function connectionListLooksUnchanged(
   next: WhatsAppConnection[]
 ): boolean {
   if (prev.length !== next.length) return false;
-  return prev.every((p, i) => {
-    const r = next[i];
-    if (!r || p.id !== r.id) return false;
+  const nextById = new Map(next.map((c) => [c.id, c]));
+  return prev.every((p) => {
+    const r = nextById.get(p.id);
+    if (!r) return false;
     return (
       p.status === r.status &&
       p.qrCode === r.qrCode &&

@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.118',
+    date: '10/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Conexões deixam de piscar (sync vazio, OFFLINE transitório, reordenação)' },
+    ],
+  },
+  {
     version: '2.3.117',
     date: '10/09/2026',
     highlights: [
