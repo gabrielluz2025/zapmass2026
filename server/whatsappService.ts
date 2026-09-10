@@ -60,6 +60,7 @@ import {
     saveTenantSettings,
     type TenantSettingsClientPayload,
 } from './tenantSettings.js';
+import { isBrazilNightHour, msUntilBrazil8am } from './sleepModeService.js';
 
 import crypto from 'node:crypto';
 
@@ -7225,8 +7226,50 @@ const WARMUP_MESSAGES = [
     'Opa, e aí?',
     'Olá! Passando pra dar um oi!',
     'Boa! Como tá?',
-    'Ei! Vamos conversar?'
+    'Ei! Vamos conversar?',
+    'Beleza!',
+    'Show, valeu!',
+    'Kkk boa',
+    'Tranquilo por aqui',
+    'Ah sim, entendi',
+    'Combinado então',
+    'Tô por aqui qualquer coisa',
+    'Depois a gente se fala',
 ];
+
+const warmupRandomMs = (minMs: number, maxMs: number) =>
+    minMs + Math.floor(Math.random() * (maxMs - minMs + 1));
+
+/** Intervalo entre rodadas com jitter (~70–130% do valor base). */
+const jitteredWarmupIntervalMs = (intervalMinutes: number) => {
+    const base = Math.max(1, intervalMinutes) * 60_000;
+    return Math.round(base * (0.7 + Math.random() * 0.6));
+};
+
+/** Pausa curta ou ocasional pausa longa (como distração humana). */
+const humanWarmupPauseMs = (shortMinMs: number, shortMaxMs: number) => {
+    if (Math.random() < 0.12) return warmupRandomMs(25_000, 90_000);
+    return warmupRandomMs(shortMinMs, shortMaxMs);
+};
+
+const shuffleWarmupPairs = <T>(arr: T[]): T[] => {
+    const copy = [...arr];
+    for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+};
+
+const shouldSkipWarmupForSleepMode = (uid: string): boolean => {
+    const settings = getTenantDispatchSettings(uid);
+    return Boolean(settings.sleepMode) && isBrazilNightHour();
+};
+
+const msUntilWarmupCanRun = (uid: string): number => {
+    if (!shouldSkipWarmupForSleepMode(uid)) return 0;
+    return msUntilBrazil8am() + warmupRandomMs(0, 45 * 60_000);
+};
 
 const autoWarmupsFile = path.join(dataDir, 'auto_warmups.json');
 type AutoWarmupConfig = {
@@ -7250,6 +7293,11 @@ const saveAutoWarmupsToDisk = async () => {
 };
 
 const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
+    if (shouldSkipWarmupForSleepMode(uid)) {
+        console.log(`[AutoWarmup] [${uid}] Modo silêncio noturno — rodada adiada.`);
+        return;
+    }
+
     const allowedIds = new Set(connectionIds.filter(Boolean));
     const rawConns = _warmupGetConnectionsFn ? _warmupGetConnectionsFn() : getConnections();
     const activeConns = rawConns.filter((c) => isWarmupEligibleConnection(c, allowedIds));
@@ -7273,8 +7321,9 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
 
     if (pairs.length === 0) return;
 
-    console.log(`[AutoWarmup] [${uid}] Iniciando rodada de aquecimento para ${pairs.length} pares.`);
-    for (const [a, b] of pairs) {
+    const shuffledPairs = shuffleWarmupPairs(pairs);
+    console.log(`[AutoWarmup] [${uid}] Iniciando rodada de aquecimento para ${shuffledPairs.length} pares.`);
+    for (const [a, b] of shuffledPairs) {
         if (!activeAutoWarmups.has(uid)) {
             console.log(`[AutoWarmup] [${uid}] Aquecimento foi interrompido.`);
             break;
@@ -7286,16 +7335,17 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
             const msgAtoB = WARMUP_MESSAGES[Math.floor(Math.random() * WARMUP_MESSAGES.length)];
             await sendWarmupMessage(a.id, phoneB, msgAtoB, b.id);
 
-            await new Promise((r) => setTimeout(r, 3000 + Math.random() * 5000));
+            await new Promise((r) => setTimeout(r, humanWarmupPauseMs(5_000, 18_000)));
 
             if (!activeAutoWarmups.has(uid)) break;
 
-            {
+            // ~10% só manda uma mensagem (conversa incompleta, mais natural)
+            if (Math.random() > 0.1) {
                 const msgBtoA = WARMUP_MESSAGES[Math.floor(Math.random() * WARMUP_MESSAGES.length)];
                 await sendWarmupMessage(b.id, phoneA, msgBtoA, a.id);
             }
 
-            await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
+            await new Promise((r) => setTimeout(r, humanWarmupPauseMs(4_000, 14_000)));
         } catch (err: any) {
             console.error(`[AutoWarmup] Erro no par ${a.id} <-> ${b.id}:`, err?.message || err);
         }
@@ -7321,13 +7371,22 @@ export const startAutoWarmup = async (
     
     console.log(`[AutoWarmup] Iniciando aquecimento contínuo no backend para uid=${uid}, canalIds=${connectionIds.join(',')}, interval=${intervalMinutes}min`);
     
-    const runAndSchedule = async () => {
-        await runAutoWarmupRound(uid, connectionIds).catch(() => {});
-        
+    const scheduleNextWarmupRound = () => {
         const current = activeAutoWarmups.get(uid);
-        if (current) {
-            current.timer = setTimeout(runAndSchedule, intervalMinutes * 60 * 1000);
+        if (!current) return;
+        const sleepDelay = msUntilWarmupCanRun(uid);
+        const delayMs = sleepDelay > 0 ? sleepDelay : jitteredWarmupIntervalMs(current.intervalMinutes);
+        current.timer = setTimeout(runAndSchedule, delayMs);
+    };
+
+    const runAndSchedule = async () => {
+        if (shouldSkipWarmupForSleepMode(uid)) {
+            console.log(`[AutoWarmup] [${uid}] Silêncio noturno — aguardando horário diurno (8h BRT).`);
+            scheduleNextWarmupRound();
+            return;
         }
+        await runAutoWarmupRound(uid, connectionIds).catch(() => {});
+        scheduleNextWarmupRound();
     };
 
     activeAutoWarmups.set(uid, {

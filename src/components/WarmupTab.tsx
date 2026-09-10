@@ -165,7 +165,7 @@ export const WarmupTab: React.FC = () => {
 
   const [channels, setChannels] = useState<WarmupChannel[]>([]);
   const [warmupCountdownUi, setWarmupCountdownUi] = useState(0);
-  const [intervalMinutes, setIntervalMinutes] = useState(5);
+  const [intervalMinutes, setIntervalMinutes] = useState(15);
   const [lastRoundTime, setLastRoundTime] = useState<string>('');
   const [selectedChipId, setSelectedChipId] = useState<string | null>(null);
   const [confirmClearId, setConfirmClearId] = useState<string | null>(null);
@@ -455,7 +455,7 @@ export const WarmupTab: React.FC = () => {
               </div>
               <p className="text-[12.5px]" style={{ color: 'var(--text-3)' }}>
                 {serverModeActive
-                  ? `Rodando no servidor · ${pairsCount} par(es) · intervalo: ${intervalMinutes}min · continua sem navegador`
+                  ? `Rodando no servidor · ${pairsCount} par(es) · ~${intervalMinutes}min (±30%) · pausas humanizadas · continua sem navegador`
                   : enabledCount < 2
                     ? 'Ative pelo menos 2 chips e clique em Iniciar'
                     : `${enabledCount} chip(s) prontos · ${pairsCount} par(es) disponíveis`
@@ -501,7 +501,7 @@ export const WarmupTab: React.FC = () => {
         >
           <div className="flex items-center gap-1.5">
             <Timer className="w-4 h-4" style={{ color: 'var(--text-3)' }} />
-            <span className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>Intervalo entre rodadas:</span>
+            <span className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>Intervalo base entre rodadas:</span>
           </div>
           <div className="flex items-center gap-1.5">
             {[5, 10, 15, 30, 60].map((min) => (
@@ -535,7 +535,7 @@ export const WarmupTab: React.FC = () => {
             </span>
           )}
           <span className="text-[11px] w-full sm:w-auto" style={{ color: 'var(--text-3)' }}>
-            Aquecimento contínuo 24h enquanto estiver ativo — <strong>sem limite diário</strong>.
+            Variação automática entre mensagens e rodadas · respeita <strong>modo silêncio</strong> (Configurações → Disparo, 20h–8h).
           </span>
         </div>
 

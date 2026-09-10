@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.111] - 2026-09-09
+### Melhorado
+- **Aquecimento automático**: intervalo entre rodadas com jitter (±30%), ordem aleatória dos pares, pausas irregulares (incl. pausas longas ocasionais), ~10% de conversas só com uma mensagem, respeita modo silêncio noturno (20h–8h BRT).
+
 ## [2.3.110] - 2026-09-09
 ### Corrigido
 - **deploy-completo.sh**: instala cron semanal Go drift após sync git (sem depender de rebuild Docker).

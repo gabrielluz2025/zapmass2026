@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.111',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Aquecimento mais humano: jitter ±30%, pausas irregulares, pares em ordem aleatória, silêncio noturno' },
+    ],
+  },
+  {
     version: '2.3.110',
     date: '09/09/2026',
     highlights: [
