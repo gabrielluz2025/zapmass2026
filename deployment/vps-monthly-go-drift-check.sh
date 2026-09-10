@@ -173,7 +173,11 @@ print("")
 print("==> 4/4 O que fazer")
 print("    Rotina OK (sem apagar chips pareados):")
 print("      bash deployment/vps-cleanup-evolution-instances.sh")
-print("      bash deployment/vps-reconnect-single-chip.sh   # ou por KEEP=conn_xxx")
+if in_both:
+    for n in in_both:
+        print(f"      KEEP={n} bash deployment/vps-reconnect-single-chip.sh")
+else:
+    print("      KEEP=conn_SEU_ID bash deployment/vps-reconnect-single-chip.sh  # use um id listado acima")
 print("")
 print("    Drift forte (Go >> settings, ex. Go=20 settings=5):")
 print("      1) Pausar campanhas na UI")

@@ -149,3 +149,10 @@ echo "║  Versão live: ${VER}                                          "
 echo "║  Validação: bash deployment/validate-post-deploy.sh          ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
+# Scripts operacionais (checklist, reconnect) ficam no tip de origin/main;
+# o container pode rodar o commit buildado minutos atrás.
+if [ -f deployment/ensure-git-main.sh ]; then
+  log "Sincronizar scripts deployment/ com origin/main (não reinicia API)"
+  bash deployment/ensure-git-main.sh || true
+fi
+echo ""

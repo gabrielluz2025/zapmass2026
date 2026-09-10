@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.108',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Deploy completo mantém scripts deployment/ no tip de main (checklist não some)' },
+    ],
+  },
+  {
     version: '2.3.107',
     date: '09/09/2026',
     highlights: [

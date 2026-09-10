@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.108] - 2026-09-09
+### Corrigido
+- **deploy-completo.sh**: após deploy, sincroniza `deployment/` com `origin/main` (scripts checklist/reconnect não somem no checkout do commit buildado).
+
 ## [2.3.107] - 2026-09-09
 ### Adicionado
 - **vps-monthly-go-drift-check.sh**: checklist mensal Go ↔ settings (drift, tombstones, duplicatas UUID, ações recomendadas; `FIX=1` limpeza leve).
