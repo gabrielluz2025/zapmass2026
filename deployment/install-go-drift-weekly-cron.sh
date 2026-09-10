@@ -2,8 +2,10 @@
 # Instala cron semanal do checklist Go ↔ settings (Evolution Go drift).
 #
 # Uso (uma vez na VPS, ou automático após deploy):
-#   sudo bash /opt/zapmass/deployment/install-go-drift-weekly-cron.sh
+#   cd /opt/zapmass && git fetch origin main && git reset --hard origin/main
+#   sudo bash deployment/install-go-drift-weekly-cron.sh
 #
+# Não use `git pull` na VPS — pode falhar com "local changes". Use reset --hard.
 # Horário padrão: domingo 10:00 UTC (07:00 BRT).
 # Personalizar: ZAPMASS_GO_DRIFT_CRON='0 8 * * 1' sudo bash ...
 # Auto FIX leve se drift: ZAPMASS_GO_DRIFT_AUTO_FIX=1 sudo bash ...

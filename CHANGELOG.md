@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.110] - 2026-09-09
+### Corrigido
+- **deploy-completo.sh**: instala cron semanal Go drift após sync git (sem depender de rebuild Docker).
+
 ## [2.3.109] - 2026-09-09
 ### Adicionado
 - **Cron semanal Go drift**: `install-go-drift-weekly-cron.sh` + `vps-weekly-go-drift-cron.sh` (domingo 07:00 BRT, log em `/var/log/zapmass-go-drift-weekly.log`; instalado automaticamente no deploy).

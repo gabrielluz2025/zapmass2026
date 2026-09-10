@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.110',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Deploy completo instala cron Go drift após git sync (sem rebuild)' },
+    ],
+  },
+  {
     version: '2.3.109',
     date: '09/09/2026',
     highlights: [

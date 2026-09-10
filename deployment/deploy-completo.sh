@@ -30,6 +30,15 @@ DEPLOY_DIR="${ROOT}/deployment"
 log() { echo ""; echo "==> $*"; }
 die() { echo "ERRO: $*" >&2; exit 1; }
 
+install_operational_scripts() {
+  if [ -f deployment/install-go-drift-weekly-cron.sh ]; then
+    log "Crons operacionais — checklist Go drift semanal"
+    chmod +x deployment/install-go-drift-weekly-cron.sh deployment/vps-weekly-go-drift-cron.sh 2>/dev/null || true
+    bash deployment/install-go-drift-weekly-cron.sh 2>/dev/null \
+      || echo "AVISO: cron Go drift — rode: sudo bash deployment/install-go-drift-weekly-cron.sh"
+  fi
+}
+
 if [ ! -d "$ROOT" ]; then
   die "Pasta ${ROOT} não existe. Clone o repo em /opt/zapmass primeiro."
 fi
@@ -64,6 +73,8 @@ fi
 COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo '?')"
 ORIGIN_COMMIT="$(git rev-parse --short refs/remotes/origin/main 2>/dev/null || echo '?')"
 log "Código em main @ ${COMMIT} (origin/main = ${ORIGIN_COMMIT})"
+
+install_operational_scripts
 
 # --- Já em produção? ---
 # Só pula o deploy se TANTO o código local QUANTO a API já estão na versão mais recente de origin/main.
