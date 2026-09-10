@@ -90,6 +90,7 @@ echo ""
 echo "==> 1/7 .env"
 set_env_kv "EVOLUTION_SYNC_FULL_HISTORY" "0"
 set_env_kv "GO_INSTANCE_RECONCILE_INTERVAL_MS" "3600000"
+set_env_kv "GO_INSTANCE_RECONCILE_REPAIR" "1"
 
 if [ "$already_clean" = "1" ]; then
   echo ""

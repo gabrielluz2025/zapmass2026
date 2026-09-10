@@ -50,6 +50,11 @@ function readIntervalMs(): number {
   return Number.isFinite(n) && n >= 60_000 ? Math.floor(n) : DEFAULT_INTERVAL_MS;
 }
 
+function readRepairEnabled(): boolean {
+  const raw = String(process.env.GO_INSTANCE_RECONCILE_REPAIR ?? '1').trim().toLowerCase();
+  return raw !== '0' && raw !== 'false' && raw !== 'off' && raw !== 'no';
+}
+
 function mapGoState(raw: unknown, connected?: boolean): ParsedGoInstance['mappedStatus'] {
   if (connected === true) return 'open';
   const state = String(raw || '').toLowerCase();
@@ -130,10 +135,15 @@ export async function scanGoInstanceDrift(): Promise<GoInstanceDriftReport> {
       const uuids = [...new Set(rows.map((r) => r.goUuid))];
       duplicateUuids.push({ name, uuids, keepUuid: resolveKeepUuid(name, uuids) });
     }
-    const primary = rows[0];
-    if (!settings.has(name) && !evolutionService.isConnectionTombstoned(name)) {
-      if (primary.mappedStatus !== 'open' && !primary.connected) {
-        goOnlyOrphans.push(primary);
+    const inSettings = settings.has(name);
+    const tombstoned = evolutionService.isConnectionTombstoned(name);
+    if (!inSettings) {
+      if (tombstoned) {
+        for (const row of rows) goOnlyOrphans.push(row);
+      } else {
+        for (const row of rows) {
+          if (row.mappedStatus !== 'open' && !row.connected) goOnlyOrphans.push(row);
+        }
       }
     }
     for (const row of rows) {
@@ -202,10 +212,11 @@ export async function reconcileGoInstances(opts?: {
   const targets = new Map<string, ParsedGoInstance>();
 
   const queue = (row: ParsedGoInstance, bucket: 'orphan' | 'dup' | 'stale') => {
-    if (row.mappedStatus === 'open' || row.connected) return;
+    const tombstoned = evolutionService.isConnectionTombstoned(row.name);
+    if (!tombstoned && (row.mappedStatus === 'open' || row.connected)) return;
     if (evolutionService.isConnectionPairingInProgress(row.name)) return;
     if (!evolutionService.isConnectionEligibleForAutoPruneDelete(row.name, row.mappedStatus)) {
-      if (bucket !== 'stale') return;
+      if (bucket !== 'stale' && !tombstoned) return;
     }
     targets.set(`${row.name}:${row.goUuid}`, row);
   };
@@ -246,12 +257,26 @@ export async function reconcileGoInstances(opts?: {
   }
 
   for (const orphan of report.zapmassOnlyOrphans.slice(0, 20)) {
+    if (evolutionService.isConnectionTombstoned(orphan.connectionId)) continue;
+    if (!readRepairEnabled()) continue;
     try {
       const ok = await evolutionService.ensureEvolutionGoInstanceExistsPublic(orphan.connectionId);
       if (ok) result.repairedZapmassOnly.push(orphan.connectionId);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       result.errors.push({ target: orphan.connectionId, error: msg });
+    }
+  }
+
+  if (readRepairEnabled()) {
+    for (const dup of report.duplicateUuids) {
+      if (!settingsKeys().has(dup.name)) continue;
+      try {
+        await evolutionService.purgeDuplicateGoInstancesForConnection(dup.name, dup.keepUuid);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        result.errors.push({ target: dup.name, error: msg });
+      }
     }
   }
 

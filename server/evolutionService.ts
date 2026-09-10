@@ -828,6 +828,43 @@ export async function listGoInstancesRaw(): Promise<unknown[]> {
     return fetchGoInstanceList();
 }
 
+/**
+ * Remove instâncias Go extras com o mesmo conn_* (duplicatas UUID).
+ * Mantém keepUuid ou o UUID cacheado em settings.
+ */
+export async function purgeDuplicateGoInstancesForConnection(
+    connectionId: string,
+    keepUuid?: string
+): Promise<string[]> {
+    const id = String(connectionId || '').trim();
+    if (!id || !isEvolutionGoEngine()) return [];
+    const keep = String(keepUuid || getGoInstanceUuid(id) || '').trim();
+    const list = await fetchGoInstanceList();
+    const removed: string[] = [];
+    for (const item of list) {
+        if (!item || typeof item !== 'object') continue;
+        const row = item as Record<string, unknown>;
+        const name = String(row.name || row.instanceName || '').trim();
+        if (name !== id) continue;
+        const uuid = pickGoInstanceUuidFromRow(row);
+        if (!uuid || (keep && uuid === keep)) continue;
+        const connected = row.connected === true || isEvolutionOpenState(row.connectionStatus ?? row.state);
+        const inSettings = Boolean(connectionsSettingsCache[id]);
+        if (connected && inSettings && !isConnectionTombstoned(id)) continue;
+        try {
+            await purgeGoInstanceByUuid(id, uuid, 'dedupe-go-instance');
+            removed.push(uuid);
+        } catch (e) {
+            log('warn', `purgeDuplicateGoInstancesForConnection falhou (${id})`, {
+                uuid,
+                error: e instanceof Error ? e.message : String(e),
+            });
+        }
+    }
+    if (removed.length > 0) invalidateGoInstanceListCache();
+    return removed;
+}
+
 /** Remove instância no Evolution Go pelo UUID (órfãs sem settings ZapMass). */
 export async function purgeGoInstanceByUuid(
     connectionId: string,
@@ -3941,25 +3978,44 @@ async function ensureEvolutionGoInstanceExists(connectionId: string): Promise<bo
     if (!isEvolutionGoEngine()) return true;
     const id = String(connectionId || '').trim();
     if (!id) return false;
+    if (isConnectionTombstoned(id)) {
+        log('info', `ensureEvolutionGoInstanceExists: ${id} tombstoned — não recriar no Go`);
+        return false;
+    }
+    if (!connectionsSettingsCache[id]) {
+        log('info', `ensureEvolutionGoInstanceExists: ${id} sem settings — não recriar no Go`);
+        return false;
+    }
 
+    let list: unknown[];
     try {
-        const response = await api.get('/instance/fetchInstances');
-        const list = Array.isArray(response.data) ? response.data : [];
-        const goUuid = getGoInstanceUuid(id);
-        const found = list.some((item: Record<string, unknown>) => {
-            const name = String(item.name || item.instanceName || '').trim();
-            const itemId = String(item.id || item.instanceId || '').trim();
-            if (name === id) {
-                syncGoInstanceCredentials(id, item);
-                return true;
-            }
-            return itemId === goUuid;
-        });
-        if (found) return true;
+        list = await fetchGoInstanceList();
     } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
-        log('warn', `ensureEvolutionGoInstanceExists: fetch falhou (${id})`, { error: msg });
+        log('warn', `ensureEvolutionGoInstanceExists: list indisponível (${id}) — abortando create`, {
+            error: msg,
+        });
+        return false;
     }
+
+    const goUuid = getGoInstanceUuid(id);
+    let found = false;
+    for (const item of list) {
+        if (!item || typeof item !== 'object') continue;
+        const row = item as Record<string, unknown>;
+        const name = String(row.name || row.instanceName || '').trim();
+        const itemId = pickGoInstanceUuidFromRow(row) || String(row.id || row.instanceId || '').trim();
+        if (name === id || (goUuid && itemId === goUuid)) {
+            syncGoInstanceCredentials(id, row);
+            found = true;
+        }
+    }
+    if (found) {
+        await purgeDuplicateGoInstancesForConnection(id, goUuid).catch(() => undefined);
+        return true;
+    }
+
+    await purgeDuplicateGoInstancesForConnection(id, goUuid).catch(() => undefined);
 
     const conn = connections.get(id);
     const cached = connectionsSettingsCache[id];
@@ -5593,6 +5649,8 @@ async function fetchGoInstanceList(): Promise<unknown[]> {
             _instanceListCache = { data: list, expiresAt: Date.now() + 5_000 }; // TTL 5s
             return list;
         } catch {
+            // Lista vazia em falha transiente fazia o reconciler recriar dezenas de instâncias.
+            if (_instanceListCache?.data?.length) return _instanceListCache.data;
             return [];
         } finally {
             _instanceListInflight = null;

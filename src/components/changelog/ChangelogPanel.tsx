@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.106',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Anti-ciclo órfãs: tombstone bloqueia recreate, dedupe UUID, reconciler mais agressivo' },
+    ],
+  },
+  {
     version: '2.3.105',
     date: '09/09/2026',
     highlights: [

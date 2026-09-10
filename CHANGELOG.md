@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.106] - 2026-09-09
+### Corrigido
+- **Anti-ciclo órfãs Go**: não recria instância se tombstone/sem settings; aborta create se listagem Go falhar; dedupe UUID duplicado; reconciler apaga tombstoned mesmo online; `GO_INSTANCE_RECONCILE_REPAIR=0` desliga ressuscitar settings→Go.
+
 ## [2.3.105] - 2026-09-09
 ### Adicionado
 - **vps-reconnect-single-chip.sh**: reconecta chip pareado no Go sem parar a API (reconnect/restart/connect).
