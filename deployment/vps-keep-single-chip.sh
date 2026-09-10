@@ -2,10 +2,13 @@
 # Mantém um único chip (Go + settings + tombstones). Apaga todos os outros conn_* no Evolution Go.
 # Uso: cd /opt/zapmass && bash deployment/vps-keep-single-chip.sh
 #      KEEP=conn_XXXX bash deployment/vps-keep-single-chip.sh
+#      FORCE=1 — refaz limpeza mesmo se já estiver com 1 chip
+# Se já limpo (Go=1, settings=1): não para zapmass; só reconecta o chip.
 set -euo pipefail
 cd "${ROOT:-/opt/zapmass}"
 
 KEEP="${KEEP:-conn_1788998154797_1}"
+FORCE="${FORCE:-0}"
 
 read_api_key() {
   local key
@@ -40,16 +43,81 @@ echo " ZapMass — manter só ${KEEP}"
 echo "══════════════════════════════════════════════════════════════"
 
 echo ""
-echo "==> 1/6 .env"
+echo "==> 0/7 Pré-checagem"
+already_clean="$(KEEP="${KEEP}" FORCE="${FORCE}" API_KEY="${API_KEY}" EVO_URL="${EVO_URL}" python3 <<'PY'
+import json, os, subprocess, urllib.request
+
+key = os.environ["API_KEY"]
+evo = os.environ["EVO_URL"].rstrip("/")
+keep = os.environ["KEEP"]
+force = os.environ.get("FORCE", "0") == "1"
+
+def settings_count():
+    try:
+        out = subprocess.check_output(
+            [
+                "docker", "compose", "run", "--rm", "--no-deps", "--entrypoint", "python3", "zapmass",
+                "-c",
+                "import json; s=json.load(open('/app/data/connections_settings.json')); "
+                "print(len([k for k in s if k.startswith('conn_')]))",
+            ],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        return int(out or "0")
+    except Exception:
+        return -1
+
+try:
+    with urllib.request.urlopen(
+        urllib.request.Request(f"{evo}/instance/all", headers={"apikey": key}), timeout=20
+    ) as resp:
+        data = json.load(resp)
+    items = data if isinstance(data, list) else data.get("data") or []
+    conn_items = [x for x in items if isinstance(x, dict) and str(x.get("name") or "").startswith("conn_")]
+    only_keep = len(conn_items) == 1 and conn_items[0].get("name") == keep
+    settings_ok = settings_count() == 1
+    print("1" if only_keep and settings_ok and not force else "0")
+except Exception:
+    print("0")
+PY
+)"
+if [ "$already_clean" = "1" ]; then
+  echo "Já limpo: Go=1 settings=1 — pulando stop/delete (use FORCE=1 para refazer)"
+fi
+
+echo ""
+echo "==> 1/7 .env"
 set_env_kv "EVOLUTION_SYNC_FULL_HISTORY" "0"
 set_env_kv "GO_INSTANCE_RECONCILE_INTERVAL_MS" "3600000"
 
+if [ "$already_clean" = "1" ]; then
+  echo ""
+  echo "==> 2–5/7 Pulados (sem parar zapmass)"
+  echo ""
+  echo "==> 6/7 Reconectar chip"
+  bash deployment/vps-reconnect-single-chip.sh
+  echo ""
+  echo "--- Go ---"
+  curl -sf -H "apikey: ${API_KEY}" "${EVO_URL}/instance/all" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+l = d.get('data', d)
+print('total:', len(l), 'connected:', sum(1 for x in l if x.get('connected')))
+for x in sorted(l, key=lambda i: i.get('name','')):
+    print(x['name'], 'ON' if x.get('connected') else 'off', (x.get('jid') or '-').split(':')[0])
+"
+  echo ""
+  echo "Meta: total Go=1, connected=1. Se off → UI → Gerar QR."
+  exit 0
+fi
+
 echo ""
-echo "==> 2/6 Parando zapmass"
+echo "==> 2/7 Parando zapmass"
 docker compose stop zapmass 2>/dev/null || true
 
 echo ""
-echo "==> 3/6 Settings + tombstones"
+echo "==> 3/7 Settings + tombstones"
 docker compose run --rm --no-deps -e KEEP="${KEEP}" --entrypoint python3 zapmass -c "
 import json, os
 from pathlib import Path
@@ -97,7 +165,7 @@ print('tombstones:', len(deleted))
 "
 
 echo ""
-echo "==> 4/6 Apagar instancias Go (exceto ${KEEP})"
+echo "==> 4/7 Apagar instancias Go (exceto ${KEEP})"
 export API_KEY EVO_URL KEEP
 python3 <<'PY'
 import json, os, re, urllib.request, time
@@ -167,11 +235,11 @@ print(f"\nResumo Go: mantidas={skipped}, apagadas={deleted}, falhas={failed}")
 PY
 
 echo ""
-echo "==> 5/6 Zumbis sem jid"
+echo "==> 5/7 Zumbis sem jid"
 bash deployment/vps-cleanup-evolution-instances.sh || true
 
 echo ""
-echo "==> 6/6 Subindo zapmass + validacao"
+echo "==> 6/7 Subindo zapmass"
 docker compose up -d zapmass
 
 for i in $(seq 1 24); do
@@ -182,6 +250,10 @@ for i in $(seq 1 24); do
   fi
   sleep 5
 done
+
+echo ""
+echo "==> 7/7 Reconectar chip + validacao"
+bash deployment/vps-reconnect-single-chip.sh || true
 
 echo ""
 echo "--- Go ---"
@@ -205,4 +277,6 @@ print('settings:', len(keys), keys)
 
 echo ""
 echo "Meta: total Go=1, connected=1, settings=['${KEEP}']"
-echo "Se connected=0 -> UI -> Gerar QR no chip 554797543152"
+echo "Não rode este script em loop — cada restart derruba a sessão WA."
+echo "Só reconectar: bash deployment/vps-reconnect-single-chip.sh"
+echo "Se connected=0 após reconnect → UI → Gerar QR (554797543152)"

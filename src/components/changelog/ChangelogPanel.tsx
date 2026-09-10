@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.105',
+    date: '09/09/2026',
+    highlights: [
+      { type: 'feat', text: 'vps-reconnect-single-chip.sh + keep-single-chip idempotente (não derruba sessão em loop)' },
+    ],
+  },
+  {
     version: '2.3.104',
     date: '09/09/2026',
     highlights: [

@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.105] - 2026-09-09
+### Adicionado
+- **vps-reconnect-single-chip.sh**: reconecta chip pareado no Go sem parar a API (reconnect/restart/connect).
+- **vps-keep-single-chip.sh**: pré-checagem idempotente (não para zapmass se já limpo); reconexão automática ao final.
+
 ## [2.3.104] - 2026-09-09
 ### Adicionado
 - **vps-keep-single-chip.sh**: limpeza completa na VPS — mantém 1 chip (settings + tombstones + delete forçado no Go), sobe API e valida.
