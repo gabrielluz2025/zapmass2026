@@ -745,6 +745,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           onTogglePause={toggleCampaignStatus}
           onEdit={(c) => setEditCampaign(c)}
         />
+      ) : (
+        <CampaignStudioShell
           campaigns={campaigns}
           connections={connections}
           subTab={subTab}

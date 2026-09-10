@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.116] - 2026-09-10
+### Corrigido
+- **Build produção**: JSX quebrado em `CampaignsTab.tsx` (props órfãs após `CampaignDetails`) impedia deploy da v2.3.115.
+
 ## [2.3.115] - 2026-09-10
 ### Corrigido
 - **Sync multi-dispositivo/equipe**: evento socket `tenant-data-changed` após CRUD de campanhas/contatos/listas + refetch automático ao voltar à aba.

@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.116',
+    date: '10/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Correção de JSX em CampaignsTab que bloqueava build/deploy da v2.3.115' },
+    ],
+  },
+  {
     version: '2.3.115',
     date: '10/09/2026',
     highlights: [
