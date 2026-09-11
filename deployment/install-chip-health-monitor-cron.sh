@@ -15,9 +15,11 @@ CRON_SCHEDULE="${ZAPMASS_CHIP_HEALTH_CRON:-*/10 * * * *}"
 ENV_FILE="${ZAPMASS_MONITOR_ENV:-${ROOT}/data/chip-health-monitor.env}"
 
 if [ ! -f "${MONITOR}" ]; then
-  echo "ERRO: ${MONITOR} não encontrado. Faça git pull em ${ROOT}."
+  echo "ERRO: ${MONITOR} não encontrado. Faça: cd ${ROOT} && git pull origin main"
   exit 1
 fi
+
+mkdir -p "${ROOT}/data"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "AVISO: precisa de root. Execute: sudo bash $0"
@@ -30,9 +32,14 @@ touch /var/log/zapmass-chip-health.log /var/log/zapmass-chip-health-state.txt
 chmod 644 /var/log/zapmass-chip-health.log /var/log/zapmass-chip-health-state.txt 2>/dev/null || true
 
 if [ ! -f "${ENV_FILE}" ]; then
-  echo "AVISO: ${ENV_FILE} não existe."
-  echo "  cp ${ROOT}/deployment/chip-health-monitor.env.example ${ENV_FILE}"
-  echo "  chmod 600 ${ENV_FILE} && nano ${ENV_FILE}"
+  if [ -f "${ROOT}/deployment/chip-health-monitor.env.example" ]; then
+    cp "${ROOT}/deployment/chip-health-monitor.env.example" "${ENV_FILE}"
+    chmod 600 "${ENV_FILE}"
+    echo "Criado ${ENV_FILE} — configure ZAPMASS_INTERNAL_MONITOR_KEY e webhooks."
+  else
+    echo "AVISO: ${ENV_FILE} não existe."
+    echo "  Rode: bash ${ROOT}/deployment/setup-chip-health-monitor.sh"
+  fi
 fi
 
 CRON_LINE="${CRON_SCHEDULE} root cd ${ROOT} && ZAPMASS_ROOT=${ROOT} ZAPMASS_MONITOR_ENV=${ENV_FILE} bash ${MONITOR} >> /var/log/zapmass-chip-health.log 2>&1"

@@ -38,18 +38,32 @@ Notas:
 
 ## 3) Monitor de HealthScore (anti-ban)
 
-Após deploy **v2.3.128+**, configure alertas automáticos do pool:
+Após deploy **v2.3.130+**, configure alertas automáticos do pool.
+
+**Atalho (recomendado — um comando):**
+
+```bash
+cd /opt/zapmass && sudo bash deployment/setup-chip-health-monitor.sh
+```
+
+**Manual (passo a passo):**
 
 ```bash
 cd /opt/zapmass
+git pull origin main
+mkdir -p data
 cp deployment/chip-health-monitor.env.example data/chip-health-monitor.env
 chmod 600 data/chip-health-monitor.env
-# Edite webhooks + (opcional) ZAPMASS_INTERNAL_MONITOR_KEY — mesmo valor no .env principal:
-#   echo 'ZAPMASS_INTERNAL_MONITOR_KEY='$(openssl rand -hex 32) >> .env
+MONITOR_KEY=$(openssl rand -hex 32)
+echo "ZAPMASS_INTERNAL_MONITOR_KEY=$MONITOR_KEY" >> .env
+echo "ZAPMASS_INTERNAL_MONITOR_KEY=$MONITOR_KEY" >> data/chip-health-monitor.env
+docker compose up -d --build
+bash deployment/monitor-zapmass.sh
 sudo bash deployment/install-chip-health-monitor-cron.sh
-sudo bash deployment/monitor-zapmass.sh   # teste manual
 tail -f /var/log/zapmass-chip-health.log
 ```
+
+Saída esperada do monitor: `[OK] chips=X avg=XX.X ...`
 
 Regras padrão: **CRITICAL** se circuit OPEN ou PROXY_DOWN; **WARNING** se `critical + throttled > 3` ou média de score &lt; 55. Cooldown 60 min entre alertas iguais.
 

@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.131',
+    date: '11/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'setup-chip-health-monitor.sh — bootstrap do monitor na VPS' },
+    ],
+  },
+  {
     version: '2.3.130',
     date: '11/09/2026',
     highlights: [

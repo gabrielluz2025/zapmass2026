@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.131] - 2026-09-11
+### Adicionado
+- **Ops VPS**: `deployment/setup-chip-health-monitor.sh` — git pull, `data/`, chave interna, docker e teste do monitor em um comando.
+
 ## [2.3.130] - 2026-09-11
 ### Melhorado
 - **Monitor cron**: `/api/chip-health/summary` aceita loopback (127.0.0.1) e `X-Internal-Secret` (`ZAPMASS_INTERNAL_MONITOR_KEY`) — sem dependência de JWT que expira.

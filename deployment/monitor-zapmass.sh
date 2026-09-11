@@ -101,7 +101,7 @@ PROXY_DOWN="$(echo "${RESPONSE}" | jq -r '.statusCounts.proxyDown // 0')"
 QUARANTINE="$(echo "${RESPONSE}" | jq -r '.statusCounts.quarantine // 0')"
 TS="$(echo "${RESPONSE}" | jq -r '.timestamp // empty')"
 
-log_line "OK chips=${TOTAL} avg=${AVG_SCORE} exc=${EXCELLENT} reg=${REGULAR} deg=${DEGRADED} crit=${CRITICAL} throttled=${THROTTLED} open=${OPEN_CIRCUIT} proxyDown=${PROXY_DOWN}"
+log_line "[OK] chips=${TOTAL} avg=${AVG_SCORE} exc=${EXCELLENT} reg=${REGULAR} deg=${DEGRADED} crit=${CRITICAL} throttled=${THROTTLED} open=${OPEN_CIRCUIT} proxyDown=${PROXY_DOWN}"
 
 ALERT_NEEDED=false
 SEVERITY="WARNING"
