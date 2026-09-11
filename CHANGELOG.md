@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.130] - 2026-09-11
+### Melhorado
+- **Monitor cron**: `/api/chip-health/summary` aceita loopback (127.0.0.1) e `X-Internal-Secret` (`ZAPMASS_INTERNAL_MONITOR_KEY`) — sem dependência de JWT que expira.
+
 ## [2.3.129] - 2026-09-11
 ### Adicionado
 - **Monitor VPS**: `deployment/monitor-zapmass.sh` + cron (`install-chip-health-monitor-cron.sh`) — alertas Discord/Telegram a partir de `/api/chip-health/summary`.

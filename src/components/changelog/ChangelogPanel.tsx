@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.130',
+    date: '11/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Summary chip-health: auth loopback + chave interna (sem JWT no cron)' },
+    ],
+  },
+  {
     version: '2.3.129',
     date: '11/09/2026',
     highlights: [

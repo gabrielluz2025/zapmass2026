@@ -44,13 +44,16 @@ Após deploy **v2.3.128+**, configure alertas automáticos do pool:
 cd /opt/zapmass
 cp deployment/chip-health-monitor.env.example data/chip-health-monitor.env
 chmod 600 data/chip-health-monitor.env
-# Edite: ZAPMASS_MONITOR_BEARER_TOKEN + DISCORD_WEBHOOK_URL (e/ou Telegram)
+# Edite webhooks + (opcional) ZAPMASS_INTERNAL_MONITOR_KEY — mesmo valor no .env principal:
+#   echo 'ZAPMASS_INTERNAL_MONITOR_KEY='$(openssl rand -hex 32) >> .env
 sudo bash deployment/install-chip-health-monitor-cron.sh
 sudo bash deployment/monitor-zapmass.sh   # teste manual
 tail -f /var/log/zapmass-chip-health.log
 ```
 
 Regras padrão: **CRITICAL** se circuit OPEN ou PROXY_DOWN; **WARNING** se `critical + throttled > 3` ou média de score &lt; 55. Cooldown 60 min entre alertas iguais.
+
+**Auth do cron (sem JWT):** requisições a `127.0.0.1` passam sem Bearer. Recomendado definir `ZAPMASS_INTERNAL_MONITOR_KEY` no `.env` do backend e no `chip-health-monitor.env` (header `X-Internal-Secret`). Multi-tenant: `ZAPMASS_MONITOR_TENANT_UID` no `.env` do backend.
 
 ---
 

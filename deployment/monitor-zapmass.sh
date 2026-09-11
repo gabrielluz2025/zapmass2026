@@ -14,7 +14,8 @@
 #   ZAPMASS_ROOT=/opt/zapmass
 #   ZAPMASS_MONITOR_ENV=.../data/chip-health-monitor.env
 #   ZAPMASS_CHIP_HEALTH_API_URL=http://127.0.0.1:3001/api/chip-health/summary
-#   ZAPMASS_MONITOR_BEARER_TOKEN=...
+#   ZAPMASS_INTERNAL_MONITOR_KEY=...  (recomendado — mesmo valor no .env do backend)
+#   ZAPMASS_MONITOR_BEARER_TOKEN=...  (legado — JWT expira ~1h)
 #   DISCORD_WEBHOOK_URL=...
 #   TELEGRAM_BOT_TOKEN= + TELEGRAM_CHAT_ID=...
 #   CHIP_HEALTH_CRITICAL_PLUS_THROTTLED=3  (default 3)
@@ -41,6 +42,7 @@ fi
 
 API_URL="${ZAPMASS_CHIP_HEALTH_API_URL:-http://127.0.0.1:${HOST_PORT}/api/chip-health/summary}"
 TOKEN="${ZAPMASS_MONITOR_BEARER_TOKEN:-}"
+INTERNAL_KEY="${ZAPMASS_INTERNAL_MONITOR_KEY:-${INTERNAL_MONITOR_KEY:-}}"
 
 log_line() {
   echo "[$(date -Iseconds)] $*" | tee -a "${LOG_FILE}" 2>/dev/null || echo "[$(date -Iseconds)] $*"
@@ -56,18 +58,22 @@ require_cmd() {
 require_cmd curl
 require_cmd jq
 
-if [ -z "${TOKEN}" ]; then
-  log_line "ERRO: ZAPMASS_MONITOR_BEARER_TOKEN ausente. Configure ${ENV_FILE}"
-  exit 1
-fi
-
 if [ -z "${DISCORD_WEBHOOK_URL:-}" ] && { [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; }; then
   log_line "AVISO: nenhum canal de alerta (Discord ou Telegram). Métricas só no log."
 fi
 
+CURL_AUTH=()
+if [ -n "${INTERNAL_KEY}" ]; then
+  CURL_AUTH=(-H "X-Internal-Secret: ${INTERNAL_KEY}")
+elif [ -n "${TOKEN}" ]; then
+  CURL_AUTH=(-H "Authorization: Bearer ${TOKEN}")
+else
+  log_line "Auth: loopback local (127.0.0.1) — sem JWT/chave (OK se tenant único na VPS)."
+fi
+
 HTTP_CODE=""
 RESPONSE="$(
-  curl -sS -w '\n%{http_code}' -H "Authorization: Bearer ${TOKEN}" --max-time 20 "${API_URL}" 2>/dev/null || true
+  curl -sS -w '\n%{http_code}' "${CURL_AUTH[@]}" --max-time 20 "${API_URL}" 2>/dev/null || true
 )"
 HTTP_CODE="$(echo "${RESPONSE}" | tail -n1)"
 RESPONSE="$(echo "${RESPONSE}" | sed '$d')"

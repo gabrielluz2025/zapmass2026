@@ -10,6 +10,7 @@ import {
 import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
 import { getConnectionsForTenant } from './evolutionService.js';
 import { buildChipHealthSummary } from './chipHealthSummaryService.js';
+import { resolveChipHealthSummaryAccess } from './chipHealthMonitorAuth.js';
 
 export function registerChipProtectionRoutes(app: Express): void {
   app.get('/api/chip-protection', async (req: Request, res: Response) => {
@@ -26,10 +27,12 @@ export function registerChipProtectionRoutes(app: Express): void {
 
   /** Resumo agregado de HealthScore 0–100 para monitoramento externo / alertas. */
   app.get('/api/chip-health/summary', async (req: Request, res: Response) => {
-    const ctx = await requireTenant(req, res);
-    if (!ctx) return;
+    const access = await resolveChipHealthSummaryAccess(req);
+    if (access.mode === 'error') {
+      return res.status(access.status).json({ ok: false, error: access.error });
+    }
     try {
-      const summary = await buildChipHealthSummary(ctx.tenantId);
+      const summary = await buildChipHealthSummary(access.tenantId);
       return res.json({ ok: true, ...summary });
     } catch (e) {
       console.error('[chip-health/summary GET]', e);
