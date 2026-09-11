@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.127',
+    date: '11/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Score unificado 0–100: maturidade + circuit + respostas + proxy' },
+    ],
+  },
+  {
     version: '2.3.126',
     date: '11/09/2026',
     highlights: [

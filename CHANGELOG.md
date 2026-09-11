@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.127] - 2026-09-11
+### Melhorado
+- **Anti-ban (Item 5)**: score unificado 0–100 (`chipUnifiedHealthScore`) — maturidade + circuit breaker + bidirecionalidade + infra; alimenta pool, delay do worker e painel de proteção.
+
 ## [2.3.126] - 2026-09-11
 ### Melhorado
 - **Anti-ban (Item 4)**: monitor de proxy (`proxyHealthMonitor`) — checagem BullMQ a cada 4h (egress IP, ASN datacenter, drift sticky), status `PROXY_DOWN` bloqueia pool, trava edição de proxy por 7 dias.

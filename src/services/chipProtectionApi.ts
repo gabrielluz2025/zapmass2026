@@ -8,6 +8,8 @@ export type ChipProtectionConnectionRow = {
   name: string;
   status: string;
   circuitState: 'CLOSED' | 'HALF_OPEN' | 'THROTTLED' | 'OPEN';
+  healthScore: number;
+  healthBand: 'excellent' | 'good' | 'caution' | 'critical';
   failRatePct: number;
   deliveryRatioPct?: number;
   sentWindow: number;

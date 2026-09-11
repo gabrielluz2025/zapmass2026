@@ -1,5 +1,9 @@
-import type { CircuitHealthScore, CircuitState } from './chipCircuitBreaker.js';
-import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
+import type { CircuitState } from './chipCircuitBreaker.js';
+import {
+  applyUnifiedWeightPenalty,
+  getUnifiedHealthForChip,
+  type UnifiedChipHealth,
+} from './chipUnifiedHealthScore.js';
 import {
   loadCampaignPoolConfig,
   resolvePoolStrategy,
@@ -11,6 +15,7 @@ import { pickWeightedChannel } from './replyFlowEngine.js';
 export type HealthyChannel = {
   connectionId: string;
   circuitState: CircuitState;
+  healthScore: number;
   effectiveWeight: number;
 };
 
@@ -26,10 +31,15 @@ export function baseChannelWeight(
   return Math.max(1, Math.min(999, Math.round(raw)));
 }
 
+/** @deprecated Prefer applyUnifiedWeightPenalty com score composto. */
 export function applyCircuitWeightPenalty(weight: number, circuitState: CircuitState): number {
   if (circuitState === 'HALF_OPEN') return Math.max(1, weight * HALF_OPEN_WEIGHT_PENALTY);
   if (circuitState === 'THROTTLED') return Math.max(1, weight * THROTTLED_WEIGHT_PENALTY);
   return weight;
+}
+
+export function applyUnifiedPoolWeight(baseWeight: number, health: UnifiedChipHealth): number {
+  return applyUnifiedWeightPenalty(baseWeight, health);
 }
 
 export function buildEffectiveWeights(
@@ -96,24 +106,43 @@ export function pickInitialDispatchChannel(params: {
   );
 }
 
+export type CollectHealthyChannelsContext = {
+  connectedSinceMs?: (connectionId: string) => number | null | undefined;
+  proxyStatus?: (connectionId: string) => import('./proxyHealthMonitor.js').ProxyHealthStatus | null;
+  hasProxy?: (connectionId: string) => boolean;
+  inQuarantine?: (connectionId: string) => boolean;
+  banCount?: (connectionId: string) => number;
+  reconnectStorm?: (connectionId: string) => { count: number; threshold: number } | null;
+};
+
 export async function collectHealthyChannels(
   connectionIds: string[],
   channelWeights: Record<string, number> | undefined,
-  isChannelUsable: (connectionId: string) => boolean
+  isChannelUsable: (connectionId: string) => boolean,
+  ctx: CollectHealthyChannelsContext = {}
 ): Promise<HealthyChannel[]> {
-  const cb = getChipCircuitBreaker();
   const unique = Array.from(new Set(connectionIds.map((id) => String(id || '').trim()).filter(Boolean)));
   const out: HealthyChannel[] = [];
 
   for (const connectionId of unique) {
     if (!isChannelUsable(connectionId)) continue;
-    const score: CircuitHealthScore = await cb.getHealthScore(connectionId);
-    if (!cb.isUsable(score)) continue;
+    const storm = ctx.reconnectStorm?.(connectionId) ?? null;
+    const unified = await getUnifiedHealthForChip(connectionId, {
+      connectedSinceMs: ctx.connectedSinceMs?.(connectionId) ?? null,
+      proxyStatus: ctx.proxyStatus?.(connectionId) ?? null,
+      hasProxy: ctx.hasProxy?.(connectionId) ?? false,
+      inQuarantine: ctx.inQuarantine?.(connectionId) ?? false,
+      banCount: ctx.banCount?.(connectionId) ?? 0,
+      reconnectStormCount: storm?.count,
+      reconnectStormThreshold: storm?.threshold,
+    });
+    if (!unified.usable) continue;
     const base = baseChannelWeight(connectionId, channelWeights);
     out.push({
       connectionId,
-      circuitState: score.state,
-      effectiveWeight: applyCircuitWeightPenalty(base, score.state),
+      circuitState: unified.circuitState,
+      healthScore: unified.score,
+      effectiveWeight: applyUnifiedPoolWeight(base, unified),
     });
   }
 
@@ -134,6 +163,7 @@ export async function pickDispatchChannel(params: {
   preferCurrent?: boolean;
   isChannelUsable: (connectionId: string) => boolean;
   poolOverride?: CampaignPoolConfig | null;
+  healthContext?: CollectHealthyChannelsContext;
 }): Promise<string | null> {
   const current = String(params.currentId || '').trim();
   const pool =
@@ -152,7 +182,12 @@ export async function pickDispatchChannel(params: {
   const strategy = resolvePoolStrategy(pool?.strategy, pool?.channelWeights);
   const channelWeights = pool?.channelWeights || {};
 
-  const healthy = await collectHealthyChannels(orderedIds, channelWeights, params.isChannelUsable);
+  const healthy = await collectHealthyChannels(
+    orderedIds,
+    channelWeights,
+    params.isChannelUsable,
+    params.healthContext
+  );
   if (healthy.length === 0) return null;
 
   const healthyIds = healthy.map((h) => h.connectionId);

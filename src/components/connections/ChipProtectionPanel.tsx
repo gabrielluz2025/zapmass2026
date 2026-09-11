@@ -188,12 +188,20 @@ const SyncIntensityBar: React.FC<{ data: ChipProtectionSnapshot }> = ({ data }) 
   );
 };
 
+const bandLabel: Record<ChipProtectionConnectionRow['healthBand'], string> = {
+  excellent: 'Saudável',
+  good: 'Moderado',
+  caution: 'Desacelerado',
+  critical: 'Crítico',
+};
+
 const ChipHealthCard: React.FC<{ row: ChipProtectionConnectionRow }> = ({ row }) => {
   const online = row.status === 'CONNECTED' || row.status === 'CONNECTING';
+  const score = row.healthScore ?? 100;
   const stateColor =
-    row.inQuarantine || row.circuitState === 'OPEN'
+    row.inQuarantine || row.circuitState === 'OPEN' || score < 30
       ? '#ef4444'
-      : row.circuitState === 'HALF_OPEN' || row.circuitState === 'THROTTLED'
+      : row.circuitState === 'HALF_OPEN' || row.circuitState === 'THROTTLED' || score < 50
         ? '#f59e0b'
         : online
           ? '#10b981'
@@ -220,6 +228,9 @@ const ChipHealthCard: React.FC<{ row: ChipProtectionConnectionRow }> = ({ row })
       </div>
       <div className="flex flex-wrap gap-1.5">
         <Badge variant={online ? 'success' : 'neutral'}>{online ? 'Online' : row.status}</Badge>
+        <Badge variant={score >= 70 ? 'success' : score >= 40 ? 'warning' : 'danger'}>
+          Score {score} · {bandLabel[row.healthBand] || row.healthBand}
+        </Badge>
         {row.circuitState !== 'CLOSED' && (
           <Badge variant="warning">
             CB{' '}
@@ -235,11 +246,11 @@ const ChipHealthCard: React.FC<{ row: ChipProtectionConnectionRow }> = ({ row })
           <Badge variant="neutral">{row.banCount} ban(s)</Badge>
         )}
       </div>
-      {(row.failuresWindow > 0 || row.inQuarantine) && (
+      {(row.failuresWindow > 0 || row.sentWindow > 0 || row.inQuarantine) && (
         <p className="ui-caption mt-2 text-amber-600 dark:text-amber-400">
           {row.inQuarantine && row.quarantineUntil
             ? `Quarentena até ${new Date(row.quarantineUntil).toLocaleString('pt-BR')}`
-            : `${row.failRatePct}% falhas (${row.failuresWindow}/${row.sentWindow + row.failuresWindow})`}
+            : `${row.deliveryRatioPct ?? 100}% ACK · ${row.failRatePct}% falhas (${row.failuresWindow}/${row.sentWindow + row.failuresWindow})`}
         </p>
       )}
     </div>

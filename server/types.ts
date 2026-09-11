@@ -51,6 +51,7 @@ export interface WhatsAppConnection {
   /** Chip em quarentena (bloqueado de campanhas) até este timestamp. */
   quarantineUntil?: number;
   circuitState?: 'CLOSED' | 'HALF_OPEN' | 'THROTTLED' | 'OPEN';
+  unifiedHealthBand?: 'excellent' | 'good' | 'caution' | 'critical';
   reconnectLongTail?: boolean;
   reconnectStormProgress?: { count: number; threshold: number; windowMs: number };
   proxyHealth?: {

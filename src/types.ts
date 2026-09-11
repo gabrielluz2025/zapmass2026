@@ -46,6 +46,8 @@ export interface WhatsAppConnection {
   quarantineUntil?: number;
   /** Estado do circuit breaker (Evolution). */
   circuitState?: 'CLOSED' | 'HALF_OPEN' | 'THROTTLED' | 'OPEN';
+  /** Faixa do score composto unificado. */
+  unifiedHealthBand?: 'excellent' | 'good' | 'caution' | 'critical';
   /** Reconexão lenta ativa após esgotar tentativas rápidas. */
   reconnectLongTail?: boolean;
   /** Quedas recentes antes do lock reconnect_storm. */

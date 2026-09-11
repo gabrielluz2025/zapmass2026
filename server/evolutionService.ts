@@ -84,13 +84,18 @@ import {
     type CampaignDispatchGuardResult
 } from './campaignChipGuard.js';
 import { spreadCampaignJobsOnResume } from './campaignGradualResume.js';
-import { pickDispatchChannel, pickInitialDispatchChannel } from './campaignPoolDispatch.js';
+import { pickDispatchChannel, pickInitialDispatchChannel, type CollectHealthyChannelsContext } from './campaignPoolDispatch.js';
 import {
     resolvePoolStrategy,
     saveCampaignPoolConfig,
     type PoolStrategy,
 } from './campaignPoolRedis.js';
 import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
+import {
+  getCachedUnifiedHealth,
+  getUnifiedHealthForChip,
+  recordChipInboundMessage,
+} from './chipUnifiedHealthScore.js';
 import { getReconnectStormProgress } from './chipProtectionService.js';
 import {
     CAMPAIGN_RESUME_GRACE_MS,
@@ -6632,8 +6637,40 @@ function isCampaignChannelUsable(connectionId: string): boolean {
 
 async function isCampaignChannelHealthy(connectionId: string): Promise<boolean> {
     if (!isCampaignChannelUsable(connectionId)) return false;
-    const score = await getChipCircuitBreaker().getHealthScore(connectionId);
-    return getChipCircuitBreaker().isUsable(score);
+    const id = String(connectionId || '').trim();
+    const banInfo = getConnectionBanInfo(id);
+    const ownerUid = resolveOwnerUid(id);
+    const storm = ownerUid ? getReconnectStormProgress(ownerUid) : null;
+    const conn = connections.get(id);
+    const unified = await getUnifiedHealthForChip(id, {
+        connectedSinceMs: getConnectionConnectedSince(id) ?? conn?.lastOpenAt ?? null,
+        proxyStatus: getProxyHealthSnapshot(id)?.status ?? null,
+        hasProxy: Boolean(conn?.proxy?.host),
+        inQuarantine: banInfo.inQuarantine,
+        banCount: banInfo.banCount,
+        reconnectStormCount: storm?.count,
+        reconnectStormThreshold: storm?.threshold,
+    });
+    return unified.usable;
+}
+
+function buildCampaignHealthContext(): CollectHealthyChannelsContext {
+    return {
+        connectedSinceMs: (connectionId) =>
+            getConnectionConnectedSince(connectionId) ??
+            connections.get(connectionId)?.lastOpenAt ??
+            null,
+        proxyStatus: (connectionId) => getProxyHealthSnapshot(connectionId)?.status ?? null,
+        hasProxy: (connectionId) => Boolean(connections.get(connectionId)?.proxy?.host),
+        inQuarantine: (connectionId) => getConnectionBanInfo(connectionId).inQuarantine,
+        banCount: (connectionId) => getConnectionBanInfo(connectionId).banCount,
+        reconnectStorm: (connectionId) => {
+            const ownerUid = resolveOwnerUid(connectionId);
+            if (!ownerUid) return null;
+            const storm = getReconnectStormProgress(ownerUid);
+            return storm.count > 0 ? storm : null;
+        },
+    };
 }
 
 async function maybeNotifyCircuitBreakerOpen(connectionId: string, ownerUid?: string): Promise<void> {
@@ -6692,6 +6729,7 @@ async function pickHealthyFailoverChannel(
         // mesmo que ele ainda passe na checagem de RAM (estado stale).
         preferCurrent: false,
         isChannelUsable: isCampaignChannelUsable,
+        healthContext: buildCampaignHealthContext(),
     });
 }
 
@@ -7117,8 +7155,19 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             }
         }
         let extraDelay = computeTierExtraDelayMs(dispatchSettings.minDelayMs, tierProfile);
-        const cbScore = await getChipCircuitBreaker().getHealthScore(item.connectionId);
-        extraDelay = Math.floor(extraDelay * getChipCircuitBreaker().delayMultiplier(cbScore));
+        const ownerUidForTier = campaignState?.ownerUid || item.ownerUid;
+        const stormForTier = ownerUidForTier ? getReconnectStormProgress(ownerUidForTier) : null;
+        const tierBan = getConnectionBanInfo(item.connectionId);
+        const unifiedForDelay = await getUnifiedHealthForChip(item.connectionId, {
+            connectedSinceMs: getConnectionConnectedSince(item.connectionId) ?? tierConn?.lastOpenAt ?? null,
+            proxyStatus: getProxyHealthSnapshot(item.connectionId)?.status ?? null,
+            hasProxy: Boolean(tierConn?.proxy?.host),
+            inQuarantine: tierBan.inQuarantine,
+            banCount: tierBan.banCount,
+            reconnectStormCount: stormForTier?.count,
+            reconnectStormThreshold: stormForTier?.threshold,
+        });
+        extraDelay = Math.floor(extraDelay * unifiedForDelay.delayMultiplier);
         if (extraDelay > 0) {
             item._tierDelayApplied = true;
             await job.updateData(item).catch(() => {});
@@ -7570,14 +7619,25 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
 
         const tierProfile = resolveChipTier(getConnectionConnectedSince(item.connectionId));
-        const cbScore = await getChipCircuitBreaker().getHealthScore(item.connectionId);
-        if (cbScore.state === 'THROTTLED') {
+        const ownerUidForHumanize = campaignState?.ownerUid || item.ownerUid;
+        const stormForHumanize = ownerUidForHumanize ? getReconnectStormProgress(ownerUidForHumanize) : null;
+        const humanizeBan = getConnectionBanInfo(item.connectionId);
+        const humanizeConn = connections.get(item.connectionId);
+        const unifiedForHumanize = await getUnifiedHealthForChip(item.connectionId, {
+            connectedSinceMs: getConnectionConnectedSince(item.connectionId) ?? humanizeConn?.lastOpenAt ?? null,
+            proxyStatus: getProxyHealthSnapshot(item.connectionId)?.status ?? null,
+            hasProxy: Boolean(humanizeConn?.proxy?.host),
+            inQuarantine: humanizeBan.inQuarantine,
+            banCount: humanizeBan.banCount,
+            reconnectStormCount: stormForHumanize?.count,
+            reconnectStormThreshold: stormForHumanize?.threshold,
+        });
+        if (unifiedForHumanize.circuitState === 'THROTTLED') {
             void maybeNotifyCircuitBreakerThrottled(
                 item.connectionId,
-                campaignState?.ownerUid || item.ownerUid
+                ownerUidForHumanize
             );
         }
-        const cbMult = getChipCircuitBreaker().delayMultiplier(cbScore);
         const contentLen = hasMediaPayload
             ? String(mediaToSend?.caption || item.message || '').trim().length
             : textPayload.length;
@@ -7588,7 +7648,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             contentLength: contentLen,
             minDelayMs: dispatchSettings.minDelayMs,
             maxDelayMs: dispatchSettings.maxDelayMs,
-            tierMultiplier: tierProfile.delayMultiplier * cbMult,
+            tierMultiplier: unifiedForHumanize.delayMultiplier,
         };
 
         await executePresenceSimulation(humanizeCtx, sendPresenceComposing);
@@ -7645,6 +7705,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                     rotationIndex: (item.rotationIndex ?? 0) + step + 1,
                     preferCurrent: false,
                     isChannelUsable: isCampaignChannelUsable,
+                    healthContext: buildCampaignHealthContext(),
                 });
                 if (!altId || tried.has(altId)) continue;
                 tried.add(altId);
@@ -7668,9 +7729,20 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                       )
                     : await (async () => {
                           if (!humanizeSkip) {
-                              const altTier = resolveChipTier(getConnectionConnectedSince(altId));
-                              const altCbScore = await getChipCircuitBreaker().getHealthScore(altId);
-                              const altCbMult = getChipCircuitBreaker().delayMultiplier(altCbScore);
+                              const altBan = getConnectionBanInfo(altId);
+                              const altConn = connections.get(altId);
+                              const altOwner = resolveOwnerUid(altId);
+                              const altStorm = altOwner ? getReconnectStormProgress(altOwner) : null;
+                              const altUnified = await getUnifiedHealthForChip(altId, {
+                                  connectedSinceMs:
+                                      getConnectionConnectedSince(altId) ?? altConn?.lastOpenAt ?? null,
+                                  proxyStatus: getProxyHealthSnapshot(altId)?.status ?? null,
+                                  hasProxy: Boolean(altConn?.proxy?.host),
+                                  inQuarantine: altBan.inQuarantine,
+                                  banCount: altBan.banCount,
+                                  reconnectStormCount: altStorm?.count,
+                                  reconnectStormThreshold: altStorm?.threshold,
+                              });
                               const altCtx = {
                                   chipId: altId,
                                   phone: sendTo,
@@ -7678,7 +7750,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                                   contentLength: textPayload.length,
                                   minDelayMs: dispatchSettings.minDelayMs,
                                   maxDelayMs: dispatchSettings.maxDelayMs,
-                                  tierMultiplier: altTier.delayMultiplier * altCbMult,
+                                  tierMultiplier: altUnified.delayMultiplier,
                               };
                               await executePresenceSimulation(altCtx, sendPresenceComposing);
                               await applyGaussianSendDelay(altCtx);
@@ -9900,6 +9972,8 @@ export async function handleWebhook(event: any) {
 
                     if (isFromMe || !remoteJid || remoteJid.endsWith('@g.us')) continue;
 
+                    void recordChipInboundMessage(instance);
+
                     const phoneDigits = resolvePhoneDigitsFromEvolutionMessage(msg, chatStore, instance);
                     if (phoneDigits.length < 8) {
                         log('warn', 'Resposta recebida sem telefone resolvivel (LID?) — reply flow ignorado', {
@@ -9983,6 +10057,7 @@ export function getConnections(): WhatsAppConnection[] {
         const ownerUidForConn = resolveOwnerUid(id);
         const circuitState = circuitStateByConnection.get(id);
         const reconnectLongTail = Boolean(autoReconnectState.get(id)?.longTail);
+        const cachedUnified = getCachedUnifiedHealth(id);
         // Chip online sem timestamp (boot antigo / hydrate): inicia o relógio agora e persiste.
         if (status === ConnectionStatus.CONNECTED && !conn.lastOpenAt) {
             conn.lastOpenAt = Date.now();
@@ -10002,6 +10077,7 @@ export function getConnections(): WhatsAppConnection[] {
             signalStrength: 'STRONG',
             profilePicUrl: conn.profilePicUrl,
             batteryLevel: 100,
+            ...(cachedUnified ? { healthScore: cachedUnified.score, unifiedHealthBand: cachedUnified.band } : {}),
             banCount: banInfo.banCount,
             lastBannedAt: banInfo.lastBannedAt,
             lastBanReason: banInfo.lastBanReason,

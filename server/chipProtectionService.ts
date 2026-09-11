@@ -14,6 +14,12 @@ import { listDueEnrollmentsPg } from './nurture/nurtureRepository.js';
 import { getOrCreatePrimaryJourneyPg } from './nurture/nurtureRepository.js';
 import { filterByConnectionScope } from './connectionScopeServer.js';
 import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
+import {
+  getUnifiedHealthForChip,
+  setCachedUnifiedHealth,
+  type UnifiedHealthBand,
+} from './chipUnifiedHealthScore.js';
+import { getProxyHealthSnapshot } from './proxyHealthMonitor.js';
 import { isInDeployGraceWindow } from '../shared/deployGrace.js';
 
 const effectiveCache = new Map<
@@ -43,6 +49,8 @@ export type ChipProtectionConnectionRow = {
   name: string;
   status: string;
   circuitState: 'CLOSED' | 'HALF_OPEN' | 'THROTTLED' | 'OPEN';
+  healthScore: number;
+  healthBand: UnifiedHealthBand;
   failRatePct: number;
   deliveryRatioPct: number;
   sentWindow: number;
@@ -499,17 +507,32 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
     const id = String(conn.id || '').trim();
     if (!id) continue;
     const banInfo = evo.getConnectionBanInfo(id);
-    const score = await cb.getHealthScore(id);
+    const circuit = await cb.getHealthScore(id);
+    const storm = getReconnectStormProgress(uid);
+    const unified = await getUnifiedHealthForChip(id, {
+      connectedSinceMs: conn.connectedSince ?? null,
+      circuit,
+      proxyStatus: conn.proxyHealth?.status ?? getProxyHealthSnapshot(id)?.status ?? null,
+      hasProxy: Boolean(conn.proxy?.host),
+      inQuarantine: banInfo.inQuarantine,
+      banCount: banInfo.banCount,
+      reconnectStormCount: storm.count,
+      reconnectStormThreshold: storm.threshold,
+      sentWindow: circuit.sent,
+    });
+    setCachedUnifiedHealth(id, unified);
     connectionRows.push({
       id,
       name: String(conn.name || id),
       status: String(conn.status || 'unknown'),
-      circuitState: score.state,
-      failRatePct: Math.round(score.failRate * 1000) / 10,
-      deliveryRatioPct: Math.round(score.deliveryRatio * 1000) / 10,
-      sentWindow: score.sent,
-      deliveredWindow: score.delivered,
-      failuresWindow: score.failures,
+      circuitState: unified.circuitState,
+      healthScore: unified.score,
+      healthBand: unified.band,
+      failRatePct: Math.round(circuit.failRate * 1000) / 10,
+      deliveryRatioPct: Math.round(circuit.deliveryRatio * 1000) / 10,
+      sentWindow: circuit.sent,
+      deliveredWindow: circuit.delivered,
+      failuresWindow: circuit.failures,
       inQuarantine: banInfo.inQuarantine,
       quarantineUntil:
         banInfo.quarantineUntil && banInfo.quarantineUntil > Date.now()
