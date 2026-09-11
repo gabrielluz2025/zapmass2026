@@ -53,6 +53,15 @@ export interface WhatsAppConnection {
   circuitState?: 'CLOSED' | 'HALF_OPEN' | 'THROTTLED' | 'OPEN';
   reconnectLongTail?: boolean;
   reconnectStormProgress?: { count: number; threshold: number; windowMs: number };
+  proxyHealth?: {
+    status: 'OK' | 'PROXY_DOWN' | 'DATACENTER' | 'DRIFT' | 'UNKNOWN';
+    egressIp?: string;
+    isp?: string;
+    checkedAt?: string;
+    latencyMs?: number;
+    proxyEditLocked?: boolean;
+    proxyEditLockDaysLeft?: number;
+  };
 }
 
 export interface DashboardMetrics {

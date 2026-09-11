@@ -6,6 +6,9 @@ export type AntiBanAlertType =
   | 'chip-circuit-breaker-open'
   | 'chip-circuit-breaker-half-open'
   | 'chip-circuit-breaker-throttled'
+  | 'proxy-down'
+  | 'proxy-datacenter-risk'
+  | 'proxy-egress-drift'
   | 'reconnect-storm-warning'
   | 'chip-reconnect-exhausted'
   | 'tenant-ban-cooldown-started'
@@ -124,6 +127,53 @@ function buildReconnectStormWarning(payload: {
   };
 }
 
+function buildProxyDown(payload: {
+  connectionId: string;
+  connectionLabel?: string;
+  error?: string;
+}): AntiBanAlertPayload {
+  const label = payload.connectionLabel || payload.connectionId;
+  return {
+    title: 'Proxy indisponível — envios bloqueados',
+    body: `O proxy do chip ${label} falhou na checagem de egress (${payload.error || 'timeout'}). Campanhas não usarão este chip até o proxy voltar — evita vazamento pelo IP da VPS.`,
+    kind: 'error',
+    connectionId: payload.connectionId,
+  };
+}
+
+function buildProxyDatacenterRisk(payload: {
+  connectionId: string;
+  connectionLabel?: string;
+  egressIp?: string;
+  isp?: string;
+  asLabel?: string;
+}): AntiBanAlertPayload {
+  const label = payload.connectionLabel || payload.connectionId;
+  const ip = payload.egressIp ? ` IP ${payload.egressIp}` : '';
+  const isp = payload.isp ? ` (${payload.isp})` : '';
+  return {
+    title: 'Alto risco de banimento — proxy datacenter',
+    body: `O egress do chip ${label}${ip}${isp} parece ser datacenter/hosting. Prefira proxy residencial/ISP sticky para reduzir suspensão da sessão WhatsApp.`,
+    kind: 'warning',
+    connectionId: payload.connectionId,
+  };
+}
+
+function buildProxyEgressDrift(payload: {
+  connectionId: string;
+  connectionLabel?: string;
+  previousIp?: string;
+  egressIp?: string;
+}): AntiBanAlertPayload {
+  const label = payload.connectionLabel || payload.connectionId;
+  return {
+    title: 'Variação de IP de egress (sticky drift)',
+    body: `O chip ${label} mudou de IP de saída (${payload.previousIp || '?'} → ${payload.egressIp || '?'}). Proxies sticky instáveis disparam alertas de segurança da Meta — verifique o provedor.`,
+    kind: 'warning',
+    connectionId: payload.connectionId,
+  };
+}
+
 function buildChipReconnectExhausted(payload: {
   connectionId: string;
   connectionLabel?: string;
@@ -226,6 +276,45 @@ export async function emitAntiBanAlert(
         connectionId,
         connectionLabel: typeof raw.connectionLabel === 'string' ? raw.connectionLabel : undefined,
         deliveryRatioPct: typeof raw.deliveryRatioPct === 'number' ? raw.deliveryRatioPct : undefined,
+      });
+      break;
+    }
+    case 'proxy-down': {
+      const connectionId = String(raw.connectionId || '').trim();
+      if (!connectionId) return;
+      dedupeKey = connectionId;
+      if (await shouldDedupe(tid, type, dedupeKey)) return;
+      alert = buildProxyDown({
+        connectionId,
+        connectionLabel: typeof raw.connectionLabel === 'string' ? raw.connectionLabel : undefined,
+        error: typeof raw.error === 'string' ? raw.error : undefined,
+      });
+      break;
+    }
+    case 'proxy-datacenter-risk': {
+      const connectionId = String(raw.connectionId || '').trim();
+      if (!connectionId) return;
+      dedupeKey = `${connectionId}:${String(raw.egressIp || '')}`;
+      if (await shouldDedupe(tid, type, dedupeKey)) return;
+      alert = buildProxyDatacenterRisk({
+        connectionId,
+        connectionLabel: typeof raw.connectionLabel === 'string' ? raw.connectionLabel : undefined,
+        egressIp: typeof raw.egressIp === 'string' ? raw.egressIp : undefined,
+        isp: typeof raw.isp === 'string' ? raw.isp : undefined,
+        asLabel: typeof raw.asLabel === 'string' ? raw.asLabel : undefined,
+      });
+      break;
+    }
+    case 'proxy-egress-drift': {
+      const connectionId = String(raw.connectionId || '').trim();
+      if (!connectionId) return;
+      dedupeKey = `${connectionId}:${String(raw.egressIp || '')}`;
+      if (await shouldDedupe(tid, type, dedupeKey)) return;
+      alert = buildProxyEgressDrift({
+        connectionId,
+        connectionLabel: typeof raw.connectionLabel === 'string' ? raw.connectionLabel : undefined,
+        previousIp: typeof raw.previousIp === 'string' ? raw.previousIp : undefined,
+        egressIp: typeof raw.egressIp === 'string' ? raw.egressIp : undefined,
       });
       break;
     }
@@ -332,6 +421,16 @@ export async function emitAntiBanAlert(
       title: alert.title,
       body: alert.body,
     });
+  }
+
+  if (type === 'proxy-down' && alert.connectionId) {
+    publishFn?.(tid, 'proxy-down', { connectionId: alert.connectionId, title: alert.title, body: alert.body });
+  }
+  if (type === 'proxy-datacenter-risk' && alert.connectionId) {
+    publishFn?.(tid, 'proxy-datacenter-risk', { connectionId: alert.connectionId, title: alert.title, body: alert.body });
+  }
+  if (type === 'proxy-egress-drift' && alert.connectionId) {
+    publishFn?.(tid, 'proxy-egress-drift', { connectionId: alert.connectionId, title: alert.title, body: alert.body });
   }
 
   if (type === 'reconnect-storm-warning') {

@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.126] - 2026-09-11
+### Melhorado
+- **Anti-ban (Item 4)**: monitor de proxy (`proxyHealthMonitor`) — checagem BullMQ a cada 4h (egress IP, ASN datacenter, drift sticky), status `PROXY_DOWN` bloqueia pool, trava edição de proxy por 7 dias.
+
 ## [2.3.125] - 2026-09-11
 ### Melhorado
 - **Anti-ban (Item 3)**: `campaignMediaMutator` muta imagens (sharp/EXIF), áudio (ID3/padding) e vídeo (atom MP4) após N usos do mesmo SHA256; `validateCampaignMediaHash` estende o content hash lock para mídia no worker BullMQ.

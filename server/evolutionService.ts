@@ -219,6 +219,15 @@ import { tryAutoEnrollHotLead } from './nurture/nurtureHotLeads.js';
 import { loadJourneyByIdPg } from './nurture/nurtureRepository.js';
 import { dispatchEvolutionWebhook, initEvolutionWebhookQueue } from './evolutionWebhookQueue.js';
 import {
+  assertProxyEditAllowed,
+  getProxyEditLock,
+  getProxyHealthSnapshot,
+  hydrateProxyHealthFromRedis,
+  isProxyDispatchBlocked,
+  runProxyHealthCheck,
+} from './proxyHealthMonitor.js';
+import { initProxyHealthQueue, syncProxyHealthRepeatableJob } from './proxyHealthQueue.js';
+import {
     extractEvolutionMessageUpdates,
     parseEvolutionMessageStatus
 } from './evolutionMessageStatus.js';
@@ -5515,6 +5524,19 @@ async function createConnectionInternal(
 
         if (proxy?.host && proxy.port) {
             await applyProxyToInstance(id, proxy);
+            const owner = instance.ownerUid || resolveOwnerUid(id);
+            void syncProxyHealthRepeatableJob({
+                connectionId: id,
+                ownerUid: owner,
+                proxy,
+                connectedSinceMs: getConnectionConnectedSince(id) ?? null,
+            }).catch(() => undefined);
+            void runProxyHealthCheck({
+                connectionId: id,
+                proxy,
+                ownerUid: owner,
+                connectedSinceMs: getConnectionConnectedSince(id) ?? null,
+            }).catch(() => undefined);
         }
 
         await setupWebhook(id);
@@ -6604,6 +6626,7 @@ function isCampaignChannelUsable(connectionId: string): boolean {
         const recentlyProvedOpen = recent && recent.state && (Date.now() - recent.at < 60_000);
         if (!recentlyProvedOpen) return false;
     }
+    if (isProxyDispatchBlocked(id)) return false;
     return !getConnectionBanInfo(id).inQuarantine;
 }
 
@@ -9306,6 +9329,9 @@ export function init(socketIO: SocketIOServer) {
             }, 60_000);
         }
 
+        await hydrateProxyHealthFromRedis([...connections.keys()]);
+        initProxyHealthQueue(listConnectionsForProxyHealth);
+
         return reconcileConnectionHealth();
     });
     void import('./evolutionInstanceReconciler.js').then(({ startGoInstanceReconcilerTimer }) => {
@@ -10007,6 +10033,29 @@ export function getConnections(): WhatsAppConnection[] {
                       return storm.count >= 2 ? { reconnectStormProgress: storm } : {};
                   })()
                 : {}),
+            ...(conn.proxy?.host
+                ? (() => {
+                      const snap = getProxyHealthSnapshot(id);
+                      const lock = getProxyEditLock({
+                          hasProxy: true,
+                          connectedSinceMs:
+                              getConnectionConnectedSince(id) ?? conn.lastOpenAt ?? null,
+                      });
+                      return {
+                          proxyHealth: {
+                              status: snap?.status || 'UNKNOWN',
+                              egressIp: snap?.egressIp,
+                              isp: snap?.isp,
+                              checkedAt: snap?.checkedAt
+                                  ? new Date(snap.checkedAt).toISOString()
+                                  : undefined,
+                              latencyMs: snap?.latencyMs,
+                              proxyEditLocked: lock.locked,
+                              proxyEditLockDaysLeft: lock.daysLeft,
+                          },
+                      };
+                  })()
+                : {}),
         });
     }
     if (seededConnectedSince) saveConnectionsSettings();
@@ -10605,9 +10654,39 @@ export async function createConnection(
     }
 }
 
+export function listConnectionsForProxyHealth(): Array<{
+    id: string;
+    ownerUid?: string;
+    proxy?: ConnectionProxyConfig | null;
+    connectedSinceMs?: number | null;
+}> {
+    const out: Array<{
+        id: string;
+        ownerUid?: string;
+        proxy?: ConnectionProxyConfig | null;
+        connectedSinceMs?: number | null;
+    }> = [];
+    for (const [id, conn] of connections.entries()) {
+        if (!conn.proxy?.host || !conn.proxy.port) continue;
+        out.push({
+            id,
+            ownerUid: resolveOwnerUid(id) || conn.ownerUid,
+            proxy: conn.proxy,
+            connectedSinceMs: getConnectionConnectedSince(id) ?? conn.lastOpenAt ?? null,
+        });
+    }
+    return out;
+}
+
 export async function setConnectionProxy(id: string, proxy: ConnectionProxyConfig | null): Promise<void> {
     const conn = connections.get(id);
     if (!conn) throw new Error('Conexão não encontrada');
+
+    const hadProxy = Boolean(conn.proxy?.host && conn.proxy.port);
+    const willHaveProxy = Boolean(proxy?.host && proxy?.port);
+    if (willHaveProxy || hadProxy) {
+        await assertProxyEditAllowed(id, getConnectionConnectedSince(id) ?? conn.lastOpenAt, willHaveProxy || hadProxy);
+    }
 
     if (proxy?.host && proxy.port) {
         conn.proxy = proxy;
@@ -10631,6 +10710,22 @@ export async function setConnectionProxy(id: string, proxy: ConnectionProxyConfi
             id,
             proxy: conn.proxy ? { enabled: true, host: conn.proxy.host } : null,
         });
+    }
+
+    const connectedSince = getConnectionConnectedSince(id) ?? conn.lastOpenAt ?? null;
+    await syncProxyHealthRepeatableJob({
+        connectionId: id,
+        ownerUid: proxyOwnerUid || conn.ownerUid,
+        proxy: conn.proxy ?? null,
+        connectedSinceMs: connectedSince,
+    });
+    if (conn.proxy?.host && conn.proxy.port) {
+        void runProxyHealthCheck({
+            connectionId: id,
+            proxy: conn.proxy,
+            ownerUid: proxyOwnerUid || conn.ownerUid,
+            connectedSinceMs: connectedSince,
+        }).catch(() => undefined);
     }
 }
 

@@ -119,6 +119,7 @@ import { registerChipProtectionRoutes } from './chipProtectionRoutes.js';
 import { registerWarmupDiagnosticsRoutes } from './warmupDiagnosticsRoutes.js';
 import { registerReplyIntentRoutes } from './replyIntentRoutes.js';
 import { startChipProtectionScheduler } from './chipProtectionScheduler.js';
+import { getProxyHealthBullmqQueue } from './proxyHealthQueue.js';
 import { startProspectingSilentBumpJob } from './prospecting/prospectingSilentBumpJob.js';
 import { startNurtureScheduler } from './nurture/nurtureScheduler.js';
 import { registerAiAssistantRoutes } from './aiAssistantRoutes.js';
@@ -2668,6 +2669,7 @@ const bootstrap = async () => {
   startBullmqMaintenance([
     { name: 'evolution-webhook', getQueue: () => getEvolutionWebhookBullmqQueue() },
     { name: 'campaign-messages', getQueue: () => evolutionService.getCampaignBullmqQueue() },
+    { name: 'proxy-health', getQueue: () => getProxyHealthBullmqQueue() },
   ]);
 
   // Registra a função de envio do auto-warmup do servidor via Evolution API

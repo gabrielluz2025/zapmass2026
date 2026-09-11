@@ -536,6 +536,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
                   </div>
                   <p className="text-[11px] text-gray-500">
                     Cada chip pode usar um IP diferente via proxy residencial ou datacenter.
+                    Após conectar, alterações ficam bloqueadas por 7 dias (governança sticky).
                   </p>
                 </div>
               )}

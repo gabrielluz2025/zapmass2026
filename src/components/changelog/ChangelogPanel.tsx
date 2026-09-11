@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.126',
+    date: '11/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Monitor de proxy: egress IP, alerta datacenter, PROXY_DOWN no pool' },
+    ],
+  },
+  {
     version: '2.3.125',
     date: '11/09/2026',
     highlights: [

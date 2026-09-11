@@ -50,6 +50,15 @@ export interface WhatsAppConnection {
   reconnectLongTail?: boolean;
   /** Quedas recentes antes do lock reconnect_storm. */
   reconnectStormProgress?: { count: number; threshold: number; windowMs: number };
+  proxyHealth?: {
+    status: 'OK' | 'PROXY_DOWN' | 'DATACENTER' | 'DRIFT' | 'UNKNOWN';
+    egressIp?: string;
+    isp?: string;
+    checkedAt?: string;
+    latencyMs?: number;
+    proxyEditLocked?: boolean;
+    proxyEditLockDaysLeft?: number;
+  };
   dailyLimit?: number;
   growthRate?: number;
   growthType?: 'percent' | 'fixed';
