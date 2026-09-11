@@ -11,6 +11,33 @@ describe('mergeConnectionStatus', () => {
       })
     ).toBe(ConnectionStatus.CONNECTED);
   });
+
+  it('mantém CONNECTED em QR_READY durante reconexão', () => {
+    expect(
+      mergeConnectionStatus(ConnectionStatus.QR_READY, ConnectionStatus.CONNECTED, {
+        connectedSince: Date.now() - 60_000,
+        phoneNumber: '55479990000',
+      })
+    ).toBe(ConnectionStatus.CONNECTED);
+  });
+
+  it('mantém CONNECTED pareado sem connectedSince (corrida hydrate)', () => {
+    expect(
+      mergeConnectionStatus(ConnectionStatus.DISCONNECTED, ConnectionStatus.CONNECTED, {
+        phoneNumber: '55479990000',
+      })
+    ).toBe(ConnectionStatus.CONNECTED);
+  });
+
+  it('aplica DISCONNECTED após grace expirar', () => {
+    const since = Date.now() - 130_000;
+    expect(
+      mergeConnectionStatus(ConnectionStatus.DISCONNECTED, ConnectionStatus.CONNECTED, {
+        connectedSince: since,
+        phoneNumber: '55479990000',
+      })
+    ).toBe(ConnectionStatus.DISCONNECTED);
+  });
 });
 
 describe('mergeWhatsAppConnectionLists', () => {
@@ -84,5 +111,12 @@ describe('connectionListLooksUnchanged', () => {
     const inc: WhatsAppConnection = { ...base(), phoneNumber: '' };
     const merged = mergeWhatsAppConnectionLists([inc], [prev], {});
     expect(merged[0]?.phoneNumber).toBe('55479990000');
+  });
+
+  it('carimba connectedSince ao ficar CONNECTED sem timestamp', () => {
+    const prev: WhatsAppConnection = { ...base(), status: ConnectionStatus.CONNECTING };
+    const inc: WhatsAppConnection = { ...base(), status: ConnectionStatus.CONNECTED };
+    const merged = mergeWhatsAppConnectionLists([inc], [prev], {});
+    expect(merged[0]?.connectedSince).toBeGreaterThan(0);
   });
 });

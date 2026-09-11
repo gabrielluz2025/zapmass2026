@@ -79,78 +79,6 @@ import {
   connectionListLooksUnchanged
 } from '../utils/connectionStateMerge';
 
-// #region agent log
-const DEBUG_CONN_SESSION = 'facaa2';
-const debugConnPending: Record<string, unknown>[] = [];
-let debugConnFlushTimer: ReturnType<typeof setTimeout> | null = null;
-
-function flushDebugConnLogsToServer(): void {
-  if (debugConnPending.length === 0) return;
-  if (debugConnFlushTimer) return;
-  debugConnFlushTimer = setTimeout(() => {
-    debugConnFlushTimer = null;
-    const batch = debugConnPending.splice(0, debugConnPending.length);
-    if (batch.length === 0) return;
-    void import('../utils/sessionAuth.js').then(({ getSessionIdToken }) =>
-      getSessionIdToken()
-        .then((token) =>
-          fetch(apiUrl('/api/debug/conn-client-log'), {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({ events: batch }),
-          })
-        )
-        .catch(() => {})
-    );
-  }, 400);
-}
-
-function debugConnLog(
-  hypothesisId: string,
-  location: string,
-  message: string,
-  data: Record<string, unknown>
-): void {
-  const entry = {
-    sessionId: DEBUG_CONN_SESSION,
-    hypothesisId,
-    location,
-    message,
-    data,
-    timestamp: Date.now(),
-  };
-  try {
-    const key = 'zapmass.debug.conn.facaa2';
-    const prev = JSON.parse(sessionStorage.getItem(key) || '[]') as unknown[];
-    prev.push(entry);
-    sessionStorage.setItem(key, JSON.stringify(prev.slice(-80)));
-  } catch {
-    /* ignore */
-  }
-  debugConnPending.push(entry);
-  if (debugConnPending.length >= 8) {
-    if (debugConnFlushTimer) {
-      clearTimeout(debugConnFlushTimer);
-      debugConnFlushTimer = null;
-    }
-    flushDebugConnLogsToServer();
-  }
-  fetch('http://127.0.0.1:7423/ingest/214e345f-fd58-4e2e-94b0-1ded76a89256', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': DEBUG_CONN_SESSION },
-    body: JSON.stringify(entry),
-  }).catch(() => {});
-  void flushDebugConnLogsToServer();
-}
-
-function connStatusSummary(list: WhatsAppConnection[]): string {
-  return list.map((c) => `${c.id.slice(-8)}:${c.status}`).join('|');
-}
-// #endregion
-
 import { apiUrl, getSocketIoOrigin, isLikelySplitStaticFrontend } from '../utils/apiBase';
 import { MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
 import {
@@ -1572,14 +1500,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!ownerUid || ownerUid === 'anonymous') return;
       const force = opts?.force === true;
       const boot = opts?.boot === true;
-      const syncReason = force ? 'force' : boot ? 'boot' : 'interval';
-      // #region agent log
-      debugConnLog('D', 'ZapMassContext:syncConnectionsFromApi:start', 'HTTP sync iniciado', {
-        syncReason,
-        prevCount: connectionsRef.current.length,
-        prevSummary: connStatusSummary(connectionsRef.current),
-      });
-      // #endregion
       const now = Date.now();
       if (!force && !boot) {
         if (apiSyncInFlightRef.current) return;
@@ -1609,11 +1529,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           const scopedPrev = scopeConnections(prev);
           if (list.length === 0) {
             if (scopedPrev.length === 0) return prev;
-            // #region agent log
-            debugConnLog('B', 'ZapMassContext:syncConnectionsFromApi:empty', 'HTTP sync vazio — mantém lista', {
-              scopedPrevCount: scopedPrev.length,
-            });
-            // #endregion
             return scopedPrev;
           }
           const result = mergeWhatsAppConnectionLists(list, scopedPrev, qrCodeByConnectionId.current);
@@ -1623,15 +1538,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             }
           }
           connectionsRef.current = result;
-          // #region agent log
-          debugConnLog('D', 'ZapMassContext:syncConnectionsFromApi:done', 'HTTP sync aplicou lista', {
-            syncReason,
-            apiCount: list.length,
-            resultCount: result.length,
-            resultSummary: connStatusSummary(result),
-            unchanged: connectionListLooksUnchanged(scopedPrev, result),
-          });
-          // #endregion
           return result;
         });
         if (Array.isArray(data.conversations) && data.conversations.length > 0) {
@@ -1772,15 +1678,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     socket.on('connections-update', (updatedConnections: WhatsAppConnection[]) => {
       const mine = scopeConnections(Array.isArray(updatedConnections) ? updatedConnections : []);
-      // #region agent log
-      debugConnLog('B', 'ZapMassContext:connections-update:recv', 'Socket connections-update', {
-        rawCount: Array.isArray(updatedConnections) ? updatedConnections.length : 0,
-        scopedCount: mine.length,
-        scopedSummary: connStatusSummary(mine),
-        prevCount: connectionsRef.current.length,
-        prevSummary: connStatusSummary(connectionsRef.current),
-      });
-      // #endregion
       setConnections((prev) => {
         const scopedPrev = scopeConnections(prev);
         if (mine.length === 0) {
@@ -1789,11 +1686,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             return prev;
           }
           /** RAM vazia no servidor (boot/restart) — não apagar canais até confirmar via HTTP. */
-          // #region agent log
-          debugConnLog('B', 'ZapMassContext:connections-update:empty', 'Payload vazio — boot sync', {
-            scopedPrevCount: scopedPrev.length,
-          });
-          // #endregion
           void syncConnectionsFromApi({ boot: true });
           return scopedPrev;
         }
@@ -1805,21 +1697,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
         /** Ignorar update sem mudanças relevantes — evita rerender em cascata pela referência nova. */
         if (connectionListLooksUnchanged(scopedPrev, result)) {
-          // #region agent log
-          debugConnLog('C', 'ZapMassContext:connections-update:skip', 'Update ignorado (unchanged)', {
-            count: result.length,
-          });
-          // #endregion
           return prev;
         }
-        // #region agent log
-        debugConnLog('A', 'ZapMassContext:connections-update:apply', 'Lista aplicada', {
-          prevCount: scopedPrev.length,
-          nextCount: result.length,
-          prevSummary: connStatusSummary(scopedPrev),
-          nextSummary: connStatusSummary(result),
-        });
-        // #endregion
         // ── Detecta chip offline (open → não-open) e notifica com toast ──────
         const prevMap = new Map(scopedPrev.map((c) => [c.id, c.status]));
         for (const conn of result) {
@@ -2244,35 +2123,28 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (!nextStatus) return;
         // OFFLINE transitório: connection-update chega antes do connections-update completo.
         if (nextStatus === ConnectionStatus.DISCONNECTED) {
-          // #region agent log
-          debugConnLog('A', 'ZapMassContext:connection-update:skip-offline', 'OFFLINE ignorado (aguarda lista completa)', {
-            id: id.slice(-12),
-            raw,
-          });
-          // #endregion
           return;
         }
-        // #region agent log
-        debugConnLog('A', 'ZapMassContext:connection-update', 'connection-update recebido', {
-          id: id.slice(-12),
-          raw,
-          nextStatus,
-          prevStatus: connectionsRef.current.find((c) => c.id === id)?.status ?? 'missing',
-        });
-        // #endregion
         setConnections((prev) => {
           const current = prev.find((c) => c.id === id);
           if (!current) return prev;
+          const phoneNumber = payload.phoneNumber ?? current.phoneNumber;
           const mergedStatus = mergeConnectionStatus(nextStatus, current.status, {
             connectedSince: current.connectedSince,
+            phoneNumber,
           });
           if (mergedStatus === current.status && payload.phoneNumber == null) return prev;
+          const connectedSince =
+            mergedStatus === ConnectionStatus.CONNECTED
+              ? current.connectedSince ?? Date.now()
+              : current.connectedSince;
           const updated = prev.map((c) =>
             c.id === id
               ? {
                   ...c,
                   status: mergedStatus,
-                  phoneNumber: payload.phoneNumber ?? c.phoneNumber,
+                  phoneNumber,
+                  connectedSince,
                   qrCode: mergedStatus === ConnectionStatus.CONNECTED ? undefined : c.qrCode
                 }
               : c
@@ -2307,12 +2179,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     /** Canal em CONNECTING sem QR — reconcilia com Evolution via HTTP (boot + pairing preso). */
     const stuckConnectingSyncInterval = setInterval(() => {
       if (connectionListHasStaleConnecting(connectionsRef.current)) {
-        // #region agent log
-        debugConnLog('D', 'ZapMassContext:stuckConnectingInterval', 'Interval 15s disparou sync', {
-          count: connectionsRef.current.length,
-          summary: connStatusSummary(connectionsRef.current),
-        });
-        // #endregion
         void syncConnectionsFromApi();
       }
     }, 15_000);

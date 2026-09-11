@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.121] - 2026-09-10
+### Corrigido
+- **Conexões piscando (3ª rodada)**: merge não regride chip pareado para QR/OFFLINE sem `connectedSince`; carimbo de `connectedSince` ao conectar via socket.
+### Removido
+- Instrumentação de debug (`debugConnLog`, `/api/debug/conn-client-log`).
+
 ## [2.3.119] - 2026-09-10
 ### Corrigido
 - **Conexões piscando (2ª rodada)**: preserva telefone/`connectedSince` no merge; grace 120s para OFFLINE transitório; logs de diagnóstico via `/api/debug/conn-client-log`.

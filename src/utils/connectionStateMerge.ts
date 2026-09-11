@@ -6,26 +6,21 @@ import { ConnectionStatus, type WhatsAppConnection } from '../types';
 export function mergeConnectionStatus(
   incoming: ConnectionStatus,
   previous?: ConnectionStatus,
-  meta?: { connectedSince?: number }
+  meta?: { connectedSince?: number; phoneNumber?: string }
 ): ConnectionStatus {
   if (incoming === ConnectionStatus.CONNECTED) return incoming;
   if (previous === ConnectionStatus.CONNECTED && incoming === ConnectionStatus.CONNECTING) {
     return previous;
   }
-  const since = meta?.connectedSince ?? 0;
-  if (
-    previous === ConnectionStatus.CONNECTED &&
-    incoming === ConnectionStatus.DISCONNECTED &&
-    since > 0 &&
-    Date.now() - since < 120_000
-  ) {
+  /** Reconexão Evolution: chip pareado não deve voltar para QR durante oscilação. */
+  if (previous === ConnectionStatus.CONNECTED && incoming === ConnectionStatus.QR_READY) {
     return previous;
   }
-  if (
-    previous === ConnectionStatus.CONNECTED &&
-    (incoming === ConnectionStatus.QR_READY || incoming === ConnectionStatus.DISCONNECTED)
-  ) {
-    return incoming;
+  const since = meta?.connectedSince ?? 0;
+  if (previous === ConnectionStatus.CONNECTED && incoming === ConnectionStatus.DISCONNECTED) {
+    if (since > 0 && Date.now() - since < 120_000) return previous;
+    /** connection-update pode marcar CONNECTED antes do hydrate enviar connectedSince. */
+    if (since === 0 && meta?.phoneNumber?.trim()) return previous;
   }
   return incoming;
 }
@@ -42,9 +37,15 @@ export function mergeWhatsAppConnectionRow(
   previous: WhatsAppConnection | undefined,
   qrFromCache: string | undefined
 ): WhatsAppConnection {
-  const connectedSince = incoming.connectedSince ?? previous?.connectedSince;
-  const status = mergeConnectionStatus(incoming.status, previous?.status, { connectedSince });
   const phoneNumber = preservePhone(incoming.phoneNumber, previous?.phoneNumber);
+  let connectedSince = incoming.connectedSince ?? previous?.connectedSince;
+  const status = mergeConnectionStatus(incoming.status, previous?.status, {
+    connectedSince,
+    phoneNumber,
+  });
+  if (status === ConnectionStatus.CONNECTED && !connectedSince) {
+    connectedSince = Date.now();
+  }
   const shouldClearQr = status === ConnectionStatus.CONNECTED;
   if (shouldClearQr) {
     return {

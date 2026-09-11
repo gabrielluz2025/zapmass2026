@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.121',
+    date: '10/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Chip pareado não regride para QR/OFFLINE durante oscilação da Evolution' },
+      { type: 'improvement', text: 'Removida instrumentação de debug de conexões' },
+    ],
+  },
+  {
     version: '2.3.119',
     date: '10/09/2026',
     highlights: [
