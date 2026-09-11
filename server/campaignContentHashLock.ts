@@ -52,6 +52,74 @@ export function md5MessageContent(text: string): string {
   return createHash('md5').update(normalized, 'utf8').digest('hex');
 }
 
+export function sha256MediaContent(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex');
+}
+
+/** Fingerprint MD5 estável para mídia (+ legenda opcional) no content hash lock. */
+export function mediaContentFingerprint(buffer: Buffer, caption?: string): string {
+  const sha = sha256MediaContent(buffer);
+  const cap = normalizeMessageForContentHash(caption || '');
+  if (cap.length >= 8) {
+    return createHash('md5').update(`${sha}\n${cap}`, 'utf8').digest('hex');
+  }
+  return createHash('md5').update(sha, 'utf8').digest('hex');
+}
+
+async function applyHashLockTracking(
+  client: IORedis,
+  tid: string,
+  cid: string,
+  md5: string,
+  threshold: number,
+  delayMs: number,
+  violationThreshold: number
+): Promise<ValidateCampaignContentHashResult> {
+  const key = hashKey(tid, md5);
+  const count = await client.incr(key);
+  if (count === 1) {
+    await client.expire(key, WINDOW_SEC);
+  }
+
+  if (count <= threshold) {
+    return { action: 'PROCEED', hash: md5, count };
+  }
+
+  const hitsKey = campaignHitsKey(cid);
+  const violations = await client.incr(hitsKey);
+  if (violations === 1) {
+    await client.expire(hitsKey, CAMPAIGN_HITS_TTL_SEC);
+  }
+
+  console.warn('[ContentHashLock] Conteúdo idêntico acima do limite', {
+    tenantId: tid,
+    campaignId: cid,
+    hash: md5,
+    count,
+    threshold,
+    violations,
+    violationThreshold,
+  });
+
+  if (violations >= violationThreshold) {
+    await pauseCampaignForHighDuplication(tid, cid, md5, violations);
+    return {
+      action: 'PAUSE_CAMPAIGN',
+      hash: md5,
+      count,
+      campaignViolations: violations,
+    };
+  }
+
+  return {
+    action: 'DELAY_JOB',
+    hash: md5,
+    count,
+    delayMs,
+    campaignViolations: violations,
+  };
+}
+
 function readThreshold(): number {
   const n = Number(process.env.CONTENT_HASH_LOCK_THRESHOLD ?? DEFAULT_THRESHOLD);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_THRESHOLD;
@@ -125,51 +193,63 @@ export async function validateCampaignContentHash(
   }
 
   try {
-    const key = hashKey(tid, md5);
-    const count = await client.incr(key);
-    if (count === 1) {
-      await client.expire(key, WINDOW_SEC);
-    }
-
-    if (count <= threshold) {
-      return { action: 'PROCEED', hash: md5, count };
-    }
-
-    const hitsKey = campaignHitsKey(cid);
-    const violations = await client.incr(hitsKey);
-    if (violations === 1) {
-      await client.expire(hitsKey, CAMPAIGN_HITS_TTL_SEC);
-    }
-
-    console.warn('[ContentHashLock] Conteúdo idêntico acima do limite', {
-      tenantId: tid,
-      campaignId: cid,
-      hash: md5,
-      count,
+    return await applyHashLockTracking(
+      client,
+      tid,
+      cid,
+      md5,
       threshold,
-      violations,
-      violationThreshold,
-    });
-
-    if (violations >= violationThreshold) {
-      await pauseCampaignForHighDuplication(tid, cid, md5, violations);
-      return {
-        action: 'PAUSE_CAMPAIGN',
-        hash: md5,
-        count,
-        campaignViolations: violations,
-      };
-    }
-
-    return {
-      action: 'DELAY_JOB',
-      hash: md5,
-      count,
       delayMs,
-      campaignViolations: violations,
-    };
+      violationThreshold
+    );
   } catch (e) {
     console.warn('[ContentHashLock] Redis indisponível — prosseguindo sem lock', {
+      tenantId: tid,
+      error: (e as Error)?.message,
+    });
+    return { action: 'PROCEED', hash: md5 };
+  }
+}
+
+/**
+ * Circuit breaker para mídia repetida (SHA256 do binário + legenda opcional).
+ */
+export async function validateCampaignMediaHash(
+  redis: IORedis | null | undefined,
+  tenantId: string,
+  campaignId: string | undefined,
+  buffer: Buffer,
+  caption?: string
+): Promise<ValidateCampaignContentHashResult> {
+  const tid = String(tenantId || '').trim();
+  const cid = String(campaignId || '').trim();
+  const md5 = mediaContentFingerprint(buffer, caption);
+  const threshold = readThreshold();
+  const delayMs = readPenaltyMs();
+  const violationThreshold = readCampaignViolationThreshold();
+  const minBytes = Number(process.env.CONTENT_HASH_MEDIA_MIN_BYTES ?? 32);
+
+  if (!tid || !Buffer.isBuffer(buffer) || buffer.length < minBytes || !cid || cid.startsWith('nurture:')) {
+    return { action: 'PROCEED', hash: md5 };
+  }
+
+  const client = redis ?? getSharedRedis();
+  if (!client) {
+    return { action: 'PROCEED', hash: md5, count: 1 };
+  }
+
+  try {
+    return await applyHashLockTracking(
+      client,
+      tid,
+      cid,
+      md5,
+      threshold,
+      delayMs,
+      violationThreshold
+    );
+  } catch (e) {
+    console.warn('[ContentHashLock] Redis indisponível — prosseguindo sem lock de mídia', {
       tenantId: tid,
       error: (e as Error)?.message,
     });

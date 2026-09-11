@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.125',
+    date: '11/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Mutação anti-fingerprint de mídia + hash lock para campanhas com anexo' },
+    ],
+  },
+  {
     version: '2.3.124',
     date: '11/09/2026',
     highlights: [

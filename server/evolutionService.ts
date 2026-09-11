@@ -113,7 +113,8 @@ import {
   tryClaimInboundAutomation,
 } from './inboundAutomationDedupe.js';
 import type { InboundProcessParams } from './inboundMissedReplay.js';
-import { validateCampaignContentHash } from './campaignContentHashLock.js';
+import { validateCampaignContentHash, validateCampaignMediaHash } from './campaignContentHashLock.js';
+import { mutateMediaIfRepeated } from './campaignMediaMutator.js';
 import {
     applyGaussianSendDelay,
     checkAndApplyMicroRest,
@@ -7445,6 +7446,85 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const textPayload = String(item.message || '').trim();
     if (!hasMediaPayload && !textPayload) {
         throw new Error('Mensagem vazia após personalização — verifique variáveis e spintax');
+    }
+
+    if (
+        mediaToSend?.base64 &&
+        ownerUidForJob &&
+        !item.nurtureFollowUp &&
+        !item.replyFlowResponse
+    ) {
+        const redis = getSharedRedis();
+        const sourceBuffer = Buffer.from(mediaToSend.base64, 'base64');
+        const mutated = await mutateMediaIfRepeated({
+            redis,
+            chipId: item.connectionId,
+            tenantId: ownerUidForJob,
+            buffer: sourceBuffer,
+            mimeType: mediaToSend.mimeType || 'application/octet-stream',
+        });
+        if (mutated.mutated) {
+            mediaToSend = { ...mediaToSend, base64: mutated.buffer.toString('base64') };
+            emitCampaignLog(
+                'INFO',
+                `Mídia mutada anti-fingerprint após ${mutated.useCount} envios com o mesmo SHA256.`,
+                {
+                    campaignId: item.campaignId,
+                    connectionId: item.connectionId,
+                    originalHash: mutated.originalHash.slice(0, 12),
+                    newHash: mutated.newHash.slice(0, 12),
+                    useCount: mutated.useCount,
+                },
+                campaignState?.ownerUid
+            );
+        }
+
+        const mediaHashLock = await validateCampaignMediaHash(
+            redis,
+            ownerUidForJob,
+            item.campaignId,
+            mutated.buffer,
+            mediaToSend.caption || item.message
+        );
+        if (mediaHashLock.action === 'PAUSE_CAMPAIGN') {
+            if (item.campaignId) {
+                pauseCampaignForProtection(item.campaignId, {
+                    reason: 'PAUSED_BY_HIGH_DUPLICATION',
+                    ownerUid: ownerUidForJob,
+                    message:
+                        'Campanha pausada: mídia idêntica repetida em excesso. Varie o arquivo ou use legendas com Spintax.',
+                });
+            }
+            emitCampaignLog(
+                'WARN',
+                'Campanha pausada por duplicação de mídia idêntica (circuit breaker de hash).',
+                {
+                    campaignId: item.campaignId,
+                    contentHash: mediaHashLock.hash,
+                    violations: mediaHashLock.campaignViolations,
+                },
+                ownerUidForJob
+            );
+            throw new UnrecoverableError('Campanha pausada por duplicação de mídia');
+        }
+        if (mediaHashLock.action === 'DELAY_JOB') {
+            const delayMs = mediaHashLock.delayMs ?? 45_000;
+            log('warn', '[ContentHashLock] Mídia idêntica repetida — reagendando job', {
+                tenantId: ownerUidForJob,
+                hash: mediaHashLock.hash,
+                count: mediaHashLock.count,
+                delayMs,
+                campaignId: item.campaignId,
+            });
+            emitCampaignLog(
+                'WARN',
+                `Mídia idêntica repetida — adicionando ${Math.round(delayMs / 1000)}s de delay.`,
+                { campaignId: item.campaignId, contentHash: mediaHashLock.hash, count: mediaHashLock.count },
+                ownerUidForJob
+            );
+            await job.moveToDelayed(Date.now() + delayMs, token);
+            throw new DelayedError();
+        }
     }
 
     const humanizeSkip = Boolean(item.replyFlowResponse || item.nurtureFollowUp);
