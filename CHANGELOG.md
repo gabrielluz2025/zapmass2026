@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.129] - 2026-09-11
+### Adicionado
+- **Monitor VPS**: `deployment/monitor-zapmass.sh` + cron (`install-chip-health-monitor-cron.sh`) — alertas Discord/Telegram a partir de `/api/chip-health/summary`.
+
 ## [2.3.128] - 2026-09-11
 ### Adicionado
 - **Observabilidade anti-ban**: endpoint `GET /api/chip-health/summary` — distribuição de HealthScore, média do pool e contadores (THROTTLED, circuit OPEN, PROXY_DOWN, quarentena).

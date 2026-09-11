@@ -36,6 +36,24 @@ Notas:
 - O aviso `image zapmass:latest could not be accessed on a registry` e esperado em cenario sem registry remoto.
 - O aviso `Ignoring unsupported options: build` no stack deploy e normal.
 
+## 3) Monitor de HealthScore (anti-ban)
+
+Após deploy **v2.3.128+**, configure alertas automáticos do pool:
+
+```bash
+cd /opt/zapmass
+cp deployment/chip-health-monitor.env.example data/chip-health-monitor.env
+chmod 600 data/chip-health-monitor.env
+# Edite: ZAPMASS_MONITOR_BEARER_TOKEN + DISCORD_WEBHOOK_URL (e/ou Telegram)
+sudo bash deployment/install-chip-health-monitor-cron.sh
+sudo bash deployment/monitor-zapmass.sh   # teste manual
+tail -f /var/log/zapmass-chip-health.log
+```
+
+Regras padrão: **CRITICAL** se circuit OPEN ou PROXY_DOWN; **WARNING** se `critical + throttled > 3` ou média de score &lt; 55. Cooldown 60 min entre alertas iguais.
+
+---
+
 ## 2) Pos-deploy (PASS/FAIL automatico)
 
 ```bash

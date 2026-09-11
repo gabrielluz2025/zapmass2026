@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.129',
+    date: '11/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Script monitor-zapmass.sh + cron para alertas Discord/Telegram' },
+    ],
+  },
+  {
     version: '2.3.128',
     date: '11/09/2026',
     highlights: [
