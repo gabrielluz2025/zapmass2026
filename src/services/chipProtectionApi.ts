@@ -65,6 +65,32 @@ async function authHeaders(): Promise<HeadersInit> {
   return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 }
 
+export async function fetchChipHealthSummary(): Promise<ChipHealthSummary> {
+  const res = await fetch(apiUrl('/api/chip-health/summary'), { headers: await authHeaders() });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Erro ao carregar resumo de saúde dos chips.');
+  return data as ChipHealthSummary;
+}
+
+export type ChipHealthSummary = {
+  ok?: boolean;
+  timestamp: string;
+  totalChips: number;
+  averageScore: number;
+  distribution: {
+    excellent: number;
+    regular: number;
+    degraded: number;
+    critical: number;
+  };
+  statusCounts: {
+    throttled: number;
+    openCircuit: number;
+    proxyDown: number;
+    quarantine: number;
+  };
+};
+
 export async function fetchChipProtection(): Promise<ChipProtectionSnapshot> {
   const res = await fetch(apiUrl('/api/chip-protection'), { headers: await authHeaders() });
   const data = await res.json();

@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.128] - 2026-09-11
+### Adicionado
+- **Observabilidade anti-ban**: endpoint `GET /api/chip-health/summary` — distribuição de HealthScore, média do pool e contadores (THROTTLED, circuit OPEN, PROXY_DOWN, quarentena).
+
 ## [2.3.127] - 2026-09-11
 ### Melhorado
 - **Anti-ban (Item 5)**: score unificado 0–100 (`chipUnifiedHealthScore`) — maturidade + circuit breaker + bidirecionalidade + infra; alimenta pool, delay do worker e painel de proteção.

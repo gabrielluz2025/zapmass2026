@@ -9,6 +9,7 @@ import {
 } from './chipProtectionService.js';
 import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
 import { getConnectionsForTenant } from './evolutionService.js';
+import { buildChipHealthSummary } from './chipHealthSummaryService.js';
 
 export function registerChipProtectionRoutes(app: Express): void {
   app.get('/api/chip-protection', async (req: Request, res: Response) => {
@@ -20,6 +21,19 @@ export function registerChipProtectionRoutes(app: Express): void {
     } catch (e) {
       console.error('[chip-protection GET]', e);
       return res.status(500).json({ ok: false, error: 'Não foi possível carregar proteção de chips.' });
+    }
+  });
+
+  /** Resumo agregado de HealthScore 0–100 para monitoramento externo / alertas. */
+  app.get('/api/chip-health/summary', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    try {
+      const summary = await buildChipHealthSummary(ctx.tenantId);
+      return res.json({ ok: true, ...summary });
+    } catch (e) {
+      console.error('[chip-health/summary GET]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível carregar resumo de saúde dos chips.' });
     }
   });
 

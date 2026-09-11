@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.128',
+    date: '11/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Endpoint /api/chip-health/summary para monitoramento do pool' },
+    ],
+  },
+  {
     version: '2.3.127',
     date: '11/09/2026',
     highlights: [
