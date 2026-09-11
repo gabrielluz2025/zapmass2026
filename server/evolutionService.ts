@@ -6639,6 +6639,20 @@ async function maybeNotifyCircuitBreakerHalfOpen(connectionId: string, ownerUid?
     });
 }
 
+async function maybeNotifyCircuitBreakerThrottled(connectionId: string, ownerUid?: string): Promise<void> {
+    const ou = String(ownerUid || '').trim();
+    const chipId = String(connectionId || '').trim();
+    if (!ou || !chipId) return;
+    const score = await getChipCircuitBreaker().getHealthScore(chipId);
+    if (score.state !== 'THROTTLED') return;
+    const label = connections.get(chipId)?.friendlyName || chipId;
+    await emitAntiBanAlert(ou, 'chip-circuit-breaker-throttled', {
+        connectionId: chipId,
+        connectionLabel: label,
+        deliveryRatioPct: Math.round(score.deliveryRatio * 1000) / 10,
+    });
+}
+
 async function pickHealthyFailoverChannel(
     currentId: string,
     alternateIds: string[] | undefined,
@@ -7142,6 +7156,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     if (!(await isCampaignChannelHealthy(item.connectionId))) {
         void maybeNotifyCircuitBreakerOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
         void maybeNotifyCircuitBreakerHalfOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
+        void maybeNotifyCircuitBreakerThrottled(item.connectionId, campaignState?.ownerUid || item.ownerUid);
         const failoverId = await pickHealthyFailoverChannel(
             item.connectionId,
             item.alternateChannelIds,
@@ -7453,6 +7468,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
         const tierProfile = resolveChipTier(getConnectionConnectedSince(item.connectionId));
         const cbScore = await getChipCircuitBreaker().getHealthScore(item.connectionId);
+        if (cbScore.state === 'THROTTLED') {
+            void maybeNotifyCircuitBreakerThrottled(
+                item.connectionId,
+                campaignState?.ownerUid || item.ownerUid
+            );
+        }
         const cbMult = getChipCircuitBreaker().delayMultiplier(cbScore);
         const contentLen = hasMediaPayload
             ? String(mediaToSend?.caption || item.message || '').trim().length
@@ -7505,6 +7526,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             await cb.recordFail4xx(item.connectionId);
             void maybeNotifyCircuitBreakerOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
             void maybeNotifyCircuitBreakerHalfOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
+            void maybeNotifyCircuitBreakerThrottled(item.connectionId, campaignState?.ownerUid || item.ownerUid);
         }
         // Failover silencioso: tenta chips alternativos do pool antes de lançar erro.
         const alternates = Array.isArray(item.alternateChannelIds) ? item.alternateChannelIds : [];
@@ -7589,7 +7611,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     // o retry do BullMQ detecta _sentOk=true e não reenvia (idempotência).
     item._sentOk = true;
     await job.updateData(item).catch(() => {});
-    await cb.recordDeliveredAck(item.connectionId);
+    // ACK de entrega real vem do webhook MESSAGES_UPDATE (recordDeliveredAckForMessage).
 
     // Espelha sucesso no PG (auditoria + recovery)
     void finalizeCampaignJob(job.id ?? '', { status: 'sent' }).catch(() => undefined);
@@ -9813,6 +9835,11 @@ export async function handleWebhook(event: any) {
                     if (evolutionStatus == null) continue;
                     evolutionTrackMessageAck(messageId, evolutionStatus);
                     chatStore.updateMessageStatus(messageId, evolutionStatus);
+                    if (evolutionStatus >= 2) {
+                        void getChipCircuitBreaker()
+                            .recordDeliveredAckForMessage(instance, messageId)
+                            .catch(() => undefined);
+                    }
                 }
                 break;
             }

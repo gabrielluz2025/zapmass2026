@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.124',
+    date: '11/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Soft-ban: circuit breaker THROTTLED por queda de ACK de entrega' },
+    ],
+  },
+  {
     version: '2.3.123',
     date: '11/09/2026',
     highlights: [

@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.124] - 2026-09-11
+### Melhorado
+- **Anti-ban (Item 2)**: soft-ban no `ChipCircuitBreaker` — estado `THROTTLED` quando ratio SENT/DELIVERED_ACK cai na janela de 5 min; delay ×2,5 e peso reduzido no pool; ACK real via webhook `MESSAGES_UPDATE`.
+
 ## [2.3.123] - 2026-09-11
 ### Corrigido
 - **CI/typecheck**: campos `delaySecondsMax`/`humanizedPauses` no tipo `Campaign`; casts do preview de importação de contatos.

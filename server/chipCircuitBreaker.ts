@@ -2,7 +2,8 @@ import { getSharedRedis } from './redisShared.js';
 
 export type CircuitEventType = 'SENT' | 'DELIVERED_ACK' | 'FAIL_4XX';
 
-export type CircuitState = 'OPEN' | 'HALF_OPEN' | 'CLOSED';
+/** CLOSED → THROTTLED (soft-ban) → HALF_OPEN → OPEN */
+export type CircuitState = 'OPEN' | 'HALF_OPEN' | 'THROTTLED' | 'CLOSED';
 
 export type CircuitHealthScore = {
   state: CircuitState;
@@ -10,6 +11,8 @@ export type CircuitHealthScore = {
   delivered: number;
   failures: number;
   failRate: number;
+  /** delivered / sent na janela (1 quando sent = 0). */
+  deliveryRatio: number;
   windowMs: number;
 };
 
@@ -23,11 +26,18 @@ function thresholds() {
     openFailRate: Number(process.env.CHIP_CB_OPEN_FAIL_RATE ?? 0.35),
     halfOpenFailRate: Number(process.env.CHIP_CB_HALF_FAIL_RATE ?? 0.15),
     minSamples: Number(process.env.CHIP_CB_MIN_SAMPLES ?? 8),
+    throttleDeliveryRatio: Number(process.env.CHIP_CB_THROTTLE_DELIVERY_RATIO ?? 0.55),
+    throttleMinSent: Number(process.env.CHIP_CB_THROTTLE_MIN_SENT ?? 10),
+    throttleDelayMultiplier: Number(process.env.CHIP_CB_THROTTLE_DELAY_MULT ?? 2.5),
   };
 }
 
 function zkey(chipId: string, event: CircuitEventType): string {
   return `${KEY_PREFIX}${chipId}:${event}`;
+}
+
+function ackDedupeKey(chipId: string, messageId: string): string {
+  return `${KEY_PREFIX}${chipId}:ackded:${messageId}`;
 }
 
 const COUNT_LUA = `
@@ -78,8 +88,27 @@ export class ChipCircuitBreaker {
     await this.recordEvent(chipId, 'SENT');
   }
 
+  /** @deprecated Prefer recordDeliveredAckForMessage via webhook MESSAGES_UPDATE. */
   async recordDeliveredAck(chipId: string): Promise<void> {
     await this.recordEvent(chipId, 'DELIVERED_ACK');
+  }
+
+  /**
+   * Contabiliza ACK real de entrega (webhook) uma vez por messageId.
+   * SERVER_ACK (status ≥2) conta como entregue.
+   */
+  async recordDeliveredAckForMessage(chipId: string, messageId: string): Promise<boolean> {
+    const redis = getSharedRedis();
+    const id = String(chipId || '').trim();
+    const mid = String(messageId || '').trim();
+    if (!redis || !id || !mid) return false;
+
+    const ttlSec = Math.max(60, Math.ceil(this.windowMs / 1000));
+    const claimed = await redis.set(ackDedupeKey(id, mid), '1', 'EX', ttlSec, 'NX');
+    if (claimed !== 'OK') return false;
+
+    await this.recordEvent(id, 'DELIVERED_ACK');
+    return true;
   }
 
   async recordFail4xx(chipId: string): Promise<void> {
@@ -90,12 +119,15 @@ export class ChipCircuitBreaker {
     const t = thresholds();
     const samples = sent + failures;
     const failRate = samples > 0 ? failures / samples : 0;
+    const deliveryRatio = sent > 0 ? delivered / sent : 1;
 
     let state: CircuitState = 'CLOSED';
     if (failures >= t.openFailCount || (samples >= t.minSamples && failRate >= t.openFailRate)) {
       state = 'OPEN';
     } else if (samples >= t.minSamples && failRate >= t.halfOpenFailRate) {
       state = 'HALF_OPEN';
+    } else if (sent >= t.throttleMinSent && deliveryRatio < t.throttleDeliveryRatio) {
+      state = 'THROTTLED';
     }
 
     return {
@@ -104,6 +136,7 @@ export class ChipCircuitBreaker {
       delivered,
       failures,
       failRate,
+      deliveryRatio,
       windowMs: this.windowMs,
     };
   }
@@ -112,7 +145,15 @@ export class ChipCircuitBreaker {
     const redis = getSharedRedis();
     const id = String(chipId || '').trim();
     if (!redis || !id) {
-      return { state: 'CLOSED', sent: 0, delivered: 0, failures: 0, failRate: 0, windowMs: this.windowMs };
+      return {
+        state: 'CLOSED',
+        sent: 0,
+        delivered: 0,
+        failures: 0,
+        failRate: 0,
+        deliveryRatio: 1,
+        windowMs: this.windowMs,
+      };
     }
 
     const keys = this.keys(id);
@@ -139,6 +180,10 @@ export class ChipCircuitBreaker {
 
   delayMultiplier(score: CircuitHealthScore): number {
     if (score.state === 'HALF_OPEN') return 1.6;
+    if (score.state === 'THROTTLED') {
+      const mult = thresholds().throttleDelayMultiplier;
+      return Number.isFinite(mult) && mult > 1 ? mult : 2.5;
+    }
     return 1;
   }
 

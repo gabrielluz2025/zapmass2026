@@ -200,6 +200,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
   const showStormWarning =
     stormProgress && stormProgress.count >= stormProgress.threshold - 1 && stormProgress.count < stormProgress.threshold;
   const showHalfOpen = circuitState === 'HALF_OPEN';
+  const showThrottled = circuitState === 'THROTTLED';
 
   const riskLevel: 'low' | 'medium' | 'high' = banCount >= 2 ? 'high' : banCount === 1 ? 'medium' : 'low';
   const riskColor = riskLevel === 'high' ? '#ef4444' : riskLevel === 'medium' ? '#f59e0b' : '#10b981';
@@ -368,6 +369,16 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                 >
                   <Eraser className="w-3 h-3" />
                   Creds. serão zeradas no QR
+                </span>
+              )}
+              {showThrottled && (
+                <span
+                  className="flex items-center gap-1 text-[9.5px] font-black px-2 py-0.5 rounded-full animate-pulse"
+                  style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)' }}
+                  title="Entrega degradada — envios desacelerados automaticamente (soft-ban)."
+                >
+                  <AlertTriangle className="w-3 h-3" />
+                  Entrega degradada
                 </span>
               )}
               {showHalfOpen && (

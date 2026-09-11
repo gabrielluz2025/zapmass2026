@@ -7,9 +7,11 @@ export type ChipProtectionConnectionRow = {
   id: string;
   name: string;
   status: string;
-  circuitState: 'CLOSED' | 'HALF_OPEN' | 'OPEN';
+  circuitState: 'CLOSED' | 'HALF_OPEN' | 'THROTTLED' | 'OPEN';
   failRatePct: number;
+  deliveryRatioPct?: number;
   sentWindow: number;
+  deliveredWindow?: number;
   failuresWindow: number;
   inQuarantine: boolean;
   quarantineUntil: string | null;

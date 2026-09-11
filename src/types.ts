@@ -45,7 +45,7 @@ export interface WhatsAppConnection {
   /** Chip em quarentena (bloqueado de campanhas) até este timestamp. */
   quarantineUntil?: number;
   /** Estado do circuit breaker (Evolution). */
-  circuitState?: 'CLOSED' | 'HALF_OPEN' | 'OPEN';
+  circuitState?: 'CLOSED' | 'HALF_OPEN' | 'THROTTLED' | 'OPEN';
   /** Reconexão lenta ativa após esgotar tentativas rápidas. */
   reconnectLongTail?: boolean;
   /** Quedas recentes antes do lock reconnect_storm. */

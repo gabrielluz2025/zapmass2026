@@ -35,7 +35,7 @@ export type WarmupDiagnosticChipRow = {
   banCount: number;
   inQuarantine: boolean;
   quarantineUntil: string | null;
-  circuitState: 'CLOSED' | 'HALF_OPEN' | 'OPEN' | 'unknown';
+  circuitState: 'CLOSED' | 'HALF_OPEN' | 'THROTTLED' | 'OPEN' | 'unknown';
   warmupFailedTotal: number;
   warmupSentTotal: number;
   goConnected: boolean | null;

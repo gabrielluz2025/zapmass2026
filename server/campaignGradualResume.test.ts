@@ -103,8 +103,9 @@ describe('ChipCircuitBreaker.classifyCounts', () => {
 });
 
 describe('campaignPoolDispatch', () => {
-  it('penaliza peso em HALF_OPEN', () => {
+  it('penaliza peso em HALF_OPEN e THROTTLED', () => {
     expect(applyCircuitWeightPenalty(10, 'HALF_OPEN')).toBe(5);
+    expect(applyCircuitWeightPenalty(10, 'THROTTLED')).toBe(3.5);
     expect(applyCircuitWeightPenalty(10, 'CLOSED')).toBe(10);
   });
 

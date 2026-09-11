@@ -42,9 +42,11 @@ export type ChipProtectionConnectionRow = {
   id: string;
   name: string;
   status: string;
-  circuitState: 'CLOSED' | 'HALF_OPEN' | 'OPEN';
+  circuitState: 'CLOSED' | 'HALF_OPEN' | 'THROTTLED' | 'OPEN';
   failRatePct: number;
+  deliveryRatioPct: number;
   sentWindow: number;
+  deliveredWindow: number;
   failuresWindow: number;
   inQuarantine: boolean;
   quarantineUntil: string | null;
@@ -504,7 +506,9 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
       status: String(conn.status || 'unknown'),
       circuitState: score.state,
       failRatePct: Math.round(score.failRate * 1000) / 10,
+      deliveryRatioPct: Math.round(score.deliveryRatio * 1000) / 10,
       sentWindow: score.sent,
+      deliveredWindow: score.delivered,
       failuresWindow: score.failures,
       inQuarantine: banInfo.inQuarantine,
       quarantineUntil:
@@ -578,6 +582,13 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
         level: 'warn',
         title: `${row.name} — recuperação`,
         detail: `Monitorando estabilidade (${row.failRatePct}% falhas).`,
+      });
+    } else if (row.circuitState === 'THROTTLED') {
+      liveFeed.push({
+        at: fetchedAt,
+        level: 'warn',
+        title: `${row.name} — entrega degradada (soft-ban)`,
+        detail: `Taxa de ACK ${row.deliveryRatioPct}% (${row.deliveredWindow}/${row.sentWindow} na janela). Envios desacelerados.`,
       });
     } else if (row.status !== 'CONNECTED' && row.status !== 'CONNECTING') {
       liveFeed.push({

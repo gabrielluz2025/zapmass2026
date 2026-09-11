@@ -5,6 +5,7 @@ export type AntiBanAlertType =
   | 'campaign-protection-paused'
   | 'chip-circuit-breaker-open'
   | 'chip-circuit-breaker-half-open'
+  | 'chip-circuit-breaker-throttled'
   | 'reconnect-storm-warning'
   | 'chip-reconnect-exhausted'
   | 'tenant-ban-cooldown-started'
@@ -85,6 +86,24 @@ function buildCircuitBreakerHalfOpen(payload: {
   return {
     title: 'Instabilidade detectada no chip — ação preventiva',
     body: `O chip ${label} está com taxa elevada de falhas${rate}. Reduza o ritmo de envio ou troque para outro chip saudável antes que o circuit breaker isole este canal. Verifique Conexões → Proteção de chips.`,
+    kind: 'warning',
+    connectionId: payload.connectionId,
+  };
+}
+
+function buildCircuitBreakerThrottled(payload: {
+  connectionId: string;
+  connectionLabel?: string;
+  deliveryRatioPct?: number;
+}): AntiBanAlertPayload {
+  const label = payload.connectionLabel || payload.connectionId;
+  const rate =
+    typeof payload.deliveryRatioPct === 'number'
+      ? ` (${payload.deliveryRatioPct}% de ACK de entrega na janela)`
+      : '';
+  return {
+    title: 'Soft-ban detectado — entrega degradada',
+    body: `O chip ${label} está enviando, mas a taxa de confirmação de entrega caiu${rate}. O sistema desacelera automaticamente este chip para evitar banimento. Considere pausar a campanha ou trocar de chip.`,
     kind: 'warning',
     connectionId: payload.connectionId,
   };
@@ -198,6 +217,18 @@ export async function emitAntiBanAlert(
       });
       break;
     }
+    case 'chip-circuit-breaker-throttled': {
+      const connectionId = String(raw.connectionId || '').trim();
+      if (!connectionId) return;
+      dedupeKey = connectionId;
+      if (await shouldDedupe(tid, type, dedupeKey)) return;
+      alert = buildCircuitBreakerThrottled({
+        connectionId,
+        connectionLabel: typeof raw.connectionLabel === 'string' ? raw.connectionLabel : undefined,
+        deliveryRatioPct: typeof raw.deliveryRatioPct === 'number' ? raw.deliveryRatioPct : undefined,
+      });
+      break;
+    }
     case 'reconnect-storm-warning': {
       dedupeKey = `storm:${raw.dropsInWindow ?? 2}`;
       if (await shouldDedupe(tid, type, dedupeKey)) return;
@@ -289,6 +320,14 @@ export async function emitAntiBanAlert(
 
   if (type === 'chip-circuit-breaker-half-open' && alert.connectionId) {
     publishFn?.(tid, 'chip-circuit-breaker-half-open', {
+      connectionId: alert.connectionId,
+      title: alert.title,
+      body: alert.body,
+    });
+  }
+
+  if (type === 'chip-circuit-breaker-throttled' && alert.connectionId) {
+    publishFn?.(tid, 'chip-circuit-breaker-throttled', {
       connectionId: alert.connectionId,
       title: alert.title,
       body: alert.body,

@@ -15,6 +15,7 @@ export type HealthyChannel = {
 };
 
 const HALF_OPEN_WEIGHT_PENALTY = 0.5;
+const THROTTLED_WEIGHT_PENALTY = 0.35;
 
 export function baseChannelWeight(
   connectionId: string,
@@ -27,6 +28,7 @@ export function baseChannelWeight(
 
 export function applyCircuitWeightPenalty(weight: number, circuitState: CircuitState): number {
   if (circuitState === 'HALF_OPEN') return Math.max(1, weight * HALF_OPEN_WEIGHT_PENALTY);
+  if (circuitState === 'THROTTLED') return Math.max(1, weight * THROTTLED_WEIGHT_PENALTY);
   return weight;
 }
 

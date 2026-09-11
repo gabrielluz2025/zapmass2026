@@ -193,7 +193,7 @@ const ChipHealthCard: React.FC<{ row: ChipProtectionConnectionRow }> = ({ row })
   const stateColor =
     row.inQuarantine || row.circuitState === 'OPEN'
       ? '#ef4444'
-      : row.circuitState === 'HALF_OPEN'
+      : row.circuitState === 'HALF_OPEN' || row.circuitState === 'THROTTLED'
         ? '#f59e0b'
         : online
           ? '#10b981'
@@ -221,7 +221,14 @@ const ChipHealthCard: React.FC<{ row: ChipProtectionConnectionRow }> = ({ row })
       <div className="flex flex-wrap gap-1.5">
         <Badge variant={online ? 'success' : 'neutral'}>{online ? 'Online' : row.status}</Badge>
         {row.circuitState !== 'CLOSED' && (
-          <Badge variant="warning">CB {row.circuitState === 'OPEN' ? 'aberto' : 'recuperando'}</Badge>
+          <Badge variant="warning">
+            CB{' '}
+            {row.circuitState === 'OPEN'
+              ? 'aberto'
+              : row.circuitState === 'THROTTLED'
+                ? 'soft-ban'
+                : 'recuperando'}
+          </Badge>
         )}
         {row.inQuarantine && <Badge variant="danger">Quarentena</Badge>}
         {row.banCount > 0 && (
