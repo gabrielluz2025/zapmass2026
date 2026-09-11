@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.122',
+    date: '11/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Pipeline anti-ban: jitter gaussiano, micro-pausas e composing em texto/mídia' },
+    ],
+  },
+  {
     version: '2.3.121',
     date: '10/09/2026',
     highlights: [

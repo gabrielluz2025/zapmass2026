@@ -115,6 +115,12 @@ import {
 import type { InboundProcessParams } from './inboundMissedReplay.js';
 import { validateCampaignContentHash } from './campaignContentHashLock.js';
 import {
+    applyGaussianSendDelay,
+    checkAndApplyMicroRest,
+    executePresenceSimulation,
+    getMicroRestDelayMs,
+} from './campaignHumanizePipeline.js';
+import {
     cancelCampaignJobsForPhone,
     handleInboundOptOut,
     isContactOptedOut,
@@ -6235,7 +6241,6 @@ async function attemptEvolutionSendMedia(
 /**
  * Uma tentativa de sendText na Evolution (sem retry de variante).
  */
-import { computeComposingDelayMs } from './campaignComposingDelay.js';
 async function sendPresenceComposing(
     connectionId: string,
     toNumber: string,
@@ -7427,6 +7432,45 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         throw new Error('Mensagem vazia após personalização — verifique variáveis e spintax');
     }
 
+    const humanizeSkip = Boolean(item.replyFlowResponse || item.nurtureFollowUp);
+
+    if (!humanizeSkip) {
+        const redis = getSharedRedis();
+        if (redis) {
+            const needsMicroRest = await checkAndApplyMicroRest(redis, item.connectionId);
+            if (needsMicroRest) {
+                const restMs = getMicroRestDelayMs();
+                emitCampaignLog(
+                    'INFO',
+                    `Micro-pausa anti-ban no chip ${item.connectionId} (~${Math.round(restMs / 60_000)} min).`,
+                    { campaignId: item.campaignId, connectionId: item.connectionId, restMs },
+                    campaignState?.ownerUid
+                );
+                await job.moveToDelayed(Date.now() + restMs, token);
+                throw new DelayedError();
+            }
+        }
+
+        const tierProfile = resolveChipTier(getConnectionConnectedSince(item.connectionId));
+        const cbScore = await getChipCircuitBreaker().getHealthScore(item.connectionId);
+        const cbMult = getChipCircuitBreaker().delayMultiplier(cbScore);
+        const contentLen = hasMediaPayload
+            ? String(mediaToSend?.caption || item.message || '').trim().length
+            : textPayload.length;
+        const humanizeCtx = {
+            chipId: item.connectionId,
+            phone: sendTo,
+            messageType: (hasMediaPayload ? 'media' : 'text') as 'text' | 'media',
+            contentLength: contentLen,
+            minDelayMs: dispatchSettings.minDelayMs,
+            maxDelayMs: dispatchSettings.maxDelayMs,
+            tierMultiplier: tierProfile.delayMultiplier * cbMult,
+        };
+
+        await executePresenceSimulation(humanizeCtx, sendPresenceComposing);
+        await applyGaussianSendDelay(humanizeCtx);
+    }
+
     let sendResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
     if (hasMediaPayload) {
         if (mediaToSend.url) {
@@ -7449,8 +7493,6 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             );
         }
     } else {
-        const composeMs = computeComposingDelayMs(textPayload);
-        await sendPresenceComposing(item.connectionId, sendTo, composeMs);
         sendResult = await sendMessageInternal(item.connectionId, sendTo, item.message);
     }
 
@@ -7500,7 +7542,22 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                           item.media.caption || item.message
                       )
                     : await (async () => {
-                          await sendPresenceComposing(altId, sendTo, computeComposingDelayMs(textPayload));
+                          if (!humanizeSkip) {
+                              const altTier = resolveChipTier(getConnectionConnectedSince(altId));
+                              const altCbScore = await getChipCircuitBreaker().getHealthScore(altId);
+                              const altCbMult = getChipCircuitBreaker().delayMultiplier(altCbScore);
+                              const altCtx = {
+                                  chipId: altId,
+                                  phone: sendTo,
+                                  messageType: 'text' as const,
+                                  contentLength: textPayload.length,
+                                  minDelayMs: dispatchSettings.minDelayMs,
+                                  maxDelayMs: dispatchSettings.maxDelayMs,
+                                  tierMultiplier: altTier.delayMultiplier * altCbMult,
+                              };
+                              await executePresenceSimulation(altCtx, sendPresenceComposing);
+                              await applyGaussianSendDelay(altCtx);
+                          }
                           return sendMessageInternal(altId, sendTo, item.message);
                       })();
                 if (altRetry.ok) {
@@ -7756,10 +7813,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         success: true,
     });
 
-    const delay =
-        dispatchSettings.minDelayMs +
-        Math.random() * (dispatchSettings.maxDelayMs - dispatchSettings.minDelayMs);
-    await new Promise((r) => setTimeout(r, delay));
+    if (humanizeSkip) {
+        const delay =
+            dispatchSettings.minDelayMs +
+            Math.random() * (dispatchSettings.maxDelayMs - dispatchSettings.minDelayMs);
+        await new Promise((r) => setTimeout(r, delay));
+    }
 }
 
 async function sendMediaByUrlInternal(

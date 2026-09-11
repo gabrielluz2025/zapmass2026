@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.122] - 2026-09-11
+### Melhorado
+- **Anti-ban (Item 1)**: pipeline `campaignHumanizePipeline` no worker BullMQ — jitter gaussiano entre envios, micro-pausas Redis a cada bloco (~20–30 msgs) e simulação de presença (composing) para texto e mídia antes do disparo Evolution.
+
 ## [2.3.121] - 2026-09-10
 ### Corrigido
 - **Conexões piscando (3ª rodada)**: merge não regride chip pareado para QR/OFFLINE sem `connectedSince`; carimbo de `connectedSince` ao conectar via socket.
