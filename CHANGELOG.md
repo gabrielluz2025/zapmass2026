@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.132] - 2026-09-11
+### Corrigido
+- **VPS/monitor**: setup instala `jq`, faz `checkout main`, exporta `VITE_GIT_REF` no build; Docker copia `VERSION` semver (não mais `unknown`).
+
 ## [2.3.131] - 2026-09-11
 ### Adicionado
 - **Ops VPS**: `deployment/setup-chip-health-monitor.sh` — git pull, `data/`, chave interna, docker e teste do monitor em um comando.

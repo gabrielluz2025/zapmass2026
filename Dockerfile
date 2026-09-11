@@ -100,8 +100,7 @@ COPY --from=builder /app/scripts/reset-vps-user-password.ts ./scripts/reset-vps-
 COPY --from=builder /app/scripts/normalize-all-contacts.ts ./scripts/normalize-all-contacts.ts
 COPY --from=builder /app/scripts/replay-inbound-connection.ts ./scripts/replay-inbound-connection.ts
 COPY --from=builder /app/scripts/warmupOptOutCache.ts ./scripts/warmupOptOutCache.ts
-ARG VITE_GIT_REF=unknown
-RUN echo "${VITE_GIT_REF}" > VERSION
+COPY --from=builder /app/VERSION ./VERSION
 
 EXPOSE 3001
 

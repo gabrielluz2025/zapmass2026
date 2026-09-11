@@ -97,6 +97,8 @@ services:
       WWEBJS_WEB_VERSION_URL: ${WWEBJS_WEB_VERSION_URL:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
+      ZAPMASS_INTERNAL_MONITOR_KEY: ${ZAPMASS_INTERNAL_MONITOR_KEY:-}
+      ZAPMASS_MONITOR_TENANT_UID: ${ZAPMASS_MONITOR_TENANT_UID:-}
     env_file:
       - path: .env
         required: false

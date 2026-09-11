@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.132',
+    date: '11/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Setup VPS: jq + VERSION semver no Docker + git checkout main' },
+    ],
+  },
+  {
     version: '2.3.131',
     date: '11/09/2026',
     highlights: [

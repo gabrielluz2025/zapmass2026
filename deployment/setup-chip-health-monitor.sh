@@ -22,11 +22,26 @@ MAIN_ENV="${ROOT}/.env"
 
 cd "${ROOT}"
 
+ensure_jq() {
+  if command -v jq >/dev/null 2>&1; then return 0; fi
+  echo "==> Instalando jq (parser JSON do monitor)..."
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jq
+  else
+    echo "AVISO: instale jq manualmente (apt install jq) para o monitor funcionar."
+  fi
+}
+
 echo "==> ZapMass — setup monitor chip-health"
 echo "    Raiz: ${ROOT}"
 
+ensure_jq
+
 if [ "${SKIP_GIT_PULL:-0}" != "1" ]; then
-  echo "==> git pull origin main"
+  echo "==> git fetch + checkout main"
+  git fetch origin main
+  git checkout main 2>/dev/null || git checkout -B main origin/main
   git pull origin main
 fi
 
@@ -71,6 +86,10 @@ else
 fi
 
 if [ "${SKIP_DOCKER:-0}" != "1" ]; then
+  export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  export CACHEBUST="${VITE_GIT_REF}"
+  SEMVER="$(tr -d '\r\n' < "${ROOT}/VERSION" 2>/dev/null || echo '?')"
+  echo "==> Build: semver=${SEMVER} ref=${VITE_GIT_REF}"
   echo "==> docker compose up -d --build"
   docker compose up -d --build
   echo "==> Aguardando API (15s)..."

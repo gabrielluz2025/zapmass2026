@@ -56,7 +56,12 @@ require_cmd() {
 }
 
 require_cmd curl
-require_cmd jq
+
+if ! command -v jq >/dev/null 2>&1; then
+  log_line "ERRO: jq não encontrado. Rode: apt-get update && apt-get install -y jq"
+  log_line "      Ou execute: bash deployment/setup-chip-health-monitor.sh"
+  exit 1
+fi
 
 if [ -z "${DISCORD_WEBHOOK_URL:-}" ] && { [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; }; then
   log_line "AVISO: nenhum canal de alerta (Discord ou Telegram). Métricas só no log."
