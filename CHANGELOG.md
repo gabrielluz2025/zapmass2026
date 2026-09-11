@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.123] - 2026-09-11
+### Corrigido
+- **CI/typecheck**: campos `delaySecondsMax`/`humanizedPauses` no tipo `Campaign`; casts do preview de importação de contatos.
+
 ## [2.3.122] - 2026-09-11
 ### Melhorado
 - **Anti-ban (Item 1)**: pipeline `campaignHumanizePipeline` no worker BullMQ — jitter gaussiano entre envios, micro-pausas Redis a cada bloco (~20–30 msgs) e simulação de presença (composing) para texto e mídia antes do disparo Evolution.

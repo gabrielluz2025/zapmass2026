@@ -316,6 +316,10 @@ export interface Campaign {
   };
   reportSnapshotAt?: string;
   delaySeconds?: number;
+  /** Intervalo máximo entre envios (segundos) — par com delaySeconds. */
+  delaySecondsMax?: number;
+  /** Pausas humanizadas entre blocos de envio (anti-ban). */
+  humanizedPauses?: boolean;
   /** IANA, ex. America/Sao_Paulo — usado com weeklySchedule. */
   scheduleTimeZone?: string;
   /** Janelas semanais quando status é SCHEDULED. */

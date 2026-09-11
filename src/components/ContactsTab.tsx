@@ -1226,7 +1226,7 @@ export const ContactsTab: React.FC = () => {
     const snap = getFileImportPreviewSnapshot();
     if (!snap?.open || fileImportPipelineBusy.current || getFileImportProgress().docked) return;
     setFileImportOpen(true);
-    setFileImportRows(snap.rows as FileImportRow[]);
+    setFileImportRows(snap.rows as unknown as FileImportRow[]);
     setFileImportLabel(snap.label);
     setFileImportFilter(snap.filter);
     setFileImportTargetMode(snap.targetMode);
@@ -1241,7 +1241,7 @@ export const ContactsTab: React.FC = () => {
     }
     setFileImportPreviewSnapshot({
       open: true,
-      rows: fileImportRows as FileImportPreviewRow[],
+      rows: fileImportRows as unknown as FileImportPreviewRow[],
       label: fileImportLabel,
       filter: fileImportFilter,
       targetMode: fileImportTargetMode,

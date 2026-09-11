@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.123',
+    date: '11/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Typecheck CI: tipo Campaign e preview de importação de contatos' },
+    ],
+  },
+  {
     version: '2.3.122',
     date: '11/09/2026',
     highlights: [
