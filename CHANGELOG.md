@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.133] - 2026-09-12
+### Adicionado
+- **Observabilidade VPS**: `GET /api/chip-health/detail` — score/tier/grupo warmup por chip (auth interna igual ao summary).
+- **Ops**: `deployment/warmup-pool-check.sh` e `scripts/warmup-pool-chip-report.ts` — checkup diário sem tsx isolado; chave lida do `.env` ou monitor env.
+
 ## [2.3.132] - 2026-09-11
 ### Corrigido
 - **VPS/monitor**: setup instala `jq`, faz `checkout main`, exporta `VITE_GIT_REF` no build; Docker copia `VERSION` semver (não mais `unknown`).

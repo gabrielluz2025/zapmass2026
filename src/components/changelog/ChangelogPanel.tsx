@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.133',
+    date: '12/09/2026',
+    highlights: [
+      { type: 'feat', text: 'GET /api/chip-health/detail — relatório por chip para scripts VPS' },
+      { type: 'improvement', text: 'warmup-pool-check.sh — auth interna + detail API (sem node isolado)' },
+    ],
+  },
+  {
     version: '2.3.132',
     date: '11/09/2026',
     highlights: [

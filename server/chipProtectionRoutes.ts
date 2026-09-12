@@ -9,7 +9,7 @@ import {
 } from './chipProtectionService.js';
 import { getChipCircuitBreaker } from './chipCircuitBreaker.js';
 import { getConnectionsForTenant } from './evolutionService.js';
-import { buildChipHealthSummary } from './chipHealthSummaryService.js';
+import { buildChipHealthSummary, buildChipHealthDetail } from './chipHealthSummaryService.js';
 import { resolveChipHealthSummaryAccess } from './chipHealthMonitorAuth.js';
 
 export function registerChipProtectionRoutes(app: Express): void {
@@ -37,6 +37,21 @@ export function registerChipProtectionRoutes(app: Express): void {
     } catch (e) {
       console.error('[chip-health/summary GET]', e);
       return res.status(500).json({ ok: false, error: 'Não foi possível carregar resumo de saúde dos chips.' });
+    }
+  });
+
+  /** Detalhe por chip (warmup / VPS) — mesma auth que /api/chip-health/summary. */
+  app.get('/api/chip-health/detail', async (req: Request, res: Response) => {
+    const access = await resolveChipHealthSummaryAccess(req);
+    if (access.mode === 'error') {
+      return res.status(access.status).json({ ok: false, error: access.error });
+    }
+    try {
+      const detail = await buildChipHealthDetail(access.tenantId);
+      return res.json({ ok: true, ...detail });
+    } catch (e) {
+      console.error('[chip-health/detail GET]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível carregar detalhe de saúde dos chips.' });
     }
   });
 

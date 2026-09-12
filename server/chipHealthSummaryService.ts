@@ -118,3 +118,71 @@ export async function buildChipHealthSummary(tenantId: string): Promise<ChipHeal
 
   return aggregateChipHealthSummary(rows);
 }
+
+export type ChipHealthWarmupGroup = 'A-quarentena' | 'B-crítico' | 'C-regular' | 'D-excelente';
+
+export type ChipHealthDetailRow = {
+  connectionId: string;
+  name: string;
+  status: string;
+  score: number;
+  band: UnifiedHealthBand;
+  circuitState: CircuitState;
+  inQuarantine: boolean;
+  quarantineUntil: string | null;
+  warmupGroup: ChipHealthWarmupGroup;
+  tierLabel: string;
+  suggestedDailyCap: number;
+  delayMultiplier: number;
+};
+
+export type ChipHealthDetail = {
+  timestamp: string;
+  tenantId: string;
+  chips: ChipHealthDetailRow[];
+  recommendations: string[];
+};
+
+function warmupGroupForRow(inQuarantine: boolean, score: number): ChipHealthWarmupGroup {
+  if (inQuarantine) return 'A-quarentena';
+  if (score < 30) return 'B-crítico';
+  if (score >= 80) return 'D-excelente';
+  return 'C-regular';
+}
+
+/** Lista por chip (mesma RAM do processo API) — para scripts VPS com auth interna. */
+export async function buildChipHealthDetail(tenantId: string): Promise<ChipHealthDetail> {
+  const uid = String(tenantId || '').trim();
+  const { getChipActivitySnapshot } = await import('./chipProtectionService.js');
+  const evo = await import('./evolutionService.js');
+  const { resolveChipTier } = await import('./chipTrustScore.js');
+  const snap = await getChipActivitySnapshot(uid);
+
+  const chips: ChipHealthDetailRow[] = snap.connections.map((c) => {
+    const since = evo.getConnectionConnectedSince(c.id);
+    const tier = resolveChipTier(typeof since === 'number' ? since : undefined);
+    return {
+      connectionId: c.id,
+      name: c.name,
+      status: c.status,
+      score: c.healthScore,
+      band: c.healthBand,
+      circuitState: c.circuitState,
+      inQuarantine: c.inQuarantine,
+      quarantineUntil: c.quarantineUntil,
+      warmupGroup: warmupGroupForRow(c.inQuarantine, c.healthScore),
+      tierLabel: tier.label,
+      suggestedDailyCap: tier.suggestedDailyCap,
+      delayMultiplier: tier.delayMultiplier,
+    };
+  });
+
+  chips.sort((a, b) => a.score - b.score);
+
+  return {
+    timestamp: new Date().toISOString(),
+    tenantId: uid,
+    chips,
+    recommendations: snap.recommendations,
+  };
+}

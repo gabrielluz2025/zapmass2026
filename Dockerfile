@@ -100,6 +100,7 @@ COPY --from=builder /app/scripts/reset-vps-user-password.ts ./scripts/reset-vps-
 COPY --from=builder /app/scripts/normalize-all-contacts.ts ./scripts/normalize-all-contacts.ts
 COPY --from=builder /app/scripts/replay-inbound-connection.ts ./scripts/replay-inbound-connection.ts
 COPY --from=builder /app/scripts/warmupOptOutCache.ts ./scripts/warmupOptOutCache.ts
+COPY --from=builder /app/scripts/warmup-pool-chip-report.ts ./scripts/warmup-pool-chip-report.ts
 COPY --from=builder /app/VERSION ./VERSION
 
 EXPOSE 3001
