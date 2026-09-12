@@ -2546,6 +2546,10 @@ export async function refreshConnectionQr(connectionId: string): Promise<string 
     }
 
     let extracted = await fetchConnectQr(id);
+    if (!extracted && isEvolutionGoEngine()) {
+        await kickEvolutionGoForQr(id);
+        extracted = await fetchConnectQr(id);
+    }
     if (!extracted) {
         extracted = await pollConnectQr(id, 8, 2000);
     }
@@ -5535,6 +5539,16 @@ async function createConnectionInternal(
     ownerUid?: string
 ): Promise<{ qrCode?: string; error?: string }> {
     try {
+        if (isEvolutionGoEngine()) {
+            try {
+                await assertEvolutionGoLicensed('criar canal');
+            } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : evolutionGoLicenseUserMessage(e);
+                emitConnectionProgress(id, 'failed');
+                return { error: msg };
+            }
+        }
+
         log('info', `Criando instância: ${name} (${id})`);
         emitConnectionProgress(id, 'preparing');
         emitConnectionProgress(id, 'launching-browser');
@@ -5597,6 +5611,8 @@ async function createConnectionInternal(
         await setupWebhook(id);
         if (!isEvolutionGoEngine()) {
             await ensureEvolutionFullHistorySync(id);
+        } else {
+            await kickEvolutionGoForQr(id);
         }
 
         emitConnectionProgress(id, 'awaiting-scan');
@@ -10796,6 +10812,8 @@ export async function createConnection(
     const result = await createConnectionInternal(id, name, proxy, uid);
     if (result.error) {
         stopQrWatch(id);
+        emitConnectionInitFailure(id, result.error);
+        emitConnectionProgress(id, 'failed');
         throw new Error(result.error);
     }
 }

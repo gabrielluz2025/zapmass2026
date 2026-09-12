@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.137',
+    date: '12/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Novo canal: kick connect no Go ao criar + modal recebe erro se QR/licença falhar' },
+      { type: 'improvement', text: 'Script diagnose-evolution-go-qr.sh na VPS para logs de QR' },
+    ],
+  },
+  {
     version: '2.3.136',
     date: '12/09/2026',
     highlights: [
