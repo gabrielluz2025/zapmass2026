@@ -285,11 +285,12 @@ const CONTACTS_FIRST_PAGE_SIZE = 500;
 const CONTACTS_BURST_PAGES = 3;
 const CONTACTS_BOOTSTRAP_MAX_RETRIES = 6;
 
-/** Postgres retorna páginas ordenadas — anexar sem varrer ids duplicados (O(n) por página em bases 40k+). */
+/** Anexa página mantendo ordem; substitui ids já presentes (refetch após import não duplica linhas). */
 function appendContactsPage(prev: Contact[], batch: Contact[]): Contact[] {
   if (batch.length === 0) return prev;
   if (prev.length === 0) return batch;
-  return prev.concat(batch);
+  const batchIds = new Set(batch.map((c) => c.id));
+  return prev.filter((c) => !batchIds.has(c.id)).concat(batch);
 }
 
 /** 1ª página de um refetch: atualiza topo sem esconder contatos já carregados (evita “sumiu” na UI). */
@@ -469,6 +470,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const contactsPreloadStartedRef = useRef(false);
   const contactsPreloadToastDoneRef = useRef(false);
   const contactsPreloadToastAtRef = useRef(0);
+  /** Desde quando cada canal ficou CONNECTING/QR sem QR (recuperação automática). */
+  const connectingSinceByIdRef = useRef<Map<string, number>>(new Map());
+  const stuckServerReconnectRef = useRef<Set<string>>(new Set());
   const [contactsPageVisible, setContactsPageVisible] = useState(
     () => typeof document === 'undefined' || !document.hidden
   );
@@ -1380,6 +1384,26 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     contactsLenRef.current = contacts.length;
   }, [contacts.length]);
 
+  useEffect(() => {
+    const now = Date.now();
+    const map = connectingSinceByIdRef.current;
+    const liveIds = new Set(connections.map((c) => c.id));
+    for (const id of [...map.keys()]) {
+      if (!liveIds.has(id)) map.delete(id);
+    }
+    for (const c of connections) {
+      const pairingStuck =
+        (c.status === ConnectionStatus.CONNECTING || c.status === ConnectionStatus.QR_READY) &&
+        !String(c.qrCode || '').trim();
+      if (pairingStuck) {
+        if (!map.has(c.id)) map.set(c.id, now);
+      } else {
+        map.delete(c.id);
+        stuckServerReconnectRef.current.delete(c.id);
+      }
+    }
+  }, [connections]);
+
   // --- SOCKET.IO REAL-TIME CONNECTION ---
   useEffect(() => {
     /** Workspace (userWorkspaceLinks) tem de resolver antes do socket — senão o filtro usa authUid e bloqueia canais/conversas do tenant. */
@@ -2178,9 +2202,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     /** Canal em CONNECTING sem QR — reconcilia com Evolution via HTTP (boot + pairing preso). */
     const stuckConnectingSyncInterval = setInterval(() => {
-      if (connectionListHasStaleConnecting(connectionsRef.current)) {
-        void syncConnectionsFromApi();
+      if (!connectionListHasStaleConnecting(connectionsRef.current)) return;
+      const now = Date.now();
+      for (const c of connectionsRef.current) {
+        if (c.status !== ConnectionStatus.CONNECTING || String(c.qrCode || '').trim()) continue;
+        if (!String(c.phoneNumber || '').trim()) continue;
+        const since = connectingSinceByIdRef.current.get(c.id);
+        if (!since || now - since < 90_000) continue;
+        if (stuckServerReconnectRef.current.has(c.id)) continue;
+        stuckServerReconnectRef.current.add(c.id);
+        const sock = socketRef.current;
+        if (sock?.connected) {
+          sock.emit('reconnect-connection', { id: c.id });
+        }
       }
+      void syncConnectionsFromApi({ force: true });
     }, 15_000);
 
     /** Polling HTTP do QR quando o socket não atualiza o status para QR_READY. */

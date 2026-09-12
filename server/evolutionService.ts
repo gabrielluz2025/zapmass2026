@@ -2006,6 +2006,7 @@ function applyConnectionStateUpdate(
             }
             const phone = phoneFromWebhookData(data);
             if (phone) conn.phoneNumber = phone;
+            conn.lastActivity = 'Online';
             // Ao reconectar com sucesso, libera quarentenas causadas por razões não-confirmadas
             // (rapid_close, unknown) para evitar bloqueio indevido de campanhas.
             const banRow = connectionsSettingsCache[instance];
@@ -2021,6 +2022,9 @@ function applyConnectionStateUpdate(
             if (!pairingStartedAt.has(instance)) {
                 pairingStartedAt.set(instance, Date.now());
             }
+            conn.lastActivity = conn.phoneNumber?.trim()
+                ? 'Restaurando sessão WhatsApp…'
+                : 'Aguardando QR Code…';
         } else if (state === 'close') {
             const statusReasonEarly = parseStatusReason(data);
             const userInitiatedCloseEarly =
@@ -2240,6 +2244,31 @@ function watchConnectionUntilOpen(connectionId: string) {
         if (isEvolutionOpenState(state)) {
             applyConnectionStateUpdate(connectionId, state, {});
             return;
+        }
+        if (
+            state === 'connecting' &&
+            attempts === 18 &&
+            isPairedConnection(connectionId) &&
+            !isManualLogoutHoldActive(connectionId)
+        ) {
+            log('info', `Connecting prolongado (~${Math.round((attempts * 4) / 60)} min) — restart Evolution: ${connectionId}`);
+            try {
+                await ensureGoInstanceUuidResolved(connectionId);
+                await api.post(`/instance/restart/${evoInst(connectionId)}`, {});
+                await sleep(5000);
+                invalidateConnectionStateCache(connectionId);
+                const afterRestart = (
+                    await getConnectionState(connectionId, { skipCache: true })
+                ).toLowerCase();
+                if (isEvolutionOpenState(afterRestart)) {
+                    applyConnectionStateUpdate(connectionId, afterRestart, {});
+                    return;
+                }
+            } catch (err: unknown) {
+                log('warn', `Restart em watch connecting falhou: ${connectionId}`, {
+                    error: err instanceof Error ? err.message : String(err),
+                });
+            }
         }
         if (state === 'close' && attempts >= 4) {
             if (isPairedConnection(connectionId) && !isManualLogoutHoldActive(connectionId)) {
@@ -10041,7 +10070,19 @@ export async function handleWebhook(event: any) {
     }
 }
 
-// ================== GETTERS (compatibilidade com server.ts) ==================
+function connectionLastActivityLabel(
+    conn: { lastActivity?: string; phoneNumber?: string | null },
+    status: ConnectionStatus
+): string {
+    const custom = String(conn.lastActivity || '').trim();
+    if (custom) return custom;
+    if (status === ConnectionStatus.CONNECTED) return 'Online';
+    if (status === ConnectionStatus.CONNECTING) {
+        return conn.phoneNumber?.trim() ? 'Restaurando sessão WhatsApp…' : 'Gerando QR Code…';
+    }
+    if (status === ConnectionStatus.QR_READY) return 'Aguardando leitura do QR…';
+    return 'Offline';
+}
 
 export function getConnections(): WhatsAppConnection[] {
     const result: WhatsAppConnection[] = [];
@@ -10071,7 +10112,7 @@ export function getConnections(): WhatsAppConnection[] {
             ownerUid: resolveOwnerUid(id),
             phoneNumber: conn.phoneNumber || null,
             status,
-            lastActivity: new Date().toLocaleString(),
+            lastActivity: connectionLastActivityLabel(conn, status),
             queueSize: connectionQueueSizes.get(id) || 0,
             messagesSentToday: conn.messagesSentToday || 0,
             signalStrength: 'STRONG',

@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.135',
+    date: '12/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Conexão presa em “Reconectando…” — restart/reconexão automática + lastActivity legível' },
+    ],
+  },
+  {
+    version: '2.3.134',
+    date: '12/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Contatos: refetch pós-import não duplica linhas na lista (paginação upsert por id)' },
+    ],
+  },
+  {
     version: '2.3.133',
     date: '12/09/2026',
     highlights: [

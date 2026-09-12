@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.135] - 2026-09-12
+### Corrigido
+- **Conexões**: chip pareado preso em “Reconectando sessão…” — restart automático no Evolution após ~1 min; após 90s o painel dispara reconexão; `lastActivity` deixa de mostrar só horário de sync.
+
+## [2.3.134] - 2026-09-12
+### Corrigido
+- **Contatos**: refetch após importação/atualização não duplicava mais linhas na UI — paginação substitui ids já carregados em vez de concatenar de novo.
+
 ## [2.3.133] - 2026-09-12
 ### Adicionado
 - **Observabilidade VPS**: `GET /api/chip-health/detail` — score/tier/grupo warmup por chip (auth interna igual ao summary).
