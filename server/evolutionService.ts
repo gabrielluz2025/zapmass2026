@@ -1841,7 +1841,7 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
                     watchConnectionUntilOpen(connectionId);
                     const paired = Boolean(connections.get(connectionId)?.phoneNumber?.trim());
                     if (!paired) {
-                        const extracted = await fetchConnectQr(connectionId);
+                        const extracted = await fetchConnectQr(connectionId, { pollOnly: true });
                         if (extracted) emitQrToFrontend(connectionId, extracted);
                     }
                     clearAutoReconnect(connectionId);
@@ -1914,7 +1914,7 @@ function ensureQrDelivered(
         }
 
         attempts++;
-        let extracted = await fetchConnectQr(connectionId);
+        let extracted = await fetchConnectQr(connectionId, { pollOnly: true });
         if (extracted) {
             emitQrToFrontend(connectionId, extracted);
             stopQrWatch(connectionId);
@@ -2359,7 +2359,10 @@ async function tryRecoverCountZeroInstance(instanceName: string): Promise<boolea
     }
 }
 
-async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQr | null> {
+async function fetchConnectQr(
+    instanceName: string,
+    opts?: { pollOnly?: boolean }
+): Promise<ExtractedEvolutionQr | null> {
     if (isEvolutionGoEngine()) {
         try {
             await assertEvolutionGoLicensed('gerar QR');
@@ -2391,15 +2394,22 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
         return { extracted: null, countZero };
     };
 
+    const getQrFromGo = async (via: string): Promise<{ extracted: ExtractedEvolutionQr | null; countZero: boolean }> => {
+        const getResp = await api.get(`/instance/connect/${evoInst(instanceName)}`);
+        return tryParse(getResp.data, via);
+    };
+
     const runConnectPass = async (): Promise<ExtractedEvolutionQr | null> => {
         const mem = connections.get(instanceName);
         if (mem?.status === 'open' && isPairedConnection(instanceName) && !isManualLogoutHoldActive(instanceName)) {
             return null;
         }
-        const live = (await getConnectionState(instanceName)).toLowerCase();
-        if (isEvolutionOpenState(live) && isPairedConnection(instanceName) && !isManualLogoutHoldActive(instanceName)) {
-            applyConnectionStateUpdate(instanceName, 'open', {});
-            return null;
+        if (!opts?.pollOnly) {
+            const live = (await getConnectionState(instanceName)).toLowerCase();
+            if (isEvolutionOpenState(live) && isPairedConnection(instanceName) && !isManualLogoutHoldActive(instanceName)) {
+                applyConnectionStateUpdate(instanceName, 'open', {});
+                return null;
+            }
         }
 
         if (isEvolutionGoEngine()) {
@@ -2409,12 +2419,8 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
 
         let sawCountZero = false;
 
-        try {
-            const getResp = await api.get(`/instance/connect/${evoInst(instanceName)}`);
-            const parsed = tryParse(getResp.data, 'GET');
-            if (parsed.extracted) return parsed.extracted;
-            if (parsed.countZero) sawCountZero = true;
-        } catch (error: any) {
+        const handleGetError = async (error: unknown): Promise<'stop' | 'continue'> => {
+            const err = error as { message?: string; response?: { status?: number } };
             if (isEvolutionGoLicenseError(error)) {
                 const msg = evolutionGoLicenseUserMessage(error);
                 emitConnectionProgress(instanceName, 'failed');
@@ -2423,18 +2429,32 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
                     publishOwnerEvent(ownerUid, 'socket-operation-error', { op: 'force-qr', error: msg });
                 }
                 log('warn', `connect/${instanceName} — licença Go inativa`, { msg });
-                return null;
+                return 'stop';
             }
             if (isMissingGoUuidError(error)) {
                 log('warn', `GET connect/${instanceName} sem UUID Go — recriando instância`, {});
                 await ensureEvolutionGoInstanceExists(instanceName);
                 await ensureGoInstanceUuidResolved(instanceName);
-            } else {
-                log('warn', `GET connect/${instanceName} falhou`, {
-                    error: error?.message,
-                    status: error?.response?.status,
-                });
+                return 'continue';
             }
+            log('warn', `GET connect/${instanceName} falhou`, {
+                error: err?.message,
+                status: err?.response?.status,
+            });
+            return 'continue';
+        };
+
+        try {
+            const parsed = await getQrFromGo(opts?.pollOnly ? 'GET-poll' : 'GET');
+            if (parsed.extracted) return parsed.extracted;
+            if (parsed.countZero) sawCountZero = true;
+        } catch (error: unknown) {
+            const action = await handleGetError(error);
+            if (action === 'stop') return null;
+        }
+
+        if (opts?.pollOnly) {
+            return null;
         }
 
         try {
@@ -2475,10 +2495,18 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
             }
         }
 
+        await sleep(2500);
+        try {
+            const parsedAfter = await getQrFromGo('GET-after-POST');
+            if (parsedAfter.extracted) return parsedAfter.extracted;
+            if (parsedAfter.countZero) sawCountZero = true;
+        } catch {
+            /* ok */
+        }
+
         if (sawCountZero && (await tryRecoverCountZeroInstance(instanceName))) {
             try {
-                const retry = await api.get(`/instance/connect/${evoInst(instanceName)}`);
-                const parsed = tryParse(retry.data, 'GET-retry');
+                const parsed = await getQrFromGo('GET-retry');
                 if (parsed.extracted) return parsed.extracted;
             } catch {
                 /* ok */
@@ -2491,20 +2519,23 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
     return runConnectPass();
 }
 
-/** Evolution Go: POST connect (immediate) antes do GET /instance/qr — senão o QR fica vazio. */
+/** Evolution Go: um POST connect (immediate); restart só em chip já pareado. */
 async function kickEvolutionGoForQr(instanceName: string): Promise<void> {
     if (!isEvolutionGoEngine()) return;
     await ensureEvolutionGoInstanceExists(instanceName);
     await ensureGoInstanceUuidResolved(instanceName);
-    try {
-        await api.post(`/instance/restart/${evoInst(instanceName)}`, {});
-        await sleep(4000);
-    } catch {
-        /* reconnect endpoint pode falhar se instância ainda não abriu */
+    const paired = isPairedConnection(instanceName);
+    if (paired) {
+        try {
+            await api.post(`/instance/restart/${evoInst(instanceName)}`, {});
+            await sleep(4000);
+        } catch {
+            /* reconnect endpoint pode falhar se instância ainda não abriu */
+        }
     }
     try {
         await api.post(`/instance/connect/${evoInst(instanceName)}`, { forceReconnect: true });
-        await sleep(3500);
+        await sleep(paired ? 3500 : 8000);
     } catch (error: unknown) {
         log('warn', `kickEvolutionGoForQr connect falhou: ${instanceName}`, {
             error: error instanceof Error ? error.message : String(error),
@@ -2523,7 +2554,7 @@ async function waitForQrFirst(connectionId: string, maxWaitMs = 28_000): Promise
             const v = conn.qrCode.trim();
             return { displayValue: v, kind: v.startsWith('data:image/') ? 'image' : 'code' };
         }
-        const extracted = await fetchConnectQr(connectionId);
+        const extracted = await fetchConnectQr(connectionId, { pollOnly: true });
         if (extracted) return extracted;
         await sleep(2000);
     }
@@ -2548,7 +2579,7 @@ export async function refreshConnectionQr(connectionId: string): Promise<string 
     let extracted = await fetchConnectQr(id);
     if (!extracted && isEvolutionGoEngine()) {
         await kickEvolutionGoForQr(id);
-        extracted = await fetchConnectQr(id);
+        extracted = await fetchConnectQr(id, { pollOnly: true });
     }
     if (!extracted) {
         extracted = await pollConnectQr(id, 8, 2000);
@@ -2575,7 +2606,7 @@ async function pollConnectQr(
     delayMs = 2000
 ): Promise<ExtractedEvolutionQr | null> {
     for (let i = 0; i < attempts; i++) {
-        const extracted = await fetchConnectQr(instanceName);
+        const extracted = await fetchConnectQr(instanceName, { pollOnly: true });
         if (extracted) return extracted;
         if (i < attempts - 1) await sleep(delayMs);
     }
@@ -5977,17 +6008,13 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
         extracted = await waitForQrFirst(id, 30_000);
     }
     if (!extracted) {
-        extracted = await pollConnectQr(id, 10, 2500);
+        extracted = await pollConnectQr(id, 12, 2500);
     }
     if (!extracted) {
-        ensureQrDelivered(id, 25, 2000, { deleteOnTimeout: false });
+        ensureQrDelivered(id, 45, 2500, { deleteOnTimeout: false });
         applyConnectionStateUpdate(id, 'connecting', {});
-        log('info', `forceQr: polling QR em background para ${id}`);
-        return {
-            error:
-                'QR ainda não disponível. Aguarde até 1 minuto ou atualize a página. Se persistir, veja os logs do Evolution Go.',
-            cleanReconnect: needsCleanReconnect,
-        };
+        log('info', `forceQr: QR ainda vazio; watchdog em background para ${id}`);
+        return { cleanReconnect: needsCleanReconnect };
     }
 
     emitQrToFrontend(id, extracted);

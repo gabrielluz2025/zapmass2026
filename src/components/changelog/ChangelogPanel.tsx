@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.139',
+    date: '12/09/2026',
+    highlights: [
+      { type: 'fix', text: 'QR: poll só GET /instance/qr — não reinicia connect a cada 2s no Go' },
+    ],
+  },
+  {
     version: '2.3.138',
     date: '12/09/2026',
     highlights: [
