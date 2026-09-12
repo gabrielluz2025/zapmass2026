@@ -695,11 +695,16 @@ for i in $(seq 1 "${_HEALTH_TRIES}"); do
   echo "tentativa $i: HTTP $code"
   if [ "$code" = "200" ]; then
     _DEPLOY_REF="${VITE_GIT_REF:-unknown}"
-    _LIVE_VER="$(curl -sf "http://127.0.0.1:${HP}/api/version" 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)"
-    echo "==> versão em execução: ${_LIVE_VER:-?} (esperado: ${_DEPLOY_REF})"
-    if [ -n "${_LIVE_VER}" ] && [ "${_LIVE_VER}" != "${_DEPLOY_REF}" ] && [ "${_DEPLOY_REF}" != "unknown" ]; then
-      echo "AVISO: versão da API difere do commit deployado — container pode estar desatualizado."
-      echo "       Tente: docker service update --force --image zapmass:latest zapmass_api"
+    _EXPECTED_SEMVER="$(tr -d '\r\n ' < VERSION 2>/dev/null || echo unknown)"
+    _LIVE_JSON="$(curl -sf "http://127.0.0.1:${HP}/api/version" 2>/dev/null || true)"
+    _LIVE_VER="$(printf '%s' "${_LIVE_JSON}" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)"
+    _LIVE_REF="$(printf '%s' "${_LIVE_JSON}" | sed -n 's/.*"gitRef"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)"
+    echo "==> versão API: ${_LIVE_VER:-?} (semver repo: ${_EXPECTED_SEMVER}, commit deploy: ${_DEPLOY_REF})"
+    if [ -n "${_LIVE_VER}" ] && [ "${_EXPECTED_SEMVER}" != "unknown" ] && [ "${_LIVE_VER}" != "${_EXPECTED_SEMVER}" ]; then
+      echo "AVISO: semver da API (${_LIVE_VER}) difere do arquivo VERSION (${_EXPECTED_SEMVER}) — rebuild pode ter falhado."
+      echo "       Rode de novo: bash deployment/deploy-completo.sh"
+    elif [ -n "${_LIVE_REF}" ] && [ "${_DEPLOY_REF}" != "unknown" ] && [ "${_LIVE_REF}" != "${_DEPLOY_REF}" ] && [ "${_LIVE_REF}" != "unknown" ]; then
+      echo "AVISO: gitRef da API (${_LIVE_REF}) difere do commit deste deploy (${_DEPLOY_REF})."
     fi
     _CID="$(docker ps -q --filter name=zapmass_api | head -1)"
     if [ -n "${_CID}" ]; then

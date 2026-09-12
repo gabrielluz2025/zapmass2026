@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.138',
+    date: '12/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Deploy: AVISO falso semver×commit; /api/version com gitRef' },
+      { type: 'improvement', text: 'diagnose-evolution-go-qr: instâncias Go desconectadas (.data[])' },
+    ],
+  },
+  {
     version: '2.3.137',
     date: '12/09/2026',
     highlights: [

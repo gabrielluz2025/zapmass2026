@@ -103,6 +103,10 @@ COPY --from=builder /app/scripts/warmupOptOutCache.ts ./scripts/warmupOptOutCach
 COPY --from=builder /app/scripts/warmup-pool-chip-report.ts ./scripts/warmup-pool-chip-report.ts
 COPY --from=builder /app/VERSION ./VERSION
 
+# Commit do build (healthcheck pós-deploy compara com VITE_GIT_REF).
+ARG VITE_GIT_REF=unknown
+ENV VITE_GIT_REF=$VITE_GIT_REF
+
 EXPOSE 3001
 
 HEALTHCHECK --interval=30s --timeout=15s --start-period=180s --retries=5 \

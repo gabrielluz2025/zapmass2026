@@ -745,8 +745,10 @@ app.get('/metrics', metricsAccessMiddleware, async (_req, res) => {
 });
 
 app.get('/api/version', (req, res) => {
+  const gitRef = (process.env.VITE_GIT_REF || process.env.GIT_REF || '').trim() || undefined;
   res.json({
     version: getAppVersion(),
+    ...(gitRef ? { gitRef } : {}),
     startedAt: serverStartedAt.toISOString(),
     environment: process.env.NODE_ENV || 'development'
   });

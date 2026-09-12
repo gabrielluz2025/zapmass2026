@@ -14,10 +14,15 @@ echo "==> Health rápido"
 bash deployment/check-evolution-go-health.sh || true
 echo ""
 
-echo "==> Instâncias em connecting (Go /instance/all)"
-INST_JSON="$(curl -sf -H "apikey: ${GO_KEY}" "http://127.0.0.1:8081/instance/all" || echo '[]')"
+echo "==> Instâncias NÃO conectadas no Go (/instance/all → .data[])"
+INST_JSON="$(curl -sf -H "apikey: ${GO_KEY}" "http://127.0.0.1:8081/instance/all" || echo '{"data":[]}')"
 if command -v jq >/dev/null 2>&1; then
-  echo "$INST_JSON" | jq -r '.[] | select(.connected != true) | "\(.name // .instanceName // "?") status=\(.status // .connectionStatus // "?") connected=\(.connected)"' 2>/dev/null | head -40 || echo "$INST_JSON" | head -c 2000
+  _OFF="$(echo "$INST_JSON" | jq -r '(.data // .) | if type == "array" then . else [] end | .[] | select(.connected != true) | "\(.name // .instanceName // "?") connected=\(.connected) jid=\(.jid // "-") reason=\(.disconnect_reason // "-") qrcode_len=\(.qrcode // "" | length)"' 2>/dev/null || true)"
+  if [ -n "${_OFF}" ]; then
+    echo "${_OFF}"
+  else
+    echo "OK: todas as instâncias no Go estão connected=true (ou lista vazia)."
+  fi
 else
   echo "$INST_JSON" | head -c 2000
 fi
@@ -37,4 +42,4 @@ docker compose logs evolution-go --tail=120 2>&1 | tail -120
 echo ""
 
 echo "==> docker compose logs zapmass --tail=200 (QR / create / kick / licença)"
-docker compose logs zapmass --tail=200 2>&1 | grep -iE 'kickEvolution|createConnection|forceQr|fetchConnectQr|connection-init-failure|LICENSE|count:0|criar canal' || echo "(nenhuma linha filtrada)"
+docker compose logs zapmass --tail=400 2>&1 | grep -iE 'kickEvolution|kick Go|Criando instância|Forçando novo QR|fetchConnectQr|connection-init-failure|LICENSE|criar canal|Instância criada|forceQr' || echo "(nenhuma linha filtrada — tente Forçar QR/novo canal e rode de novo)"

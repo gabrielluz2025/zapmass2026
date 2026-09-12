@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.138] - 2026-09-12
+### Corrigido
+- **Deploy VPS**: health pós-deploy compara semver (`VERSION`) e `gitRef` — deixa de alertar falso positivo (2.3.137 vs `eaece69`).
+### Melhorado
+- **`/api/version`**: expõe `gitRef` do build; script `diagnose-evolution-go-qr.sh` lista instâncias Go com `connected=false` (JSON `.data[]`).
+
 ## [2.3.137] - 2026-09-12
 ### Corrigido
 - **Novo canal / QR**: criação de conexão no Evolution Go faz restart+connect antes de buscar QR (igual ao Forçar QR); falhas emitem `connection-init-failure` no modal; refresh HTTP do QR também faz kick no Go.
