@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.136] - 2026-09-12
+### Corrigido
+- **Conexões / QR**: Forçar QR no Evolution Go faz restart+connect antes de buscar QR; UI faz polling HTTP até 90s; status `created` sem QR não fica “QR pronto” fantasma.
+
 ## [2.3.135] - 2026-09-12
 ### Corrigido
 - **Conexões**: chip pareado preso em “Reconectando sessão…” — restart automático no Evolution após ~1 min; após 90s o painel dispara reconexão; `lastActivity` deixa de mostrar só horário de sync.

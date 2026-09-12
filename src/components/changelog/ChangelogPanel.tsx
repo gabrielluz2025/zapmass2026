@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.136',
+    date: '12/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Forçar QR: kick connect no Evolution Go + polling HTTP até QR aparecer' },
+    ],
+  },
+  {
     version: '2.3.135',
     date: '12/09/2026',
     highlights: [

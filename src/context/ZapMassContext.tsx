@@ -3189,9 +3189,62 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       toast.error(msg);
       return;
     }
+    delete qrCodeByConnectionId.current[id];
+    setConnections((prev) => {
+      const updated = prev.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              qrCode: undefined,
+              phoneNumber: undefined,
+              status: ConnectionStatus.CONNECTING,
+              lastActivity: 'Gerando QR Code…',
+            }
+          : c
+      );
+      connectionsRef.current = updated;
+      return updated;
+    });
     sock.emit('ui-log', { action: 'force-qr', id });
     sock.emit('force-qr', { id });
-    toast('Forcando novo QR...', { icon: '🧩' });
+    toast('Forcando novo QR...', { icon: '🧩', duration: 5000 });
+
+    const deadline = Date.now() + 90_000;
+    while (Date.now() < deadline) {
+      const have = connectionsRef.current.find((c) => c.id === id)?.qrCode?.trim();
+      if (have) return;
+      try {
+        const token = await getSessionIdToken();
+        if (!token) break;
+        const res = await fetch(apiUrl(`/api/connections/${encodeURIComponent(id)}/qr`), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = (await res.json()) as { ok?: boolean; qrCode?: string };
+        const qr = typeof data?.qrCode === 'string' ? data.qrCode.trim() : '';
+        if (data?.ok && qr) {
+          qrCodeByConnectionId.current[id] = qr;
+          setConnections((prev) => {
+            const updated = prev.map((c) =>
+              c.id === id
+                ? {
+                    ...c,
+                    qrCode: qr,
+                    status: ConnectionStatus.QR_READY,
+                    lastActivity: 'Aguardando leitura do QR...',
+                  }
+                : c
+            );
+            connectionsRef.current = updated;
+            return updated;
+          });
+          toast.success('QR Code pronto — escaneie no WhatsApp.', { duration: 6000 });
+          return;
+        }
+      } catch {
+        /* próxima tentativa */
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
   };
 
   const renameConnection = async (id: string, name: string) => {

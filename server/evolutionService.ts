@@ -2491,6 +2491,27 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
     return runConnectPass();
 }
 
+/** Evolution Go: POST connect (immediate) antes do GET /instance/qr — senão o QR fica vazio. */
+async function kickEvolutionGoForQr(instanceName: string): Promise<void> {
+    if (!isEvolutionGoEngine()) return;
+    await ensureEvolutionGoInstanceExists(instanceName);
+    await ensureGoInstanceUuidResolved(instanceName);
+    try {
+        await api.post(`/instance/restart/${evoInst(instanceName)}`, {});
+        await sleep(4000);
+    } catch {
+        /* reconnect endpoint pode falhar se instância ainda não abriu */
+    }
+    try {
+        await api.post(`/instance/connect/${evoInst(instanceName)}`, { forceReconnect: true });
+        await sleep(3500);
+    } catch (error: unknown) {
+        log('warn', `kickEvolutionGoForQr connect falhou: ${instanceName}`, {
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** Aguarda QR na Evolution (create/connect) antes de devolver ao cliente. */
@@ -5933,6 +5954,8 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
         }
     }
 
+    await kickEvolutionGoForQr(id);
+
     let extracted = await fetchConnectQr(id);
     if (!extracted) {
         extracted = await waitForQrFirst(id, 30_000);
@@ -5944,7 +5967,11 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
         ensureQrDelivered(id, 25, 2000, { deleteOnTimeout: false });
         applyConnectionStateUpdate(id, 'connecting', {});
         log('info', `forceQr: polling QR em background para ${id}`);
-        return { error: 'QR ainda não disponível. Aguarde alguns segundos.', cleanReconnect: needsCleanReconnect };
+        return {
+            error:
+                'QR ainda não disponível. Aguarde até 1 minuto ou atualize a página. Se persistir, veja os logs do Evolution Go.',
+            cleanReconnect: needsCleanReconnect,
+        };
     }
 
     emitQrToFrontend(id, extracted);
@@ -10092,7 +10119,9 @@ export function getConnections(): WhatsAppConnection[] {
         if (conn.status === 'open') status = ConnectionStatus.CONNECTED;
         else if (conn.qrCode?.trim()) status = ConnectionStatus.QR_READY;
         else if (conn.status === 'connecting') status = ConnectionStatus.CONNECTING;
-        else if (conn.status === 'created') status = ConnectionStatus.QR_READY;
+        else if (conn.status === 'created') {
+            status = conn.qrCode?.trim() ? ConnectionStatus.QR_READY : ConnectionStatus.CONNECTING;
+        }
 
         const banInfo = getConnectionBanInfo(id);
         const ownerUidForConn = resolveOwnerUid(id);
