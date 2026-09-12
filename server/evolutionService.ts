@@ -250,7 +250,7 @@ import {
 } from './campaignTenantScope.js';
 import type { Server as SocketIOServer } from 'socket.io';
 import { atomicWriteJsonFile, parseJsonObjectLenient, shouldRefuseEmptyObjectOverwrite } from './safeJsonFile.js';
-import { isEvolutionOpenState, parseConnectionStatePayload } from './evolutionOpenState.js';
+import { isEvolutionOpenState, goPayloadLooksConnected, parseConnectionStatePayload } from './evolutionOpenState.js';
 import { formatEvolutionHttpError } from './evolutionChatSend.js';
 import type { CampaignStageConfig, CampaignProspecting } from '../src/types.js';
 import {
@@ -2331,12 +2331,86 @@ function emitQrToFrontend(connectionId: string, extracted: ExtractedEvolutionQr)
 
 const countZeroRecoveryAttempts = new Map<string, number>();
 
+/** Go: desconectado mas ainda com JID — client zumbi; POST connect não reinicia nem gera QR. */
+async function goInstanceNeedsQrRecreate(connectionId: string): Promise<boolean> {
+    if (!isEvolutionGoEngine()) return false;
+    try {
+        const list = await fetchGoInstanceList();
+        for (const item of list) {
+            if (!item || typeof item !== 'object') continue;
+            const row = item as Record<string, unknown>;
+            const name = String(row.name || row.instanceName || '').trim();
+            if (name !== connectionId) continue;
+            if (goPayloadLooksConnected(row)) return false;
+            const jid = String(row.jid || '').trim();
+            return jid.length > 0;
+        }
+    } catch {
+        return false;
+    }
+    return false;
+}
+
+/** Apaga e recria instância no Evolution Go (credenciais WhatsApp zeradas). */
+async function deleteAndRecreateGoInstance(connectionId: string, logTag: string): Promise<boolean> {
+    const id = String(connectionId || '').trim();
+    if (!id || !isEvolutionGoEngine()) return false;
+    log('info', `${logTag}: apagar+recriar instância Go ${id}`);
+    await ensureGoInstanceUuidResolved(id).catch(() => undefined);
+    try {
+        try {
+            await api.delete(`/instance/logout/${evoInst(id)}`);
+        } catch {
+            /* ok */
+        }
+        await api.delete(`/instance/delete/${evoInst(id)}`);
+    } catch (error: unknown) {
+        log('warn', `${logTag}: falha ao apagar ${id}`, {
+            error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+    }
+    if (connectionsSettingsCache[id]) {
+        delete connectionsSettingsCache[id].evolutionGoInstanceId;
+        saveConnectionsSettings();
+    }
+    await sleep(2500);
+    try {
+        const createResp = await api.post('/instance/create', {
+            instanceName: evoInst(id),
+            qrcode: true,
+        });
+        persistGoInstanceUuid(id, extractGoInstanceIdFromApiPayload(createResp.data));
+        const payload = createResp.data;
+        if (payload && typeof payload === 'object') {
+            const row = payload as Record<string, unknown>;
+            const inner =
+                row.instance && typeof row.instance === 'object'
+                    ? (row.instance as Record<string, unknown>)
+                    : row;
+            syncGoInstanceCredentials(id, inner);
+        }
+    } catch (error: unknown) {
+        log('warn', `${logTag}: create falhou ${id}`, {
+            error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+    }
+    await setupWebhook(id).catch(() => undefined);
+    countZeroRecoveryAttempts.delete(id);
+    return true;
+}
+
 /** Instâncias criadas antes do CONFIG_SESSION correto ficam com connect count:0 até logout/restart. */
 async function tryRecoverCountZeroInstance(instanceName: string): Promise<boolean> {
     const attempts = countZeroRecoveryAttempts.get(instanceName) ?? 0;
-    if (attempts >= 2) return false;
+    if (attempts >= 3) return false;
     countZeroRecoveryAttempts.set(instanceName, attempts + 1);
     log('info', `count:0 — recuperar sessão Evolution: ${instanceName} (tentativa ${attempts + 1})`);
+
+    if (attempts === 2) {
+        return deleteAndRecreateGoInstance(instanceName, 'count:0');
+    }
 
     try {
         await api.post(`/instance/restart/${evoInst(instanceName)}`, {});
@@ -5899,10 +5973,16 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
     }
 
     const banInfo = getConnectionBanInfo(id);
-    const needsCleanReconnect = banInfo.banCount > 0;
+    let needsCleanReconnect = banInfo.banCount > 0;
+    if (!needsCleanReconnect && isEvolutionGoEngine()) {
+        if (await goInstanceNeedsQrRecreate(id)) {
+            log('warn', `[QrRecreate] ${id} desconectado no Go com JID — reconexão limpa`);
+            needsCleanReconnect = true;
+        }
+    }
 
     if (needsCleanReconnect) {
-        log('warn', `[CleanReconnect] Chip ${id} foi banido ${banInfo.banCount}x — apagando credenciais Evolution para reconexão limpa`);
+        log('warn', `[CleanReconnect] Chip ${id}${banInfo.banCount > 0 ? ` foi banido ${banInfo.banCount}x` : ' — sessão zumbi no Go'} — apagando credenciais Evolution`);
         // Preserva metadados do chip (dono, nome, configurações)
         const cached = connectionsSettingsCache[id] ? { ...connectionsSettingsCache[id] } : undefined;
         const connMem = connections.get(id);

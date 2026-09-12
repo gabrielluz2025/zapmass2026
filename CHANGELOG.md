@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.140] - 2026-09-12
+### Corrigido
+- **QR / Go zumbi**: chip `connected=false` com JID antigo no Go — Forçar QR apaga e recria a instância; `count:0` tenta delete+create na 3ª recuperação.
+
 ## [2.3.139] - 2026-09-12
 ### Corrigido
 - **QR / Forçar QR**: polling deixou de repetir `POST connect` a cada 2s (impedia o Go de gerar QR); restart no kick só em chip já pareado; toast de erro prematuro removido (watchdog em background).

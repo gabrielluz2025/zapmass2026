@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.140',
+    date: '12/09/2026',
+    highlights: [
+      { type: 'fix', text: 'QR: sessão zumbi no Go (JID + desconectado) — recria instância ao Forçar QR' },
+    ],
+  },
+  {
     version: '2.3.139',
     date: '12/09/2026',
     highlights: [
