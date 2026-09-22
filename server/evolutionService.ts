@@ -2000,9 +2000,12 @@ function applyConnectionStateUpdate(
             clearAutoReconnect(instance);
             clearManualLogoutHold(instance);
             conn.qrCode = undefined;
-            // Uptime: marca o momento do open; não zera em webhook "open" repetido.
+            // Uptime da sessão: lastOpenAt; idade do chip (tier): connectedSince NÃO sobrescreve.
             if (prevStatus !== 'open' || !conn.lastOpenAt) {
                 conn.lastOpenAt = Date.now();
+            }
+            const existingSince = connectionsSettingsCache[instance]?.connectedSince;
+            if (!(typeof existingSince === 'number' && existingSince > 0)) {
                 mergeConnectionSettingsCache(instance, { connectedSince: conn.lastOpenAt });
             }
             const phone = phoneFromWebhookData(data);
@@ -2047,8 +2050,9 @@ function applyConnectionStateUpdate(
             stopWatchingConnection(instance);
             pairingStartedAt.delete(instance);
             conn.lastOpenAt = undefined;
+            // NÃO zerar connectedSince: é a idade do chip para tier/delay.
+            // Zerava a cada queda → chip eternamente "novo" (delay 5×) e campanha demorava a iniciar.
             mergeConnectionSettingsCache(instance, {
-                connectedSince: undefined,
                 lastClosedAt: Date.now(),
             });
 
@@ -2762,7 +2766,10 @@ async function _doHydrateInstancesFromEvolution() {
             applySettingsToInstance(instanceObj);
             if (mappedState === 'open' && !instanceObj.lastOpenAt) {
                 instanceObj.lastOpenAt = Date.now();
-                mergeConnectionSettingsCache(instanceName, { connectedSince: instanceObj.lastOpenAt });
+                const existingSince = cachedRow?.connectedSince;
+                if (!(typeof existingSince === 'number' && existingSince > 0)) {
+                    mergeConnectionSettingsCache(instanceName, { connectedSince: instanceObj.lastOpenAt });
+                }
             }
             healConnectionFriendlyName(instanceName);
 
@@ -3487,11 +3494,32 @@ export function getConnectionsSettingsSnapshot(): Record<string, ConnectionSetti
     return { ...connectionsSettingsCache };
 }
 
-/** Epoch ms em que o chip ficou open (trust score / tier). */
+/** Epoch ms em que o chip ficou open pela primeira vez (trust score / tier). */
 export function getConnectionConnectedSince(connectionId: string): number | undefined {
     const row = connectionsSettingsCache[String(connectionId || '').trim()];
     const since = row?.connectedSince;
     return typeof since === 'number' && since > 0 ? since : undefined;
+}
+
+/**
+ * Chips já pareados sem `connectedSince` (zerado em closes antigos) eram tratados como
+ * tier 0A (delay 5×). Assume ~14 dias → aquecimento (1.8×), não crítico.
+ */
+export function healPairedChipsMissingConnectedSince(): number {
+    const ASSUMED_AGE_MS = 14 * 86_400_000;
+    let healed = 0;
+    for (const [id, conn] of connections.entries()) {
+        if (!conn.phoneNumber?.trim()) continue;
+        const row = connectionsSettingsCache[id];
+        if (typeof row?.connectedSince === 'number' && row.connectedSince > 0) continue;
+        mergeConnectionSettingsCache(id, { connectedSince: Date.now() - ASSUMED_AGE_MS });
+        healed++;
+    }
+    if (healed > 0) {
+        saveConnectionsSettings();
+        log('info', `[TrustScore] ${healed} chip(s) pareado(s) sem idade — assumindo 14d (evita delay 5× no disparo)`);
+    }
+    return healed;
 }
 
 /** Converte ownerUid legado (Firebase) para users.id Postgres — evita vazamento entre tenants. */
@@ -7480,6 +7508,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             reconnectStormThreshold: stormForTier?.threshold,
         });
         extraDelay = Math.floor(extraDelay * unifiedForDelay.delayMultiplier);
+        // Cap: evita 2–4 min de espera no 1º envio quando tier/storm multiplicam o delay.
+        const tierExtraCapMs = Math.max(
+            5_000,
+            Math.min(60_000, Number(process.env.CAMPAIGN_TIER_EXTRA_DELAY_CAP_MS ?? 20_000) || 20_000)
+        );
+        if (extraDelay > tierExtraCapMs) extraDelay = tierExtraCapMs;
         if (extraDelay > 0) {
             item._tierDelayApplied = true;
             await job.updateData(item).catch(() => {});
@@ -9649,6 +9683,24 @@ export async function startCampaign(
 /**
  * Inicialização do serviço
  */
+async function mapWithConcurrency<T>(
+    items: T[],
+    concurrency: number,
+    fn: (item: T) => Promise<void>
+): Promise<void> {
+    if (items.length === 0) return;
+    const limit = Math.max(1, Math.min(concurrency, items.length));
+    let next = 0;
+    const workers = Array.from({ length: limit }, async () => {
+        while (true) {
+            const i = next++;
+            if (i >= items.length) return;
+            await fn(items[i]);
+        }
+    });
+    await Promise.all(workers);
+}
+
 async function reconcileConnectionHealth() {
     const onlineChips = [...connections.values()].filter((c) => c.status === 'open').length;
     if (onlineChips === 0) return;
@@ -9656,8 +9708,12 @@ async function reconcileConnectionHealth() {
     const entries = [...connections.entries()].filter(
         ([id]) => !connectionWatchTimers.has(id) && !qrWatchTimers.has(id)
     );
-    await Promise.all(
-        entries.map(async ([id, conn]) => {
+    // Limita probes paralelos: Promise.all em dezenas de chips derrubava CPU + Evolution Go.
+    const probeConcurrency = Math.max(
+        1,
+        Math.min(6, Number(process.env.CONNECTION_HEALTH_PROBE_CONCURRENCY ?? 3) || 3)
+    );
+    await mapWithConcurrency(entries, probeConcurrency, async ([id, conn]) => {
             const memState = conn.status;
             const paired = Boolean(conn.phoneNumber?.trim());
 
@@ -9735,17 +9791,14 @@ async function reconcileConnectionHealth() {
                     scheduleEvolutionAutoReconnect(id);
                 }
             }
-        })
-    );
+    });
 
     try {
         const cb = getChipCircuitBreaker();
-        await Promise.all(
-            [...connections.keys()].map(async (id) => {
-                const score = await cb.getHealthScore(id);
-                circuitStateByConnection.set(id, score.state);
-            })
-        );
+        await mapWithConcurrency([...connections.keys()], probeConcurrency, async (id) => {
+            const score = await cb.getHealthScore(id);
+            circuitStateByConnection.set(id, score.state);
+        });
     } catch {
         /* opcional */
     }
@@ -9792,6 +9845,7 @@ export function init(socketIO: SocketIOServer) {
         // Segundo hydrate removido: chamada duplicada causava pico de POST /instance/connect
         // (ensureGoInstanceWebhook) em todos os chips do boot — candidato #1 ao crash do Evolution Go.
         healAllGenericConnectionFriendlyNames();
+        healPairedChipsMissingConnectedSince();
 
         // Boot replay: processa respostas recebidas enquanto o ZapMass estava offline
         // (chip permaneceu open, webhooks não foram entregues)
@@ -10477,10 +10531,14 @@ export function getConnections(): WhatsAppConnection[] {
         const circuitState = circuitStateByConnection.get(id);
         const reconnectLongTail = Boolean(autoReconnectState.get(id)?.longTail);
         const cachedUnified = getCachedUnifiedHealth(id);
-        // Chip online sem timestamp (boot antigo / hydrate): inicia o relógio agora e persiste.
+        // Chip online sem lastOpenAt (boot): marca sessão agora.
+        // connectedSince (idade/tier) só preenche se ainda não existir — nunca resetar.
         if (status === ConnectionStatus.CONNECTED && !conn.lastOpenAt) {
             conn.lastOpenAt = Date.now();
-            mergeConnectionSettingsCache(id, { connectedSince: conn.lastOpenAt });
+            const existingSince = connectionsSettingsCache[id]?.connectedSince;
+            if (!(typeof existingSince === 'number' && existingSince > 0)) {
+                mergeConnectionSettingsCache(id, { connectedSince: conn.lastOpenAt });
+            }
             connections.set(id, conn);
             seededConnectedSince = true;
         }

@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.146] - 2026-09-22
+### Corrigido
+- **Disparo lento ao iniciar**: `connectedSince` (idade do chip) não é mais zerado a cada queda — isso fazia todo canal parecer “novo” (delay 5×); chips pareados sem idade assumem 14d; delay extra de tier limitado a 20s.
+- **CPU alto / Evolution Go**: health check de conexões deixa de probear todos os chips em paralelo (concorrência 3) — evita pico de CPU e pressão no Go com muitos canais.
+### Adicionado
+- **Ops**: `deployment/diagnose-evolution-go-multichannel.sh` — carga/CPU, docker stats, latência e resumo multi-canal do Evolution Go.
+
 ## [2.3.145] - 2026-09-22
 ### Corrigido
 - **Campanha não dispara com canais online**: lock `reconnect_storm` aplicava +90s em loop infinito (nunca enviava). Agora o delay extra roda uma vez por job e o envio segue.

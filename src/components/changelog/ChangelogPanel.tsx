@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.146',
+    date: '22/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Disparo inicia mais rápido (idade do chip preservada) e health check não satura CPU/Go' },
+    ],
+  },
+  {
     version: '2.3.145',
     date: '22/09/2026',
     highlights: [
