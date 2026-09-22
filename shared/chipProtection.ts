@@ -68,21 +68,28 @@ export function chipProtectionReasonLabel(reason: ChipProtectionReason | null): 
 
 /** Limites globais quando variáveis de ambiente não estão definidas. */
 export function envChipSyncProfileNormal(): ChipSyncProfile {
+  const engine = String(
+    process.env.ZAPMASS_WHATSAPP_ENGINE || process.env.EVOLUTION_ENGINE || 'evolution-go'
+  )
+    .trim()
+    .toLowerCase();
+  const isGo = engine === 'evolution-go' || engine === 'go' || engine === 'evogo';
   const fullOff = ['0', 'false', 'no', 'off'].includes(
-    String(process.env.WA_FULL_INBOX_SYNC ?? '1').trim().toLowerCase()
+    String(process.env.WA_FULL_INBOX_SYNC ?? (isGo ? '0' : '1')).trim().toLowerCase()
   );
   const histRaw = process.env.EVOLUTION_SYNC_FULL_HISTORY;
+  // Go: HistorySync via restart derruba sessão — default off (igual chatSyncConfig).
   const fullHistory =
     histRaw != null && String(histRaw).trim() !== ''
       ? !['0', 'false', 'no', 'off'].includes(String(histRaw).trim().toLowerCase())
-      : true;
-  const prefetch = Number(process.env.EVOLUTION_SYNC_MSG_PREFETCH ?? 200);
-  const sparse = Number(process.env.EVOLUTION_SYNC_SPARSE_CONV_LIMIT ?? 120);
+      : !isGo;
+  const prefetch = Number(process.env.EVOLUTION_SYNC_MSG_PREFETCH ?? (isGo ? 80 : 200));
+  const sparse = Number(process.env.EVOLUTION_SYNC_SPARSE_CONV_LIMIT ?? (isGo ? 40 : 120));
   return {
     fullHistory,
     fullInboxSync: !fullOff,
-    msgPrefetch: Number.isFinite(prefetch) ? Math.max(50, Math.min(500, prefetch)) : 200,
-    sparseConvLimit: Number.isFinite(sparse) ? Math.max(10, Math.min(300, sparse)) : 120,
+    msgPrefetch: Number.isFinite(prefetch) ? Math.max(50, Math.min(500, prefetch)) : isGo ? 80 : 200,
+    sparseConvLimit: Number.isFinite(sparse) ? Math.max(10, Math.min(300, sparse)) : isGo ? 40 : 120,
     prefetchBatchSize: fullOff ? 4 : 8,
   };
 }

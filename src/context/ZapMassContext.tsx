@@ -1844,9 +1844,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const label = data.connectionLabel || data.connectionId;
       const isHighRisk = data.banCount >= 2;
       toast.error(
-        `🚫 Chip BLOQUEADO pelo WhatsApp: ${label}\n` +
-        `Ban #${data.banCount}${isHighRisk ? ' — ALTO RISCO' : ''}. ` +
-        `Evite campanhas por 24h. Ao gerar novo QR, as credenciais serão zeradas automaticamente.`,
+        `🚫 Sessão encerrada pelo WhatsApp: ${label}\n` +
+        `Registro #${data.banCount}${isHighRisk ? ' — ALTO RISCO' : ''}. ` +
+        `Aguarde a quarentena (ou libere manualmente se foi logout/QR seu). Evite disparos até estabilizar.`,
         { duration: 12000, id: `chip-banned-${data.connectionId}` }
       );
     });

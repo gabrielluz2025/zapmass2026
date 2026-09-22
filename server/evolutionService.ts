@@ -1565,18 +1565,32 @@ function recordChipBan(connectionId: string, reason: string | number | undefined
 }
 
 /**
- * Remove quarentenas incorretas causadas por heurística "rapid_close" (removida).
- * Deve ser chamado na inicialização do servidor para não bloquear chips legítimos.
+ * Remove quarentenas incorretas:
+ * - razões que não são 401/loggedOut (heurística antiga rapid_close)
+ * - Ban #1 recente (<48h) com 401/loggedOut: na prática quase sempre logout interno
+ *   (force QR / HistorySync restart) tratado como ban — libera para o tenant não ficar
+ *   24h bloqueado sem ter enviado mensagem.
  */
 export function clearFalsePositiveQuarantines(): number {
     let cleared = 0;
+    const now = Date.now();
     for (const [connId, row] of Object.entries(connectionsSettingsCache)) {
-        if (!row?.quarantineUntil || row.quarantineUntil <= Date.now()) continue;
+        if (!row?.quarantineUntil || row.quarantineUntil <= now) continue;
         const reason = (row.lastBanReason || '').toLowerCase();
-        const isConfirmedBan = reason === '401' || reason === 'loggedout' || reason === 'logged_out';
-        if (!isConfirmedBan) {
+        const isConfirmedBanShape = reason === '401' || reason === 'loggedout' || reason === 'logged_out';
+        if (!isConfirmedBanShape) {
             mergeConnectionSettingsCache(connId, { quarantineUntil: undefined });
             cleared++;
+            continue;
+        }
+        const bannedAt = row.lastBannedAt ?? 0;
+        const banCount = row.banCount ?? 0;
+        const recentSingle =
+            banCount <= 1 && bannedAt > 0 && now - bannedAt < 48 * 60 * 60 * 1000;
+        if (recentSingle) {
+            mergeConnectionSettingsCache(connId, { quarantineUntil: undefined });
+            cleared++;
+            log('info', `[BanDetect] Quarentena Ban#1 recente liberada (provável falso positivo): ${connId}`);
         }
     }
     if (cleared > 0) {
@@ -1695,7 +1709,8 @@ const LONG_TAIL_RECONNECT_MS = 30 * 60 * 1000;
  * Health e auto-reconnect NÃO podem religar a sessão antiga sozinhos.
  */
 const manualLogoutHoldUntil = new Map<string, number>();
-const MANUAL_LOGOUT_HOLD_MS = 30 * 60 * 1000;
+/** Hold longo o bastante para cobrir webhook LoggedOut atrasado + cleanReconnect (logout+delete+create). */
+const MANUAL_LOGOUT_HOLD_MS = 45 * 60 * 1000;
 
 function markManualLogoutHold(connectionId: string): void {
     if (!connectionId) return;
@@ -1715,6 +1730,12 @@ function isManualLogoutHoldActive(connectionId: string): boolean {
     }
     return true;
 }
+
+/**
+ * Sessão open há pouco tempo + LoggedOut costuma ser logout/restart nosso (force QR, HistorySync),
+ * não ban Meta. Ban real em chip “quente” é raro em <3 min sem envio.
+ */
+const BAN_MIN_SESSION_OPEN_MS = 3 * 60 * 1000;
 
 /** Só trata como sessão pareada se houver número — senão restart/connect vira “Online” fantasma. */
 function isPairedConnection(connectionId: string): boolean {
@@ -1822,13 +1843,18 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
                 const paired = isPairedConnection(connectionId);
                 try {
                     if (paired) {
-                        await api.post(`/instance/connect/${evoInst(connectionId)}`, { forceReconnect: true });
+                        // forceReconnect só após várias falhas — nas primeiras tenta reconnect suave
+                        // (immediate no Go gera churn e Meta invalida sessão → falso "ban").
+                        const forceReconnect = attempt >= 3 || Boolean(st.longTail);
+                        await api.post(`/instance/connect/${evoInst(connectionId)}`, { forceReconnect });
                     } else {
                         await api.post(`/instance/restart/${evoInst(connectionId)}`, {});
                     }
                     await sleep(3000);
-                } catch {
-                    await api.post(`/instance/connect/${evoInst(connectionId)}`, { forceReconnect: true });
+                    } catch {
+                    await api.post(`/instance/connect/${evoInst(connectionId)}`, {
+                        forceReconnect: attempt >= 3,
+                    });
                     await sleep(2000);
                 }
                 const state = (await getConnectionState(connectionId)).toLowerCase();
@@ -2056,24 +2082,42 @@ function applyConnectionStateUpdate(
                 lastClosedAt: Date.now(),
             });
 
-            // Detecção de ban: SOMENTE via statusReason 401/"loggedOut" do WhatsApp.
+            // Detecção de ban: statusReason 401/"loggedOut" do WhatsApp.
             // Heurística de "rapid_close" foi removida — causava falsos positivos em
             // reconexões legítimas (deploy, queda de rede, restart do Evolution API).
             const statusReason = parseStatusReason(data);
             const userInitiatedClose =
                 isManualLogoutHoldActive(instance) || deletedConnectionIds.has(instance);
             if (userInitiatedClose) {
-                // Logout / apagar canal: Evolution manda 401 loggedOut — não é ban.
-                log('info', `[BanDetect] Close ignorado (logout/exclusão): ${instance}`, {
+                // Logout / apagar canal / force QR / cleanReconnect: Evolution manda 401 loggedOut — não é ban.
+                log('info', `[BanDetect] Close ignorado (logout/exclusão esperado): ${instance}`, {
                     statusReason,
                 });
-            } else if (isBanStatusReason(statusReason)) {
-                recordChipBan(instance, statusReason);
-                log('warn', `[BanDetect] ${instance}: ban detectado via statusReason=${statusReason}`);
                 void import('./chipProtectionService.js').then((m) =>
-                    m.onConnectionClosed(instance, true)
+                    m.onConnectionClosed(instance, false)
                 );
-                void reviewRunningCampaignsForChipProtection(instance);
+            } else if (isBanStatusReason(statusReason)) {
+                const sessionOpenMs = openSince > 0 ? Date.now() - openSince : 0;
+                // LoggedOut sem sessão estável (≥3 min open) = logout/restart nosso ou falha de pareamento,
+                // não bloqueio Meta. Contar como ban gerava Ban #1 + quarentena 24h sem 1 mensagem.
+                if (sessionOpenMs < BAN_MIN_SESSION_OPEN_MS) {
+                    log('info', `[BanDetect] loggedOut ignorado (sessão aberta ${Math.round(sessionOpenMs / 1000)}s < 3min): ${instance}`, {
+                        statusReason,
+                    });
+                    void import('./chipProtectionService.js').then((m) =>
+                        m.onConnectionClosed(instance, false)
+                    );
+                    void reviewRunningCampaignsForChipProtection(instance);
+                } else {
+                    recordChipBan(instance, statusReason);
+                    log('warn', `[BanDetect] ${instance}: ban detectado via statusReason=${statusReason}`, {
+                        sessionOpenMs,
+                    });
+                    void import('./chipProtectionService.js').then((m) =>
+                        m.onConnectionClosed(instance, true)
+                    );
+                    void reviewRunningCampaignsForChipProtection(instance);
+                }
             } else {
                 void import('./chipProtectionService.js').then((m) =>
                     m.onConnectionClosed(instance, false)
@@ -2166,8 +2210,23 @@ function applyConnectionStateUpdate(
                       prefetchBatchSize: 8,
                   };
             const postDeployGrace = isInDeployGraceWindow();
-            if (syncProfile.fullHistory && !postDeployGrace) {
+            // NÃO disparar HistorySync (restart no Go) nos primeiros minutos após open —
+            // isso derrubava a sessão recém-pareada e o BanDetect lia LoggedOut como ban.
+            const openAt = connections.get(instance)?.lastOpenAt ?? Date.now();
+            const openAgeMs = Date.now() - openAt;
+            const HISTORY_SYNC_MIN_OPEN_MS = 10 * 60 * 1000;
+            if (syncProfile.fullHistory && !postDeployGrace && openAgeMs >= HISTORY_SYNC_MIN_OPEN_MS) {
                 await ensureEvolutionFullHistorySync(instance);
+            } else if (syncProfile.fullHistory && !postDeployGrace) {
+                const waitMs = HISTORY_SYNC_MIN_OPEN_MS - openAgeMs;
+                log('info', `[HistorySync] adiando sync de ${instance} por ${Math.ceil(waitMs / 1000)}s (sessão nova)`);
+                setTimeout(() => {
+                    void (async () => {
+                        const still = connections.get(instance);
+                        if (!still || still.status !== 'open') return;
+                        await ensureEvolutionFullHistorySync(instance);
+                    })();
+                }, waitMs);
             }
             if (!isGoWebhookInboxMode()) {
                 if (!postDeployGrace) {
@@ -2363,6 +2422,7 @@ async function deleteAndRecreateGoInstance(connectionId: string, logTag: string)
     const id = String(connectionId || '').trim();
     if (!id || !isEvolutionGoEngine()) return false;
     log('info', `${logTag}: apagar+recriar instância Go ${id}`);
+    markManualLogoutHold(id);
     await ensureGoInstanceUuidResolved(id).catch(() => undefined);
     try {
         try {
@@ -2414,6 +2474,8 @@ async function tryRecoverCountZeroInstance(instanceName: string): Promise<boolea
     if (attempts >= 3) return false;
     countZeroRecoveryAttempts.set(instanceName, attempts + 1);
     log('info', `count:0 — recuperar sessão Evolution: ${instanceName} (tentativa ${attempts + 1})`);
+    // restart/logout/recreate abaixo podem emitir LoggedOut — não contar como ban Meta.
+    markManualLogoutHold(instanceName);
 
     if (attempts === 2) {
         return deleteAndRecreateGoInstance(instanceName, 'count:0');
@@ -6048,6 +6110,8 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
     stopQrWatch(id);
     clearAutoReconnect(id);
     pairingStartedAt.delete(id);
+    // Logout/delete abaixo emitem LoggedOut 401 — sem hold vira Ban #1 falso.
+    markManualLogoutHold(id);
 
     if (isEvolutionGoEngine()) {
         try {
@@ -6068,7 +6132,9 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
     }
 
     const banInfo = getConnectionBanInfo(id);
-    let needsCleanReconnect = banInfo.banCount > 0;
+    // Só limpa credenciais se ainda estiver em quarentena de ban confirmado.
+    // banCount antigo (falso positivo) não deve apagar fingerprint a cada "Forçar QR".
+    let needsCleanReconnect = banInfo.banCount > 0 && banInfo.inQuarantine;
     if (!needsCleanReconnect && isEvolutionGoEngine()) {
         if (await goInstanceNeedsQrRecreate(id)) {
             log('warn', `[QrRecreate] ${id} desconectado no Go com JID — reconexão limpa`);
