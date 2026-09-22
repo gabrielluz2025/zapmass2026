@@ -133,12 +133,17 @@ function buildCommonDraftFields(c: Campaign): Omit<CampaignWizardDraft, 'name' |
 
   const globalOptOutKeywords = replyFlow?.globalOptOutKeywords || [];
   const snapshot = c.scheduleStartSnapshot;
+  const connectionIds = [
+    ...(c.selectedConnectionIds?.length
+      ? c.selectedConnectionIds
+      : snapshot?.connectionIds || [])
+  ];
 
   return {
     sendMode: c.contactListId ? 'list' : 'manual',
     selectedListId: c.contactListId || '',
     manualNumbers: '',
-    selectedConnectionIds: [...(c.selectedConnectionIds || [])],
+    selectedConnectionIds: connectionIds,
     channelWeightMode: Object.keys(c.channelWeights || {}).length > 0 ? 'custom' : 'equal',
     channelWeights: { ...(c.channelWeights || {}) },
     delaySeconds: c.delaySeconds ?? snapshot?.delaySeconds ?? 45,

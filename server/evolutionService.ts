@@ -8707,10 +8707,19 @@ export async function updateCampaignChannels(
     if (!owned) return { ok: false, error: 'Campanha não encontrada.' };
 
     const tenantConns = getConnectionsForTenant(tenantId);
-    const ownedSet = new Set(
-        tenantConns.flatMap((c) => [c.id, c.instanceName].filter(Boolean) as string[])
-    );
-    const filtered = rawIds.filter((id) => ownedSet.has(id));
+    /** Aceita id ou instanceName, mas sempre grava o id canônico (evita lookup falhar em isCampaignChannelUsable). */
+    const canonicalByKey = new Map<string, string>();
+    for (const c of tenantConns) {
+        if (c.id) canonicalByKey.set(c.id, c.id);
+        if (c.instanceName) canonicalByKey.set(String(c.instanceName), c.id);
+    }
+    const filtered = [
+        ...new Set(
+            rawIds
+                .map((id) => canonicalByKey.get(id))
+                .filter((id): id is string => Boolean(id))
+        ),
+    ];
     if (filtered.length === 0) {
         return { ok: false, error: 'Nenhum chip pertence a esta conta.' };
     }
@@ -8782,6 +8791,7 @@ export async function updateCampaignChannels(
             for (const job of jobs) {
                 const data = job.data as MessageQueueItem;
                 if (String(data?.campaignId || '') !== cid) continue;
+                const prevConn = String(data.connectionId || '').trim();
                 const newConnId = pickRemapConnectionForCampaign(
                     data,
                     filtered,
@@ -8791,13 +8801,26 @@ export async function updateCampaignChannels(
                 const alt = filtered.length > 1 ? filtered : undefined;
                 const altChanged =
                     JSON.stringify(alt ?? []) !== JSON.stringify(data.alternateChannelIds ?? []);
-                if (newConnId !== data.connectionId || altChanged) {
+                const connChanged = newConnId !== prevConn;
+                if (connChanged || altChanged) {
                     await job.updateData({
                         ...data,
                         connectionId: newConnId,
                         alternateChannelIds: alt,
                     });
                     remappedJobs++;
+                    // Jobs com delay longo (quarentena / backoff) ficavam "parados" mesmo após trocar chip.
+                    const movedToUsable =
+                        connChanged &&
+                        !isCampaignChannelUsable(prevConn) &&
+                        isCampaignChannelUsable(newConnId);
+                    if (movedToUsable || (connChanged && isCampaignChannelUsable(newConnId))) {
+                        try {
+                            await job.changeDelay(500 + Math.floor(Math.random() * 4_500));
+                        } catch {
+                            /* job ativo / API — updateData já aponta para o chip novo */
+                        }
+                    }
                 }
             }
         } catch (e: unknown) {

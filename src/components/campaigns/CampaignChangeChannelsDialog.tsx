@@ -56,6 +56,15 @@ export const CampaignChangeChannelsDialog: React.FC<Props> = ({
     (id) => connections.find((c) => c.id === id)?.status === ConnectionStatus.CONNECTED
   ).length;
 
+  const sortedConnections = React.useMemo(() => {
+    return [...connections].sort((a, b) => {
+      const aOn = a.status === ConnectionStatus.CONNECTED ? 0 : 1;
+      const bOn = b.status === ConnectionStatus.CONNECTED ? 0 : 1;
+      if (aOn !== bOn) return aOn - bOn;
+      return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
+    });
+  }, [connections]);
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Trocar chips de disparo" size="md">
       <div className="space-y-4">
@@ -72,14 +81,14 @@ export const CampaignChangeChannelsDialog: React.FC<Props> = ({
           >
             <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
             <span style={{ color: 'var(--text-2)' }}>
-              Nenhum chip selecionado está online. A campanha continuará pausada até reconectar — ou
-              escolha um chip online (ex.: Disparo 01).
+              Nenhum chip selecionado está online. Escolha ao menos um chip <strong>Online</strong>{' '}
+              (no topo da lista) — senão o disparo continua parado.
             </span>
           </div>
         )}
 
         <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
-          {connections.map((conn) => {
+          {sortedConnections.map((conn) => {
             const checked = picked.includes(conn.id);
             const online = conn.status === ConnectionStatus.CONNECTED;
             const inQuarantine = (conn.quarantineUntil ?? 0) > Date.now();
@@ -138,7 +147,7 @@ export const CampaignChangeChannelsDialog: React.FC<Props> = ({
           <Button
             variant="primary"
             loading={loading}
-            disabled={picked.length === 0}
+            disabled={picked.length === 0 || (onlineCount === 0 && connections.some((c) => c.status === ConnectionStatus.CONNECTED))}
             onClick={() => onConfirm(picked)}
           >
             Salvar chips ({picked.length})

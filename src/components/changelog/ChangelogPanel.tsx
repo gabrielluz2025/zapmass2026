@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.148',
+    date: '22/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Trocar chips agora remapeia de verdade (cancela delay de quarentena) e desanexa pool que revertia a seleção' },
+      { type: 'improvement', text: 'Editar campanha abre o Broadcast Studio completo (não mais o ajuste simplificado)' },
+    ],
+  },
+  {
     version: '2.3.147',
     date: '22/09/2026',
     highlights: [

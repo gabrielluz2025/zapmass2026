@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.148] - 2026-09-22
+### Corrigido
+- **Trocar chips não “pegava”**: remapeamento agora cancela delay de quarentena/backoff ao mover job para chip online; IDs normalizados (id vs instanceName); troca manual desanexa o pool (evita o sync reverter a seleção); exige ao menos um chip online quando houver.
+### Alterado
+- **Editar campanha**: “Ajustar campanha” simplificado foi substituído pelo **Broadcast Studio completo** (mensagem, fluxo, canais, ritmo e revisão), preservando o progresso já enviado.
+
 ## [2.3.147] - 2026-09-22
 ### Corrigido
 - **Campanha “Executando” sem enviar**: watchdog parava após qualquer falha (`processed > 0`) — agora remapeia jobs presos em chip offline/quarentena enquanto `successCount === 0`; failover cedo antes do delay de tier; quarentena retenta em ≤60s; diálogo “Trocar chips” pré-seleciona canais online.

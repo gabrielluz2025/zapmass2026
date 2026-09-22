@@ -36,15 +36,16 @@ export async function saveCampaignEdit(
     channelWeights?: Record<string, number>;
     poolStrategy?: 'round_robin' | 'weighted' | 'priority';
   }
-): Promise<void> {
+): Promise<{ remappedJobs: number; onlineCount: number }> {
   await apiUpdateCampaign(campaignId, patch);
   if (channelIds.length > 0) {
-    await updateCampaignChannels(campaignId, channelIds, {
+    return await updateCampaignChannels(campaignId, channelIds, {
       poolId: extras?.poolId ?? null,
       channelWeights: extras?.channelWeights,
       poolStrategy: extras?.poolStrategy
     });
   }
+  return { remappedJobs: 0, onlineCount: 0 };
 }
 
 export async function apiDeleteCampaign(id: string): Promise<void> {
