@@ -72,6 +72,8 @@ export type ReplyFlowOutboundItem = {
     message: string;
     connectionId: string;
     campaignId?: string;
+    /** Dono da campanha — obrigatório após o disparo sair de RAM (WAITING_REPLY / restart). */
+    ownerUid?: string;
     sendAsMedia?: boolean;
     /** Chave em `campaignMediaById` (ex.: `campaignId:reply-step:1`). */
     mediaStorageKey?: string;
@@ -266,6 +268,12 @@ export function sanitizeReplyFlowMeta(raw: unknown): ReplyFlowDefMeta {
     };
 }
 
+function replyFlowEnabledFlag(raw: unknown): boolean {
+    if (raw === false || raw === 0 || raw === '0' || raw === 'false' || raw === 'f') return false;
+    // Ausente / true / "true" / objeto com steps → trata como ativo (docs antigos às vezes omitem enabled).
+    return true;
+}
+
 /** Lê o fluxo por respostas do documento da campanha (inclui snapshot, se o doc principal estiver vazio). */
 export function parseReplyFlowDefFromCampaignDoc(
     docData: Record<string, unknown> | null | undefined
@@ -278,7 +286,8 @@ export function parseReplyFlowDefFromCampaignDoc(
     for (const raw of candidates) {
         if (!raw || typeof raw !== 'object') continue;
         const rf = raw as Record<string, unknown>;
-        if (!rf.enabled || !Array.isArray(rf.steps)) continue;
+        if (!Array.isArray(rf.steps)) continue;
+        if (!replyFlowEnabledFlag(rf.enabled)) continue;
         const sanitized = sanitizeReplyFlowSteps(rf.steps as Parameters<typeof sanitizeReplyFlowSteps>[0]);
         if (sanitized.length === 0) continue;
         return { steps: sanitized, meta: sanitizeReplyFlowMeta(rf) };
@@ -570,11 +579,12 @@ export class ReplyFlowEngine {
             phoneDigits,
             currentStep: session.awaitingAfterStep + 1,
         });
-        void this.callbacks.enqueue({
+        void this.safeEnqueue({
             to: session.toRaw,
             message: msg,
             connectionId,
             campaignId: session.campaignId,
+            ownerUid: session.ownerUid,
         });
         this.disposeSession(canonicalKey, session);
     }
@@ -598,6 +608,15 @@ export class ReplyFlowEngine {
         }
     }
 
+    private phoneMatchesSession(sessionPhoneRaw: string, incoming: string): boolean {
+        const sessionPhone = String(sessionPhoneRaw || '').replace(/\D/g, '');
+        if (!sessionPhone || incoming.length < 8) return false;
+        if (sessionPhone === incoming) return true;
+        if (stripBrNine(sessionPhone) === stripBrNine(incoming)) return true;
+        if (sessionPhone.length >= 8 && sessionPhone.slice(-8) === incoming.slice(-8)) return true;
+        return false;
+    }
+
     private findSession(
         connectionId: string,
         phoneDigits: string
@@ -608,30 +627,57 @@ export class ReplyFlowEngine {
 
         const incoming = String(phoneDigits || '').replace(/\D/g, '');
         if (incoming.length < 8) return null;
-        const incomingTail = incoming.slice(-8);
-        const incomingNoNine = stripBrNine(incoming);
 
         let bestKey: string | null = null;
         let bestSession: ReplyFlowSession | null = null;
 
         for (const [key, session] of this.sessions) {
             if (!key.startsWith(`${connectionId}:`)) continue;
-            const sessionPhone = key.slice(connectionId.length + 1).replace(/\D/g, '');
-            if (!sessionPhone) continue;
-            if (sessionPhone === incoming) return { key, session };
-            if (stripBrNine(sessionPhone) === incomingNoNine) {
-                bestKey = key;
-                bestSession = session;
-                break;
+            const sessionPhone = key.slice(connectionId.length + 1);
+            if (!this.phoneMatchesSession(sessionPhone, incoming)) continue;
+            const digits = sessionPhone.replace(/\D/g, '');
+            if (digits === incoming || stripBrNine(digits) === stripBrNine(incoming)) {
+                return { key, session };
             }
-            if (sessionPhone.length >= 8 && sessionPhone.slice(-8) === incomingTail) {
-                bestKey = key;
-                bestSession = session;
-            }
+            bestKey = key;
+            bestSession = session;
         }
 
         if (bestKey && bestSession) return { key: bestKey, session: bestSession };
+
+        // Fallback: mesmo telefone em outro chip (webhook mal mapeado / re-pareamento).
+        for (const [key, session] of this.sessions) {
+            const colon = key.indexOf(':');
+            if (colon <= 0) continue;
+            const sessConn = key.slice(0, colon);
+            if (sessConn === connectionId) continue;
+            const sessionPhone = key.slice(colon + 1);
+            if (!this.phoneMatchesSession(sessionPhone, incoming)) continue;
+            return { key, session };
+        }
+
         return null;
+    }
+
+    private safeEnqueue(item: ReplyFlowOutboundItem): void {
+        try {
+            const result = this.callbacks.enqueue(item);
+            if (result && typeof (result as Promise<void>).then === 'function') {
+                void (result as Promise<void>).catch((err: unknown) => {
+                    this.callbacks.onLog?.('Falha ao enfileirar resposta do fluxo', {
+                        campaignId: item.campaignId,
+                        connectionId: item.connectionId,
+                        error: err instanceof Error ? err.message : String(err),
+                    });
+                });
+            }
+        } catch (err: unknown) {
+            this.callbacks.onLog?.('Falha ao enfileirar resposta do fluxo', {
+                campaignId: item.campaignId,
+                connectionId: item.connectionId,
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
     }
 
     private async loadDefFromFirestore(
@@ -789,11 +835,12 @@ export class ReplyFlowEngine {
                 const customOptOut = findConfiguredOptOutReply(def.steps, tBody);
                 if (customOptOut) {
                     const replyBody = applyMessageVars(customOptOut, phoneDigits, session.vars);
-                    void this.callbacks.enqueue({
+                    void this.safeEnqueue({
                         to: session.toRaw,
                         message: replyBody,
                         connectionId,
                         campaignId: session.campaignId,
+                        ownerUid: session.ownerUid,
                         replyFlowDisposeAfterSend: true,
                     });
                 }
@@ -861,13 +908,15 @@ export class ReplyFlowEngine {
                 const sessionPhoneKey = key.startsWith(`${connectionId}:`)
                     ? key.slice(connectionId.length + 1)
                     : phoneDigits;
-                this.callbacks.onSessionSave?.(connectionId, sessionPhoneKey, session);
+                const sendConnectionId = key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId;
+                this.callbacks.onSessionSave?.(sendConnectionId, sessionPhoneKey, session);
 
-                void this.callbacks.enqueue({
+                void this.safeEnqueue({
                     to: session.toRaw,
                     message: replyBody,
-                    connectionId,
+                    connectionId: sendConnectionId,
                     campaignId: session.campaignId,
+                    ownerUid: session.ownerUid,
                     replyFlowDisposeAfterSend: true,
                 });
 
@@ -879,12 +928,12 @@ export class ReplyFlowEngine {
                         optMe,
                         phoneDigits,
                         bodyText,
-                        connectionId
+                        sendConnectionId
                     );
                 }
                 this.callbacks.onInboundReply?.({
                     campaignId: session.campaignId,
-                    connectionId,
+                    connectionId: sendConnectionId,
                     phoneDigits,
                     ownerUid: session.ownerUid,
                     replyText: bodyText,
@@ -913,13 +962,26 @@ export class ReplyFlowEngine {
                 }
 
                 const inv = applyMessageVars(gateStep.invalidReplyBody, phoneDigits, session.vars);
-                void this.callbacks.enqueue({
+                void this.safeEnqueue({
                     to: session.toRaw,
                     message: inv,
-                    connectionId,
+                    connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
                     campaignId: session.campaignId,
+                    ownerUid: session.ownerUid,
                 });
                 this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
+            } else {
+                this.callbacks.onLog?.('Resposta sem match de gatilho e sem mensagem de inválida', {
+                    campaignId: session.campaignId,
+                    connectionId,
+                    phoneDigits,
+                    replyPreview: preview,
+                    optionCount: gateStep.options.length,
+                    tokensSample: gateStep.options
+                        .slice(0, 5)
+                        .map((o) => (o.tokens || []).join('|'))
+                        .join(' ; '),
+                });
             }
             return { handled: true };
         }
@@ -945,11 +1007,12 @@ export class ReplyFlowEngine {
                 }
 
                 const inv = applyMessageVars(gate.invalidReplyBody, phoneDigits, session.vars);
-                void this.callbacks.enqueue({
+                void this.safeEnqueue({
                     to: session.toRaw,
                     message: inv,
-                    connectionId,
+                    connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
                     campaignId: session.campaignId,
+                    ownerUid: session.ownerUid,
                 });
                 this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
                 return { handled: true };
@@ -991,11 +1054,21 @@ export class ReplyFlowEngine {
         if (!replyMatchesGate(gateStep, bodyText, { nonTextReply })) {
             if (gateStep.invalidReplyBody) {
                 const inv = applyMessageVars(gateStep.invalidReplyBody, phoneDigits, session.vars);
-                void this.callbacks.enqueue({
+                void this.safeEnqueue({
                     to: session.toRaw,
                     message: inv,
-                    connectionId,
+                    connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
                     campaignId: session.campaignId,
+                    ownerUid: session.ownerUid,
+                });
+            } else {
+                this.callbacks.onLog?.('Resposta não bateu no gatilho da etapa (sem mensagem de inválida)', {
+                    campaignId: session.campaignId,
+                    connectionId,
+                    phoneDigits,
+                    replyPreview: String(bodyText || '').slice(0, 80),
+                    validTokens: gateStep.validTokens?.slice(0, 8),
+                    acceptAnyReply: gateStep.acceptAnyReply,
                 });
             }
             return { handled: true };
@@ -1061,11 +1134,12 @@ export class ReplyFlowEngine {
         };
         this.callbacks.onSessionSave?.(connectionId, sessionPhoneKey, session);
 
-        void this.callbacks.enqueue({
+        void this.safeEnqueue({
             to: session.toRaw,
             message: nextBody,
-            connectionId,
+            connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
             campaignId: session.campaignId,
+            ownerUid: session.ownerUid,
             mediaStorageKey: stepMediaKey || undefined,
             replyFlowAfterSend: { phoneDigits: sessionPhoneKey, newAwaitingAfterStep: nextIdx },
         });

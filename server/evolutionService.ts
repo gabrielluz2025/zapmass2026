@@ -5008,6 +5008,7 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
     let recovered = 0;
     let pendingRequeued = 0;
     const campaignIds = new Set<string>();
+    const ownerByCampaign = new Map<string, string>();
     let cursor = '0';
     try {
     do {
@@ -5032,6 +5033,7 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
 
             replyFlowEngine.restoreSession(connectionId, phoneDigits, sess);
             campaignIds.add(sess.campaignId);
+            if (sess.ownerUid) ownerByCampaign.set(sess.campaignId, sess.ownerUid);
             recovered++;
 
             const pending = sess.pendingOutbound;
@@ -5078,7 +5080,7 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
     }
 
     for (const campaignId of campaignIds) {
-        const ownerUid = campaignsById.get(campaignId)?.ownerUid;
+        const ownerUid = campaignsById.get(campaignId)?.ownerUid || ownerByCampaign.get(campaignId);
         await replyFlowEngine.ensureDefLoaded(campaignId, ownerUid);
     }
     replyFlowEngine.rescheduleTimeouts();
@@ -5366,6 +5368,65 @@ async function tryRestoreReplyFlowSession(connectionId: string, phoneDigits: str
         }
     }
 
+    // Sessão pode estar em outro chip (webhook remapeado) — SCAN Redis por telefone.
+    const conn = getRedisConnection();
+    if (conn && (await waitForRedisCommandReady(conn))) {
+        try {
+            let cursor = '0';
+            do {
+                const [next, keys] = await conn.scan(
+                    cursor,
+                    'MATCH',
+                    `${REPLYFLOW_SESSION_KEY_PREFIX}*`,
+                    'COUNT',
+                    80
+                );
+                cursor = next;
+                for (const key of keys) {
+                    const body = key.slice(REPLYFLOW_SESSION_KEY_PREFIX.length);
+                    const colon = body.indexOf(':');
+                    if (colon <= 0) continue;
+                    const sessConn = body.slice(0, colon);
+                    const sessPhone = body.slice(colon + 1).replace(/\D/g, '');
+                    let phoneHit = false;
+                    for (const variant of variants) {
+                        if (
+                            sessPhone === variant ||
+                            (sessPhone.length >= 8 &&
+                                variant.length >= 8 &&
+                                (sessPhone.slice(-8) === variant.slice(-8) ||
+                                    (sessPhone.length >= 12 &&
+                                        variant.length >= 12 &&
+                                        sessPhone.replace(/^55(\d{2})9/, '55$1') ===
+                                            variant.replace(/^55(\d{2})9/, '55$1'))))
+                        ) {
+                            phoneHit = true;
+                            break;
+                        }
+                    }
+                    if (!phoneHit) continue;
+                    const raw = await conn.get(key);
+                    if (!raw) continue;
+                    const sess = JSON.parse(raw) as ReplyFlowSession;
+                    if (!sess?.campaignId) continue;
+                    log('info', 'Sessão reply flow restaurada de outro chip (mesmo telefone)', {
+                        fromConnectionId: sessConn,
+                        toConnectionId: connectionId,
+                        phoneDigits: sessPhone,
+                        campaignId: sess.campaignId,
+                    });
+                    replyFlowEngine.restoreSession(sessConn, body.slice(colon + 1), sess);
+                    await replyFlowEngine.ensureDefLoaded(sess.campaignId, sess.ownerUid);
+                    return;
+                }
+            } while (cursor !== '0');
+        } catch (e: unknown) {
+            log('warn', 'tryRestoreReplyFlowSession SCAN falhou', {
+                error: e instanceof Error ? e.message : String(e),
+            });
+        }
+    }
+
     await tryReopenReplyFlowFromContext(connectionId, phoneDigits);
 }
 // ──────────────────────────────────────────────────────────────────────────────
@@ -5378,6 +5439,7 @@ function ensureReplyFlowEngine() {
             // para evitar rajadas na API Evolution e parecer menos robótico.
             const replyDelay = 3000 + Math.random() * 4000;
             const ownerFromState = item.campaignId ? campaignsById.get(item.campaignId)?.ownerUid : undefined;
+            const ownerUid = item.ownerUid || ownerFromState || resolveOwnerUid(item.connectionId) || undefined;
             const mediaKey = item.mediaStorageKey || '';
             const sendAsMedia = Boolean(mediaKey && campaignMediaById.has(mediaKey));
             void enqueueCampaignItem({
@@ -5385,7 +5447,7 @@ function ensureReplyFlowEngine() {
                 to: item.to,
                 message: item.message,
                 campaignId: item.campaignId,
-                ownerUid: ownerFromState,
+                ownerUid,
                 sendAsMedia,
                 mediaLookupKey: mediaKey || undefined,
                 replyFlowAfterSend: item.replyFlowAfterSend,

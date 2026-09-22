@@ -312,19 +312,27 @@ export function extractEvolutionMessageBody(message: Record<string, unknown> | u
 
   const typed = msg as {
     conversation?: string;
-    extendedTextMessage?: { text?: string };
-    imageMessage?: { caption?: string };
-    videoMessage?: { caption?: string };
-    documentMessage?: { caption?: string };
+    Conversation?: string;
+    extendedTextMessage?: { text?: string; Text?: string };
+    ExtendedTextMessage?: { text?: string; Text?: string };
+    imageMessage?: { caption?: string; Caption?: string };
+    ImageMessage?: { caption?: string; Caption?: string };
+    videoMessage?: { caption?: string; Caption?: string };
+    documentMessage?: { caption?: string; Caption?: string };
     audioMessage?: unknown;
     stickerMessage?: unknown;
     reactionMessage?: unknown;
   };
 
+  const ext = typed.extendedTextMessage || typed.ExtendedTextMessage;
+  const img = typed.imageMessage || typed.ImageMessage;
   const text =
     typed.conversation ||
-    typed.extendedTextMessage?.text ||
-    typed.imageMessage?.caption ||
+    typed.Conversation ||
+    ext?.text ||
+    ext?.Text ||
+    img?.caption ||
+    img?.Caption ||
     typed.videoMessage?.caption ||
     typed.documentMessage?.caption ||
     '';

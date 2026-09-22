@@ -42,10 +42,12 @@ function parseGoTimestamp(ts: unknown): number | undefined {
 
 function goMessageDataToEvolutionV2(data: Record<string, unknown>): Record<string, unknown> {
     const info = (data.Info && typeof data.Info === 'object' ? data.Info : {}) as Record<string, unknown>;
-    const message = (data.Message && typeof data.Message === 'object' ? data.Message : {}) as Record<
+    const messageRaw = (data.Message && typeof data.Message === 'object' ? data.Message : {}) as Record<
         string,
         unknown
     >;
+    // whatsmeow/proto às vezes serializa PascalCase (Conversation, ExtendedTextMessage).
+    const message = normalizeGoMessageContentKeys(messageRaw);
     return {
         key: {
             remoteJid: info.Chat,
@@ -59,6 +61,41 @@ function goMessageDataToEvolutionV2(data: Record<string, unknown>): Record<strin
         pushName: info.PushName,
         messageTimestamp: parseGoTimestamp(info.Timestamp),
     };
+}
+
+/** Converte chaves PascalCase comuns do Go → camelCase Baileys usado no extractEvolutionMessageBody. */
+function normalizeGoMessageContentKeys(message: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = { ...message };
+    const mapKey = (from: string, to: string) => {
+        if (out[to] == null && out[from] != null) out[to] = out[from];
+    };
+    mapKey('Conversation', 'conversation');
+    mapKey('ExtendedTextMessage', 'extendedTextMessage');
+    mapKey('ImageMessage', 'imageMessage');
+    mapKey('VideoMessage', 'videoMessage');
+    mapKey('AudioMessage', 'audioMessage');
+    mapKey('DocumentMessage', 'documentMessage');
+    mapKey('StickerMessage', 'stickerMessage');
+    mapKey('ButtonsResponseMessage', 'buttonsResponseMessage');
+    mapKey('ListResponseMessage', 'listResponseMessage');
+    mapKey('TemplateButtonReplyMessage', 'templateButtonReplyMessage');
+    mapKey('ReactionMessage', 'reactionMessage');
+
+    const ext = out.extendedTextMessage;
+    if (ext && typeof ext === 'object') {
+        const e = { ...(ext as Record<string, unknown>) };
+        if (e.text == null && e.Text != null) e.text = e.Text;
+        out.extendedTextMessage = e;
+    }
+    for (const mediaKey of ['imageMessage', 'videoMessage', 'documentMessage'] as const) {
+        const part = out[mediaKey];
+        if (part && typeof part === 'object') {
+            const p = { ...(part as Record<string, unknown>) };
+            if (p.caption == null && p.Caption != null) p.caption = p.Caption;
+            out[mediaKey] = p;
+        }
+    }
+    return out;
 }
 
 /** WebMessageInfo (history sync / Baileys) → formato Evolution API v2. */

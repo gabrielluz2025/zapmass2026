@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.141',
+    date: '22/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Fluxo por resposta: gatilhos voltam a disparar após campanha em WAITING_REPLY / restart' },
+    ],
+  },
+  {
     version: '2.3.140',
     date: '12/09/2026',
     highlights: [

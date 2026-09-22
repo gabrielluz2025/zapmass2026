@@ -37,6 +37,29 @@ describe('normalizeEvolutionGoWebhookIfNeeded', () => {
         expect(data.message.conversation).toBe('oi');
     });
 
+    it('Message Go com Conversation PascalCase → texto legível', () => {
+        const out = normalizeEvolutionGoWebhookIfNeeded(
+            {
+                event: 'Message',
+                instanceId: 'uuid-1',
+                instanceToken: 'tok-chip1',
+                data: {
+                    Info: {
+                        Chat: '5511999999999@s.whatsapp.net',
+                        IsFromMe: false,
+                        ID: 'ABC2',
+                        Timestamp: '2024-10-10T17:17:44-03:00',
+                    },
+                    Message: { Conversation: 'sim' },
+                },
+            },
+            lookup
+        ) as Record<string, unknown>;
+
+        const data = out.data as { message: { conversation?: string } };
+        expect(data.message.conversation).toBe('sim');
+    });
+
     it('QRCode Go → QRCODE_UPDATED', () => {
         const out = normalizeEvolutionGoWebhookIfNeeded(
             {

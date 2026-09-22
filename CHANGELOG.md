@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.141] - 2026-09-22
+### Corrigido
+- **Fluxo por resposta**: respostas de gatilho passam `ownerUid` da sessão ao enfileirar (não dependem mais da campanha em RAM); busca sessão por telefone em qualquer chip; redefine fluxo mesmo sem `enabled` explícito; normaliza `Conversation` PascalCase do Evolution Go; logs quando gatilho não casa.
+
 ## [2.3.140] - 2026-09-12
 ### Corrigido
 - **QR / Go zumbi**: chip `connected=false` com JID antigo no Go — Forçar QR apaga e recria a instância; `count:0` tenta delete+create na 3ª recuperação.
