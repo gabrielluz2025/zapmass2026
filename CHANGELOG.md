@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.142] - 2026-09-22
+### Corrigido
+- **Distribuição entre canais**: campanhas com fluxo por resposta também usam pool ponderado / round-robin / prioridade (antes ficavam só em rodízio simples); reenvio (`redispatch`) respeita os mesmos pesos.
+
 ## [2.3.141] - 2026-09-22
 ### Corrigido
 - **Fluxo por resposta**: respostas de gatilho passam `ownerUid` da sessão ao enfileirar (não dependem mais da campanha em RAM); busca sessão por telefone em qualquer chip; redefine fluxo mesmo sem `enabled` explícito; normaliza `Conversation` PascalCase do Evolution Go; logs quando gatilho não casa.

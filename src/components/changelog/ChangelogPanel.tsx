@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.142',
+    date: '22/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Distribuição: fluxo por resposta e reenvio usam pesos/rodízio do pool de canais' },
+    ],
+  },
+  {
     version: '2.3.141',
     date: '22/09/2026',
     highlights: [

@@ -86,6 +86,7 @@ import {
 import { spreadCampaignJobsOnResume } from './campaignGradualResume.js';
 import { pickDispatchChannel, pickInitialDispatchChannel, type CollectHealthyChannelsContext } from './campaignPoolDispatch.js';
 import {
+    loadCampaignPoolConfig,
     resolvePoolStrategy,
     saveCampaignPoolConfig,
     type PoolStrategy,
@@ -8717,6 +8718,18 @@ export async function redispatchCampaign(
 
     ensureCampaignWorker();
 
+    const poolCfg = await loadCampaignPoolConfig(campaignId).catch(() => null);
+    const redispatchWeights =
+        poolCfg?.channelWeights ||
+        (campaign.channelWeights && typeof campaign.channelWeights === 'object'
+            ? campaign.channelWeights
+            : {}) ||
+        {};
+    const redispatchStrategy = resolvePoolStrategy(
+        poolCfg?.strategy || (campaign as { poolStrategy?: PoolStrategy }).poolStrategy,
+        redispatchWeights
+    );
+
     let stageConfigs = campaignStageConfigsById.get(campaignId);
     if (!stageConfigs?.length && Array.isArray(campaign.stageConfigs)) {
         stageConfigs = campaign.stageConfigs.filter((s) => String(s?.body || '').trim().length > 0);
@@ -8895,7 +8908,15 @@ export async function redispatchCampaign(
     for (let i = 0; i < targets.length; i++) {
         const { phone, stepIndex } = targets[i];
         const cleanPhone = normalizePhoneKey(phone);
-        const assignedConnectionId = activeConnectionIds[i % activeConnectionIds.length];
+        const assignedConnectionId =
+            activeConnectionIds.length > 1
+                ? pickInitialDispatchChannel({
+                      strategy: redispatchStrategy,
+                      connectionIds: activeConnectionIds,
+                      channelWeights: redispatchWeights,
+                      index: i,
+                  })
+                : activeConnectionIds[i % activeConnectionIds.length];
         const staggerDelay = i * dispatchSettings.minDelayMs;
         const vars = recipientVars.get(cleanPhone) || {};
 
@@ -9154,7 +9175,8 @@ export async function startCampaign(
 
     const resolvedPoolWeights = poolDispatch?.channelWeights ?? channelWeights ?? {};
     const poolStrategy = resolvePoolStrategy(poolDispatch?.strategy, resolvedPoolWeights);
-    const usePoolDispatch = !useReplyFlow && activeConnectionIds.length > 1;
+    // Pool ponderado vale também com reply flow: a sessão fica no chip que enviou a 1ª msg.
+    const usePoolDispatch = activeConnectionIds.length > 1;
 
     if (usePoolDispatch) {
         await saveCampaignPoolConfig(cid, {
