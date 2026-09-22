@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.149] - 2026-09-22
+### Corrigido
+- **Falso “Ban Meta” sem enviar mensagem**: Forçar QR / cleanReconnect / recovery count:0 faziam logout sem hold → webhook `LoggedOut` virava Ban #1 + quarentena 24h; agora hold cobre logout interno; `loggedOut` só conta como ban se a sessão ficou open ≥3 min; HistorySync (restart no Go) default OFF e adiado 10 min após open; auto-reconnect sem `forceReconnect` nas primeiras tentativas; Ban #1 recente libera quarentena no boot.
+
 ## [2.3.148] - 2026-09-22
 ### Corrigido
 - **Trocar chips não “pegava”**: remapeamento agora cancela delay de quarentena/backoff ao mover job para chip online; IDs normalizados (id vs instanceName); troca manual desanexa o pool (evita o sync reverter a seleção); exige ao menos um chip online quando houver.

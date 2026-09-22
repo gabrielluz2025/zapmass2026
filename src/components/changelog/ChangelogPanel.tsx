@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.149',
+    date: '22/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Falso Ban Meta sem enviar: logout/QR/HistorySync não viram mais Ban #1 + quarentena 24h' },
+    ],
+  },
+  {
     version: '2.3.148',
     date: '22/09/2026',
     highlights: [
