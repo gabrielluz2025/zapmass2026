@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.144',
+    date: '22/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Chip banido/suspenso não trava mais os outros canais do pool — redistribui e falha over' },
+    ],
+  },
+  {
     version: '2.3.143',
     date: '22/09/2026',
     highlights: [

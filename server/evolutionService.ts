@@ -2074,6 +2074,8 @@ function applyConnectionStateUpdate(
                 void import('./chipProtectionService.js').then((m) =>
                     m.onConnectionClosed(instance, false)
                 );
+                // Queda/suspensão sem ban: redistribui jobs para outros canais (não trava o pool).
+                void reviewRunningCampaignsForChipProtection(instance);
             }
         }
         connections.set(instance, conn);
@@ -6988,10 +6990,16 @@ async function buildCampaignGuardContext(
     const { loadTenantSettings } = await import('./tenantSettings.js');
     const ownerUid = state.ownerUid || item.ownerUid || '';
     const settings = await loadTenantSettings(ownerUid);
+    // Inclui pool Redis: sem isso um job no chip banido só via connectionId e a
+    // proteção pausava a campanha inteira mesmo com outros canais saudáveis.
+    const poolIds =
+        item.campaignId
+            ? ((await loadCampaignPoolConfig(item.campaignId).catch(() => null))?.connectionIds ?? [])
+            : [];
     const channelIds = collectCampaignChannelIds(
         item.connectionId,
         item.alternateChannelIds,
-        state.connectionIds
+        [...(state.connectionIds || []), ...poolIds]
     );
     return {
         ownerUid,
@@ -7114,15 +7122,65 @@ function resumeCampaignFromProtection(campaignId: string, ownerUid?: string): vo
     })();
 }
 
-/** Reavalia campanhas ativas após ban/queda de um chip. */
+/** Reavalia campanhas ativas após ban/queda de um chip e remapeia jobs para canais saudáveis. */
 export async function reviewRunningCampaignsForChipProtection(connectionId: string): Promise<void> {
     const chipId = String(connectionId || '').trim();
     if (!chipId) return;
 
     for (const [campaignId, state] of campaignsById.entries()) {
         if (!state.isRunning) continue;
-        const ids = state.connectionIds || [];
+        const poolCfg = await loadCampaignPoolConfig(campaignId).catch(() => null);
+        const ids = Array.from(
+            new Set([...(state.connectionIds || []), ...(poolCfg?.connectionIds || [])].filter(Boolean))
+        );
         if (!ids.includes(chipId)) continue;
+
+        // Remapeia jobs pendentes do chip ruim para outros canais saudáveis — evita pausar o pool.
+        const healthy = ids.filter((id) => id !== chipId && isCampaignChannelUsable(id));
+        if (healthy.length > 0) {
+            const strategy = resolvePoolStrategy(poolCfg?.strategy, poolCfg?.channelWeights);
+            const queue = getCampaignQueue();
+            let remapped = 0;
+            if (queue) {
+                try {
+                    const jobs = await queue.getJobs(['waiting', 'delayed', 'paused']);
+                    for (const job of jobs) {
+                        const data = job.data as MessageQueueItem;
+                        if (String(data?.campaignId || '') !== campaignId) continue;
+                        if (String(data?.connectionId || '') !== chipId) continue;
+                        const newConnId = pickRemapConnectionForCampaign(
+                            data,
+                            healthy,
+                            strategy,
+                            poolCfg?.channelWeights
+                        );
+                        if (!newConnId || newConnId === chipId) continue;
+                        const alt = ids.length > 1 ? ids : undefined;
+                        await job.updateData({
+                            ...data,
+                            connectionId: newConnId,
+                            alternateChannelIds: alt,
+                        });
+                        remapped++;
+                    }
+                } catch (e: unknown) {
+                    log('warn', 'reviewRunningCampaignsForChipProtection: falha ao remapear', {
+                        campaignId,
+                        chipId,
+                        error: (e as Error)?.message,
+                    });
+                }
+            }
+            if (remapped > 0) {
+                const fromLabel = connections.get(chipId)?.friendlyName || chipId;
+                emitCampaignLog(
+                    'WARN',
+                    `Chip ${fromLabel} indisponível — ${remapped} envio(s) redistribuído(s) para outros canais do pool.`,
+                    { campaignId, connectionId: chipId, remapped },
+                    state.ownerUid
+                );
+            }
+        }
 
         const item: MessageQueueItem = {
             connectionId: chipId,
@@ -7503,15 +7561,40 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
     }
 
-    // Bloqueia chips em quarentena (recuperados de ban) para proteger contra novo bloqueio
+    // Bloqueia chips em quarentena — mas redireciona para outro chip do pool (não trava a campanha).
     const banInfoForJob = getConnectionBanInfo(item.connectionId);
     if (banInfoForJob.inQuarantine) {
+        const quarantineFailover = await pickHealthyFailoverChannel(
+            item.connectionId,
+            item.alternateChannelIds,
+            item.campaignId,
+            item.rotationIndex
+        );
+        if (quarantineFailover && quarantineFailover !== item.connectionId) {
+            const fromLabel = connections.get(item.connectionId)?.friendlyName || item.connectionId;
+            const toLabel = connections.get(quarantineFailover)?.friendlyName || quarantineFailover;
+            emitCampaignLog(
+                'WARN',
+                `Canal ${fromLabel} em QUARENTENA — redirecionando para ${toLabel}`,
+                {
+                    campaignId: item.campaignId,
+                    de: item.connectionId,
+                    para: quarantineFailover,
+                    to: item.to,
+                },
+                campaignState?.ownerUid
+            );
+            item.connectionId = quarantineFailover;
+            await job.updateData(item).catch(() => {});
+            await job.moveToDelayed(Date.now() + 2000, token);
+            throw new DelayedError();
+        }
         const remainMs = (banInfoForJob.quarantineUntil ?? 0) - Date.now();
         const remainH = Math.ceil(remainMs / 3_600_000);
         const connLabel = connections.get(item.connectionId)?.friendlyName || item.connectionId;
         emitCampaignLog(
             'WARN',
-            `Canal ${connLabel} em QUARENTENA (recuperado de ban). Aguarde mais ${remainH}h antes de usar em campanhas.`,
+            `Canal ${connLabel} em QUARENTENA (recuperado de ban) e sem alternativo no pool. Aguarde mais ${remainH}h ou adicione outro chip.`,
             { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
             campaignState?.ownerUid
         );
@@ -7648,8 +7731,32 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
         item._offlineDelayCount = (item._offlineDelayCount || 0) + 1;
         if (item._offlineDelayCount >= 5) {
+            // Só pausa a campanha se NENHUM chip do pool/runtime estiver utilizável.
+            // Antes: 5 retries num chip banido pausavam tudo e travavam os demais canais.
+            const poolIds =
+                item.campaignId
+                    ? ((await loadCampaignPoolConfig(item.campaignId).catch(() => null))?.connectionIds ??
+                      [])
+                    : [];
+            const allIds = collectCampaignChannelIds(
+                item.connectionId,
+                item.alternateChannelIds,
+                [...(campaignState?.connectionIds || []), ...poolIds]
+            );
+            const anyUsable = allIds.some((id) => isCampaignChannelUsable(id));
             const connLabel = connections.get(item.connectionId)?.friendlyName || item.connectionId;
-            const stallMsg = `Campanha pausada: chip ${connLabel} offline no servidor. Reconecte em Conexões e clique em Retomar.`;
+            if (anyUsable) {
+                emitCampaignLog(
+                    'WARN',
+                    `Chip ${connLabel} offline — outros canais do pool seguem ativos; job reagendado (tentativa ${item._offlineDelayCount}).`,
+                    { campaignId: item.campaignId, connectionId: item.connectionId, to: item.to },
+                    campaignState?.ownerUid
+                );
+                await job.updateData(item).catch(() => {});
+                await job.moveToDelayed(Date.now() + 60_000, token);
+                throw new DelayedError();
+            }
+            const stallMsg = `Campanha pausada: chip ${connLabel} offline no servidor e nenhum alternativo disponível. Reconecte em Conexões e clique em Retomar.`;
             emitCampaignLog(
                 'WARN',
                 stallMsg,
@@ -7933,17 +8040,37 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             void maybeNotifyCircuitBreakerHalfOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
             void maybeNotifyCircuitBreakerThrottled(item.connectionId, campaignState?.ownerUid || item.ownerUid);
         }
-        // Failover silencioso: tenta chips alternativos do pool antes de lançar erro.
-        const alternates = Array.isArray(item.alternateChannelIds) ? item.alternateChannelIds : [];
-        if (alternates.length > 1) {
+        // Failover silencioso: tenta chips do pool (Redis ou alternateChannelIds) antes de falhar.
+        // Antes exigia alternateChannelIds.length > 1 — campanhas só com pool Redis não falhavam over
+        // e o chip ruim acumulava erros até pausar a campanha inteira.
+        const poolForFailover =
+            item.campaignId
+                ? await loadCampaignPoolConfig(item.campaignId).catch(() => null)
+                : null;
+        const failoverCandidates = Array.from(
+            new Set(
+                [
+                    ...(poolForFailover?.connectionIds || []),
+                    ...(Array.isArray(item.alternateChannelIds) ? item.alternateChannelIds : []),
+                    ...(campaignState?.connectionIds || []),
+                ]
+                    .map((id) => String(id || '').trim())
+                    .filter(Boolean)
+            )
+        );
+        const canTryFailover =
+            failoverCandidates.length > 1 ||
+            (failoverCandidates.length === 1 && failoverCandidates[0] !== item.connectionId);
+        if (canTryFailover) {
             const originalId = item.connectionId;
             const tried = new Set<string>([originalId]);
             let switched = false;
-            for (let step = 0; step < alternates.length; step++) {
+            const maxSteps = Math.max(failoverCandidates.length, 3);
+            for (let step = 0; step < maxSteps; step++) {
                 const altId = await pickDispatchChannel({
                     campaignId: item.campaignId,
                     currentId: originalId,
-                    alternateIds: alternates,
+                    alternateIds: failoverCandidates,
                     rotationIndex: (item.rotationIndex ?? 0) + step + 1,
                     preferCurrent: false,
                     isChannelUsable: isCampaignChannelUsable,
@@ -9882,16 +10009,18 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
             continue;
         }
 
-        const connIds =
-            state.connectionIds?.filter(Boolean) ||
-            (pendingQueue > 0 ? [] : []);
+        const poolIds =
+            (await loadCampaignPoolConfig(campaignId).catch(() => null))?.connectionIds ?? [];
+        const connIds = Array.from(
+            new Set([...(state.connectionIds?.filter(Boolean) || []), ...poolIds])
+        );
         const usable = connIds.filter((id) => isCampaignChannelUsable(id));
         if (connIds.length > 0 && usable.length === 0) {
             const notifyKey = `${campaignId}:offline`;
             if (campaignStallNotified.has(notifyKey)) continue;
             campaignStallNotified.add(notifyKey);
             const stallMsg =
-                'Campanha pausada: chip offline ou indisponível no servidor. Abra Conexões, reconecte o WhatsApp e clique em Retomar.';
+                'Campanha pausada: nenhum chip do pool online/disponível. Abra Conexões, reconecte o WhatsApp e clique em Retomar.';
             emitCampaignLog('WARN', stallMsg, { campaignId, connectionIds: connIds }, state.ownerUid);
             pauseCampaign(campaignId, state.ownerUid);
             publishOwnerEvent(state.ownerUid, 'campaign-stall-paused', {
