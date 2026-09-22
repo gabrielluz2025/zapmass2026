@@ -7345,6 +7345,38 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         throw new DelayedError();
     }
 
+    // Failover cedo: chip offline/quarentena/warmup não deve gastar tier-delay/agenda antes de trocar.
+    if (
+        !item.replyFlowResponse &&
+        !item.nurtureFollowUp &&
+        item.connectionId &&
+        !isCampaignChannelUsable(item.connectionId)
+    ) {
+        const earlyFailover = await pickHealthyFailoverChannel(
+            item.connectionId,
+            item.alternateChannelIds,
+            item.campaignId,
+            item.rotationIndex
+        );
+        if (earlyFailover && earlyFailover !== item.connectionId) {
+            emitCampaignLog(
+                'WARN',
+                `Chip ${item.connectionId} indisponível — alternando cedo para ${earlyFailover}`,
+                {
+                    campaignId: item.campaignId,
+                    de: item.connectionId,
+                    para: earlyFailover,
+                    to: item.to,
+                },
+                campaignStateEarly?.ownerUid
+            );
+            item.connectionId = earlyFailover;
+            await job.updateData(item).catch(() => {});
+            await job.moveToDelayed(Date.now() + 500, token);
+            throw new DelayedError();
+        }
+    }
+
     if (
         !item.replyFlowResponse &&
         !item.nurtureFollowUp &&
@@ -7644,7 +7676,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
             campaignState?.ownerUid
         );
-        await job.moveToDelayed(Date.now() + Math.min(remainMs, 3_600_000), token);
+        await job.moveToDelayed(Date.now() + Math.min(Math.max(remainMs, 30_000), 60_000), token);
         throw new DelayedError();
     }
 
@@ -10011,9 +10043,78 @@ async function reconcilePendingJobsFromRedis() {
 
 const CAMPAIGN_STALL_MS = 120_000;
 const campaignStallNotified = new Set<string>();
+/** Evita remap agressivo a cada tick do watchdog. */
+const campaignStallRemapAt = new Map<string, number>();
 
 /**
- * Detecta campanhas RUNNING com 0 envios por >2 min e corrige ou pausa com motivo claro.
+ * Redistribui jobs delayed/waiting de chips indisponíveis para chips online do pool.
+ * Corrige campanha "Executando" com 0 entregas (jobs presos em chip offline/quarentena).
+ */
+async function remigrateStuckCampaignJobsToUsableChips(
+    campaignId: string,
+    state: CampaignRuntimeState
+): Promise<number> {
+    const queue = getCampaignQueue();
+    if (!queue) return 0;
+    const poolCfg = await loadCampaignPoolConfig(campaignId).catch(() => null);
+    const ids = Array.from(
+        new Set([...(state.connectionIds || []), ...(poolCfg?.connectionIds || [])].filter(Boolean))
+    );
+    if (ids.length === 0) return 0;
+    const usable = ids.filter((id) => isCampaignChannelUsable(id));
+    if (usable.length === 0) return 0;
+
+    const strategy = resolvePoolStrategy(poolCfg?.strategy, poolCfg?.channelWeights);
+    let remapped = 0;
+    try {
+        const jobs = await queue.getJobs(['waiting', 'delayed', 'paused']);
+        for (const job of jobs) {
+            const data = job.data as MessageQueueItem;
+            if (String(data?.campaignId || '') !== campaignId) continue;
+            const cur = String(data?.connectionId || '').trim();
+            if (!cur || isCampaignChannelUsable(cur)) continue;
+            const newConnId = pickRemapConnectionForCampaign(
+                data,
+                usable,
+                strategy,
+                poolCfg?.channelWeights
+            );
+            if (!newConnId || newConnId === cur) continue;
+            const alt = ids.length > 1 ? ids : undefined;
+            await job.updateData({
+                ...data,
+                connectionId: newConnId,
+                alternateChannelIds: alt,
+            });
+            try {
+                // BullMQ v5: traz job delayed (ex.: quarentena 1h) de volta para a fila em breve.
+                await job.changeDelay(500 + Math.floor(Math.random() * 4_500));
+            } catch {
+                /* job ativo / API — updateData já aponta para o chip bom */
+            }
+            remapped++;
+        }
+    } catch (e: unknown) {
+        log('warn', 'remigrateStuckCampaignJobs: falha', {
+            campaignId,
+            error: (e as Error)?.message,
+        });
+        return remapped;
+    }
+    if (remapped > 0) {
+        emitCampaignLog(
+            'WARN',
+            `Watchdog: ${remapped} envio(s) redistribuído(s) de chip offline/quarentena para canal online.`,
+            { campaignId, remapped, usable },
+            state.ownerUid
+        );
+    }
+    return remapped;
+}
+
+/**
+ * Detecta campanhas RUNNING sem entregas (ou só falhas) e remapeia / corrige.
+ * Antes: `processed > 0` (ex.: 2 falhas) desligava o watchdog — campanha ficava presa para sempre.
  */
 export async function tickCampaignStallWatchdog(): Promise<void> {
     if (isInCampaignResumeGrace()) return;
@@ -10022,12 +10123,16 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
     const now = Date.now();
 
     for (const [campaignId, state] of campaignsById.entries()) {
-        if (!state.isRunning || state.processed > 0) continue;
+        if (!state.isRunning) continue;
         if (pausedCampaigns.has(campaignId) || state.protectionPaused || state.manualPaused) continue;
         if (campaignEnqueueInFlight.has(campaignId)) continue;
 
         const startedAt = state.startedAt ?? 0;
         if (startedAt > 0 && now - startedAt < CAMPAIGN_STALL_MS) continue;
+
+        // Sem sucesso ainda (0 entregues) — mesmo com falhas, ainda é stall de envio.
+        const noSuccessYet = (state.successCount || 0) === 0;
+        if (!noSuccessYet) continue;
 
         const pendingMem = campaignPendingJobs.get(campaignId) || 0;
         let pendingQueue = pendingMem;
@@ -10041,6 +10146,15 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
         }
 
         const pending = Math.max(pendingMem, pendingQueue);
+
+        if (pending > 0) {
+            const lastRemap = campaignStallRemapAt.get(campaignId) || 0;
+            if (now - lastRemap >= 60_000) {
+                campaignStallRemapAt.set(campaignId, now);
+                const remapped = await remigrateStuckCampaignJobsToUsableChips(campaignId, state);
+                if (remapped > 0) continue;
+            }
+        }
 
         if (pending <= 0 && state.ownerUid) {
             if (campaignStallNotified.has(`${campaignId}:reenqueue`)) continue;

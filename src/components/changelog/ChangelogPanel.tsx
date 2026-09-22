@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.147',
+    date: '22/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Campanha Executando sem enviar: remapeia jobs de chip offline e não trava mais após 1–2 falhas' },
+    ],
+  },
+  {
     version: '2.3.146',
     date: '22/09/2026',
     highlights: [

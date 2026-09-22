@@ -26,7 +26,19 @@ export const CampaignChangeChannelsDialog: React.FC<Props> = ({
 
   React.useEffect(() => {
     if (!isOpen) return;
-    const initial = selectedIds.length > 0 ? selectedIds : connections.map((c) => c.id);
+    const onlineIds = connections
+      .filter((c) => c.status === ConnectionStatus.CONNECTED)
+      .map((c) => c.id);
+    const selectedOnline = selectedIds.filter((id) => onlineIds.includes(id));
+    // Se a seleção atual não tem nenhum online, pré-marca todos os online (evita campanha presa).
+    const initial =
+      selectedOnline.length > 0
+        ? selectedIds
+        : onlineIds.length > 0
+          ? onlineIds
+          : selectedIds.length > 0
+            ? selectedIds
+            : connections.map((c) => c.id);
     setPicked(initial.filter((id) => connections.some((c) => c.id === id)));
   }, [isOpen, selectedIds, connections]);
 

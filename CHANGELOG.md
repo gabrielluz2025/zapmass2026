@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.147] - 2026-09-22
+### Corrigido
+- **Campanha “Executando” sem enviar**: watchdog parava após qualquer falha (`processed > 0`) — agora remapeia jobs presos em chip offline/quarentena enquanto `successCount === 0`; failover cedo antes do delay de tier; quarentena retenta em ≤60s; diálogo “Trocar chips” pré-seleciona canais online.
+
 ## [2.3.146] - 2026-09-22
 ### Corrigido
 - **Disparo lento ao iniciar**: `connectedSince` (idade do chip) não é mais zerado a cada queda — isso fazia todo canal parecer “novo” (delay 5×); chips pareados sem idade assumem 14d; delay extra de tier limitado a 20s.
