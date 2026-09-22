@@ -8034,11 +8034,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     void finalizeCampaignJob(job.id ?? '', { status: 'sent' }).catch(() => undefined);
 
     // Registra timestamp de envio para o limitador de frequência (24 h).
-    if (!item.nurtureFollowUp) {
+    // Respostas de fluxo / nurture não contam: só o disparo da campanha consome a cota.
+    if (!item.nurtureFollowUp && !item.replyFlowResponse) {
         await recordFrequencyCap(campaignState?.ownerUid, item.to);
     }
 
-    if (conn && !item.nurtureFollowUp) {
+    if (conn && !item.nurtureFollowUp && !item.replyFlowResponse) {
         conn.messagesSentToday = (conn.messagesSentToday || 0) + 1;
         recordConnectionDispatch(item.connectionId);
         mergeConnectionSettingsCache(item.connectionId, {

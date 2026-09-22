@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.143',
+    date: '22/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Limite do canal: respostas do fluxo não consomem cota diária; só o disparo conta' },
+    ],
+  },
+  {
     version: '2.3.142',
     date: '22/09/2026',
     highlights: [
