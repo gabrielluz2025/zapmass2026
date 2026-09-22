@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.145',
+    date: '22/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Campanha voltava a travar com canais online após instabilidade (loop +90s) — corrigido' },
+    ],
+  },
+  {
     version: '2.3.144',
     date: '22/09/2026',
     highlights: [

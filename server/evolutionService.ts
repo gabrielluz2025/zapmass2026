@@ -2875,6 +2875,8 @@ interface MessageQueueItem {
     _offlineDelayCount?: number;
     /** Trust score: tier delay já aplicado neste job. */
     _tierDelayApplied?: boolean;
+    /** Proteção reconnect_storm: delay extra já aplicado (evita loop infinito de +90s). */
+    _stormSlowApplied?: boolean;
     /** Penalidades por content hash lock repetido. */
     _contentHashStrike?: number;
     /** Motor multi-etapas lazy: identifica contactId e stepIndex desta entrega. */
@@ -7294,7 +7296,17 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             await job.moveToDelayed(Date.now() + 3000, token);
             throw new DelayedError();
         }
-        if (guard?.action === 'slow' && guard.extraDelayMs) {
+        // 'slow' (reconnect_storm): aplica o delay EXTRA uma vez e segue o envio.
+        // Antes: a cada ativação +90s sem enviar → campanha "presa" com canais online.
+        if (guard?.action === 'slow' && guard.extraDelayMs && !item._stormSlowApplied) {
+            item._stormSlowApplied = true;
+            await job.updateData(item).catch(() => {});
+            emitCampaignLog(
+                'WARN',
+                guard.message || `Envios desacelerados (+${Math.round(guard.extraDelayMs / 1000)}s) por instabilidade recente.`,
+                { campaignId: item.campaignId, connectionId: item.connectionId, reason: guard.reason },
+                campaignStateEarly.ownerUid
+            );
             await job.moveToDelayed(Date.now() + guard.extraDelayMs, token);
             throw new DelayedError();
         }

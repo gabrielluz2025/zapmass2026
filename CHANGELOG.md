@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.145] - 2026-09-22
+### Corrigido
+- **Campanha não dispara com canais online**: lock `reconnect_storm` aplicava +90s em loop infinito (nunca enviava). Agora o delay extra roda uma vez por job e o envio segue.
+
 ## [2.3.144] - 2026-09-22
 ### Corrigido
 - **Pool / chip banido ou suspenso**: não pausa mais a campanha inteira quando ainda há canal saudável; jobs do chip ruim são redistribuídos; failover pós-falha usa pool Redis (não só `alternateChannelIds`); quarentena redireciona para outro chip do pool.
