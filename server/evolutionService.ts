@@ -127,7 +127,7 @@ import {
   tryClaimInboundAutomation,
 } from './inboundAutomationDedupe.js';
 import type { InboundProcessParams } from './inboundMissedReplay.js';
-import { validateCampaignContentHash, validateCampaignMediaHash } from './campaignContentHashLock.js';
+import { validateCampaignContentHash, validateCampaignMediaHash, clearCampaignContentHashHits } from './campaignContentHashLock.js';
 import { mutateMediaIfRepeated } from './campaignMediaMutator.js';
 import {
     applyGaussianSendDelay,
@@ -7184,6 +7184,10 @@ function pauseCampaignForProtection(
 
 function resumeCampaignFromProtection(campaignId: string, ownerUid?: string): void {
     void (async () => {
+        const prevReason = campaignsById.get(campaignId)?.protectionPauseReason;
+        if (prevReason === 'PAUSED_BY_HIGH_DUPLICATION') {
+            await clearCampaignContentHashHits(campaignId).catch(() => undefined);
+        }
         const queue = getCampaignQueue();
         if (queue) {
             try {
@@ -7330,10 +7334,17 @@ export function getCampaignProtectionSnapshot(ownerUid: string): {
 
 /** Retoma campanhas pausadas pela proteção quando chips/locks permitem. */
 export async function tickAutoResumeProtectedCampaigns(): Promise<void> {
+    const now = Date.now();
     for (const [campaignId, state] of campaignsById.entries()) {
         if (!state.isRunning || !state.protectionPaused || state.manualPaused) continue;
-        // Sempre reavalia o guard: lock de 48h não pode impedir retomada se já
-        // houver chip online (regra nova) ou se o código de proteção mudou no deploy.
+        // Pausa por duplicação: respeita autoResumeAt (~10 min) para o TTL do hash esfriar.
+        if (
+            state.protectionPauseReason === 'PAUSED_BY_HIGH_DUPLICATION' &&
+            state.protectionPauseUntil &&
+            now < state.protectionPauseUntil
+        ) {
+            continue;
+        }
 
         const ids = state.connectionIds || [];
         if (ids.length === 0) continue;
@@ -7549,17 +7560,22 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 pauseCampaignForProtection(item.campaignId, {
                     reason: 'PAUSED_BY_HIGH_DUPLICATION',
                     ownerUid: ownerUidForJob,
+                    // Aguarda TTL do contador de violações (~10 min) antes de retomar.
+                    autoResumeAt: Date.now() + 10 * 60_000,
                     message:
-                        'Campanha pausada: conteúdo idêntico repetido em excesso. Adicione Spintax ({A|B}) ou varie o texto.',
+                        'Campanha pausada: conteúdo idêntico repetido em excesso. Adicione Spintax ({A|B}) ou varie o texto. Retomada automática em ~10 min.',
                 });
             }
             emitCampaignLog(
                 'WARN',
-                'Campanha pausada por duplicação de texto idêntico (circuit breaker de hash).',
+                'Campanha pausada por duplicação de texto idêntico (circuit breaker de hash) — jobs adiados, não marcados como falha definitiva.',
                 { campaignId: item.campaignId, contentHash: hashLock.hash, violations: hashLock.campaignViolations },
                 ownerUidForJob
             );
-            throw new UnrecoverableError('Campanha pausada por duplicação de texto');
+            // NUNCA UnrecoverableError: isso gerava centenas de "falhas definitivas" fantasmas no BullMQ.
+            const delayMs = Math.max(60_000, hashLock.delayMs ?? 45_000);
+            await job.moveToDelayed(Date.now() + delayMs, token);
+            throw new DelayedError();
         }
         if (hashLock.action === 'DELAY_JOB') {
             const delayMs = hashLock.delayMs ?? 45_000;
@@ -8095,13 +8111,14 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 pauseCampaignForProtection(item.campaignId, {
                     reason: 'PAUSED_BY_HIGH_DUPLICATION',
                     ownerUid: ownerUidForJob,
+                    autoResumeAt: Date.now() + 10 * 60_000,
                     message:
-                        'Campanha pausada: mídia idêntica repetida em excesso. Varie o arquivo ou use legendas com Spintax.',
+                        'Campanha pausada: mídia idêntica repetida em excesso. Varie o arquivo ou use legendas com Spintax. Retomada automática em ~10 min.',
                 });
             }
             emitCampaignLog(
                 'WARN',
-                'Campanha pausada por duplicação de mídia idêntica (circuit breaker de hash).',
+                'Campanha pausada por duplicação de mídia idêntica — jobs adiados, não marcados como falha definitiva.',
                 {
                     campaignId: item.campaignId,
                     contentHash: mediaHashLock.hash,
@@ -8109,7 +8126,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 },
                 ownerUidForJob
             );
-            throw new UnrecoverableError('Campanha pausada por duplicação de mídia');
+            const delayMs = Math.max(60_000, mediaHashLock.delayMs ?? 45_000);
+            await job.moveToDelayed(Date.now() + delayMs, token);
+            throw new DelayedError();
         }
         if (mediaHashLock.action === 'DELAY_JOB') {
             const delayMs = mediaHashLock.delayMs ?? 45_000;

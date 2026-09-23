@@ -41,6 +41,7 @@ function countByKind(rows: CampaignRetryFailedRow[]): Record<CampaignOutboundErr
     not_registered: 0,
     reachout_timelock: 0,
     chip_auth: 0,
+    content_dup: 0,
     other: 0,
   };
   for (const r of rows) {

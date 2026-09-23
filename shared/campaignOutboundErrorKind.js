@@ -37,6 +37,9 @@ export function classifyCampaignOutboundError(detail) {
     if (/not registered|exists:\s*false|não encontrado no WhatsApp|Contato não encontrado/i.test(d)) {
         return 'not_registered';
     }
+    if (/duplica(ç|c)ão de (texto|mídia)|PAUSED_BY_HIGH_DUPLICATION|conteúdo idêntico/i.test(d)) {
+        return 'content_dup';
+    }
     if (/not authorized|device JID|HTTP 401|status code 401|logged.?out|session/i.test(d)) {
         return 'chip_auth';
     }
@@ -47,6 +50,7 @@ export function campaignOutboundErrorKindLabel(kind) {
         not_registered: 'Sem WhatsApp',
         reachout_timelock: 'Restrição Meta (463)',
         chip_auth: 'Chip / sessão',
+        content_dup: 'Pausa por texto igual',
         other: 'Outro',
     };
     return labels[kind] || kind;
@@ -65,8 +69,11 @@ export function humanizeCampaignOutboundError(detail) {
     if (kind === 'chip_auth') {
         return `Problema de sessão/auth do chip — reconecte e reenvie só estes. (${d.slice(0, 120)})`;
     }
+    if (kind === 'content_dup') {
+        return 'Pausa anti-spam por texto igual — jobs adiados. Ao retomar, o envio continua (varie Spintax para evitar nova pausa).';
+    }
     return d;
 }
 export function isRetryableCampaignOutboundKind(kind) {
-    return kind === 'chip_auth' || kind === 'other';
+    return kind === 'chip_auth' || kind === 'other' || kind === 'content_dup';
 }

@@ -25,10 +25,8 @@ describe('campaignOutboundErrorKind', () => {
     expect(isChipHealthOutbound4xx('not registered')).toBe(false);
   });
 
-  it('classifica not authorized / device JID como chip_auth (retryável)', () => {
-    expect(classifyCampaignOutboundError('not authorized (todos os chips tentados)')).toBe('chip_auth');
-    expect(classifyCampaignOutboundError("the store doesn't contain a device JID")).toBe('chip_auth');
-    expect(isChipHealthOutbound4xx('not authorized')).toBe(true);
-    expect(isRetryableCampaignOutboundKind('chip_auth')).toBe(true);
+  it('classifica pausa por texto igual como content_dup (retryável)', () => {
+    expect(classifyCampaignOutboundError('Campanha pausada por duplicação de texto')).toBe('content_dup');
+    expect(isRetryableCampaignOutboundKind('content_dup')).toBe(true);
   });
 });

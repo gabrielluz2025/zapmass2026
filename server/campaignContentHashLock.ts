@@ -8,8 +8,8 @@ const KEY_PREFIX = 'msg:hash:';
 const CAMPAIGN_HITS_PREFIX = 'campaign:hash_hits:';
 const WINDOW_SEC = 5 * 60;
 const CAMPAIGN_HITS_TTL_SEC = 600;
-const DEFAULT_THRESHOLD = 10;
-const DEFAULT_CAMPAIGN_VIOLATIONS = 15;
+const DEFAULT_THRESHOLD = 25;
+const DEFAULT_CAMPAIGN_VIOLATIONS = 40;
 const DEFAULT_DELAY_MS = 45_000;
 
 export type ContentHashLockResult = {
@@ -161,9 +161,22 @@ async function pauseCampaignForHighDuplication(
   await emitAntiBanAlert(tid, 'campaign-protection-paused', {
     campaignId: cid,
     reason: 'PAUSED_BY_HIGH_DUPLICATION',
-    message: `Campanha pausada: conteúdo idêntico repetido ${violations}× em 10 min. Adicione Spintax ou varie o texto.`,
+    message: `Campanha pausada: conteúdo idêntico repetido ${violations}× em 10 min. Spintax ajuda; retomada automática em ~10 min (jobs adiados, sem falha definitiva).`,
     contentHash: hash,
   });
+}
+
+/** Zera contadores Redis de hash da campanha (após retomada por duplicação). */
+export async function clearCampaignContentHashHits(campaignId: string): Promise<void> {
+  const cid = String(campaignId || '').trim();
+  if (!cid) return;
+  const redis = getSharedRedis();
+  if (!redis) return;
+  try {
+    await redis.del(campaignHitsKey(cid));
+  } catch {
+    /* ignore */
+  }
 }
 
 /**

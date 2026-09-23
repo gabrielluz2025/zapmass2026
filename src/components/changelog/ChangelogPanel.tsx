@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.158',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Pausa por texto igual não gera mais centenas de falhas definitivas — jobs adiados + retomada ~10 min' },
+    ],
+  },
+  {
     version: '2.3.157',
     date: '23/09/2026',
     highlights: [

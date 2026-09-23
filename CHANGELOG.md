@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.158] - 2026-09-23
+### Corrigido
+- **“428 falhas” por duplicação de texto**: o circuit breaker anti-spam pausava a campanha e matava jobs com falha definitiva — agora só **adia** os jobs e retoma em ~10 min; limiar mais alto (25/40). As falhas reais da lista Jovino continuam sendo 463 / sem WA / chip offline.
+
 ## [2.3.157] - 2026-09-23
 ### Adicionado
 - **Reenvio automático de falhas seguras**: a cada ~1 min o servidor reenfileira sozinho falhas de chip/sessão (not authorized, device JID, etc.) quando há chip online — até 2 tentativas / 12 min de intervalo. Não reenvia 463 (Meta) nem números sem WhatsApp.
