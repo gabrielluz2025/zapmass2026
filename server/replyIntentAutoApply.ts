@@ -15,6 +15,7 @@ import {
   phoneFromConversation,
   resolveMergedMessagesForScan,
 } from './replyIntentScan.js';
+import { routeInboundReplyWithoutSession } from './replyFlowCatchUp.js';
 import type { Conversation } from './types.js';
 
 export type AutoApplyReplyIntentResult = {
@@ -184,13 +185,29 @@ export async function autoApplyReplyIntentsForTenant(
       connectionId: row.connectionId,
       classification: row.classification,
       replyText: row.replyText,
-      reprocessFlow: row.classification === 'hot',
+      reprocessFlow: false,
       incomingConvId: row.conversationId,
     });
     if (result.ok === true) {
       if (row.classification === 'hot') appliedHot += 1;
       else appliedBlacklist += 1;
-    } else if (result.ok === false) {
+      continue;
+    }
+    if (result.ok === false && result.error === 'Contato não encontrado.' && row.classification === 'hot') {
+      const routed = await routeInboundReplyWithoutSession({
+        tenantId,
+        connectionId: row.connectionId,
+        phoneDigits: row.phoneDigits,
+        bodyText: row.replyText,
+        incomingConvId: row.conversationId,
+        cancelJobs: async () => 0,
+      });
+      if (routed.handled) {
+        if (row.classification === 'hot') appliedHot += 1;
+        continue;
+      }
+    }
+    if (result.ok === false) {
       skippedNoContact += 1;
       errors.push({ phoneDigits: result.phoneDigits, error: result.error });
     }

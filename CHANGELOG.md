@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.164] - 2026-09-23
+### Adicionado
+- **Fluxo por resposta**: reabre sessão ao responder (disparo recente) e envia texto do fluxo; quem ficou sem sessão é roteado para **quente** ou **lista negra** sem reenviar mensagem (`reply_flow_catchup` + `/api/reply-intent/auto-apply`).
+
 ## [2.3.163] - 2026-09-23
 ### Adicionado
 - **Identidade por contato (tenant + telefone)**: migration `contact_identity` / `contact_events`, API de ficha e timeline, painel no chat (quente/morno/lista negra), reply-flow em Redis por tenant, histórico arquivado unificado por número, chip preferido na jornada e eventos em envio/resposta/opt-out/failover.

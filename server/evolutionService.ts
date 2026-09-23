@@ -10769,13 +10769,61 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
 
     ensureReplyFlowEngine();
     await tryRestoreReplyFlowSession(instance, phoneDigits);
-    const flowResult = await replyFlowEngine.handleIncoming({
+    if (messageOwnerUid && replyFlowEngine) {
+        const { bootstrapReplyFlowSessionForInbound } = await import('./replyFlowCatchUp.js');
+        await bootstrapReplyFlowSessionForInbound({
+            tenantId: messageOwnerUid,
+            connectionId: instance,
+            phoneDigits,
+            incomingConvId,
+            hasSession: replyFlowEngine.hasSession(instance, phoneDigits),
+            openSession: (p) => replyFlowEngine!.openSession(p),
+        });
+    }
+    let flowResult = await replyFlowEngine.handleIncoming({
         connectionId: instance,
         phoneDigits,
         bodyText,
         nonTextReply,
         incomingConvId,
     });
+
+    if (!flowResult.handled && messageOwnerUid && bodyText?.trim()) {
+        const { routeInboundReplyWithoutSession } = await import('./replyFlowCatchUp.js');
+        const routed = await routeInboundReplyWithoutSession({
+            tenantId: messageOwnerUid,
+            connectionId: instance,
+            phoneDigits,
+            bodyText,
+            incomingConvId,
+            cancelJobs: async (tenantId, phone) => {
+                const queue = getCampaignQueue();
+                if (!queue) return 0;
+                return cancelCampaignJobsForPhone(
+                    queue,
+                    tenantId,
+                    phone,
+                    (campaignId) => campaignsById.get(campaignId)?.ownerUid
+                );
+            },
+            publishConsent: (payload) => {
+                publishOwnerEvent(messageOwnerUid, 'contact-marketing-consent', {
+                    campaignId: payload.campaignId,
+                    phoneDigits,
+                    effect: payload.effect,
+                    replyText: payload.replyText.slice(0, 500),
+                    at: new Date().toISOString(),
+                    source: 'reply_flow_catchup',
+                });
+            },
+        });
+        if (routed.handled) {
+            flowResult = {
+                handled: true,
+                marketingEffect: routed.marketingEffect,
+            };
+        }
+    }
 
     // Opt-out global só depois do fluxo: o gatilho SAIR da campanha manda o texto
     // configurado. O handler genérico (LGPD) não pode roubar essa resposta.

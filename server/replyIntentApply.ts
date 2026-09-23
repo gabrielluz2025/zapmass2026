@@ -53,31 +53,51 @@ export async function applyLeadClassificationForTenant(
   if (!contact && phoneDigits.length >= 8) {
     contact = (await findContactByPhoneKey(tenantId, normPhoneKey(phoneDigits))) || null;
   }
-  if (!contact) {
-    return { ok: false, error: 'Contato não encontrado.', phoneDigits };
-  }
 
   const at = new Date().toISOString();
   const replySnippet = String(body.replyText || '').trim().slice(0, 200);
-  let updated = contact;
 
   if (classification === 'blacklist') {
     await processContactOptOut({
       tenantId,
-      phoneDigits: contact.phone,
+      phoneDigits: contact?.phone || phoneDigits,
       reason: `Classificação manual: lista negra${replySnippet ? ` — "${replySnippet}"` : ''}`,
       source: 'manual_chat',
       keyword: replySnippet || 'lista negra',
     });
-    updated =
-      (await updateContact(tenantId, contact.id, {
-        marketingOptOut: true,
-        marketingOptIn: false,
-        marketingConsentAt: at,
-        marketingConsentText: replySnippet || 'Lista negra (manual no chat)',
-        tags: mergeLeadTag(contact.tags || [], 'blacklist'),
-      })) || updated;
-  } else if (classification === 'hot') {
+    if (contact) {
+      const updated =
+        (await updateContact(tenantId, contact.id, {
+          marketingOptOut: true,
+          marketingOptIn: false,
+          marketingConsentAt: at,
+          marketingConsentText: replySnippet || 'Lista negra (manual no chat)',
+          tags: mergeLeadTag(contact.tags || [], 'blacklist'),
+        })) || contact;
+      contact = updated;
+    }
+    if (!contact) {
+      return {
+        ok: true,
+        contact: {
+          id: '',
+          name: '',
+          phone: phoneDigits,
+          tags: [LEAD_TAG.blacklist],
+          status: 'VALID',
+        } as Contact,
+        classification,
+      };
+    }
+    return { ok: true, contact, classification };
+  }
+
+  if (!contact) {
+    return { ok: false, error: 'Contato não encontrado.', phoneDigits };
+  }
+
+  let updated = contact;
+  if (classification === 'hot') {
     updated =
       (await updateContact(tenantId, contact.id, {
         marketingOptOut: false,

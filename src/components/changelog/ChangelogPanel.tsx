@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.164',
+    date: '23/09/2026',
+    highlights: [
+      {
+        type: 'feat',
+        text: 'Respostas sem sessão: roteia quero/sair para quente ou lista negra; novas respostas reabrem sessão e disparam texto do fluxo',
+      },
+    ],
+  },
+  {
     version: '2.3.163',
     date: '23/09/2026',
     highlights: [
