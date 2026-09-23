@@ -13,6 +13,7 @@ import {
 import { useClientCrm } from '../chat/useClientCrm';
 import { useSendChatMedia } from './hooks/useSendChatMedia';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
+import { collapseConversationsByPhone } from '../../utils/collapseConversationsByPhone';
 import { ensureLatestPreviewInMessages, mergeChatMessageLists } from '../../utils/chatMessageMerge';
 import { buildCanonicalConversationId } from '../../utils/conversationId';
 import { OPEN_CHAT_BY_CONVERSATION_ID_KEY } from '../../utils/openChatByConversationIdNav';
@@ -248,10 +249,10 @@ export const WaWebChatApp: React.FC<{
   const mergedConversations = useMemo(() => {
     const realIds = new Set(conversations.map((c) => c.id));
     const drafts = draftConversations.filter((d) => !realIds.has(d.id));
-    return dedupeConversationsById([...conversations, ...drafts]);
+    return collapseConversationsByPhone(dedupeConversationsById([...conversations, ...drafts]));
   }, [conversations, draftConversations]);
 
-  // mergedConversations já foi collapsed/deduped — ordenar direto sem segundo collapse.
+  // collapseConversationsByPhone une @lid + telefone do mesmo contato no mesmo chip.
   const sortedConversations = useMemo(() => {
     return [...mergedConversations].sort((a, b) => {
       const ta = a.lastMessageTimestamp ?? 0;

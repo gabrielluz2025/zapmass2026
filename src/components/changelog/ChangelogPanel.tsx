@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.171',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Bate-papo: mesma conversa para mensagem recebida e resposta (sem duplicar @lid vs telefone)' },
+    ],
+  },
+  {
     version: '2.3.170',
     date: '23/09/2026',
     highlights: [

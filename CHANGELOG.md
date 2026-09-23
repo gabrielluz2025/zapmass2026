@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.171] - 2026-09-23
+### Corrigido
+- **Bate-papo**: une entrada (webhook/@lid) e sua resposta na mesma conversa — collapse após mensagens, envio no id canônico e merge por telefone na UI.
+
 ## [2.3.170] - 2026-09-23
 ### Corrigido
 - **Bate-papo**: histórico permanece no arquivo do servidor (comprovação); ao reconectar o chip a inbox restaura do Postgres; conversa excluída na UI não volta com «Sincronizar do celular» (só reaparece com mensagem nova ao vivo).

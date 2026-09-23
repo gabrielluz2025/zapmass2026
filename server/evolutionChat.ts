@@ -16,6 +16,7 @@ import {
     scrubInvalidConversationPhone
 } from './contactPhoneEnrich.js';
 import {
+    buildStrongPhoneMergeKeys,
     looksLikeLongLidDigits,
     normalizePhoneDigits,
     pickContactDisplayName
@@ -276,11 +277,22 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (opts?.ownerUid) ownerUidForScope = opts.ownerUid;
     }
 
-    function collapseStoredConversations(): void {
+    function collapseStoredConversations(): boolean {
         const collapsed = collapseConversationsByPhone(conversations);
-        if (collapsed.length >= conversations.length) return;
+        if (collapsed.length >= conversations.length) return false;
         conversations.length = 0;
         conversations.push(...collapsed);
+        return true;
+    }
+
+    let collapseInboxTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Une @lid + telefone na mesma linha da inbox (evita duplicata recebida vs respondida). */
+    function scheduleCollapseInbox(): void {
+        if (collapseInboxTimer) clearTimeout(collapseInboxTimer);
+        collapseInboxTimer = setTimeout(() => {
+            collapseInboxTimer = null;
+            if (collapseStoredConversations()) emitConversationsUpdate();
+        }, 120);
     }
 
     /** Lista completa — só sync findChats, delete em massa ou rajada grande de deltas. */
@@ -337,7 +349,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const ids = [...pendingDeltaIds];
         pendingDeltaIds.clear();
         if (ids.length === 0) return;
-        if (ids.length > DELTA_FLUSH_MAX) {
+        const beforeCollapse = conversations.length;
+        collapseStoredConversations();
+        if (conversations.length < beforeCollapse || ids.length > DELTA_FLUSH_MAX) {
             emitConversationsUpdate();
             return;
         }
@@ -654,18 +668,23 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             conv.unreadCount = 0;
         }
         upsertConversation(conv);
+        scheduleCollapseInbox();
     }
 
     function resolveConversationIdForPhone(connectionId: string, phoneDigits: string): string {
         const target = normalizePhoneDigits(phoneDigits);
         if (!target) return buildConversationId(connectionId, `${phoneDigits}@s.whatsapp.net`);
+        const targetKeys = new Set(buildStrongPhoneMergeKeys(target));
         for (const c of conversations) {
             if (c.connectionId !== connectionId) continue;
             const cp = normalizePhoneDigits(c.contactPhone || '');
-            if (cp && cp === target) return c.id;
+            if (cp && (cp === target || targetKeys.has(cp))) return c.id;
+            for (const k of buildStrongPhoneMergeKeys(cp)) {
+                if (targetKeys.has(k)) return c.id;
+            }
             const jidPart = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : '';
             const jidDigits = normalizePhoneDigits(jidPart.split('@')[0] || '');
-            if (jidDigits && jidDigits === target) return c.id;
+            if (jidDigits && (jidDigits === target || targetKeys.has(jidDigits))) return c.id;
         }
         return buildConversationId(connectionId, `${target}@s.whatsapp.net`);
     }
@@ -1925,12 +1944,16 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const convAfter =
             conversations.find((c) => c.id === effectiveId) ||
             conversations.find((c) => c.id === conversationId);
-        appendMessageToConversation(effectiveId, newMsg, {
+        const canonicalId = resolveCanonicalConversationId(parsed.connectionId, conversationId, {
+            contactPhone: peer.contactPhone || convAfter?.contactPhone,
+            waJidAlt: peer.waJidAlt || convAfter?.waJidAlt,
+        });
+        appendMessageToConversation(canonicalId, newMsg, {
             connectionId: parsed.connectionId,
             contactPhone: peer.contactPhone || convAfter?.contactPhone || '',
             waJidAlt: peer.waJidAlt || convAfter?.waJidAlt,
         });
-        emitConversationDelta(effectiveId);
+        emitConversationDelta(canonicalId);
     }
 
     async function sendMedia(
@@ -2016,12 +2039,16 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         };
 
         const convAfter = conversations.find((c) => c.id === conversationId);
-        appendMessageToConversation(buildConversationId(parsed.connectionId, parsed.remoteJid), newMsg, {
+        const canonicalId = resolveCanonicalConversationId(parsed.connectionId, conversationId, {
+            contactPhone: peer.contactPhone || convAfter?.contactPhone,
+            waJidAlt: peer.waJidAlt || convAfter?.waJidAlt,
+        });
+        appendMessageToConversation(canonicalId, newMsg, {
             connectionId: parsed.connectionId,
             contactPhone: peer.contactPhone || convAfter?.contactPhone || '',
             waJidAlt: peer.waJidAlt || convAfter?.waJidAlt,
         });
-        emitConversationDelta(buildConversationId(parsed.connectionId, parsed.remoteJid));
+        emitConversationDelta(canonicalId);
     }
 
     async function hydrateChatArchiveForConversation(
