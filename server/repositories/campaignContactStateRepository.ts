@@ -310,6 +310,33 @@ export async function listFailedContactsAtStep(
   return r.rows;
 }
 
+/** Contatos falhos com mensagem de erro (para auto-retry seletivo). */
+export async function listFailedContactsWithErrors(
+  campaignId: string
+): Promise<Array<{ contactId: string; stepIndex: number; errorMessage: string | null; updatedAt: Date }>> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const r = await pool.query<{
+    contact_id: string;
+    current_step_index: number;
+    error_message: string | null;
+    updated_at: Date;
+  }>(
+    `SELECT contact_id, current_step_index, error_message, updated_at
+     FROM zapmass.campaign_contact_state
+     WHERE campaign_id = $1::uuid AND status = 'failed'
+     ORDER BY updated_at DESC
+     LIMIT 2000`,
+    [campaignId]
+  );
+  return r.rows.map((row) => ({
+    contactId: row.contact_id,
+    stepIndex: row.current_step_index,
+    errorMessage: row.error_message,
+    updatedAt: row.updated_at,
+  }));
+}
+
 /** Contatos elegíveis para reenvio / retomada na mesma campanha. */
 export async function listContactsForRedispatch(
   campaignId: string,

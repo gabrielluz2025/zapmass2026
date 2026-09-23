@@ -10,6 +10,7 @@ async function tick(): Promise<void> {
     const evo = await import('./evolutionService.js');
     await evo.tickAutoResumeProtectedCampaigns();
     await evo.tickCampaignStallWatchdog();
+    await evo.tickSafeFailedAutoRetry();
   } catch (e) {
     console.warn('[ChipProtection] tick campanhas falhou:', (e as Error)?.message);
   }

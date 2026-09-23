@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.157] - 2026-09-23
+### Adicionado
+- **Reenvio automático de falhas seguras**: a cada ~1 min o servidor reenfileira sozinho falhas de chip/sessão (not authorized, device JID, etc.) quando há chip online — até 2 tentativas / 12 min de intervalo. Não reenvia 463 (Meta) nem números sem WhatsApp.
+
 ## [2.3.156] - 2026-09-23
 ### Corrigido
 - **Falhas 463 queimavam o pool**: error 463 (reachout Meta) e “not registered” não fazem mais failover em todos os chips nem abrem circuit breaker; contam como falha definitiva do contato.

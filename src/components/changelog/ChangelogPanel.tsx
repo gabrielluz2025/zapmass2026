@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.157',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Reenvio automático de falhas de chip/sessão (sem clicar) — nunca reenvia 463 nem números sem WhatsApp' },
+    ],
+  },
+  {
     version: '2.3.156',
     date: '23/09/2026',
     highlights: [

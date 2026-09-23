@@ -54,8 +54,10 @@ import {
     type WhatsAppNumberCheckRow,
 } from './evolutionOutboundPhone.js';
 import {
+    classifyCampaignOutboundError,
     isChipHealthOutbound4xx,
     isRecipientPolicyOutboundError,
+    isRetryableCampaignOutboundKind,
     isUnrecoverableCampaignOutboundError,
 } from '../shared/campaignOutboundErrorKind.js';
 import {
@@ -268,7 +270,7 @@ import {
 } from './campaignMultiStepEngine.js';
 import { isCampaignFlowContinuation } from './campaignFlowContinuation.js';
 import { fetchCampaignDoc, updateCampaignFields, usePostgresCampaigns } from './campaignStore.js';
-import { countWaitingReplyForCampaign, getContactStateSummary } from './repositories/campaignContactStateRepository.js';
+import { countWaitingReplyForCampaign, getContactStateSummary, listFailedContactsWithErrors } from './repositories/campaignContactStateRepository.js';
 import {
     markProspectingSilentBumpSent,
     markProspectingWave0Sent,
@@ -10205,6 +10207,114 @@ const CAMPAIGN_STALL_MS = 120_000;
 const campaignStallNotified = new Set<string>();
 /** Evita remap agressivo a cada tick do watchdog. */
 const campaignStallRemapAt = new Map<string, number>();
+
+/** Auto-reenvio de falhas "seguras" (chip/sessão) — não inclui 463 nem sem WhatsApp. */
+const SAFE_AUTO_RETRY_COOLDOWN_MS = 12 * 60_000;
+const SAFE_AUTO_RETRY_MAX = 2;
+const SAFE_AUTO_RETRY_MIN_FAIL_AGE_MS = 3 * 60_000;
+const safeFailedAutoRetryAt = new Map<string, { count: number; lastAt: number }>();
+
+/**
+ * Reenvia automaticamente falhas de chip/sessão quando há canal online.
+ * Evita o clique em "Reenviar falhas" para not authorized / device JID / outros transitórios mortos.
+ * Nunca reenvia 463 (Meta) nem "not registered".
+ */
+export async function tickSafeFailedAutoRetry(): Promise<void> {
+    if (isInCampaignResumeGrace()) return;
+    if (!usePostgresCampaigns()) return;
+
+    const now = Date.now();
+    const candidates: Array<{ campaignId: string; ownerUid: string }> = [];
+
+    for (const [campaignId, state] of campaignsById.entries()) {
+        if (!state.ownerUid) continue;
+        if (pausedCampaigns.has(campaignId) || state.protectionPaused || state.manualPaused) continue;
+        if (campaignEnqueueInFlight.has(campaignId)) continue;
+        const pending = campaignPendingJobs.get(campaignId) || 0;
+        if (state.isRunning && pending > 0) continue;
+        candidates.push({ campaignId, ownerUid: state.ownerUid });
+    }
+
+    try {
+        const { listCampaignIdsEligibleForSafeAutoRetry } = await import(
+            './repositories/campaignsRepository.js'
+        );
+        const extra = await listCampaignIdsEligibleForSafeAutoRetry();
+        for (const row of extra) {
+            if (candidates.some((c) => c.campaignId === row.campaignId)) continue;
+            if (pausedCampaigns.has(row.campaignId)) continue;
+            const mem = campaignsById.get(row.campaignId);
+            if (mem?.manualPaused || mem?.protectionPaused) continue;
+            candidates.push(row);
+        }
+    } catch {
+        /* repo opcional / schema antigo */
+    }
+
+    for (const { campaignId, ownerUid } of candidates.slice(0, 25)) {
+        const st = safeFailedAutoRetryAt.get(campaignId) || { count: 0, lastAt: 0 };
+        if (st.count >= SAFE_AUTO_RETRY_MAX) continue;
+        if (now - st.lastAt < SAFE_AUTO_RETRY_COOLDOWN_MS) continue;
+
+        const doc = await fetchCampaignDoc(ownerUid, campaignId).catch(() => null);
+        const connIds =
+            campaignsById.get(campaignId)?.connectionIds || doc?.selectedConnectionIds || [];
+        const online = await filterActiveConnections(connIds);
+        if (online.length === 0) continue;
+
+        let failedRows: Array<{
+            contactId: string;
+            stepIndex: number;
+            errorMessage: string | null;
+            updatedAt: Date;
+        }>;
+        try {
+            failedRows = await listFailedContactsWithErrors(campaignId);
+        } catch {
+            continue;
+        }
+        if (failedRows.length === 0) continue;
+
+        const safePhones = failedRows
+            .filter((r) => {
+                const age = now - new Date(r.updatedAt).getTime();
+                if (!Number.isFinite(age) || age < SAFE_AUTO_RETRY_MIN_FAIL_AGE_MS) return false;
+                const kind = classifyCampaignOutboundError(r.errorMessage || '');
+                return isRetryableCampaignOutboundKind(kind);
+            })
+            .map((r) => r.contactId);
+
+        if (safePhones.length === 0) continue;
+
+        safeFailedAutoRetryAt.set(campaignId, { count: st.count + 1, lastAt: now });
+        log('info', `[safe-auto-retry] Reenviando ${safePhones.length} falha(s) de chip/sessão`, {
+            campaignId,
+            attempt: st.count + 1,
+        });
+
+        const result = await redispatchCampaign(ownerUid, campaignId, {
+            mode: 'failed',
+            connectionIds: online,
+            phones: safePhones,
+            skipFrequencyCap: true,
+        });
+
+        if (result.ok && result.enqueued > 0) {
+            emitCampaignLog(
+                'INFO',
+                `Reenvio automático: ${result.enqueued} falha(s) de chip/sessão reenfileirada(s) (sem 463 / sem WA).`,
+                { campaignId, enqueued: result.enqueued, autoRetry: true },
+                ownerUid
+            );
+            publishOwnerEvent(ownerUid, 'campaign:auto-retry-failed', {
+                campaignId,
+                enqueued: result.enqueued,
+            });
+        } else if (!result.ok && /ainda em execução|pausada/i.test(String(result.error || ''))) {
+            safeFailedAutoRetryAt.set(campaignId, st);
+        }
+    }
+}
 
 /**
  * Redistribui jobs delayed/waiting de chips indisponíveis para chips online do pool.

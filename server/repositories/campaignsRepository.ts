@@ -383,6 +383,25 @@ export async function listPausedCampaigns(limit = 50): Promise<RunningCampaignRo
   return r.rows;
 }
 
+/** Campanhas com falhas recentes elegíveis a auto-reenvio seguro (chip/sessão). */
+export async function listCampaignIdsEligibleForSafeAutoRetry(
+  limit = 40
+): Promise<Array<{ campaignId: string; ownerUid: string }>> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const r = await pool.query<{ id: string; tenant_id: string }>(
+    `SELECT c.id::text, c.tenant_id::text
+     FROM zapmass.campaigns c
+     WHERE c.status IN ('RUNNING', 'STARTED', 'PAUSED', 'WAITING_REPLY', 'COMPLETED')
+       AND COALESCE((c.doc->>'failedCount')::int, 0) > 0
+       AND c.updated_at > NOW() - INTERVAL '48 hours'
+     ORDER BY c.updated_at DESC
+     LIMIT $1`,
+    [limit]
+  );
+  return r.rows.map((row) => ({ campaignId: row.id, ownerUid: row.tenant_id }));
+}
+
 export type ReplyFlowCampaignRow = {
   id: string;
   tenant_id: string;
