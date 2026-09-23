@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.156] - 2026-09-23
+### Corrigido
+- **Falhas 463 queimavam o pool**: error 463 (reachout Meta) e “not registered” não fazem mais failover em todos os chips nem abrem circuit breaker; contam como falha definitiva do contato.
+- **Reenviar falhas**: diálogo classifica erros e, por padrão, só reenvia chip/sessão — evita reenviar 463 e números sem WhatsApp em lote.
+
 ## [2.3.155] - 2026-09-23
 ### Corrigido
 - **KPI Pendentes zerava em reply-flow**: campanha pausada/aguardando resposta ainda com gente na fila mostrava “0 · concluído”; agora exibe o que falta enviar.

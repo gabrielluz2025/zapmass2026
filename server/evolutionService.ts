@@ -54,6 +54,11 @@ import {
     type WhatsAppNumberCheckRow,
 } from './evolutionOutboundPhone.js';
 import {
+    isChipHealthOutbound4xx,
+    isRecipientPolicyOutboundError,
+    isUnrecoverableCampaignOutboundError,
+} from '../shared/campaignOutboundErrorKind.js';
+import {
     createPhonebookNameIndex,
     evolutionContactDisplayName,
     filterEvolutionContactLabel,
@@ -486,11 +491,7 @@ function isRetryableOutbound400(errorDetail?: string): boolean {
 }
 
 function isUnrecoverableOutboundError(errorDetail?: string): boolean {
-    if (!errorDetail) return false;
-    // Evitar "não encontrado" genérico (logs de outras falhas) — só recusas claras do WhatsApp/número.
-    return /HTTP 400|status code 400|exists:\s*false|não encontrado no WhatsApp|Contato não encontrado|recusou o envio \(400\)|Número inválido|não foi possível obter o número|mensagem vazia/i.test(
-        errorDetail
-    );
+    return isUnrecoverableCampaignOutboundError(errorDetail);
 }
 
 /**
@@ -8214,11 +8215,18 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     if (!sendResult.ok) {
         const detail = String(sendResult.errorDetail || '');
-        if (/\b4\d{2}\b/.test(detail) || /401|403|429/.test(detail)) {
+        // 463 / not registered: política Meta ou número inválido — não pune o chip nem gira o pool.
+        if (isChipHealthOutbound4xx(detail)) {
             await cb.recordFail4xx(item.connectionId);
             void maybeNotifyCircuitBreakerOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
             void maybeNotifyCircuitBreakerHalfOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
             void maybeNotifyCircuitBreakerThrottled(item.connectionId, campaignState?.ownerUid || item.ownerUid);
+        }
+        if (isRecipientPolicyOutboundError(detail)) {
+            if (campaignState && item.campaignId) {
+                await runCampaignDispatchGuard(item, campaignState);
+            }
+            return await failCampaignSend(job, item, sendTo, detail, campaignState);
         }
         // Failover silencioso: tenta chips do pool (Redis ou alternateChannelIds) antes de falhar.
         // Antes exigia alternateChannelIds.length > 1 — campanhas só com pool Redis não falhavam over

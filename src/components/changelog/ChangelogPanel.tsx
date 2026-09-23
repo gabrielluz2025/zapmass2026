@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.156',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: '463/sem WA: não queima mais o pool; reenvio de falhas filtra por tipo (padrão só chip/sessão)' },
+    ],
+  },
+  {
     version: '2.3.155',
     date: '23/09/2026',
     highlights: [

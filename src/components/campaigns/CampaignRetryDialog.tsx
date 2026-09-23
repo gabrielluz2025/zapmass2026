@@ -3,11 +3,27 @@ import { AlertTriangle, Paperclip, RefreshCw, Smartphone } from 'lucide-react';
 import { ConnectionStatus, WhatsAppConnection } from '../../types';
 import { Button, Modal, Select } from '../ui';
 import { fetchCampaignMediaAttachments } from '../../services/campaignsApi';
+import {
+  campaignOutboundErrorKindLabel,
+  classifyCampaignOutboundError,
+  isRetryableCampaignOutboundKind,
+  type CampaignOutboundErrorKind,
+} from '../../../shared/campaignOutboundErrorKind';
+
+export type CampaignRetryFailedRow = {
+  phone: string;
+  errorMessage?: string;
+  connectionId?: string;
+};
 
 export type CampaignRetryDialogState = {
   phones: string[];
   failedConnectionId?: string;
+  /** Quando presente, permite filtrar por tipo de erro (padrão: só retryáveis). */
+  failedRows?: CampaignRetryFailedRow[];
 };
+
+type RetryScope = 'safe' | 'all';
 
 type Props = {
   isOpen: boolean;
@@ -20,6 +36,19 @@ type Props = {
   onConfirm: (connectionId: string, phones: string[]) => void;
 };
 
+function countByKind(rows: CampaignRetryFailedRow[]): Record<CampaignOutboundErrorKind, number> {
+  const out: Record<CampaignOutboundErrorKind, number> = {
+    not_registered: 0,
+    reachout_timelock: 0,
+    chip_auth: 0,
+    other: 0,
+  };
+  for (const r of rows) {
+    out[classifyCampaignOutboundError(r.errorMessage)]++;
+  }
+  return out;
+}
+
 export const CampaignRetryDialog: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -30,9 +59,11 @@ export const CampaignRetryDialog: React.FC<Props> = ({
   loading = false,
   onConfirm,
 }) => {
-  const phones = state?.phones ?? [];
+  const failedRows = state?.failedRows;
+  const phonesFallback = state?.phones ?? [];
   const failedId = state?.failedConnectionId;
   const [mediaLabels, setMediaLabels] = React.useState<string[]>([]);
+  const [scope, setScope] = React.useState<RetryScope>('safe');
 
   React.useEffect(() => {
     if (!isOpen || !campaignId) {
@@ -55,6 +86,27 @@ export const CampaignRetryDialog: React.FC<Props> = ({
       cancelled = true;
     };
   }, [isOpen, campaignId]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    setScope('safe');
+  }, [isOpen, state?.phones?.join('|'), failedRows?.length]);
+
+  const kindCounts = React.useMemo(
+    () => (failedRows?.length ? countByKind(failedRows) : null),
+    [failedRows]
+  );
+
+  const safePhones = React.useMemo(() => {
+    if (!failedRows?.length) return phonesFallback;
+    return failedRows
+      .filter((r) => isRetryableCampaignOutboundKind(classifyCampaignOutboundError(r.errorMessage)))
+      .map((r) => r.phone);
+  }, [failedRows, phonesFallback]);
+
+  const allPhones = failedRows?.length ? failedRows.map((r) => r.phone) : phonesFallback;
+  const phones = scope === 'safe' && failedRows?.length ? safePhones : allPhones;
+  const unsafeCount = allPhones.length - safePhones.length;
 
   const candidates = React.useMemo(() => {
     const ids = campaignConnectionIds.length > 0 ? campaignConnectionIds : connections.map((c) => c.id);
@@ -86,13 +138,67 @@ export const CampaignRetryDialog: React.FC<Props> = ({
     candidates.find((c) => c.id === selectedId)?.status === ConnectionStatus.CONNECTED;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={phones.length === 1 ? 'Reenviar mensagem' : 'Reenviar todas as falhas'} size="md">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={phones.length === 1 && !failedRows?.length ? 'Reenviar mensagem' : 'Reenviar falhas'}
+      size="md"
+    >
       <div className="space-y-4">
         <p className="text-[13px]" style={{ color: 'var(--text-2)' }}>
-          {phones.length === 1
-            ? 'Confirme o chip de origem para reenviar a mensagem a este contato.'
-            : `Reenviar de uma vez para ${phones.length} contatos com falha (usa os telefones atualizados da sua base).`}
+          {failedRows?.length
+            ? 'Escolha o chip e quais falhas reenviar. 463 (Meta) e números sem WhatsApp não devem ir em lote.'
+            : phones.length === 1
+              ? 'Confirme o chip de origem para reenviar a mensagem a este contato.'
+              : `Reenviar de uma vez para ${phones.length} contatos com falha.`}
         </p>
+
+        {kindCounts && (
+          <div
+            className="rounded-xl px-3 py-2.5 text-[12px] space-y-1.5"
+            style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+          >
+            {(Object.keys(kindCounts) as CampaignOutboundErrorKind[]).map((k) =>
+              kindCounts[k] > 0 ? (
+                <div key={k} className="flex justify-between gap-2" style={{ color: 'var(--text-2)' }}>
+                  <span>{campaignOutboundErrorKindLabel(k)}</span>
+                  <strong style={{ color: 'var(--text-1)' }}>{kindCounts[k]}</strong>
+                </div>
+              ) : null
+            )}
+          </div>
+        )}
+
+        {failedRows && failedRows.length > 0 && (
+          <div className="space-y-2">
+            <label className="ui-eyebrow mb-1 block">Quem reenviar</label>
+            <Select value={scope} onChange={(e) => setScope(e.target.value as RetryScope)}>
+              <option value="safe">
+                Só chip/sessão e outros ({safePhones.length}) — recomendado
+              </option>
+              <option value="all">
+                Todas as falhas ({allPhones.length}) — inclui 463 e sem WA
+              </option>
+            </Select>
+            {scope === 'all' && unsafeCount > 0 && (
+              <div
+                className="rounded-xl px-3 py-2.5 flex items-start gap-2 text-[12px]"
+                style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.35)' }}
+              >
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+                <span style={{ color: 'var(--text-2)' }}>
+                  {unsafeCount} contato(s) com restrição Meta (463) ou sem WhatsApp. Reenviar em lote
+                  queima chips e não resolve lista suja.
+                </span>
+              </div>
+            )}
+            {scope === 'safe' && safePhones.length === 0 && (
+              <p className="text-[12px]" style={{ color: '#f59e0b' }}>
+                Nenhuma falha segura para reenvio. Valide a base (sem WA) ou aqueça chips (463).
+              </p>
+            )}
+          </div>
+        )}
 
         {failedOffline && (
           <div
@@ -155,7 +261,11 @@ export const CampaignRetryDialog: React.FC<Props> = ({
             disabled={!selectedId || !selectedOnline || loading || phones.length === 0}
             onClick={() => onConfirm(selectedId, phones)}
           >
-            {loading ? 'Reenviando…' : phones.length === 1 ? 'Reenviar agora' : `Reenviar ${phones.length} de uma vez`}
+            {loading
+              ? 'Reenviando…'
+              : phones.length === 1
+                ? 'Reenviar agora'
+                : `Reenviar ${phones.length} de uma vez`}
           </Button>
         </div>
       </div>

@@ -48,7 +48,6 @@ import {
   fetchCampaignLogs,
   fetchCampaignReport,
   redispatchCampaign,
-  retryFailedContacts,
   updateCampaignChannels,
   type CampaignInboundReplyDto,
   type CampaignLogDto,
@@ -106,6 +105,11 @@ import { CampaignMessagePreview } from './CampaignMessagePreview';
 import { CampaignChipsPodium } from './CampaignChipsPodium';
 import { CampaignStageRepliesCell } from './CampaignStageRepliesCell';
 import { CampaignRetryDialog, type CampaignRetryDialogState } from './CampaignRetryDialog';
+import {
+  classifyCampaignOutboundError,
+  humanizeCampaignOutboundError,
+  isRetryableCampaignOutboundKind,
+} from '../../../shared/campaignOutboundErrorKind';
 import { CampaignChangeChannelsDialog } from './CampaignChangeChannelsDialog';
 import { fetchCampaignMediaAttachments } from '../../services/campaignsApi';
 import { ReplyFlowStageFunnels } from './ReplyFlowStageFunnels';
@@ -1254,30 +1258,30 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   }, [isDone, performance.counts.FAILED]);
 
   const executeRetry = useCallback(
-    async (connectionId: string, phones: string[], retryAllFailed = false) => {
+    async (connectionId: string, phones: string[], _retryAllFailed = false) => {
       const cleanPhones = phones
         .map((p) => normPhoneKey(String(p)))
         .filter((p) => p.length >= 10);
-      if (!retryAllFailed && cleanPhones.length === 0) {
+      if (cleanPhones.length === 0) {
         toast.error('Nenhum número válido para reenvio.');
         return;
       }
       setRetrying(true);
       try {
-        if (retryAllFailed || cleanPhones.length > 1) {
-          const n = await retryFailedContacts(campaign.id, 0, [connectionId]);
-          if (n <= 0) {
-            throw new Error('Nenhum contato com falha encontrado para reenvio.');
-          }
-          toast.success(`Reenvio em massa iniciado — ${n} contato(s) na fila.`);
-        } else {
-          await redispatchCampaign(campaign.id, {
-            mode: 'failed',
-            connectionIds: [connectionId],
-            phones: cleanPhones,
-          });
-          toast.success('Reenvio iniciado para 1 contato.');
+        // Sempre passa phones — evita reenviar 463/sem WA quando o diálogo filtrou a lista.
+        const n = await redispatchCampaign(campaign.id, {
+          mode: 'failed',
+          connectionIds: [connectionId],
+          phones: cleanPhones,
+        });
+        if (n <= 0) {
+          throw new Error('Nenhum contato com falha encontrado para reenvio.');
         }
+        toast.success(
+          cleanPhones.length === 1
+            ? 'Reenvio iniciado para 1 contato.'
+            : `Reenvio em massa iniciado — ${n} contato(s) na fila.`
+        );
         setShowRetryBanner(false);
         setRetryDialog(null);
         setShowLogModal(false);
@@ -1342,9 +1346,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     }
   }, [campaign.id, campaign.selectedConnectionIds, connections]);
 
-  const openRetryDialog = useCallback((phones: string[], failedConnectionId?: string) => {
-    setRetryDialog({ phones, failedConnectionId });
-  }, []);
+  const openRetryDialog = useCallback(
+    (phones: string[], failedConnectionId?: string, failedRows?: CampaignRetryDialogState['failedRows']) => {
+      setRetryDialog({ phones, failedConnectionId, failedRows });
+    },
+    []
+  );
 
   const handleRetryFailed = useCallback(() => {
     const failedRows = detailedReport.filter(
@@ -1354,8 +1361,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       toast.error('Nenhum contato com falha encontrado.');
       return;
     }
-    const failedPhones = failedRows.map((r) => r.phone);
-    const topFailedConn = failedRows.find((r) => r.connectionId)?.connectionId;
     const onlineIds = (campaign.selectedConnectionIds || []).filter(
       (id) => connections.find((c) => c.id === id)?.status === ConnectionStatus.CONNECTED
     );
@@ -1363,18 +1368,27 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       toast.error('Nenhum chip online. Conecte um canal antes de reenviar.');
       return;
     }
-    if (onlineIds.length === 1) {
-      void executeRetry(onlineIds[0], failedPhones, true);
-      return;
-    }
-    openRetryDialog(failedPhones, topFailedConn);
+    const rowsForDialog = failedRows.map((r) => ({
+      phone: r.phone,
+      errorMessage: r.errorMessage,
+      connectionId: r.connectionId,
+    }));
+    const safePhones = rowsForDialog
+      .filter((r) => isRetryableCampaignOutboundKind(classifyCampaignOutboundError(r.errorMessage)))
+      .map((r) => r.phone);
+    const topFailedConn = failedRows.find((r) => r.connectionId)?.connectionId;
+    // Sempre abre o diálogo quando há classificação — evita reenviar 463/sem WA sem aviso.
+    openRetryDialog(
+      safePhones.length > 0 ? safePhones : rowsForDialog.map((r) => r.phone),
+      topFailedConn,
+      rowsForDialog
+    );
   }, [
     detailedReport,
     replyPhonesFromLogs,
     openRetryDialog,
     campaign.selectedConnectionIds,
     connections,
-    executeRetry,
   ]);
 
   const handleRetryOne = useCallback(
@@ -2087,7 +2101,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               {performance.counts.FAILED} envio{performance.counts.FAILED !== 1 ? 's' : ''} falharam nesta campanha
             </p>
             <p className="text-[12px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-2)' }}>
-              Reenvie na <strong>mesma campanha</strong> — mantém histórico, etapas e anexos originais.
+              Abra o reenvio seletivo: por padrão só chip/sessão — <strong>não</strong> reenvia 463 (Meta) nem
+              números sem WhatsApp em lote.
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -2098,7 +2113,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               onClick={handleRetryFailed}
               disabled={retrying}
             >
-              {retrying ? 'Reenviando…' : `Reenviar todos (${performance.counts.FAILED})`}
+              {retrying ? 'Reenviando…' : `Reenviar falhas (${performance.counts.FAILED})`}
             </Button>
             <button
               onClick={() => setShowRetryBanner(false)}
@@ -2500,7 +2515,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${retrying ? 'animate-spin' : ''}`} />}
                   onClick={handleRetryFailed}
                   disabled={retrying}
-                  title={`Reenviar ${performance.counts.FAILED} contato(s) com falha`}
+                  title={`Reenviar falhas com filtro por tipo (evita 463 / sem WA)`}
                 >
                   {retrying ? 'Reenviando…' : `Reenviar falhas (${performance.counts.FAILED})`}
                 </Button>
@@ -2679,11 +2694,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                         </td>
                         <td
                           className="px-4 py-3 text-[12.5px] max-w-[320px]"
-                          title={item.replyText || item.errorMessage || ''}
+                          title={
+                            displayStatus === 'FAILED'
+                              ? item.errorMessage || ''
+                              : item.replyText || item.errorMessage || ''
+                          }
                         >
                           {displayStatus === 'FAILED' ? (
                             <span style={{ color: 'var(--danger)' }} className="truncate inline-block max-w-full">
-                              {item.errorMessage || 'Erro desconhecido'}
+                              {humanizeCampaignOutboundError(item.errorMessage) || 'Erro desconhecido'}
                             </span>
                           ) : item.stageReplies?.length || replyTextResolved ? (
                             <CampaignStageRepliesCell
@@ -2897,7 +2916,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   <div className="space-y-2">
                     <div className="flex items-start gap-2" style={{ color: 'var(--danger)' }}>
                       <XCircle className="w-3.5 h-3.5 mt-0.5" />
-                      <span>{openRow.errorMessage || 'Falha no envio.'}</span>
+                      <span>{humanizeCampaignOutboundError(openRow.errorMessage) || 'Falha no envio.'}</span>
                     </div>
                     <Button
                       size="sm"
