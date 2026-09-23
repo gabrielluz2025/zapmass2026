@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.151',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Contador de falhas não infla mais com retry: só conta falha definitiva ou após esgotar tentativas' },
+    ],
+  },
+  {
+    version: '2.3.150',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Rodízio multi-canal: Trocar chips redistribui jobs de verdade (não fica preso num só chip)' },
+      { type: 'fix', text: '{horario}/saudação: resolve no envio (não mais “Boa tarde” de manhã na fila)' },
+    ],
+  },  {
     version: '2.3.149',
     date: '22/09/2026',
     highlights: [

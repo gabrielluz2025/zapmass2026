@@ -7,6 +7,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.151] - 2026-09-23
+### Corrigido
+- **Contador de falhas inflado**: erros transitórios (rede/timeout) já contavam como falha antes do retry do BullMQ — se o reenvio passasse, o card ficava com falha permanente. Agora só conta falha definitiva (número sem WA / 400) ou quando esgotam as tentativas.
+
+## [2.3.150] - 2026-09-23
+### Corrigido
+- **Rodízio multi-canal**: “Trocar chips” mantinha jobs no chip antigo se ele ainda estivesse online — agora redistribui de verdade (1→chip A, 2→chip B…); worker também reequilibra filas com `alternateChannelIds`.
+- **Spintax `{horario}`**: saudação era “assada” na fila (enfileirou à tarde → mandava “Boa tarde” de manhã); agora resolve no momento do envio; coluna `horario` do contato não sobrescreve; corrige saudação já assada no início da mensagem.
+
 ## [2.3.149] - 2026-09-22
 ### Corrigido
 - **Falso “Ban Meta” sem enviar mensagem**: Forçar QR / cleanReconnect / recovery count:0 faziam logout sem hold → webhook `LoggedOut` virava Ban #1 + quarentena 24h; agora hold cobre logout interno; `loggedOut` só conta como ban se a sessão ficou open ≥3 min; HistorySync (restart no Go) default OFF e adiado 10 min após open; auto-reconnect sem `forceReconnect` nas primeiras tentativas; Ban #1 recente libera quarentena no boot.

@@ -487,7 +487,8 @@ function isRetryableOutbound400(errorDetail?: string): boolean {
 
 function isUnrecoverableOutboundError(errorDetail?: string): boolean {
     if (!errorDetail) return false;
-    return /HTTP 400|status code 400|exists:\s*false|não encontrado no WhatsApp|não encontrado|recusou o envio \(400\)|Número inválido|não foi possível obter o número|Contato não encontrado|mensagem vazia/i.test(
+    // Evitar "não encontrado" genérico (logs de outras falhas) — só recusas claras do WhatsApp/número.
+    return /HTTP 400|status code 400|exists:\s*false|não encontrado no WhatsApp|Contato não encontrado|recusou o envio \(400\)|Número inválido|não foi possível obter o número|mensagem vazia/i.test(
         errorDetail
     );
 }
@@ -8603,7 +8604,8 @@ async function sendMediaByUrlInternal(
     return lastResult;
 }
 
-/** Falha de envio: contabiliza uma vez e não re-tenta jobs irrecuperáveis (HTTP 400). */
+/** Falha de envio: conta só quando irrecuperável; erros transitórios deixam o BullMQ retryar
+ * e o handler `failed` conta quando esgotar attempts (evita 140 "falhas" com envio OK depois). */
 async function failCampaignSend(
     job: Job<MessageQueueItem>,
     item: MessageQueueItem,
@@ -8624,7 +8626,6 @@ async function failCampaignSend(
         campaignState?.ownerUid
     );
 
-    bumpQueueSize(item.connectionId, -1);
     const unrecoverable = isUnrecoverableOutboundError(errDetail);
     if (
         unrecoverable &&
@@ -8634,21 +8635,24 @@ async function failCampaignSend(
         ensureReplyFlowEngine();
         replyFlowEngine.rollbackPendingOutbound(item.connectionId, normalizePhoneKey(item.to));
     }
-    await accountCampaignJobOnce(job, item, false);
-    publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {
-        campaignId: item.campaignId,
-        to: item.to,
-        success: false,
-        error: msg,
-    });
-    void finalizeCampaignJob(job.id ?? '', { status: 'dead', error: msg }).catch(() => undefined);
-    if (item.campaignId && item.to) {
-        void updateContactStateOnFailure(item.campaignId, item.to, msg);
-    }
 
-    if (isUnrecoverableOutboundError(errDetail)) {
+    if (unrecoverable) {
+        bumpQueueSize(item.connectionId, -1);
+        await accountCampaignJobOnce(job, item, false);
+        publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {
+            campaignId: item.campaignId,
+            to: item.to,
+            success: false,
+            error: msg,
+        });
+        void finalizeCampaignJob(job.id ?? '', { status: 'dead', error: msg }).catch(() => undefined);
+        if (item.campaignId && item.to) {
+            void updateContactStateOnFailure(item.campaignId, item.to, msg);
+        }
         throw new UnrecoverableError(msg);
     }
+
+    // Transitório: não decrementa fila / não conta fail ainda — retry do worker.
     throw new Error(msg);
 }
 
@@ -8697,7 +8701,10 @@ function ensureCampaignWorker() {
             if (item._sentOk || item._progressAccounted) {
                 return;
             }
-            finishCampaignJob(item.campaignId, false);
+            void accountCampaignJobOnce(job, item, false);
+            if (item.campaignId && item.to) {
+                void updateContactStateOnFailure(item.campaignId, item.to, err.message);
+            }
             const campaignState = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
             publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {
                 campaignId: item.campaignId,
