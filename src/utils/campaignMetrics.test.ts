@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { CampaignStatus, type Campaign } from '../types';
-import { getCampaignPlannedSendTotal, getCampaignProgressMetrics, healCampaignCounters, healStuckCampaignStatus, isCampaignLikelyStartedOnServer, isCampaignQueueWorkComplete, isRunningStatusButWorkComplete } from './campaignMetrics';
+import {
+  getCampaignPlannedSendTotal,
+  getCampaignProgressMetrics,
+  healCampaignCounters,
+  healStuckCampaignStatus,
+  isCampaignLikelyStartedOnServer,
+  isCampaignQueueWorkComplete,
+  isRunningStatusButWorkComplete,
+  mergeCampaignMetricsWithReport
+} from './campaignMetrics';
 
 const baseCampaign = (patch: Partial<Campaign> = {}): Campaign => ({
   id: 'c1',
@@ -112,5 +121,29 @@ describe('healStuckCampaignStatus', () => {
     });
     expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.COMPLETED);
     expect(isCampaignQueueWorkComplete(c)).toBe(true);
+  });
+});
+
+describe('mergeCampaignMetricsWithReport', () => {
+  it('não infla progresso com linhas PENDING da lista', () => {
+    const base = getCampaignProgressMetrics(
+      baseCampaign({
+        totalContacts: 5662,
+        successCount: 34,
+        processedCount: 34,
+        failedCount: 0,
+        status: CampaignStatus.PAUSED
+      })
+    );
+    const merged = mergeCampaignMetricsWithReport(base, {
+      totalRows: 5662,
+      failedCount: 0,
+      pendingCount: 5628,
+      processedRows: 34
+    });
+    expect(merged.effectiveProcessed).toBe(34);
+    expect(merged.pending).toBe(5662 - 34);
+    expect(merged.progressPct).toBe(1); // 34/5662 ≈ 0.6% → arredonda 1
+    expect(merged.ok).toBe(34);
   });
 });

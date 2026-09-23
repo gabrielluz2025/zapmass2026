@@ -166,7 +166,10 @@ export async function buildCampaignReportSnapshot(
   let replied = 0;
   let delivered = 0;
   let read = 0;
+  let attempted = 0;
   for (const row of rows) {
+    if (row.status === 'PENDING' || row.status === 'SKIPPED') continue;
+    attempted++;
     if (row.status === 'REPLIED') {
       replied++;
       read++;
@@ -178,7 +181,13 @@ export async function buildCampaignReportSnapshot(
       delivered++;
     }
   }
-  const sent = Math.max(rows.length, campaign.totalContacts || 0, stageFunnels[0]?.sent || 0);
+  // Nunca usar totalContacts aqui — inflava "enviadas" com quem ainda não saiu.
+  const sent = Math.max(
+    attempted,
+    stageFunnels[0]?.sent || 0,
+    Math.max(0, Math.floor(Number(campaign.successCount) || 0)) +
+      Math.max(0, Math.floor(Number(campaign.failedCount) || 0))
+  );
   const totals = clampCampaignFunnelMetrics(sent, delivered, read, replied);
 
   return {

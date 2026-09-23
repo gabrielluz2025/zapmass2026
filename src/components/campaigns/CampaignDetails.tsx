@@ -988,10 +988,13 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     const delivered = counts.DELIVERED + counts.READ + counts.REPLIED;
     const read = counts.READ + counts.REPLIED;
     const replied = counts.REPLIED;
-    const successPct = total > 0 ? Math.round(((total - counts.FAILED) / total) * 100) : 0;
-    const deliveryPct = total > 0 ? Math.round((delivered / total) * 100) : 0;
-    const readPct = total > 0 ? Math.round((read / total) * 100) : 0;
-    const replyPct = total > 0 ? Math.round((replied / total) * 100) : 0;
+    // "Enviadas" no funil = tentativas reais, NÃO inclui PENDING da lista.
+    const attempted =
+      counts.SENT + counts.DELIVERED + counts.READ + counts.REPLIED + counts.FAILED;
+    const successPct = attempted > 0 ? Math.round(((attempted - counts.FAILED) / attempted) * 100) : 0;
+    const deliveryPct = attempted > 0 ? Math.round((delivered / attempted) * 100) : 0;
+    const readPct = attempted > 0 ? Math.round((read / attempted) * 100) : 0;
+    const replyPct = attempted > 0 ? Math.round((replied / attempted) * 100) : 0;
     const avgResponseSec = countResponses > 0 ? Math.round(sumResponseMs / countResponses / 1000) : 0;
 
     const chipBreakdown = Array.from(perChip.entries())
@@ -1014,7 +1017,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     const peakHour = hourBreakdown.reduce((max, cur) => (cur.count > max.count ? cur : max), hourBreakdown[0]);
 
     return {
-      total, counts, delivered, read, replied,
+      total: attempted,
+      rowCount: total,
+      counts, delivered, read, replied,
       successPct, deliveryPct, readPct, replyPct,
       avgResponseSec, chipBreakdown, hourBreakdown, peakHour, failedPerChip
     };
@@ -1023,8 +1028,10 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const metrics = useMemo(
     () =>
       mergeCampaignMetricsWithReport(m, {
-        totalRows: performance.total,
-        failedCount: performance.counts.FAILED
+        totalRows: performance.rowCount ?? performance.total,
+        failedCount: performance.counts.FAILED,
+        pendingCount: performance.counts.PENDING,
+        processedRows: performance.total + performance.counts.SKIPPED
       }),
     [m, performance]
   );
@@ -1150,16 +1157,19 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       }))
     );
     const primary = primaryFunnelFromReplyFlowStages(replyFlowStages);
-    const uniqueRecipients = new Set(
-      detailedReport
-        .map((r) => recipientKeyForCampaignReport(r.phone))
-        .filter((k) => Boolean(k))
-    );
+    // NÃO usar totalContacts aqui — inflava "Enviadas" com quem ainda está PENDING.
+    const attemptedFromReport =
+      performance.counts.SENT +
+      performance.counts.DELIVERED +
+      performance.counts.READ +
+      performance.counts.REPLIED +
+      performance.counts.FAILED;
     const contactTotal = Math.max(
-      campaign.totalContacts || 0,
-      uniqueRecipients.size,
       primary.sent,
-      fromReport.sent
+      fromReport.sent,
+      attemptedFromReport,
+      metrics.ok + metrics.fail,
+      uiPerformanceBase.total
     );
     const repliedContacts = countRepliedFromLogsAndReport(detailedReport, replyPhonesFromLogs);
     const clamped = clampCampaignFunnelMetrics(
@@ -1199,10 +1209,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     useReplyFlowPrimaryFunnel,
     replyFlowStages,
     campaignGeoTotals,
-    campaign.totalContacts,
     detailedReport,
     replyPhonesFromLogs,
-    performance.replied
+    performance.replied,
+    performance.counts,
+    metrics.ok,
+    metrics.fail
   ]);
 
   const progress = metrics.progressPct;
@@ -1797,9 +1809,13 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               performance.counts.DELIVERED +
               performance.counts.READ +
               performance.counts.REPLIED;
-            const listPending = performance.counts.PENDING;
             const listFailed = performance.counts.FAILED;
             const listSkipped = performance.counts.SKIPPED;
+            // Se PENDING não foi materializado (lista grande), estima pelo planejado.
+            const listPending = Math.max(
+              performance.counts.PENDING,
+              Math.max(0, metrics.plannedSendTotal - listSent - listFailed - listSkipped)
+            );
             const listName = campaign.contactListName?.trim() || 'esta campanha';
             const roster = [
               { label: 'Enviados', value: listSent, filter: 'SENT_GROUP' as ReportFilter, color: '#10b981', hint: 'já saíram' },

@@ -15,12 +15,22 @@ const STATUS_RANK = {
     PENDING: 1,
     FAILED: 0
 };
+/** Contato já saiu da fila (tentativa de envio) — PENDING/SKIPPED não contam como enviadas. */
+export function isCampaignReportRowAttempted(status) {
+    if (status === 'FAILED')
+        return true;
+    return (STATUS_RANK[status] ?? 0) >= STATUS_RANK.SENT;
+}
 /** Conta funil a partir do relatório por contato (status já deduplicado). */
 export function aggregateFunnelFromReportRows(rows) {
+    let sent = 0;
     let delivered = 0;
     let read = 0;
     let replied = 0;
     for (const row of rows) {
+        if (!isCampaignReportRowAttempted(row.status))
+            continue;
+        sent++;
         const rank = STATUS_RANK[row.status] ?? 0;
         if (rank >= STATUS_RANK.DELIVERED)
             delivered++;
@@ -29,7 +39,7 @@ export function aggregateFunnelFromReportRows(rows) {
         if (row.status === 'REPLIED')
             replied++;
     }
-    return clampCampaignFunnelMetrics(rows.length, delivered, read, replied);
+    return clampCampaignFunnelMetrics(sent, delivered, read, replied);
 }
 export function funnelPct(num, den) {
     if (den <= 0)

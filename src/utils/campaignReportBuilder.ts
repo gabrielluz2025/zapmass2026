@@ -27,13 +27,18 @@ export type BuiltReportRow = {
   errorMessage?: string;
 };
 
-function findContactName(phone: string, contacts: Contact[]): string {
+function findContactName(phone: string, contacts: Contact[], byPhone?: Map<string, string>): string {
   const target = recipientKeyForCampaignReport(phone);
+  if (!target) return '';
+  if (byPhone) return byPhone.get(target) || '';
   for (const c of contacts) {
     if (recipientKeyForCampaignReport(c.phone) === target) return c.name;
   }
   return '';
 }
+
+/** Acima disso, não materializa PENDING da lista inteira (conta “faltam” via totalContacts). */
+export const CAMPAIGN_REPORT_MAX_PENDING_MATERIALIZE = 400;
 
 /**
  * Relatório por contato derivado dos logs da campanha (fonte principal).
@@ -50,8 +55,23 @@ export function buildPrimaryReportRowsFromLogs(
   if (!cid) return [];
 
   const sentPhones = collectSentPhonesFromCampaignLogs(scopedLogs, cid);
-  const plannedPhones = collectPlannedRecipientPhones(campaign, contacts, contactLists);
   const replyHints = buildReplyHintsFromLogs(scopedLogs, cid);
+  const plannedHint =
+    Math.max(0, Math.floor(Number(campaign.totalContacts) || 0)) ||
+    campaign.scheduleStartSnapshot?.recipients?.length ||
+    campaign.scheduleStartSnapshot?.numbers?.length ||
+    0;
+  // Listas grandes: só amostra de PENDING — materializar 5k+ trava o main thread.
+  const plannedCap =
+    plannedHint > CAMPAIGN_REPORT_MAX_PENDING_MATERIALIZE
+      ? CAMPAIGN_REPORT_MAX_PENDING_MATERIALIZE
+      : Number.POSITIVE_INFINITY;
+  const plannedPhones = collectPlannedRecipientPhones(
+    campaign,
+    contacts,
+    contactLists,
+    plannedCap
+  );
 
   const phones = new Set<string>();
   for (const p of plannedPhones) phones.add(p);
@@ -161,6 +181,14 @@ export function buildPrimaryReportRowsFromLogs(
     return replyHints.has(rk);
   };
 
+  const contactNameByPhone = new Map<string, string>();
+  if (contacts.length > 0) {
+    for (const c of contacts) {
+      const rk = recipientKeyForCampaignReport(c.phone);
+      if (rk && !contactNameByPhone.has(rk)) contactNameByPhone.set(rk, c.name);
+    }
+  }
+
   return Array.from(byPhone.values())
     .filter((a) => scopeOk(a.phone) || a.status === 'FAILED')
     .map((a) => {
@@ -169,7 +197,7 @@ export function buildPrimaryReportRowsFromLogs(
       return {
         id: a.id,
         phone: a.phone,
-        contactName: findContactName(a.phone, contacts) || `+${a.phone}`,
+        contactName: findContactName(a.phone, contacts, contactNameByPhone) || `+${a.phone}`,
         status: a.status,
         sentTime: a.sentTime !== '—' ? a.sentTime : firstSent ? new Date(firstSent).toLocaleTimeString('pt-BR') : '—',
         sentTimestampMs: firstSent || a.replyTimestampMs || 0,

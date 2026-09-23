@@ -26,16 +26,22 @@ export function collectSentPhonesFromCampaignLogs(
   return out;
 }
 
-/** Destinatários planejados (lista / snapshot) — limite superior do relatório. */
+/**
+ * Destinatários planejados (lista / snapshot) — limite superior do relatório.
+ * `maxPhones` evita materializar 5k+ números (congelava o Chrome ao abrir a campanha).
+ */
 export function collectPlannedRecipientPhones(
   campaign: Pick<Campaign, 'contactListId' | 'scheduleStartSnapshot' | 'totalContacts'>,
   contacts: Contact[],
-  contactLists: ContactList[]
+  contactLists: ContactList[],
+  maxPhones = Number.POSITIVE_INFINITY
 ): Set<string> {
   const out = new Set<string>();
+  const limit = Number.isFinite(maxPhones) ? Math.max(0, Math.floor(maxPhones)) : Number.POSITIVE_INFINITY;
   const snap = campaign.scheduleStartSnapshot;
   if (snap?.recipients?.length) {
     for (const r of snap.recipients) {
+      if (out.size >= limit) break;
       const rk = recipientKeyForCampaignReport(r.phone);
       if (rk) out.add(rk);
     }
@@ -43,6 +49,7 @@ export function collectPlannedRecipientPhones(
   }
   if (snap?.numbers?.length) {
     for (const n of snap.numbers) {
+      if (out.size >= limit) break;
       const rk = recipientKeyForCampaignReport(n);
       if (rk) out.add(rk);
     }
@@ -52,8 +59,10 @@ export function collectPlannedRecipientPhones(
   if (listId) {
     const list = contactLists.find((l) => l.id === listId);
     if (list?.contactIds?.length) {
+      const byId = new Map(contacts.map((c) => [c.id, c]));
       for (const cid of list.contactIds) {
-        const c = contacts.find((x) => x.id === cid);
+        if (out.size >= limit) break;
+        const c = byId.get(cid);
         const rk = recipientKeyForCampaignReport(c?.phone || '');
         if (rk) out.add(rk);
       }

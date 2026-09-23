@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.154',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Métricas da campanha: progresso/funil não infla mais com PENDING; abrir campanha grande não congela no sync do relatório' },
+    ],
+  },
+  {
     version: '2.3.153',
     date: '23/09/2026',
     highlights: [

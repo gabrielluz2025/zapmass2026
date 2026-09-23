@@ -196,18 +196,27 @@ export function isCampaignPauseAction(status: CampaignStatus): boolean {
 export type CampaignProgressMetrics = ReturnType<typeof getCampaignProgressMetrics>;
 
 /**
- * Quando o documento da campanha no Firestore vem com contadores zerados mas o relatório
+ * Quando o documento da campanha vem com contadores zerados mas o relatório
  * (logs + conversas) já mostra envios, alinha o hero/gauge com a realidade.
+ *
+ * IMPORTANTE: `totalRows` NÃO deve incluir PENDING — quem ainda não saiu
+ * inflava progresso para 100% com a lista inteira materializada.
+ * Prefira passar `processedRows` (enviados + falhas + pulados).
  */
 export function mergeCampaignMetricsWithReport(
   base: CampaignProgressMetrics,
-  report: { totalRows: number; failedCount: number }
+  report: { totalRows: number; failedCount: number; pendingCount?: number; processedRows?: number }
 ): CampaignProgressMetrics {
-  const { totalRows, failedCount } = report;
-  if (totalRows <= 0) return base;
-  const nonFailed = Math.max(0, totalRows - failedCount);
+  const { failedCount } = report;
+  const pendingInReport = Math.max(0, Math.floor(Number(report.pendingCount) || 0));
+  const processedFromReport =
+    report.processedRows != null
+      ? Math.max(0, Math.floor(Number(report.processedRows) || 0))
+      : Math.max(0, Math.floor(Number(report.totalRows) || 0) - pendingInReport);
+  if (processedFromReport <= 0 && failedCount <= 0) return base;
+  const nonFailed = Math.max(0, processedFromReport - failedCount);
   const planned = base.plannedSendTotal;
-  let effectiveProcessed = Math.max(base.effectiveProcessed, totalRows);
+  let effectiveProcessed = Math.max(base.effectiveProcessed, processedFromReport);
   if (planned > 0) {
     effectiveProcessed = Math.min(planned, effectiveProcessed);
   }
@@ -215,7 +224,7 @@ export function mergeCampaignMetricsWithReport(
   const fail = Math.max(base.fail, failedCount);
   ok = Math.min(ok, effectiveProcessed);
   const failAdj = Math.min(fail, Math.max(0, effectiveProcessed - ok));
-  const progressDen = planned > 0 ? planned : Math.max(totalRows, 1);
+  const progressDen = planned > 0 ? planned : Math.max(processedFromReport, 1);
   const pending = planned > 0 ? Math.max(0, planned - effectiveProcessed) : 0;
   const progressPct = Math.min(100, Math.round((effectiveProcessed / progressDen) * 100));
   const successRatePct =

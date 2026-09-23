@@ -44,6 +44,17 @@ describe('aggregateFunnelFromReportRows', () => {
       ])
     ).toEqual({ sent: 3, delivered: 2, read: 2, replied: 2 });
   });
+
+  it('não conta PENDING como enviadas', () => {
+    expect(
+      aggregateFunnelFromReportRows([
+        { status: 'SENT' },
+        { status: 'PENDING' },
+        { status: 'PENDING' },
+        { status: 'REPLIED' }
+      ])
+    ).toEqual({ sent: 2, delivered: 1, read: 1, replied: 1 });
+  });
 });
 
 describe('funnelPct', () => {

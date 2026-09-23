@@ -99,6 +99,28 @@ describe('buildPrimaryReportRowsFromLogs', () => {
     expect(rows[0].phone).toContain('5547999127001');
   });
 
+  it('não materializa milhares de PENDING de um snapshot grande', () => {
+    const numbers = Array.from({ length: 2000 }, (_, i) => `5547999${String(100000 + i).slice(1)}`);
+    const camp = {
+      contactListId: '',
+      scheduleStartSnapshot: { numbers, message: 'oi' },
+      totalContacts: 2000
+    };
+    const logs = [
+      {
+        timestamp: '2026-06-04T20:05:14Z',
+        payload: {
+          campaignId: 'c1',
+          message: CAMPAIGN_SENT_LOG_MESSAGE,
+          to: numbers[0]
+        }
+      }
+    ];
+    const rows = buildPrimaryReportRowsFromLogs(logs, 'c1', [], camp, []);
+    expect(rows.length).toBeLessThanOrEqual(401); // 400 pending cap + 1 sent (já no cap)
+    expect(rows.some((r) => r.status === 'SENT')).toBe(true);
+  });
+
   it('marca SKIPPED no teto de 24 h', () => {
     const logs = [
       {

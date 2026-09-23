@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.154] - 2026-09-23
+### Corrigido
+- **Métricas da campanha não batiam**: progresso 100% com só dezenas de enviados — PENDING da lista inteira era contado como processado/enviado no funil; agora só tentativas reais entram no progresso e em “Enviadas”.
+- **Abrir campanha travava o Chrome (“Sincronizando relatório…”)**: deixou de materializar milhares de linhas PENDING + lookup O(n²) na lista; amostra limitada e contagem de “Faltam” via planejado.
+
 ## [2.3.153] - 2026-09-23
 ### Corrigido
 - **Base de contatos recarregava a cada abertura**: o IndexedDB apagava a entrada do dia por bug na chave; cache agora vale 24h (rolling) e, se a base já estiver completa no navegador, só confere o COUNT no servidor em background — sem rebaixar milhares de contatos.

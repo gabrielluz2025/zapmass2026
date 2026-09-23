@@ -22,20 +22,29 @@ const STATUS_RANK: Record<string, number> = {
   FAILED: 0
 };
 
+/** Contato já saiu da fila (tentativa de envio) — PENDING/SKIPPED não contam como enviadas. */
+export function isCampaignReportRowAttempted(status: string): boolean {
+  if (status === 'FAILED') return true;
+  return (STATUS_RANK[status] ?? 0) >= STATUS_RANK.SENT;
+}
+
 /** Conta funil a partir do relatório por contato (status já deduplicado). */
 export function aggregateFunnelFromReportRows(
   rows: Array<{ status: string }>
 ): { sent: number; delivered: number; read: number; replied: number } {
+  let sent = 0;
   let delivered = 0;
   let read = 0;
   let replied = 0;
   for (const row of rows) {
+    if (!isCampaignReportRowAttempted(row.status)) continue;
+    sent++;
     const rank = STATUS_RANK[row.status] ?? 0;
     if (rank >= STATUS_RANK.DELIVERED) delivered++;
     if (rank >= STATUS_RANK.READ) read++;
     if (row.status === 'REPLIED') replied++;
   }
-  return clampCampaignFunnelMetrics(rows.length, delivered, read, replied);
+  return clampCampaignFunnelMetrics(sent, delivered, read, replied);
 }
 
 export function funnelPct(num: number, den: number): number {
