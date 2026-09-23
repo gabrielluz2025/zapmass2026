@@ -447,16 +447,14 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     }
     setReportLoading(true);
     try {
-      await Promise.all([
-        reloadPersistedLogs(),
-        reloadServerReport(),
-        reloadInboundReplies()
-      ]);
+      // Logs primeiro (leve) — libera a tela; relatório/inbound depois.
+      await reloadPersistedLogs();
+      setReportLoading(false);
+      await Promise.all([reloadServerReport(), reloadInboundReplies()]);
     } catch (err) {
       setPersistedLogs([]);
       toast.error('Nao foi possivel carregar o relatorio da campanha.');
       if (import.meta.env.DEV) console.warn('[CampaignDetails] refresh error:', err);
-    } finally {
       setReportLoading(false);
     }
   }, [dataUid, campaign.id, reloadPersistedLogs, reloadServerReport, reloadInboundReplies]);
@@ -596,14 +594,21 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     return merged;
   }, [scopedCampaignLogs, campaign.id, serverReplyHints, serverInboundReplies]);
 
-  /** Carrega historico do chat dos contatos da campanha para enriquecer entregue/lido/resposta. */
+  /** Carrega histórico só de uma amostra — puxar todos os envios (1000+) congela o Chrome. */
   useEffect(() => {
     if (reportLoading || !loadChatHistory) return;
+    const MAX_CHAT_ENRICH = 12;
     const seen = new Set<string>();
-    const tasks: Promise<unknown>[] = [];
+    const convIds: string[] = [];
     for (const log of scopedCampaignLogs) {
+      if (convIds.length >= MAX_CHAT_ENRICH) break;
       if (!log.payload || typeof log.payload !== 'object') continue;
-      const p = log.payload as { message?: string; connectionId?: string; to?: string; phoneDigits?: string };
+      const p = log.payload as {
+        message?: string;
+        connectionId?: string;
+        to?: string;
+        phoneDigits?: string;
+      };
       if (String(p.message || '') !== CAMPAIGN_SENT_LOG_MESSAGE) continue;
       const conn = String(p.connectionId || '').trim();
       const rk = logPayloadPhoneKey(p);
@@ -611,25 +616,38 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       const convId = `${conn}:${rk.replace(/\D/g, '')}@s.whatsapp.net`;
       if (seen.has(convId)) continue;
       seen.add(convId);
-      tasks.push(loadChatHistory(convId, 400, false));
+      convIds.push(convId);
     }
-    if (tasks.length === 0) return;
-    void Promise.all(tasks).then(() => {
+    if (convIds.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      for (const convId of convIds) {
+        if (cancelled) return;
+        try {
+          await loadChatHistory(convId, 80, false);
+        } catch {
+          /* ignore */
+        }
+      }
+      if (cancelled) return;
       reloadInboundReplies().catch(() => {});
-      reloadServerReport().catch(() => {});
-    });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [
     reportLoading,
     scopedCampaignLogs,
     campaign.id,
     loadChatHistory,
-    reloadInboundReplies,
-    reloadServerReport
+    reloadInboundReplies
   ]);
 
   const reportSectionRef = useRef<HTMLDivElement>(null);
   const [detailFilter, setDetailFilter] = useState<ReportFilter>('ALL');
   const [detailSearch, setDetailSearch] = useState('');
+  const [reportPage, setReportPage] = useState(0);
+  const REPORT_PAGE_SIZE = 50;
   const [showLogModal, setShowLogModal] = useState(false);
   const [logFilter, setLogFilter] = useState<LogFilter>('ALL');
   const [now, setNow] = useState(Date.now());
@@ -754,7 +772,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     };
   };
 
-  // Detailed report — sempre logs + conversas + snapshot do servidor (sem atalho parcial)
+  // Relatório detalhado — em campanhas grandes evita varrer todas as conversas (congela a UI).
   const detailedReport = useMemo<ReportRow[]>(() => {
     const allowedConns = campaign.selectedConnectionIds || [];
     const scopedLogs = scopedCampaignLogs;
@@ -808,8 +826,10 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     if (mergedByPhone.size === 0) {
       const legacy = buildLegacyEstimateReportRows({ campaign, contacts, contactLists });
       if (!legacy?.length) return [];
+      // Cap: estimativa com milhares de linhas trava o React.
+      const capped = legacy.slice(0, 400);
       return dedupeCampaignReportRowsByRecipient(
-        legacy.map((r) => ({
+        capped.map((r) => ({
           id: r.id,
           phone: r.phone,
           contactName: r.contactName,
@@ -822,14 +842,20 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       );
     }
 
-    for (const convRow of buildRowsFromConversations(campaign, contacts, conversations)) {
-      const rk = recipientKeyForCampaignReport(convRow.phone);
-      const existing = mergedByPhone.get(rk);
-      if (!existing) {
-        mergedByPhone.set(rk, applyReplyHintsToReportRow(convRow, replyHints.get(rk)));
-        continue;
+    const HEAVY_ENRICH_MAX = 250;
+    const skipHeavyEnrich =
+      mergedByPhone.size > HEAVY_ENRICH_MAX || conversations.length > 600;
+
+    if (!skipHeavyEnrich) {
+      for (const convRow of buildRowsFromConversations(campaign, contacts, conversations)) {
+        const rk = recipientKeyForCampaignReport(convRow.phone);
+        const existing = mergedByPhone.get(rk);
+        if (!existing) {
+          mergedByPhone.set(rk, applyReplyHintsToReportRow(convRow, replyHints.get(rk)));
+          continue;
+        }
+        mergedByPhone.set(rk, pickBetterCampaignReportRow(existing, convRow));
       }
-      mergedByPhone.set(rk, pickBetterCampaignReportRow(existing, convRow));
     }
 
     const enriched = Array.from(mergedByPhone.values()).map((row) => {
@@ -838,19 +864,21 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         campaignId: campaign.id,
         replyHint: replyHints.get(rk),
         scopedLogs,
-        conversations,
+        conversations: skipHeavyEnrich ? [] : conversations,
         allowedConnectionIds: allowedConns
       }) as ReportRow;
       out = applyReplyHintsToReportRow(out, replyHints.get(rk)) as ReportRow;
       out = applyServerInboundReplyToRow(out, serverInboundReplies[rk]);
-      const found = findCampaignMessage(row.phone, campaign.id, allowedConns, conversations);
-      if (found) {
-        out = {
-          ...out,
-          conversationId: found.conv.id,
-          profilePicUrl: found.conv.profilePicUrl,
-          sentMessage: found.msg.text || out.sentMessage
-        };
+      if (!skipHeavyEnrich) {
+        const found = findCampaignMessage(row.phone, campaign.id, allowedConns, conversations);
+        if (found) {
+          out = {
+            ...out,
+            conversationId: found.conv.id,
+            profilePicUrl: found.conv.profilePicUrl,
+            sentMessage: found.msg.text || out.sentMessage
+          };
+        }
       }
       return attachStageReplies(out);
     });
@@ -892,6 +920,17 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       return matchesSearch && matchesFilter;
     });
   }, [detailedReport, detailFilter, detailSearch, replyPhonesFromLogs]);
+
+  useEffect(() => {
+    setReportPage(0);
+  }, [detailFilter, detailSearch, campaign.id]);
+
+  const reportPageCount = Math.max(1, Math.ceil(filteredReport.length / REPORT_PAGE_SIZE));
+  const safeReportPage = Math.min(reportPage, reportPageCount - 1);
+  const pagedReport = useMemo(() => {
+    const start = safeReportPage * REPORT_PAGE_SIZE;
+    return filteredReport.slice(start, start + REPORT_PAGE_SIZE);
+  }, [filteredReport, safeReportPage]);
 
   const hasLegacyEstimateRows = useMemo(
     () => detailedReport.some((r) => r.legacyEstimate),
@@ -2500,8 +2539,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {filteredReport.length > 0 ? (
-                  filteredReport.map((item) => {
+                {pagedReport.length > 0 ? (
+                  pagedReport.map((item) => {
                     const rk = recipientKeyForCampaignReport(item.phone);
                     const logHint = replyPhonesFromLogs.get(rk);
                     const displayStatus = effectiveCampaignReportStatus(
@@ -2683,6 +2722,35 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               </tbody>
             </table>
           </div>
+          {filteredReport.length > REPORT_PAGE_SIZE && (
+            <div
+              className="flex items-center justify-between gap-3 px-4 py-2.5"
+              style={{ borderTop: '1px solid var(--border-subtle)' }}
+            >
+              <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
+                Página {safeReportPage + 1} de {reportPageCount} · {filteredReport.length} registro
+                {filteredReport.length === 1 ? '' : 's'}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={safeReportPage <= 0}
+                  onClick={() => setReportPage((p) => Math.max(0, p - 1))}
+                >
+                  Anterior
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={safeReportPage >= reportPageCount - 1}
+                  onClick={() => setReportPage((p) => Math.min(reportPageCount - 1, p + 1))}
+                >
+                  Próxima
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
 

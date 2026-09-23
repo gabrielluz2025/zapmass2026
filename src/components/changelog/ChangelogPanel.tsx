@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.152',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Abrir campanha grande não congela mais o Chrome (histórico/relatório limitados + paginação)' },
+    ],
+  },
+  {
     version: '2.3.151',
     date: '23/09/2026',
     highlights: [
