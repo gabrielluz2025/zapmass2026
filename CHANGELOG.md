@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.160] - 2026-09-23
+### Corrigido
+- **CI**: teste de `{horario}` usava contato “Boa tarde” e quebrava à tarde (relógio real igual) — horário fixo com fake timers.
+
 ## [2.3.159] - 2026-09-23
 ### Corrigido
 - **652 “FALHAS” fantasmas no card**: jobs mortos no PostgreSQL por **duplicação de texto** (bug já corrigido no worker) inflavam `failedCount` via `Math.max` com o documento. Contagem PG ignora falhas fantasma, reconcilia o card ao abrir a lista, reenfileira jobs mortos por anti-spam e o handler BullMQ não soma mais esses erros.

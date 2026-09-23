@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   detectGlobalOptOut,
   expandNumericReplyAliases,
@@ -40,14 +40,19 @@ describe('applyMessageVars', () => {
   });
 
   it('coluna horario do contato não sobrescreve o relógio da campanha', () => {
-    const result = applyMessageVars(
-      'Oi {horario}',
-      '5548999999999',
-      { horario: 'Boa tarde' },
-      0
-    );
-    expect(result).not.toBe('Oi Boa tarde');
-    expect(['Oi Bom dia', 'Oi Boa tarde', 'Oi Boa noite']).toContain(result);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-15T15:00:00.000Z'));
+    try {
+      const result = applyMessageVars(
+        'Oi {horario}',
+        '5548999999999',
+        { horario: 'Bom dia' },
+        0
+      );
+      expect(result).toBe('Oi Boa tarde');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
