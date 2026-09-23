@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.170',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Bate-papo: arquivo no servidor + restauração ao reconectar; exclusão na UI não revive no sync do celular' },
+    ],
+  },
+  {
     version: '2.3.169',
     date: '23/09/2026',
     highlights: [

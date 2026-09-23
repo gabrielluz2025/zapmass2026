@@ -2257,6 +2257,14 @@ function applyConnectionStateUpdate(
                 await setupWebhook(instance).catch(() => undefined);
             }
             if (ou) {
+                const restored = await hydrateInboxFromArchiveForOwner(ou).catch(() => 0);
+                if (restored > 0) {
+                    log('info', 'Inbox restaurada do arquivo após chip online', {
+                        connectionId: instance,
+                        ownerUid: ou,
+                        threads: restored,
+                    });
+                }
                 publishOwnerEvent(
                     ou,
                     'connections-update',

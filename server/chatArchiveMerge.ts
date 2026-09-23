@@ -57,6 +57,8 @@ export type ChatArchiveMergeHooks = {
   getConversations: () => Conversation[];
   upsertConversation: (conv: Conversation, opts?: { skipArchive?: boolean }) => void;
   allowDeletedConversation: (conversationId: string) => void;
+  /** Conversa removida da lista pelo usuário — não reabrir só por arquivo/sync do celular. */
+  isConversationDeleted?: (conversationId: string) => boolean;
   emitConversationDelta: (conversationId: string) => void;
   resolveConnectionOwnerUid: (connectionId: string) => string | undefined;
   ownerUidFromConnectionId: (connectionId: string) => string | undefined;
@@ -69,6 +71,7 @@ export async function mergeChatArchiveIntoConversation(
   hooks: ChatArchiveMergeHooks
 ): Promise<void> {
   if (!isWaChatArchiveEnabled()) return;
+  if (hooks.isConversationDeleted?.(conversationId)) return;
   const [connectionId, ...chatParts] = conversationId.split(':');
   if (!connectionId || chatParts.length === 0) return;
   const jid = chatParts.join(':');

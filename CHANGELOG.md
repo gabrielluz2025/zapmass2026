@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.170] - 2026-09-23
+### Corrigido
+- **Bate-papo**: histórico permanece no arquivo do servidor (comprovação); ao reconectar o chip a inbox restaura do Postgres; conversa excluída na UI não volta com «Sincronizar do celular» (só reaparece com mensagem nova ao vivo).
+
 ## [2.3.169] - 2026-09-23
 ### Corrigido
 - **Bate-papo**: painel não abria com erro «URI malformed» quando algum nome de contato tinha caractere Unicode inválido (avatars `encodeURIComponent`); decode seguro na API de identidade do contato.

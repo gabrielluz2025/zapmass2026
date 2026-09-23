@@ -477,6 +477,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         getConversations: () => conversations,
         upsertConversation,
         allowDeletedConversation,
+        isConversationDeleted: (id: string) => deletedConversationIds.has(id),
         emitConversationDelta,
         resolveConnectionOwnerUid: archiveCtx!.resolveConnectionOwnerUid,
         ownerUidFromConnectionId: archiveCtx!.ownerUidFromConnectionId,
@@ -577,6 +578,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             waJidAlt?: string;
             connectionId?: string;
             incrementUnread?: boolean;
+            /** HistorySync do celular — não reabrir conversa excluída da lista. */
+            fromHistorySync?: boolean;
         }
     ) {
         const connectionId = meta?.connectionId || conversationId.split(':')[0] || '';
@@ -598,8 +601,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 deletedConversationIds.delete(originalId);
             }
         }
-        // Nova mensagem reabre conversa que o usuário tinha removido da lista local.
         if (deletedConversationIds.has(conversationId)) {
+            if (meta?.fromHistorySync) return;
+            // Mensagem ao vivo reabre conversa que o usuário tinha removido da lista.
             deletedConversationIds.delete(conversationId);
         }
         let conv = conversations.find((c) => c.id === conversationId);
@@ -1791,7 +1795,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         for (const msg of items) {
             if (!msg?.key) continue;
 
-            const remoteJid = String(msg.key.remoteJid || '');
+        const remoteJid = String(msg.key.remoteJid || '');
             if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue;
 
             let conversationId = buildConversationId(instance, remoteJid);
@@ -1813,13 +1817,14 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 contactPhone: phoneDigits.length >= 8 ? `+${phoneDigits}` : rawPeer?.contactPhone,
                 waJidAlt: rawPeer?.waJidAlt || chatMsg.waRemoteJidAlt || chatMsg.waSenderPn
             });
-            appendMessageToConversation(conversationId, chatMsg, {
-                connectionId: instance,
-                contactName: String(pushName),
+        appendMessageToConversation(conversationId, chatMsg, {
+            connectionId: instance,
+            contactName: String(pushName),
                 contactPhone: phoneDigits.length >= 8 ? `+${phoneDigits}` : rawPeer?.contactPhone || '',
                 waJidAlt: rawPeer?.waJidAlt || chatMsg.waRemoteJidAlt || chatMsg.waSenderPn,
-                incrementUnread: !msg.key.fromMe,
-            });
+            incrementUnread: !msg.key.fromMe,
+            fromHistorySync: isHistorySync,
+        });
             touched.add(conversationId);
         }
         if (isHistorySync) scheduleHistorySyncFlush(instance);
@@ -1968,12 +1973,12 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             try {
                 response = await api.post(`/message/sendMedia/${evoInst(parsed.connectionId)}`, {
                     number: list[i],
-                    delay: 1200,
-                    mediatype: type,
+            delay: 1200,
+            mediatype: type,
                     mimetype: payload.mimeType,
                     caption: resolvedCaption,
-                    media: url,
-                    fileName: payload.fileName,
+            media: url,
+            fileName: payload.fileName,
                 }, {
                     timeout: 120000, // 2 minutes for media uploads
                 });
@@ -2042,6 +2047,10 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     }> {
         let parsed = parseConversationId(conversationId);
         if (!parsed) return { ok: false, total: 0, error: 'conversationId inválido.' };
+
+        if (deletedConversationIds.has(conversationId)) {
+            return { ok: true, total: 0, messages: [], error: 'Conversa removida da lista.' };
+        }
 
         if (archiveCtx) {
             await mergeChatArchiveIntoConversation(conversationId, limit, evoChatArchiveHooks());
@@ -2138,6 +2147,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         conv = conversations.find((c) => c.id === conversationId);
         if (!conv) {
+            if (deletedConversationIds.has(conversationId)) {
+                return { ok: true, total: converted.length, messages: [] };
+            }
             const last = converted[converted.length - 1];
             conv = {
                 id: conversationId,
@@ -2151,7 +2163,6 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 messages: [],
                 tags: [],
             };
-            deletedConversationIds.delete(conversationId);
             upsertConversation(conv);
             conv = conversations.find((c) => c.id === conversationId);
         }
@@ -2368,7 +2379,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 const response = await api.post(`/chat/fetchProfilePictureUrl/${inst}`, { number });
                 const pic = await normalizeProfilePictureUrl(parseProfilePicturePayload(response.data));
                 if (pic) {
-                    if (conv) {
+                if (conv) {
                         conv.profilePicUrl = pic;
                         if (!opts?.silentEmit) emitConversationDelta(conversationId);
                     }

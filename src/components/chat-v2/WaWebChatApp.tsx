@@ -1247,7 +1247,11 @@ export const WaWebChatApp: React.FC<{
   const handleDeleteConversation = useCallback(() => {
     if (!selected?.id) return;
     const ok = window.confirm(
-      'Remover esta conversa do bate-papo?\n\nEla some da lista e só volta se você receber ou enviar de novo. O WhatsApp no celular não é apagado.'
+      'Remover esta conversa do bate-papo?\n\n' +
+        '• Ela some da lista aqui (no celular do chip continua igual).\n' +
+        '• O histórico já salvo no servidor permanece para comprovação.\n' +
+        '• Sincronizar do celular não traz esta conversa de volta.\n' +
+        '• Só volta à lista se chegar uma mensagem nova desse contato.'
     );
     if (!ok) return;
     void deleteLocalConversations([selected.id]).then((n) => {

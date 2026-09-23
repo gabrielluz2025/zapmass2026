@@ -458,7 +458,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
                 <p className="text-[11px] px-3 text-center" style={{ color: 'var(--wa-text-3)' }}>
                   {historyImporting
                     ? 'Aguarde — o chip está puxando o histórico do WhatsApp…'
-                    : 'Toque para reconectar o chip e importar mensagens antigas do celular'}
+                    : 'Toque para reconectar o chip e importar mensagens antigas do celular (histórico já salvo no servidor é restaurado ao reconectar)'}
                 </p>
               ) : null}
             </div>

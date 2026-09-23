@@ -6631,6 +6631,7 @@ const waChatArchiveHooks = () => ({
     getConversations: () => conversations,
     upsertConversation,
     allowDeletedConversation,
+    isConversationDeleted: (id: string) => deletedConversationIds.has(id),
     emitConversationDelta: (_conversationId: string) => emitConversationsUpdate(),
     resolveConnectionOwnerUid,
     ownerUidFromConnectionId,
