@@ -33,6 +33,7 @@
     "isolate:tenant-channels": "tsx scripts/isolate-tenant-channels.ts",
     "normalize:all-contacts": "tsx scripts/normalize-all-contacts.ts",
     "warmup:optout-cache": "tsx scripts/warmupOptOutCache.ts",
+    "classify:pending-replies": "tsx scripts/classify-pending-reply-intents.ts",
     "replay:inbound": "tsx scripts/replay-inbound-connection.ts",
     "deploy:firestore-rules": "firebase deploy --only firestore:rules",
     "deploy:hosting": "npm run build && firebase deploy --only hosting",

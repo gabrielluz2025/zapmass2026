@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.166',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'feat', text: 'CLI na VPS: classify:pending-replies (quente / lista negra em lote)' },
+    ],
+  },
+  {
     version: '2.3.165',
     date: '23/09/2026',
     highlights: [

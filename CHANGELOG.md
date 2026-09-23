@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.166] - 2026-09-23
+### Adicionado
+- Script VPS `npm run classify:pending-replies` (classificação quero/sair em lote via CLI).
+
 ## [2.3.165] - 2026-09-23
 ### Adicionado
 - **Campanha (fluxo por resposta)**: botão «Classificar respostas pendentes» — aplica quente/lista negra em lote via `/api/reply-intent/auto-apply`.
