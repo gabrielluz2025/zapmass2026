@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.155',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'KPI Pendentes não zera mais em reply-flow quando ainda há gente na fila de envio' },
+    ],
+  },
+  {
     version: '2.3.154',
     date: '23/09/2026',
     highlights: [

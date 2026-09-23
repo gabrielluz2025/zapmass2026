@@ -1225,12 +1225,18 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const elapsedSec = startedAt ? Math.max(0, (now - startedAt.getTime()) / 1000) : 0;
   const throughputPerMin = elapsedSec > 0 ? +(metrics.effectiveProcessed / (elapsedSec / 60)).toFixed(1) : 0;
   const remaining = metrics.pending;
-  const pendingKpi =
-    isDone || isWaitingForReplies
-      ? 0
-      : isRunning
-      ? Math.max(remaining, pendingLive)
-      : remaining;
+  // Em reply-flow “aguardando”, não zerar se a fila de envio ainda tem gente.
+  const pendingKpi = isDone
+    ? 0
+    : remaining > 0
+      ? isRunning
+        ? Math.max(remaining, pendingLive)
+        : remaining
+      : isWaitingForReplies
+        ? 0
+        : isRunning
+          ? pendingLive
+          : 0;
   const etaSec =
     isWaitingForReplies || !isRunning
       ? 0
@@ -2034,13 +2040,18 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
             filter: 'FAILED' as ReportFilter
           },
           {
-            label: isWaitingForReplies ? 'Aguardando' : 'Pendentes',
+            label: remaining > 0 ? 'Pendentes' : isWaitingForReplies ? 'Aguardando' : 'Pendentes',
             value: pendingKpi.toLocaleString('pt-BR'),
-            helper: isWaitingForReplies
-              ? 'resposta do contato'
-              : isRunning
-              ? `fila ativa${etaSec > 0 ? ` · ~${formatDuration(etaSec)}` : ''}`
-              : pendingKpi > 0 ? 'na fila' : 'concluído',
+            helper:
+              remaining > 0
+                ? isRunning
+                  ? `fila ativa${etaSec > 0 ? ` · ~${formatDuration(etaSec)}` : ''}`
+                  : 'ainda na fila'
+                : isWaitingForReplies
+                  ? 'resposta do contato'
+                  : isRunning
+                    ? `fila ativa${etaSec > 0 ? ` · ~${formatDuration(etaSec)}` : ''}`
+                    : 'concluído',
             color: '#f59e0b',
             filter: 'PENDING' as ReportFilter
           }

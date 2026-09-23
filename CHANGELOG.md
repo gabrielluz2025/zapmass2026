@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.155] - 2026-09-23
+### Corrigido
+- **KPI Pendentes zerava em reply-flow**: campanha pausada/aguardando resposta ainda com gente na fila mostrava “0 · concluído”; agora exibe o que falta enviar.
+
 ## [2.3.154] - 2026-09-23
 ### Corrigido
 - **Métricas da campanha não batiam**: progresso 100% com só dezenas de enviados — PENDING da lista inteira era contado como processado/enviado no funil; agora só tentativas reais entram no progresso e em “Enviadas”.
