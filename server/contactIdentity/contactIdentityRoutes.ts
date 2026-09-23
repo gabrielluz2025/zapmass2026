@@ -6,13 +6,21 @@ import { buildContactProfile, reconcileContactFromChannels } from './contactProf
 import { listContactEvents } from './contactEventsRepository.js';
 import { canonicalContactPhoneDigits } from './contactPhone.js';
 
+function safeDecodeUriComponent(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 export function registerContactIdentityRoutes(app: Express): void {
   if (!vpsDataEnabled() || !getZapmassPool()) return;
 
   app.get('/api/contacts/identity/:phone', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    const phone = decodeURIComponent(String(req.params.phone || ''));
+    const phone = safeDecodeUriComponent(String(req.params.phone || ''));
     const profile = await buildContactProfile(ctx.tenantId, phone);
     if (!profile) {
       return res.status(400).json({ ok: false, error: 'Telefone inválido.' });
@@ -23,7 +31,7 @@ export function registerContactIdentityRoutes(app: Express): void {
   app.get('/api/contacts/identity/:phone/timeline', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    const phone = decodeURIComponent(String(req.params.phone || ''));
+    const phone = safeDecodeUriComponent(String(req.params.phone || ''));
     const digits = canonicalContactPhoneDigits(phone);
     if (digits.length < 8) {
       return res.status(400).json({ ok: false, error: 'Telefone inválido.' });
@@ -47,7 +55,7 @@ export function registerContactIdentityRoutes(app: Express): void {
   app.post('/api/contacts/identity/:phone/reconcile', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    const phone = decodeURIComponent(String(req.params.phone || ''));
+    const phone = safeDecodeUriComponent(String(req.params.phone || ''));
     const digits = canonicalContactPhoneDigits(phone);
     if (digits.length < 8) {
       return res.status(400).json({ ok: false, error: 'Telefone inválido.' });

@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.169] - 2026-09-23
+### Corrigido
+- **Bate-papo**: painel não abria com erro «URI malformed» quando algum nome de contato tinha caractere Unicode inválido (avatars `encodeURIComponent`); decode seguro na API de identidade do contato.
+
 ## [2.3.168] - 2026-09-23
 ### Corrigido
 - **Classificação em lote**: ignora contatos já quentes/lista negra/opt-out; deduplica por telefone; dry-run reflete pendentes reais; CLI aguarda timeline antes de fechar pool Postgres.

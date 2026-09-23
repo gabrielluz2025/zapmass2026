@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Conversation } from '../../../types';
-import { buildDisplayIndex, inboxListTitle } from './conversationDisplay';
+import { buildDisplayIndex, inboxListTitle, initialsAvatarDataUrl } from './conversationDisplay';
 
 describe('conversationDisplay LID', () => {
   const lidConv: Conversation = {
@@ -20,5 +20,11 @@ describe('conversationDisplay LID', () => {
     const disp = buildDisplayIndex([lidConv], []).get(lidConv.id);
     expect(inboxListTitle(disp, lidConv)).not.toBe('+208023100387464');
     expect(inboxListTitle(disp, lidConv)).toContain('…');
+  });
+
+  it('avatar com surrogate solitario nao quebra encode', () => {
+    const broken = `Jo\uD800o`;
+    expect(() => initialsAvatarDataUrl(broken)).not.toThrow();
+    expect(initialsAvatarDataUrl(broken).startsWith('data:image/svg+xml,')).toBe(true);
   });
 });

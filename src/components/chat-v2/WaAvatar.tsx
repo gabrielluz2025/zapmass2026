@@ -1,4 +1,5 @@
 import React from 'react';
+import { safeEncodeURIComponent } from '../../utils/safeUriEncode';
 
 type Props = {
   src: string;
@@ -18,7 +19,7 @@ export const WaAvatar: React.FC<Props> = ({ src, name, size = 49, className = ''
     onError={(e) => {
       const el = e.currentTarget;
       el.onerror = null;
-      el.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=00a884&color=fff&size=200`;
+      el.src = `https://ui-avatars.com/api/?name=${safeEncodeURIComponent(name)}&background=00a884&color=fff&size=200`;
     }}
   />
 );

@@ -8,6 +8,7 @@ import { WaMessageContent, messageMediaLayout } from './WaMessageContent';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import { formatContactPresenceSubtitle } from '../../utils/evolutionPresence';
 import { inboxListTitle } from './lib/conversationDisplay';
+import { safeEncodeURIComponent } from '../../utils/safeUriEncode';
 import { formatDayLabel, formatMsgTime, messageDayKey } from './lib/messageTime';
 import type { WaSocketStatus } from './hooks/useWaRealtime';
 import { WaInThreadSearchBar, WaMessageMenu } from './WaMessageTools';
@@ -327,7 +328,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
           onError={(e) => {
             const el = e.currentTarget;
             el.onerror = null;
-            el.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(primary)}&background=00a884&color=fff&size=200&bold=true`;
+            el.src = `https://ui-avatars.com/api/?name=${safeEncodeURIComponent(primary)}&background=00a884&color=fff&size=200&bold=true`;
           }}
         />
         <div className="flex-1 min-w-0">

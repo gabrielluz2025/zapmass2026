@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.169',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Bate-papo: corrige crash «URI malformed» em nomes com Unicode inválido (avatars)' },
+    ],
+  },
+  {
     version: '2.3.168',
     date: '23/09/2026',
     highlights: [
