@@ -4956,11 +4956,25 @@ async function saveReplyFlowSessionToRedis(
 ): Promise<void> {
     const conn = getRedisConnection();
     if (!conn) return;
+    const payload = JSON.stringify(session);
+    const tenantId = session.ownerUid || resolveOwnerUid(connectionId);
     try {
+        if (tenantId) {
+            await conn.setex(
+                `zapmass:rf:sess:t:${tenantId}:${phoneDigits}`,
+                REPLYFLOW_SESSION_TTL_SECS,
+                payload
+            );
+        }
         const key = `zapmass:rf:sess:${connectionId}:${phoneDigits}`;
-        await conn.setex(key, REPLYFLOW_SESSION_TTL_SECS, JSON.stringify(session));
+        await conn.setex(key, REPLYFLOW_SESSION_TTL_SECS, payload);
     } catch (e: any) {
         log('warn', 'saveReplyFlowSessionToRedis falhou', { error: e?.message });
+    }
+    if (tenantId) {
+        void import('./contactIdentity/contactIdentityHooks.js').then(({ persistReplyFlowSessionForContact }) =>
+            persistReplyFlowSessionForContact(tenantId, phoneDigits, session)
+        );
     }
 }
 
@@ -4970,7 +4984,16 @@ async function loadReplyFlowSessionFromRedis(
 ): Promise<ReplyFlowSession | null> {
     const conn = getRedisConnection();
     if (!conn) return null;
+    const tenantId = resolveOwnerUid(connectionId);
     try {
+        if (tenantId) {
+            const tKey = `zapmass:rf:sess:t:${tenantId}:${phoneDigits}`;
+            const rawTenant = await conn.get(tKey);
+            if (rawTenant) {
+                const sessT = JSON.parse(rawTenant) as ReplyFlowSession;
+                if (sessT?.campaignId && sessT.awaitingAfterStep != null) return sessT;
+            }
+        }
         const key = `zapmass:rf:sess:${connectionId}:${phoneDigits}`;
         const raw = await conn.get(key);
         if (!raw) return null;
@@ -4985,7 +5008,11 @@ async function loadReplyFlowSessionFromRedis(
 async function deleteReplyFlowSessionFromRedis(connectionId: string, phoneDigits: string): Promise<void> {
     const conn = getRedisConnection();
     if (!conn) return;
+    const tenantId = resolveOwnerUid(connectionId);
     try {
+        if (tenantId) {
+            await conn.del(`zapmass:rf:sess:t:${tenantId}:${phoneDigits}`);
+        }
         await conn.del(`zapmass:rf:sess:${connectionId}:${phoneDigits}`);
     } catch { /* ignora */ }
 }
@@ -5141,10 +5168,27 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
             if (!sess?.campaignId) continue;
 
             const keyBody = key.slice(REPLYFLOW_SESSION_KEY_PREFIX.length);
-            const colonIdx = keyBody.indexOf(':');
-            if (colonIdx <= 0) continue;
-            const connectionId = keyBody.slice(0, colonIdx);
-            const phoneDigits = keyBody.slice(colonIdx + 1);
+            let connectionId = '';
+            let phoneDigits = '';
+            if (keyBody.startsWith('t:')) {
+                const rest = keyBody.slice(2);
+                const colonIdx = rest.indexOf(':');
+                if (colonIdx <= 0) continue;
+                const tenantKey = rest.slice(0, colonIdx);
+                phoneDigits = rest.slice(colonIdx + 1);
+                connectionId =
+                    getConnections().find(
+                        (c) =>
+                            resolveOwnerUid(c.id) === tenantKey &&
+                            String(c.status || '').toUpperCase() === 'CONNECTED'
+                    )?.id || '';
+                if (!connectionId) continue;
+            } else {
+                const colonIdx = keyBody.indexOf(':');
+                if (colonIdx <= 0) continue;
+                connectionId = keyBody.slice(0, colonIdx);
+                phoneDigits = keyBody.slice(colonIdx + 1);
+            }
 
             replyFlowEngine.restoreSession(connectionId, phoneDigits, sess);
             campaignIds.add(sess.campaignId);
@@ -5506,6 +5550,40 @@ async function tryRestoreReplyFlowSession(connectionId: string, phoneDigits: str
                 cursor = next;
                 for (const key of keys) {
                     const body = key.slice(REPLYFLOW_SESSION_KEY_PREFIX.length);
+                    if (body.startsWith('t:')) {
+                        const rest = body.slice(2);
+                        const colon = rest.indexOf(':');
+                        if (colon <= 0) continue;
+                        const tenantKey = rest.slice(0, colon);
+                        const sessPhone = rest.slice(colon + 1).replace(/\D/g, '');
+                        const owner = resolveOwnerUid(connectionId);
+                        if (!owner || owner !== tenantKey) continue;
+                        let phoneHit = false;
+                        for (const variant of variants) {
+                            if (
+                                sessPhone === variant ||
+                                (sessPhone.length >= 8 &&
+                                    variant.length >= 8 &&
+                                    sessPhone.slice(-8) === variant.slice(-8))
+                            ) {
+                                phoneHit = true;
+                                break;
+                            }
+                        }
+                        if (!phoneHit) continue;
+                        const raw = await conn.get(key);
+                        if (!raw) continue;
+                        const sess = JSON.parse(raw) as ReplyFlowSession;
+                        if (!sess?.campaignId) continue;
+                        log('info', 'Sessão reply flow restaurada por tenant+telefone (Redis)', {
+                            connectionId,
+                            phoneDigits: sessPhone,
+                            campaignId: sess.campaignId,
+                        });
+                        replyFlowEngine.restoreSession(connectionId, sessPhone, sess);
+                        await replyFlowEngine.ensureDefLoaded(sess.campaignId, sess.ownerUid);
+                        return;
+                    }
                     const colon = body.indexOf(':');
                     if (colon <= 0) continue;
                     const sessConn = body.slice(0, colon);
@@ -5636,8 +5714,19 @@ function ensureReplyFlowEngine() {
         },
         onLog: (message, payload) =>
             emitCampaignLog('INFO', message, payload, payload?.ownerUid as string | undefined),
-        onInboundReply: ({ campaignId, connectionId, phoneDigits, ownerUid, marketingEffect }) => {
+        onInboundReply: ({ campaignId, connectionId, phoneDigits, ownerUid, marketingEffect, replyText }) => {
             evolutionTrackIncomingReply(connectionId, phoneDigits, { campaignId, ownerUid });
+            if (ownerUid) {
+                void import('./contactIdentity/contactIdentityHooks.js').then(({ recordContactInboundReply }) =>
+                    recordContactInboundReply({
+                        tenantId: ownerUid,
+                        phone: phoneDigits,
+                        connectionId,
+                        campaignId,
+                        preview: replyText,
+                    })
+                );
+            }
             if (ownerUid && marketingEffect === 'opt_in') {
                 void tryAutoEnrollHotLead({
                     tenantId: ownerUid,
@@ -7804,7 +7893,20 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 { campaignId: item.campaignId, de: item.connectionId, para: failoverId, to: item.to },
                 campaignState?.ownerUid
             );
+            const fromChip = item.connectionId;
             item.connectionId = failoverId;
+            const foOwner = campaignState?.ownerUid || item.ownerUid;
+            if (foOwner) {
+                void import('./contactIdentity/contactIdentityHooks.js').then(({ recordContactChipFailover }) =>
+                    recordContactChipFailover({
+                        tenantId: foOwner,
+                        phone: item.to,
+                        fromConnectionId: fromChip,
+                        toConnectionId: failoverId,
+                        campaignId: item.campaignId,
+                    })
+                );
+            }
             await job.updateData(item).catch(() => {});
             await job.moveToDelayed(Date.now() + 2000, token);
             throw new DelayedError();
@@ -7953,7 +8055,20 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 { campaignId: item.campaignId, de: item.connectionId, para: failoverId, to: item.to },
                 campaignState?.ownerUid
             );
+            const fromChip = item.connectionId;
             item.connectionId = failoverId;
+            const foOwner = campaignState?.ownerUid || item.ownerUid;
+            if (foOwner) {
+                void import('./contactIdentity/contactIdentityHooks.js').then(({ recordContactChipFailover }) =>
+                    recordContactChipFailover({
+                        tenantId: foOwner,
+                        phone: item.to,
+                        fromConnectionId: fromChip,
+                        toConnectionId: failoverId,
+                        campaignId: item.campaignId,
+                    })
+                );
+            }
             await job.updateData(item).catch(() => {});
             await job.moveToDelayed(Date.now() + 2000, token);
             throw new DelayedError();
@@ -8345,6 +8460,18 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                     campaignState?.ownerUid
                 );
                 item.connectionId = altId;
+                const foOwner = campaignState?.ownerUid || item.ownerUid;
+                if (foOwner) {
+                    void import('./contactIdentity/contactIdentityHooks.js').then(({ recordContactChipFailover }) =>
+                        recordContactChipFailover({
+                            tenantId: foOwner,
+                            phone: sendTo,
+                            fromConnectionId: originalId,
+                            toConnectionId: altId,
+                            campaignId: item.campaignId,
+                        })
+                    );
+                }
                 await job.updateData(item).catch(() => {});
                 const altRetry = item.media
                     ? await sendMediaInternal(
@@ -8483,6 +8610,19 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         } catch (trackErr: unknown) {
             const errMsg = trackErr instanceof Error ? trackErr.message : String(trackErr);
             log('warn', 'Nao foi possivel registrar mensagem de campanha no chat', { errMsg });
+        }
+        const identityOwner =
+            funnelOwner || item.ownerUid || resolveOwnerUid(item.connectionId);
+        if (identityOwner && !item.replyFlowResponse) {
+            void import('./contactIdentity/contactIdentityHooks.js').then(({ recordContactOutboundSent }) =>
+                recordContactOutboundSent({
+                    tenantId: identityOwner,
+                    phone: phoneDigits,
+                    connectionId: item.connectionId,
+                    campaignId: item.campaignId,
+                    stageIndex: item.stageIndex,
+                })
+            );
         }
     }
 

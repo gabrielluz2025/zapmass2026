@@ -29,6 +29,7 @@ import {
   STATUS_META,
   hashTagColor
 } from './useClientCrm';
+import { ContactIdentityPanel } from './ContactIdentityPanel';
 
 interface Props {
   conversation: Conversation;
@@ -140,6 +141,11 @@ export const ClientCrmPanel: React.FC<Props> = ({
 
   const statusMeta = crmData.status ? STATUS_META[crmData.status] : null;
 
+  const identityPhoneDigits = useMemo(
+    () => String(conversation.contactPhone || '').replace(/\D/g, ''),
+    [conversation.contactPhone]
+  );
+
   return (
     <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden" style={{ background: 'var(--wa-panel)' }}>
       {/* Ações rápidas (drawer já tem botão Fechar no cabeçalho) */}
@@ -235,6 +241,10 @@ export const ClientCrmPanel: React.FC<Props> = ({
             {conversation.contactPhone}
             <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
           </button>
+        </div>
+
+        <div className="px-4 pb-3">
+          <ContactIdentityPanel phoneDigits={identityPhoneDigits} />
         </div>
 
         {/* PIPELINE STATS — mini grid */}

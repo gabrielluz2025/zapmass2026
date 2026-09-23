@@ -233,6 +233,14 @@ export async function processContactOptOut(
     source: params.source,
   });
 
+  void import('./contactIdentity/contactIdentityHooks.js').then(({ recordContactOptOutEvent }) =>
+    recordContactOptOutEvent({
+      tenantId: tid,
+      phone: digits,
+      source: params.source,
+    })
+  );
+
   return { phoneSuffix, phoneDigits: digits, jobsCancelled, nurtureCancelled };
 }
 

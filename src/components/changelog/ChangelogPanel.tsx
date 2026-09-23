@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.163',
+    date: '23/09/2026',
+    highlights: [
+      {
+        type: 'feat',
+        text: 'Identidade por contato: timeline, score quente/frio, chip preferido, reply-flow e arquivo por telefone (não só por canal)',
+      },
+    ],
+  },
+  {
     version: '2.3.162',
     date: '23/09/2026',
     highlights: [

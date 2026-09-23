@@ -335,11 +335,25 @@ export async function processNurtureDueEnrollment(
   const humanDelay =
     opts?.delayMs ?? (opts?.force ? 0 : 45_000 + Math.floor(Math.random() * 75_000));
 
+  let dispatchConnectionId = row.connectionId;
+  try {
+    const { getContactIdentityRow } = await import('../contactIdentity/contactEventsRepository.js');
+    const ident = await getContactIdentityRow(row.tenantId, row.contactPhone);
+    const pref = String(ident?.preferredConnectionId || '').trim();
+    if (pref && pref !== dispatchConnectionId) {
+      if (doc.connectionIds.length === 0 || doc.connectionIds.includes(pref)) {
+        dispatchConnectionId = pref;
+      }
+    }
+  } catch {
+    /* identidade opcional */
+  }
+
   await enqueueFn({
     tenantId: row.tenantId,
     journeyId: row.journeyId,
     enrollmentId: row.id,
-    connectionId: row.connectionId,
+    connectionId: dispatchConnectionId,
     contactPhone: row.contactPhone,
     message,
     stepIndex: row.currentStepIndex,

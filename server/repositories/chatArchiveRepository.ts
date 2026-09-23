@@ -1,5 +1,9 @@
 import { getZapmassPool } from '../db/postgres.js';
 import type { ChatMessage, Conversation } from '../types.js';
+import {
+  canonicalContactPhoneDigits,
+  contactPhoneLookupVariants,
+} from '../contactIdentity/contactPhone.js';
 
 const MAX_TEXT_LEN = 12000;
 const MAX_MEDIA_PREVIEW = 512;
@@ -350,4 +354,78 @@ export async function listPhoneEngagementStatsPg(
     console.warn('[ChatArchive/PG] engagement stats falhou:', (e as Error)?.message || e);
     return {};
   }
+}
+
+function phoneSuffix8(digits: string): string {
+  const d = digits.replace(/\D/g, '');
+  return d.length >= 8 ? d.slice(-8) : d;
+}
+
+/** Threads cujo telefone bate com variantes BR (mesmo contato, chips diferentes). */
+async function listThreadIdsForPhonePg(tenantId: string, phoneRaw: string): Promise<string[]> {
+  if (!isUuid(tenantId)) return [];
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const variants = contactPhoneLookupVariants(canonicalContactPhoneDigits(phoneRaw));
+  if (variants.length === 0) return [];
+  const suffixes = [...new Set(variants.map(phoneSuffix8).filter((s) => s.length >= 8))];
+  try {
+    const r = await pool.query<{ thread_id: string }>(
+      `SELECT DISTINCT thread_id FROM zapmass.wa_chat_threads
+        WHERE tenant_id = $1::uuid
+          AND (
+            regexp_replace(coalesce(contact_phone, ''), '\\D', '', 'g') = ANY($2::text[])
+            OR right(regexp_replace(coalesce(contact_phone, ''), '\\D', '', 'g'), 8) = ANY($3::text[])
+          )`,
+      [tenantId, variants, suffixes]
+    );
+    return r.rows.map((row) => row.thread_id).filter(Boolean);
+  } catch (e) {
+    console.warn('[ChatArchive/PG] threads por telefone falhou:', (e as Error)?.message || e);
+    return [];
+  }
+}
+
+export async function countArchivedMessagesByPhone(
+  tenantId: string,
+  phoneRaw: string
+): Promise<number> {
+  const threadIds = await listThreadIdsForPhonePg(tenantId, phoneRaw);
+  if (threadIds.length === 0) return 0;
+  const pool = getZapmassPool();
+  if (!pool) return 0;
+  try {
+    const r = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM zapmass.wa_chat_messages
+        WHERE tenant_id = $1::uuid AND thread_id = ANY($2::text[])`,
+      [tenantId, threadIds]
+    );
+    return parseInt(r.rows[0]?.n || '0', 10);
+  } catch {
+    return 0;
+  }
+}
+
+/** Histórico unificado por telefone (todos os chips arquivados). */
+export async function loadChatArchiveMessagesByPhone(
+  tenantId: string,
+  phoneRaw: string,
+  limit = 500
+): Promise<ChatMessage[]> {
+  const threadIds = await listThreadIdsForPhonePg(tenantId, phoneRaw);
+  if (threadIds.length === 0) return [];
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const cap = Math.max(1, Math.min(limit, 2000));
+  const perThread = Math.max(40, Math.ceil(cap / threadIds.length));
+  const byId = new Map<string, ChatMessage>();
+  for (const threadId of threadIds) {
+    const chunk = await loadChatArchiveMessagesPg(tenantId, threadId, perThread);
+    for (const m of chunk) {
+      if (!byId.has(m.id)) byId.set(m.id, m);
+    }
+  }
+  return Array.from(byId.values())
+    .sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0))
+    .slice(-cap);
 }

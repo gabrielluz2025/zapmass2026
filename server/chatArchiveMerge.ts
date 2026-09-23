@@ -93,7 +93,32 @@ export async function mergeChatArchiveIntoConversation(
     cpGuess,
     historyLimit
   );
-  if (archived.length === 0) return;
+  let phoneArchived: ChatMessage[] = [];
+  if (cpGuess.length >= 8) {
+    try {
+      const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+      const { loadChatArchiveMessagesByPhone } = await import(
+        './repositories/chatArchiveRepository.js'
+      );
+      const pgTenant = resolvePostgresTenantId(ownerUid);
+      phoneArchived = await loadChatArchiveMessagesByPhone(pgTenant, cpGuess, historyLimit);
+    } catch {
+      phoneArchived = [];
+    }
+  }
+  const mergedArchive =
+    phoneArchived.length > 0
+      ? (() => {
+          const byId = new Map<string, ChatMessage>();
+          for (const m of [...archived, ...phoneArchived]) {
+            byId.set(m.id, m);
+          }
+          return Array.from(byId.values()).sort(
+            (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
+          );
+        })()
+      : archived;
+  if (mergedArchive.length === 0) return;
 
   const threadId =
     threadIdFromConversationId(conversationId, cpGuess ? `+${cpGuess}` : '') ||
@@ -104,7 +129,7 @@ export async function mergeChatArchiveIntoConversation(
   let conv = conversations.find((c) => c.id === conversationId);
   if (!conv) {
     hooks.allowDeletedConversation(conversationId);
-    const last = archived[archived.length - 1];
+    const last = mergedArchive[mergedArchive.length - 1];
     const contactPhone =
       cpGuess || (threadId.startsWith('p_') ? `+${threadId.slice(2)}` : '') || '';
     const stub: Conversation = {
@@ -117,7 +142,7 @@ export async function mergeChatArchiveIntoConversation(
       lastMessage: last?.text || '',
       lastMessageTime: last?.timestamp || '',
       lastMessageTimestamp: last?.timestampMs,
-      messages: archived.slice(-hooks.maxMessages),
+      messages: mergedArchive.slice(-hooks.maxMessages),
       tags: ['Arquivo']
     };
     hooks.upsertConversation(stub, { skipArchive: true });
@@ -126,7 +151,7 @@ export async function mergeChatArchiveIntoConversation(
   }
 
   const byId = new Map<string, ChatMessage>();
-  for (const m of archived) {
+  for (const m of mergedArchive) {
     byId.set(m.id, m);
   }
   for (const m of conv.messages) {
