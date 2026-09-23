@@ -113,6 +113,7 @@ import {
 import { CampaignChangeChannelsDialog } from './CampaignChangeChannelsDialog';
 import { fetchCampaignMediaAttachments } from '../../services/campaignsApi';
 import { ReplyFlowStageFunnels } from './ReplyFlowStageFunnels';
+import { ClassifyPendingReplyIntentsButton } from './ClassifyPendingReplyIntentsButton';
 import { CampaignMultiStepDashboard } from './CampaignMultiStepDashboard';
 import {
   buildReplyFlowStageFunnels,
@@ -2127,20 +2128,23 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         </div>
       )}
 
-      {campaign.replyFlow?.enabled && (isRunning || isWaitingForReplies) && (campaign.replyFlow.steps?.length || 0) >= 1 && (() => {
+      {campaign.replyFlow?.enabled &&
+        campaign.status !== CampaignStatus.DRAFT &&
+        (campaign.replyFlow.steps?.length || 0) >= 1 &&
+        (() => {
         const totalSteps = campaign.replyFlow?.steps?.length ?? 1;
         const repliesCount = Object.keys(serverInboundReplies).length;
         const waitingReplies = isWaitingForReplies ? (campaignLive.successCount ?? 0) : 0;
         const anyReply = campaign.replyFlow?.steps?.[0]?.acceptAnyReply;
         return (
           <div
-            className="rounded-xl px-4 py-3 flex items-start gap-3"
+            className="rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-start gap-3"
             style={{
               background: 'rgba(245,158,11,0.08)',
               border: '1px solid rgba(245,158,11,0.22)'
             }}
           >
-            <Reply className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#d97706' }} />
+            <Reply className="w-4 h-4 shrink-0 mt-0.5 hidden sm:block" style={{ color: '#d97706' }} />
             <div className="flex-1 min-w-0">
               <p className="text-[12.5px]" style={{ color: 'var(--text-2)' }}>
                 <strong style={{ color: 'var(--text-1)' }}>Fluxo por resposta ativo</strong>
@@ -2163,7 +2167,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   Gatilho: {anyReply ? 'qualquer mensagem' : 'palavra-chave'}
                 </span>
               </div>
+              <p className="text-[11px] mt-2 leading-snug" style={{ color: 'var(--text-3)' }}>
+                Quem respondeu antes sem roteamento pode ser classificado em lote (quente / lista negra). Novas
+                respostas seguem o fluxo automático com mensagem.
+              </p>
             </div>
+            <ClassifyPendingReplyIntentsButton variant="primary" className="shrink-0 w-full sm:w-auto" />
           </div>
         );
       })()}

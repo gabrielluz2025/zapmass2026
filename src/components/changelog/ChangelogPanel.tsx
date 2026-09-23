@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.165',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Botão na campanha: classificar respostas pendentes (quente / lista negra)' },
+    ],
+  },
+  {
     version: '2.3.164',
     date: '23/09/2026',
     highlights: [
