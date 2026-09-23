@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.162] - 2026-09-23
+### Corrigido
+- **Proteção de chips**: queda de um canal (ex.: Disparo 008) não trava mais jornada/campanhas nos demais — isolamento por chip, lock global só com pool quase todo offline; campanhas com 2+ chips saudáveis seguem sem pausa global.
+
 ## [2.3.161] - 2026-09-23
 ### Corrigido
 - **Limite diário do chip (meta 40) estourava dezenas de envios**: worker paralelo + contador só subindo depois do HTTP permitia 42, 51+ no mesmo dia. Agora há **reserva atômica** por chip antes do envio, piso via `campaign_jobs` no PostgreSQL, e reset diário não zera contador no primeiro boot do dia.

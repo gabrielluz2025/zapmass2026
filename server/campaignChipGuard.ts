@@ -93,11 +93,15 @@ export async function evaluateCampaignDispatchGuard(params: {
           'Campanha pausada: várias quedas seguidas e nenhum chip estável. Retomará quando o lock expirar ou os chips voltarem.',
       };
     }
+    // Pool com chips saudáveis: chip instável fica isolado (failover), sem desacelerar o pool inteiro.
+    if (usable.length >= 2) {
+      return { action: 'proceed' };
+    }
     return {
       action: 'slow',
       reason: 'reconnect_storm',
       extraDelayMs: STORM_SLOW_MS,
-      message: 'Envios desacelerados (+90s) por instabilidade recente nos chips.',
+      message: 'Envios desacelerados (+90s) — único chip do pool; instabilidade recente.',
     };
   }
 

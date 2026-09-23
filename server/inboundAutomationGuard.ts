@@ -44,6 +44,11 @@ export async function checkInboundAutomationAllowed(
       };
     }
     if (lockReason === 'reconnect_storm') {
+      const evo = await import('./evolutionService.js');
+      const healthy = evo.countUsableCampaignChannelsForOwner(uid);
+      if (healthy >= 2) {
+        return { allowed: true };
+      }
       return {
         allowed: false,
         reason: 'Automação inbound limitada: instabilidade recente nos chips.',

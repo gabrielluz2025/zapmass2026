@@ -58,6 +58,9 @@ export type ChipProtectionSnapshot = {
   };
   risks: Array<{ level: 'warn' | 'info'; message: string }>;
   recommendations: string[];
+  stormIsolatedMode?: boolean;
+  healthyChannelCount?: number;
+  offlineChannelCount?: number;
 };
 
 async function authHeaders(): Promise<HeadersInit> {

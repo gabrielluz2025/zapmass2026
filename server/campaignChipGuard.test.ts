@@ -38,6 +38,17 @@ describe('evaluateCampaignDispatchGuard', () => {
     expect(r.action).toBe('slow');
   });
 
+  it('prossegue em reconnect storm quando o pool tem 2+ chips saudáveis', async () => {
+    const r = await evaluateCampaignDispatchGuard({
+      ownerUid: 't1',
+      channelIds: ['chip-a', 'chip-b', 'chip-down'],
+      chipProtectionLockUntil: new Date(Date.now() + 3600_000).toISOString(),
+      chipProtectionLockReason: 'reconnect_storm',
+      isChannelUsable: (id) => id === 'chip-a' || id === 'chip-b',
+    });
+    expect(r.action).toBe('proceed');
+  });
+
   it('pausa quando todos chips indisponíveis', async () => {
     const r = await evaluateCampaignDispatchGuard({
       ownerUid: 't1',

@@ -90,6 +90,17 @@ type StatusVisual = {
 
 function resolveStatusVisual(data: ChipProtectionSnapshot): StatusVisual {
   const reason = data.protectionReason;
+  if (data.stormIsolatedMode) {
+    return {
+      label: 'Isolamento por chip',
+      sub: `${data.healthyChannelCount ?? 0} online — pool continua enviando`,
+      gradient: 'linear-gradient(135deg, rgba(56,189,248,0.12), rgba(14,165,233,0.05))',
+      border: 'rgba(56,189,248,0.35)',
+      glow: 'rgba(56,189,248,0.15)',
+      icon: <Wifi className="w-6 h-6 text-sky-400" />,
+      badge: 'neutral',
+    };
+  }
   if (reason === 'ban_cooldown') {
     return {
       label: 'Cooldown pós-ban',

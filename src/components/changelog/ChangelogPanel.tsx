@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.162',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Proteção por chip: canal offline não pausa jornada/campanha nos demais (pool isolado)' },
+    ],
+  },
+  {
     version: '2.3.161',
     date: '23/09/2026',
     highlights: [

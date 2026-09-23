@@ -11112,6 +11112,28 @@ export function listActiveBlockingCampaignIdsForOwner(ownerUid: string): string[
     return ids;
 }
 
+/** Campanhas ainda “vivas” (isRunning), inclusive pausadas pela proteção — evita modo quieto enganoso. */
+export function countRunningCampaignsForOwner(ownerUid: string): number {
+    if (!ownerUid) return 0;
+    let n = 0;
+    for (const state of campaignsById.values()) {
+        if (state.isRunning && state.ownerUid === ownerUid) n++;
+    }
+    return n;
+}
+
+/** Chips online e aptos a disparo/jornada (fora de quarentena/circuito aberto). */
+export function countUsableCampaignChannelsForOwner(ownerUid: string): number {
+    if (!ownerUid) return 0;
+    const scoped = filterByConnectionScope(ownerUid, getConnections());
+    let n = 0;
+    for (const c of scoped) {
+        const id = String(c.id || '').trim();
+        if (id && isCampaignChannelUsable(id)) n++;
+    }
+    return n;
+}
+
 export function getMetrics(): DashboardMetrics {
     return { ...metrics };
 }

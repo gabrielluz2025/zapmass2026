@@ -29,8 +29,12 @@ const effectiveCache = new Map<
 const EFFECTIVE_CACHE_MS = 30_000;
 
 const closeEventsByTenant = new Map<string, number[]>();
+/** Quedas por chip — isolamento sem travar o tenant inteiro. */
+const closeEventsByConnection = new Map<string, number[]>();
 export const CLOSE_STORM_WINDOW_MS = 30 * 60 * 1000;
 export const CLOSE_STORM_THRESHOLD = 3;
+/** Mínimo de chips saudáveis para NÃO aplicar lock global por queda de um canal. */
+export const CLOSE_STORM_MIN_HEALTHY_POOL = 2;
 
 /** Progresso de quedas recentes antes do lock reconnect_storm (para UI/alertas). */
 export function getReconnectStormProgress(tenantId: string): {
@@ -93,6 +97,10 @@ export type ChipActivitySnapshot = {
   sync: ChipSyncProfile;
   risks: Array<{ level: 'warn' | 'info'; message: string }>;
   recommendations: string[];
+  /** Lock de storm antigo, mas ≥2 chips saudáveis — não trava jornada/campanha. */
+  stormIsolatedMode?: boolean;
+  healthyChannelCount?: number;
+  offlineChannelCount?: number;
 };
 
 function resolvePolicyFromSettings(settings: {
@@ -123,7 +131,12 @@ function lockReason(settings: {
 
 async function countActiveCampaigns(tenantId: string): Promise<number> {
   const evo = await import('./evolutionService.js');
-  return evo.countActiveCampaignsForOwner(tenantId);
+  return evo.countRunningCampaignsForOwner(tenantId);
+}
+
+async function countUsableDispatchChannels(tenantId: string): Promise<number> {
+  const evo = await import('./evolutionService.js');
+  return evo.countUsableCampaignChannelsForOwner(tenantId);
 }
 
 export async function computeEffectiveProtection(tenantId: string): Promise<{
@@ -148,6 +161,12 @@ export async function computeEffectiveProtection(tenantId: string): Promise<{
 
   if (lockActive(settings)) {
     const lr = lockReason(settings);
+    if (lr === 'reconnect_storm') {
+      const healthy = await countUsableDispatchChannels(uid);
+      if (healthy >= CLOSE_STORM_MIN_HEALTHY_POOL) {
+        return { active: false, reason: null, policy: 'auto' };
+      }
+    }
     return { active: true, reason: lr || 'ban_cooldown', policy: 'auto' };
   }
 
@@ -317,15 +336,22 @@ export function onConnectionClosed(connectionId: string, wasBan: boolean): void 
 
     const now = Date.now();
 
-    // Deploy/restart do container: vários chips caem juntos — não contar como tempestade.
     if (isInDeployGraceWindow()) {
       return;
     }
+
+    const cid = String(connectionId || '').trim();
+    const chipPrev = closeEventsByConnection.get(cid) ?? [];
+    const chipRecent = chipPrev.filter((t) => now - t < CLOSE_STORM_WINDOW_MS);
+    chipRecent.push(now);
+    closeEventsByConnection.set(cid, chipRecent);
 
     const prev = closeEventsByTenant.get(ownerUid) ?? [];
     const recent = prev.filter((t) => now - t < CLOSE_STORM_WINDOW_MS);
     recent.push(now);
     closeEventsByTenant.set(ownerUid, recent);
+
+    const healthy = await countUsableDispatchChannels(ownerUid);
 
     if (recent.length === CLOSE_STORM_THRESHOLD - 1) {
       const { emitAntiBanAlert } = await import('./antiBanProactiveNotifications.js');
@@ -333,11 +359,34 @@ export function onConnectionClosed(connectionId: string, wasBan: boolean): void 
         dropsInWindow: recent.length,
         threshold: CLOSE_STORM_THRESHOLD,
         windowMinutes: Math.round(CLOSE_STORM_WINDOW_MS / 60_000),
+        healthyChannels: healthy,
       });
     }
 
-    if (recent.length >= CLOSE_STORM_THRESHOLD) {
+    const chipFlapping = chipRecent.length >= CLOSE_STORM_THRESHOLD;
+    const tenantStorm = recent.length >= CLOSE_STORM_THRESHOLD;
+    const isolateChipOnly = chipFlapping && healthy >= CLOSE_STORM_MIN_HEALTHY_POOL;
+
+    if (isolateChipOnly) {
+      closeEventsByConnection.set(cid, []);
+      const cb = getChipCircuitBreaker();
+      await cb.recordFail4xx(cid).catch(() => undefined);
+      console.log(
+        `[ChipProtection] Chip ${cid} isolado (${chipRecent.length} quedas) — ${healthy} canal(is) saudável(is), sem lock global`
+      );
+      void evo.reviewRunningCampaignsForChipProtection(cid);
+      return;
+    }
+
+    if (tenantStorm && healthy < CLOSE_STORM_MIN_HEALTHY_POOL) {
       closeEventsByTenant.set(ownerUid, []);
+      closeEventsByConnection.set(cid, []);
+      await activateTenantProtectionLock(ownerUid, 'reconnect_storm', 6);
+      return;
+    }
+
+    if (chipFlapping && healthy < CLOSE_STORM_MIN_HEALTHY_POOL) {
+      closeEventsByConnection.set(cid, []);
       await activateTenantProtectionLock(ownerUid, 'reconnect_storm', 6);
     }
   })();
@@ -499,6 +548,28 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
     ? Math.max(0, new Date(lockUntil).getTime() - Date.now())
     : null;
 
+  const healthyChannels = await countUsableDispatchChannels(uid);
+  const scopedConnsForCount = filterByConnectionScope(uid, evo.getConnections());
+  const offlineChannels = scopedConnsForCount.filter((c) => {
+    const st = String(c.status || '').toUpperCase();
+    return st !== 'CONNECTED' && st !== 'CONNECTING' && st !== 'OPEN';
+  }).length;
+  const stormLockStill =
+    lockActive(settings) && String(settings.chipProtectionLockReason || '') === 'reconnect_storm';
+  const stormIsolatedMode = stormLockStill && healthyChannels >= CLOSE_STORM_MIN_HEALTHY_POOL;
+
+  let displayReason = reason;
+  let displayLabel = chipProtectionReasonLabel(reason);
+  if (stormIsolatedMode) {
+    displayReason = null;
+    displayLabel = `${healthyChannels} chip(s) saudável(is) — canal offline isolado`;
+    recommendations.push(
+      'Um chip caiu; os demais continuam. Reconecte só o canal offline. Se ainda aparecer lock global, use “Liberar proteção”.'
+    );
+    void clearTenantProtectionLock(uid).catch(() => undefined);
+    void evo.tickAutoResumeProtectedCampaigns().catch(() => undefined);
+  }
+
   const fetchedAt = new Date().toISOString();
   const cb = getChipCircuitBreaker();
   const connectionRows: ChipProtectionConnectionRow[] = [];
@@ -545,12 +616,19 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
   const hardLock = reason === 'ban_cooldown';
 
   const liveFeed: ChipProtectionFeedItem[] = [];
-  if (reason === 'reconnect_storm') {
+  if (reason === 'reconnect_storm' && !stormIsolatedMode) {
     liveFeed.push({
       at: fetchedAt,
       level: 'danger',
       title: 'Instabilidade detectada',
       detail: 'Várias quedas seguidas — envios desacelerados ou pausados por até 6h.',
+    });
+  } else if (stormIsolatedMode) {
+    liveFeed.push({
+      at: fetchedAt,
+      level: 'info',
+      title: 'Canal offline isolado',
+      detail: `${healthyChannels} chip(s) seguem enviando; jornada e campanhas usam os saudáveis.`,
     });
   } else if (reason === 'ban_cooldown') {
     liveFeed.push({
@@ -644,10 +722,13 @@ export async function getChipActivitySnapshot(tenantId: string): Promise<ChipAct
   return {
     chipQuietMode: active,
     chipProtectionPolicy: policy,
-    protectionReason: reason,
-    protectionReasonLabel: chipProtectionReasonLabel(reason),
-    protectionLockUntil: lockUntil,
-    lockRemainingMs,
+    protectionReason: displayReason,
+    protectionReasonLabel: displayLabel,
+    protectionLockUntil: stormIsolatedMode ? null : lockUntil,
+    lockRemainingMs: stormIsolatedMode ? null : lockRemainingMs,
+    stormIsolatedMode,
+    healthyChannelCount: healthyChannels,
+    offlineChannelCount: offlineChannels,
     fetchedAt,
     nurture: {
       journeyEnabled,
