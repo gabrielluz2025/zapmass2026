@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.167',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Classificação em lote: escopo correto para chips conn_* (scan não fica zerado)' },
+    ],
+  },
+  {
     version: '2.3.166',
     date: '23/09/2026',
     highlights: [

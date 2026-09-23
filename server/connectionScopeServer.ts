@@ -27,8 +27,25 @@ export function ownsConnectionForTenant(
   return false;
 }
 
+function connectionMetadataOwnerUid(item: {
+  ownerUid?: string;
+  connectionOwnerUid?: string;
+}): string | undefined {
+  if (typeof item.ownerUid === 'string' && item.ownerUid.trim()) return item.ownerUid.trim();
+  if (typeof item.connectionOwnerUid === 'string' && item.connectionOwnerUid.trim()) {
+    return item.connectionOwnerUid.trim();
+  }
+  return undefined;
+}
+
 export function filterByConnectionScope<
-  T extends { id?: string; connectionId?: string; ownerUid?: string; name?: string }
+  T extends {
+    id?: string;
+    connectionId?: string;
+    ownerUid?: string;
+    connectionOwnerUid?: string;
+    name?: string;
+  }
 >(tenantUid: string | null | undefined, list: T[]): T[] {
   return list.filter((item) => {
     const key =
@@ -38,8 +55,7 @@ export function filterByConnectionScope<
           ? item.id
           : '';
     if (!key) return false;
-    const meta =
-      typeof item.ownerUid === 'string' ? item.ownerUid : undefined;
+    const meta = connectionMetadataOwnerUid(item);
     if (!ownsConnectionForTenant(tenantUid, key, meta)) return false;
     const displayName = typeof item.name === 'string' ? item.name : undefined;
     if (shouldHideConnectionFromTenant(String(tenantUid || ''), key, displayName, meta)) {

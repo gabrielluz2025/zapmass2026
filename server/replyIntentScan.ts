@@ -11,7 +11,12 @@ import {
   threadIdFromConversationId,
   usePostgresChatArchive,
 } from './chatArchiveStore.js';
-import { getConversations, resolveActiveReplyFlowCampaignId } from './evolutionService.js';
+import {
+  getConversations,
+  resolveActiveReplyFlowCampaignId,
+  resolveConnectionOwnerUid,
+} from './evolutionService.js';
+import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
 import { findContactByPhoneKey } from './repositories/contactsRepository.js';
 import { listInboxThreadStubsPg } from './repositories/chatArchiveRepository.js';
 import {
@@ -181,12 +186,28 @@ async function listAllInboxThreadStubsPg(tenantId: string): Promise<Conversation
   return all;
 }
 
+function enrichConversationsForConnectionScope(convs: Conversation[]): Conversation[] {
+  return convs.map((c) => {
+    const connectionOwnerUid =
+      c.connectionOwnerUid ||
+      resolveConnectionOwnerUid(String(c.connectionId || '').trim()) ||
+      undefined;
+    if (!connectionOwnerUid) return c;
+    return {
+      ...c,
+      connectionOwnerUid,
+      ownerUid: c.ownerUid || connectionOwnerUid,
+    };
+  });
+}
+
 export async function collectScopedConversationsForIntent(tenantId: string): Promise<Conversation[]> {
-  const live = filterByConnectionScope(tenantId, getConversations());
+  const pgTenantId = resolvePostgresTenantId(tenantId);
+  const live = filterByConnectionScope(tenantId, enrichConversationsForConnectionScope(getConversations()));
   const merged = [...live];
 
   if (usePostgresChatArchive()) {
-    const stubs = await listAllInboxThreadStubsPg(tenantId);
+    const stubs = await listAllInboxThreadStubsPg(pgTenantId);
     const scopedStubs = filterByConnectionScope(tenantId, stubs);
     const byId = new Map<string, Conversation>();
     for (const c of merged) byId.set(c.id, c);
