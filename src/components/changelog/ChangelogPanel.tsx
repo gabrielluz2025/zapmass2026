@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.161',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Meta diária do chip: reserva atômica — não passa de 40 mesmo com campanha paralela' },
+    ],
+  },
+  {
+    version: '2.3.160',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'CI: teste de horário da campanha estável (fake timers)' },
+    ],
+  },
+  {
     version: '2.3.159',
     date: '23/09/2026',
     highlights: [

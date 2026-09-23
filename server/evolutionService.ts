@@ -166,6 +166,14 @@ import {
     requeuePhantomDeadCampaignJobs,
     resetCampaignJobAfterPhantomFailure,
 } from './campaignJobsResilience.js';
+import {
+    checkAndResetDailyLimitsWithDeps,
+    consumeDailyCampaignQuota,
+    getEffectiveMessagesSentToday,
+    releaseDailyCampaignQuota,
+    setConnectionPgSentTodayFloor,
+    type DailyQuotaDeps,
+} from './connectionDailyQuota.js';
 import { loadCampaignProgressSeed, shouldSkipSettledCampaignEnqueue } from './campaignProgressSeed.js';
 import { fullSyncIntervalMs } from '../shared/dailyFullSync.js';
 import { isEvolutionFullHistorySyncEnabled } from '../shared/chatSyncConfig.js';
@@ -2965,6 +2973,8 @@ interface MessageQueueItem {
     skipFrequencyCap?: boolean;
     /** Jornada de nutrição (lead quente) — não consome cota diária de campanha. */
     nurtureFollowUp?: boolean;
+    /** Cota diária reservada antes do HTTP — devolvida se o envio falhar. */
+    _dailyQuotaConsumed?: boolean;
     nurtureEnrollmentId?: string;
     nurtureJourneyId?: string;
     nurtureStepIndex?: number;
@@ -3677,8 +3687,37 @@ function applySettingsToInstance(conn: EvolutionInstance) {
 /** Retorna data no fuso de Brasília (UTC-3) no formato YYYY-MM-DD.
  *  Usado para resetar limites diários no horário certo (meia-noite Brasil, não UTC). */
 function brazilTodayKey(ts: number = Date.now()): string {
-    const d = new Date(ts - 3 * 60 * 60 * 1000); // UTC → UTC-3
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  const d = new Date(ts - 3 * 60 * 60 * 1000); // UTC → UTC-3
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+function persistConnectionQuotaToCache(id: string, conn: EvolutionInstance): void {
+    mergeConnectionSettingsCache(id, {
+        dailyLimit: conn.dailyLimit,
+        growthRate: conn.growthRate,
+        growthType: conn.growthType,
+        limitAction: conn.limitAction,
+        messagesSentToday: conn.messagesSentToday,
+        limitExceededApproved: conn.limitExceededApproved,
+        lastLimitResetDate: conn.lastLimitResetDate,
+        ownerUid: conn.ownerUid,
+        friendlyName: conn.friendlyName,
+    });
+    saveConnectionsSettings();
+}
+
+function connectionDailyQuotaDeps(): DailyQuotaDeps {
+    return {
+        getConnection: (id) => connections.get(id),
+        brazilTodayKey,
+        onResetPersist: (id, conn) => {
+            persistConnectionQuotaToCache(id, conn as EvolutionInstance);
+            log('info', `[LimitReset] Resetando limites diários para a conexão ${conn.instanceName}. Novo dia: ${brazilTodayKey()}`);
+        },
+        onConsumePersist: (id, conn) => {
+            persistConnectionQuotaToCache(id, conn as EvolutionInstance);
+        },
+    };
 }
 
 let connectionSendHydrateTimer: ReturnType<typeof setInterval> | null = null;
@@ -3694,7 +3733,11 @@ async function hydrateConnectionSendCountersFromJobs(): Promise<void> {
         for (const [id, conn] of connections.entries()) {
             const row = counts.get(id);
             if (!row) continue;
-            const nextToday = Math.max(conn.messagesSentToday || 0, row.sentToday);
+            setConnectionPgSentTodayFloor(id, row.sentToday);
+            const nextToday = Math.max(
+                getEffectiveMessagesSentToday(id, connectionDailyQuotaDeps()),
+                row.sentToday
+            );
             if (nextToday > (conn.messagesSentToday || 0)) {
                 conn.messagesSentToday = nextToday;
                 conn.lastLimitResetDate = today;
@@ -3727,38 +3770,7 @@ async function hydrateConnectionSendCountersFromJobs(): Promise<void> {
 }
 
 function checkAndResetDailyLimits(conn: EvolutionInstance) {
-    const today = brazilTodayKey(); // YYYY-MM-DD no fuso Brasil (UTC-3), não UTC
-    if (conn.lastLimitResetDate !== today) {
-        log('info', `[LimitReset] Resetando limites diários para a conexão ${conn.instanceName}. Dia anterior: ${conn.lastLimitResetDate || 'nenhum'}, Novo dia: ${today}`);
-        
-        // Se já existia um reset anterior (não é a primeira vez que a conexão é criada) e existe taxa de crescimento configurada
-        if (conn.lastLimitResetDate && conn.dailyLimit && conn.growthRate && conn.growthRate > 0) {
-            const oldLimit = conn.dailyLimit;
-            if (conn.growthType === 'percent') {
-                conn.dailyLimit = Math.round(conn.dailyLimit * (1 + conn.growthRate / 100));
-            } else {
-                conn.dailyLimit = conn.dailyLimit + conn.growthRate;
-            }
-            log('info', `[LimitReset] Limite diário do chip ${conn.instanceName} cresceu de ${oldLimit} para ${conn.dailyLimit} mensagens.`);
-        }
-        
-        conn.messagesSentToday = 0;
-        conn.limitExceededApproved = false;
-        conn.lastLimitResetDate = today;
-        
-        mergeConnectionSettingsCache(conn.instanceName, {
-            dailyLimit: conn.dailyLimit,
-            growthRate: conn.growthRate,
-            growthType: conn.growthType,
-            limitAction: conn.limitAction,
-            messagesSentToday: conn.messagesSentToday,
-            limitExceededApproved: conn.limitExceededApproved,
-            lastLimitResetDate: conn.lastLimitResetDate,
-            ownerUid: conn.ownerUid,
-            friendlyName: conn.friendlyName,
-        });
-        saveConnectionsSettings();
-    }
+    checkAndResetDailyLimitsWithDeps(conn, connectionDailyQuotaDeps());
 }
 
 export async function updateConnectionSettings(
@@ -7380,6 +7392,46 @@ export async function tickAutoResumeProtectedCampaigns(): Promise<void> {
     }
 }
 
+async function deferCampaignJobForDailyLimit(
+    job: Job<MessageQueueItem>,
+    item: MessageQueueItem,
+    token: string | undefined,
+    campaignState: CampaignRuntimeState | undefined,
+    conn: EvolutionInstance
+): Promise<never> {
+    const dailyLimit = conn.dailyLimit || 0;
+    const sentToday = getEffectiveMessagesSentToday(item.connectionId, connectionDailyQuotaDeps());
+    emitCampaignLog(
+        'ERROR',
+        `Envio suspenso no canal ${conn.friendlyName || item.connectionId}. Limite diário de ${dailyLimit} mensagens foi atingido. Defina uma ação ou aprove a continuação nas configurações da conexão.`,
+        { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
+        campaignState?.ownerUid
+    );
+    const owner = resolveOwnerUid(item.connectionId);
+    if (owner) {
+        publishOwnerEvent(owner, 'connection-limit-exceeded', {
+            connectionId: item.connectionId,
+            dailyLimit,
+            messagesSentToday: sentToday,
+            campaignId: item.campaignId,
+        });
+    }
+    item._limitDelayCount = (item._limitDelayCount || 0) + 1;
+    if (item._limitDelayCount > 3) {
+        throw new Error(
+            `Limite diário atingido no canal ${conn.friendlyName || item.connectionId} por ${item._limitDelayCount} dias consecutivos. Aumente o limite ou adicione outro chip.`
+        );
+    }
+    await job.updateData(item).catch(() => {});
+    const nowBr = new Date(Date.now() - 3 * 3600_000);
+    const msBrMidnight =
+        (24 - nowBr.getUTCHours()) * 3600_000 -
+        nowBr.getUTCMinutes() * 60_000 -
+        nowBr.getUTCSeconds() * 1000;
+    await job.moveToDelayed(Date.now() + Math.max(msBrMidnight, 60_000), token);
+    throw new DelayedError();
+}
+
 async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const item = job.data;
 
@@ -7816,7 +7868,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         checkAndResetDailyLimits(conn);
 
         const dailyLimit = conn.dailyLimit || 0;
-        const sentToday = conn.messagesSentToday || 0;
+        const sentToday = getEffectiveMessagesSentToday(item.connectionId, connectionDailyQuotaDeps());
 
         if (dailyLimit > 0 && sentToday >= dailyLimit && !conn.limitExceededApproved) {
             log('info', `[Limits] Conexão ${item.connectionId} atingiu o limite diário de ${dailyLimit} mensagens.`);
@@ -7835,7 +7887,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             if (poolAlt) {
                 checkAndResetDailyLimits(poolAlt);
                 const poolAltLimit = poolAlt.dailyLimit || 0;
-                const poolAltSent = poolAlt.messagesSentToday || 0;
+                const poolAltSent = getEffectiveMessagesSentToday(poolFailoverId!, connectionDailyQuotaDeps());
                 if (poolAltLimit === 0 || poolAltSent < poolAltLimit) {
                     emitCampaignLog(
                         'WARN',
@@ -7860,7 +7912,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                     
                     checkAndResetDailyLimits(c);
                     const cLimit = c.dailyLimit || 0;
-                    const cSent = c.messagesSentToday || 0;
+                    const cSent = getEffectiveMessagesSentToday(c.instanceName, connectionDailyQuotaDeps());
                     return cLimit === 0 || cSent < cLimit;
                 });
 
@@ -7883,39 +7935,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 }
             }
 
-            emitCampaignLog(
-                'ERROR',
-                `Envio suspenso no canal ${conn.friendlyName || item.connectionId}. Limite diário de ${dailyLimit} mensagens foi atingido. Defina uma ação ou aprove a continuação nas configurações da conexão.`,
-                { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
-                campaignState?.ownerUid
-            );
-            
-            const owner = resolveOwnerUid(item.connectionId);
-            if (owner) {
-                publishOwnerEvent(owner, 'connection-limit-exceeded', {
-                    connectionId: item.connectionId,
-                    dailyLimit,
-                    messagesSentToday: sentToday,
-                    campaignId: item.campaignId
-                });
-            }
-
-            // Adiar até meia-noite (reset diário) em vez de 15s em loop infinito.
-            // DelayedError não conta como attempt — sem limite de tentativas, o loop de 15s
-            // mantinha os jobs "pending" para sempre. Agora retenta 1× por dia.
-            item._limitDelayCount = (item._limitDelayCount || 0) + 1;
-            if (item._limitDelayCount > 3) {
-                // Após 3 dias esperando e limite ainda excedido → falha definitiva
-                throw new Error(
-                    `Limite diário atingido no canal ${conn.friendlyName || item.connectionId} por ${item._limitDelayCount} dias consecutivos. Aumente o limite ou adicione outro chip.`
-                );
-            }
-            await job.updateData(item).catch(() => {});
-            // Calcula ms até a próxima meia-noite (fuso Brasil UTC-3)
-            const nowBr = new Date(Date.now() - 3 * 3600_000);
-            const msBrMidnight = (24 - nowBr.getUTCHours()) * 3600_000 - nowBr.getUTCMinutes() * 60_000 - nowBr.getUTCSeconds() * 1000;
-            await job.moveToDelayed(Date.now() + Math.max(msBrMidnight, 60_000), token);
-            throw new DelayedError();
+            return deferCampaignJobForDailyLimit(job, item, token, campaignState, conn);
         }
     }
 
@@ -8216,6 +8236,26 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         await applyGaussianSendDelay(humanizeCtx);
     }
 
+    const connForQuota = connections.get(item.connectionId);
+    if (connForQuota && !item.nurtureFollowUp && !item.replyFlowResponse) {
+        const quota = await consumeDailyCampaignQuota(item.connectionId, connectionDailyQuotaDeps());
+        if (quota === 'blocked') {
+            return deferCampaignJobForDailyLimit(job, item, token, campaignState, connForQuota);
+        }
+        if (quota === 'ok') {
+            item._dailyQuotaConsumed = true;
+            await job.updateData(item).catch(() => {});
+            const ownerUid = resolveOwnerUid(item.connectionId);
+            if (ownerUid) {
+                publishOwnerEvent(
+                    ownerUid,
+                    'connections-update',
+                    filterByConnectionScope(ownerUid, getConnections())
+                );
+            }
+        }
+    }
+
     let sendResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
     if (hasMediaPayload) {
         if (mediaToSend.url) {
@@ -8386,7 +8426,6 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     if (conn && !item.nurtureFollowUp && !item.replyFlowResponse) {
-        conn.messagesSentToday = (conn.messagesSentToday || 0) + 1;
         recordConnectionDispatch(item.connectionId);
         mergeConnectionSettingsCache(item.connectionId, {
             dailyLimit: conn.dailyLimit,
@@ -8400,7 +8439,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             friendlyName: conn.friendlyName,
         });
         saveConnectionsSettings();
-        
+
         const ownerUid = resolveOwnerUid(item.connectionId);
         if (ownerUid) {
             publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
@@ -8652,6 +8691,11 @@ async function failCampaignSend(
     errDetail: string,
     campaignState?: CampaignRuntimeState
 ): Promise<never> {
+    if (item._dailyQuotaConsumed) {
+        await releaseDailyCampaignQuota(item.connectionId, connectionDailyQuotaDeps());
+        item._dailyQuotaConsumed = false;
+        await job.updateData(item).catch(() => {});
+    }
     const msg = `Falha no envio para ${destLabel} — ${errDetail}`;
     emitCampaignLog(
         'ERROR',
