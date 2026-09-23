@@ -77,3 +77,11 @@ export function humanizeCampaignOutboundError(detail) {
 export function isRetryableCampaignOutboundKind(kind) {
     return kind === 'chip_auth' || kind === 'other' || kind === 'content_dup';
 }
+export function isPhantomCampaignJobFailure(detail) {
+    const d = String(detail || '');
+    if (!d.trim())
+        return false;
+    if (classifyCampaignOutboundError(d) === 'content_dup')
+        return true;
+    return /DelayedError|moveToDelayed|circuit breaker de hash|jobs adiados, não marcados como falha/i.test(d);
+}

@@ -5,6 +5,7 @@ import {
   isRecipientPolicyOutboundError,
   isRetryableCampaignOutboundKind,
   isUnrecoverableCampaignOutboundError,
+  isPhantomCampaignJobFailure,
 } from './campaignOutboundErrorKind';
 
 describe('campaignOutboundErrorKind', () => {
@@ -28,5 +29,7 @@ describe('campaignOutboundErrorKind', () => {
   it('classifica pausa por texto igual como content_dup (retryável)', () => {
     expect(classifyCampaignOutboundError('Campanha pausada por duplicação de texto')).toBe('content_dup');
     expect(isRetryableCampaignOutboundKind('content_dup')).toBe(true);
+    expect(isPhantomCampaignJobFailure('Campanha pausada por duplicação de texto idêntico')).toBe(true);
+    expect(isPhantomCampaignJobFailure('server returned error 463')).toBe(false);
   });
 });

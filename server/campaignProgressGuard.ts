@@ -36,6 +36,30 @@ export function mergeCampaignCounterTriple(
   return { successCount, failedCount, processedCount };
 }
 
+/**
+ * Mescla documento + espelho PG. Corrige inflação histórica (ex.: centenas de dead por duplicação de texto).
+ */
+export function reconcileCampaignProgressCounters(
+  doc: CampaignCounterTriple,
+  jobs: CampaignCounterTriple
+): CampaignCounterTriple {
+  const merged = mergeCampaignCounterTriple(doc, jobs);
+  const docFail = asCount(doc.failedCount);
+  const jobFail = asCount(jobs.failedCount);
+  const jobHasSignal = asCount(jobs.successCount) > 0 || asCount(jobs.processedCount) > 0;
+  if (jobHasSignal && docFail > jobFail + 5) {
+    const successCount = merged.successCount;
+    const failedCount = jobFail;
+    const processedCount = Math.max(
+      successCount + failedCount,
+      asCount(jobs.processedCount),
+      Math.min(asCount(merged.processedCount), successCount + failedCount + 50)
+    );
+    return { successCount, failedCount, processedCount };
+  }
+  return merged;
+}
+
 export function countersFromCampaignDoc(doc: Record<string, unknown> | null | undefined): CampaignCounterTriple {
   if (!doc) return { successCount: 0, failedCount: 0, processedCount: 0 };
   return {

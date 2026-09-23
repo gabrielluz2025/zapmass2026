@@ -5,6 +5,7 @@ import {
   mergeCampaignCounterTriple,
   pickCampaignProgressToPersist,
   applyCampaignDocCounterPatch,
+  reconcileCampaignProgressCounters,
 } from './campaignProgressGuard.js';
 
 describe('campaignProgressGuard', () => {
@@ -45,5 +46,13 @@ describe('campaignProgressGuard', () => {
     const zeros = { successCount: 0, failedCount: 0, processedCount: 0 };
     expect(applyCampaignDocCounterPatch(existing, zeros, 'RUNNING')).toEqual(existing);
     expect(applyCampaignDocCounterPatch(existing, zeros, 'SCHEDULED')).toEqual(zeros);
+  });
+
+  it('reconcile corrige failedCount inflado no documento vs jobs PG', () => {
+    const doc = { successCount: 38, failedCount: 652, processedCount: 690 };
+    const jobs = countersFromJobStatusCounts({ sent: 38, failed: 12, dead: 35, pending: 4900 });
+    const reconciled = reconcileCampaignProgressCounters(doc, jobs);
+    expect(reconciled.failedCount).toBe(47);
+    expect(reconciled.successCount).toBe(38);
   });
 });

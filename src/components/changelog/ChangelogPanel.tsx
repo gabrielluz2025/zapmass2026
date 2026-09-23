@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.159',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Card de campanha: falhas por duplicação de texto não inflam mais o contador (652 → ~47 reais no relatório)' },
+    ],
+  },
+  {
     version: '2.3.158',
     date: '23/09/2026',
     highlights: [

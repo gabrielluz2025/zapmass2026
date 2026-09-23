@@ -59,6 +59,7 @@ import {
     isRecipientPolicyOutboundError,
     isRetryableCampaignOutboundKind,
     isUnrecoverableCampaignOutboundError,
+    isPhantomCampaignJobFailure,
 } from '../shared/campaignOutboundErrorKind.js';
 import {
     createPhonebookNameIndex,
@@ -162,6 +163,8 @@ import {
     isBackpressureActive,
     getCampaignJobStatus,
     countSentJobsByConnection,
+    requeuePhantomDeadCampaignJobs,
+    resetCampaignJobAfterPhantomFailure,
 } from './campaignJobsResilience.js';
 import { loadCampaignProgressSeed, shouldSkipSettledCampaignEnqueue } from './campaignProgressSeed.js';
 import { fullSyncIntervalMs } from '../shared/dailyFullSync.js';
@@ -5393,8 +5396,15 @@ async function applyProgressSeedToRuntime(campaignId: string, ownerUid?: string)
     if (!state) return;
     const seed = await loadCampaignProgressSeed(ownerUid || state.ownerUid, campaignId);
     state.successCount = Math.max(state.successCount || 0, seed.successCount);
-    state.failCount = Math.max(state.failCount || 0, seed.failedCount);
-    state.processed = Math.max(state.processed || 0, seed.processedCount);
+    const prevFail = state.failCount || 0;
+    const seedFail = seed.failedCount || 0;
+    if (prevFail > seedFail + 5 && (seed.processedCount > 0 || seed.successCount > 0)) {
+        state.failCount = seedFail;
+        state.processed = Math.max(state.successCount + state.failCount, seed.processedCount);
+    } else {
+        state.failCount = Math.max(prevFail, seedFail);
+        state.processed = Math.max(state.processed || 0, seed.processedCount);
+    }
     if (state.total < state.processed) state.total = state.processed;
 }
 
@@ -8707,6 +8717,17 @@ function ensureCampaignWorker() {
 
     campaignWorker.on('failed', (job, err) => {
         const item = job?.data;
+        if (isPhantomCampaignJobFailure(err.message)) {
+            if (job?.id) {
+                void resetCampaignJobAfterPhantomFailure(String(job.id)).catch(() => undefined);
+            }
+            log('warn', 'Job de campanha adiado (fantasma) — não conta como falha', {
+                to: item?.to,
+                campaignId: item?.campaignId,
+                error: err.message,
+            });
+            return;
+        }
         log('error', 'Job de campanha falhou', {
             to: item?.to,
             connectionId: item?.connectionId,
@@ -11829,6 +11850,7 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
 
     pausedCampaigns.delete(campaignId);
     const ou = resolveCampaignOwnerUid(campaignId, ownerUid) || ownerUid;
+    void requeuePhantomDeadCampaignJobs(campaignId).catch(() => undefined);
     const state = campaignsById.get(campaignId);
     if (state) {
         state.manualPaused = false;
@@ -12276,8 +12298,11 @@ export async function getFailedCampaignJobs(limit = 20): Promise<Array<{
     const queue = getCampaignQueue();
     if (!queue) return [];
     try {
-        const failed = await queue.getFailed(0, limit - 1);
-        return failed.map((j) => {
+        const failed = await queue.getFailed(0, Math.max(limit * 3, 60) - 1);
+        return failed
+            .filter((j) => !isPhantomCampaignJobFailure(j.failedReason || ''))
+            .slice(0, limit)
+            .map((j) => {
             const d = (j.data || {}) as Partial<MessageQueueItem>;
             return {
                 jobId: String(j.id || ''),

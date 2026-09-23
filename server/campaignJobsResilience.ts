@@ -13,6 +13,29 @@ import { isUuid } from './auth/firebaseUidMap.js';
 import { pickOrphanJobCampaignTarget } from './campaignOrphanJobs.js';
 import { getZapmassPool, isZapmassPostgresConfigured } from './db/postgres.js';
 
+/** Espelha `isPhantomCampaignJobFailure` — falhas anti-spam/adiamento, não envio. */
+export const CAMPAIGN_JOB_PHANTOM_ERROR_SQL = `(
+  COALESCE(last_error, '') ~* 'duplica(ç|c)ão|PAUSED_BY_HIGH_DUPLICATION|conteúdo idêntico|circuit breaker de hash|DelayedError|moveToDelayed|jobs adiados, não marcados como falha'
+)`;
+
+function mapProgressJobStatusRow(row: {
+  pending: string;
+  sending: string;
+  sent: string;
+  failed: string;
+  dead: string;
+  phantom_settled: string;
+}): Record<string, number> {
+  const phantom = parseInt(row.phantom_settled, 10) || 0;
+  return {
+    pending: (parseInt(row.pending, 10) || 0) + phantom,
+    sending: parseInt(row.sending, 10) || 0,
+    sent: parseInt(row.sent, 10) || 0,
+    failed: parseInt(row.failed, 10) || 0,
+    dead: parseInt(row.dead, 10) || 0,
+  };
+}
+
 export interface CampaignJobRecord {
   idempotencyKey: string;
   campaignId?: string | null;
@@ -313,20 +336,86 @@ export async function countCampaignJobsByStatus(campaignId: string): Promise<Rec
   const pool = getZapmassPool();
   if (!pool) return {};
   try {
-    const r = await pool.query<{ status: string; cnt: string }>(
-      `SELECT status, COUNT(*)::text AS cnt
+    const r = await pool.query<{
+      pending: string;
+      sending: string;
+      sent: string;
+      failed: string;
+      dead: string;
+      phantom_settled: string;
+    }>(
+      `SELECT
+          COUNT(*) FILTER (WHERE status = 'pending')::text AS pending,
+          COUNT(*) FILTER (WHERE status = 'sending')::text AS sending,
+          COUNT(*) FILTER (WHERE status = 'sent')::text AS sent,
+          COUNT(*) FILTER (WHERE status = 'failed' AND NOT ${CAMPAIGN_JOB_PHANTOM_ERROR_SQL})::text AS failed,
+          COUNT(*) FILTER (WHERE status = 'dead' AND NOT ${CAMPAIGN_JOB_PHANTOM_ERROR_SQL})::text AS dead,
+          COUNT(*) FILTER (WHERE status IN ('failed', 'dead') AND ${CAMPAIGN_JOB_PHANTOM_ERROR_SQL})::text AS phantom_settled
          FROM zapmass.campaign_jobs
-        WHERE campaign_id = $1::uuid
-        GROUP BY status`,
+        WHERE campaign_id = $1::uuid`,
       [cid]
     );
-    const counts: Record<string, number> = {};
-    for (const row of r.rows) {
-      counts[row.status] = parseInt(row.cnt, 10) || 0;
-    }
-    return counts;
+    const row = r.rows[0];
+    if (!row) return {};
+    return mapProgressJobStatusRow(row);
   } catch {
     return {};
+  }
+}
+
+/** Reenfileira jobs mortos por duplicação de texto / DelayedError (não são falha real). */
+export async function requeuePhantomDeadCampaignJobs(campaignId: string): Promise<number> {
+  const cid = String(campaignId || '').trim();
+  if (!cid || !isZapmassPostgresConfigured()) return 0;
+  const pool = getZapmassPool();
+  if (!pool) return 0;
+  try {
+    const r = await pool.query<{ cnt: string }>(
+      `WITH upd AS (
+          UPDATE zapmass.campaign_jobs
+             SET status = 'pending',
+                 attempts = 0,
+                 last_error = NULL,
+                 locked_at = NULL,
+                 locked_by = NULL,
+                 next_retry_at = NOW(),
+                 updated_at = NOW()
+           WHERE campaign_id = $1::uuid
+             AND status IN ('dead', 'failed')
+             AND ${CAMPAIGN_JOB_PHANTOM_ERROR_SQL}
+           RETURNING 1
+        )
+        SELECT COUNT(*)::text AS cnt FROM upd`,
+      [cid]
+    );
+    return parseInt(r.rows[0]?.cnt || '0', 10) || 0;
+  } catch (err) {
+    console.error('[CampaignJobs] requeuePhantomDeadCampaignJobs:', (err as Error)?.message);
+    return 0;
+  }
+}
+
+export async function resetCampaignJobAfterPhantomFailure(idempotencyKey: string): Promise<void> {
+  const key = String(idempotencyKey || '').trim();
+  if (!key || !isZapmassPostgresConfigured()) return;
+  const pool = getZapmassPool();
+  if (!pool) return;
+  try {
+    await pool.query(
+      `UPDATE zapmass.campaign_jobs
+          SET status = 'pending',
+              attempts = 0,
+              last_error = NULL,
+              locked_at = NULL,
+              locked_by = NULL,
+              next_retry_at = NOW(),
+              updated_at = NOW()
+        WHERE idempotency_key = $1
+          AND status IN ('dead', 'failed', 'sending')`,
+      [key]
+    );
+  } catch (err) {
+    console.error('[CampaignJobs] resetCampaignJobAfterPhantomFailure:', (err as Error)?.message);
   }
 }
 
@@ -339,19 +428,32 @@ export async function countTenantCampaignJobsByStatus(
   const pool = getZapmassPool();
   if (!pool) return out;
   try {
-    const r = await pool.query<{ campaign_id: string; status: string; cnt: string }>(
-      `SELECT campaign_id::text AS campaign_id, status, COUNT(*)::text AS cnt
+    const r = await pool.query<{
+      campaign_id: string;
+      pending: string;
+      sending: string;
+      sent: string;
+      failed: string;
+      dead: string;
+      phantom_settled: string;
+    }>(
+      `SELECT
+          campaign_id::text AS campaign_id,
+          COUNT(*) FILTER (WHERE status = 'pending')::text AS pending,
+          COUNT(*) FILTER (WHERE status = 'sending')::text AS sending,
+          COUNT(*) FILTER (WHERE status = 'sent')::text AS sent,
+          COUNT(*) FILTER (WHERE status = 'failed' AND NOT ${CAMPAIGN_JOB_PHANTOM_ERROR_SQL})::text AS failed,
+          COUNT(*) FILTER (WHERE status = 'dead' AND NOT ${CAMPAIGN_JOB_PHANTOM_ERROR_SQL})::text AS dead,
+          COUNT(*) FILTER (WHERE status IN ('failed', 'dead') AND ${CAMPAIGN_JOB_PHANTOM_ERROR_SQL})::text AS phantom_settled
          FROM zapmass.campaign_jobs
         WHERE tenant_id = $1::uuid AND campaign_id IS NOT NULL
-        GROUP BY campaign_id, status`,
+        GROUP BY campaign_id`,
       [uid]
     );
     for (const row of r.rows) {
       const cid = String(row.campaign_id || '').trim();
       if (!cid) continue;
-      const prev = out.get(cid) || {};
-      prev[row.status] = parseInt(row.cnt, 10) || 0;
-      out.set(cid, prev);
+      out.set(cid, mapProgressJobStatusRow(row));
     }
   } catch {
     // não crítico — o card segue com o documento da campanha

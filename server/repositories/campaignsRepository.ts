@@ -15,11 +15,12 @@ import {
   countTenantCampaignJobsByConnection,
   countTenantCampaignJobsByStatus,
   reattachOrphanCampaignJobs,
+  requeuePhantomDeadCampaignJobs,
 } from '../campaignJobsResilience.js';
 import {
   countersFromCampaignDoc,
   countersFromJobStatusCounts,
-  mergeCampaignCounterTriple,
+  reconcileCampaignProgressCounters,
   applyCampaignDocCounterPatch,
 } from '../campaignProgressGuard.js';
 
@@ -47,7 +48,7 @@ function applyJobCountersToCampaign(
   jobCounts: Record<string, number> | undefined
 ): Campaign {
   if (!jobCounts) return campaign;
-  const merged = mergeCampaignCounterTriple(
+  const merged = reconcileCampaignProgressCounters(
     countersFromCampaignDoc({
       successCount: campaign.successCount,
       failedCount: campaign.failedCount,
@@ -79,12 +80,15 @@ export async function listCampaigns(tenantId: string): Promise<Campaign[]> {
      FROM zapmass.campaigns WHERE tenant_id = $1::uuid ORDER BY created_at DESC`,
     [tenantId]
   );
-  const jobMap = await countTenantCampaignJobsByStatus(tenantId);
   const byConn = await countTenantCampaignJobsByConnection(tenantId);
   const out: Campaign[] = [];
   for (const row of r.rows) {
+    await requeuePhantomDeadCampaignJobs(rowToCampaign(row).id);
+  }
+  const jobMapAfterHeal = await countTenantCampaignJobsByStatus(tenantId);
+  for (const row of r.rows) {
     const raw = rowToCampaign(row);
-    const withJobs = applyJobCountersToCampaign(raw, jobMap.get(raw.id));
+    const withJobs = applyJobCountersToCampaign(raw, jobMapAfterHeal.get(raw.id));
     const healed = healCampaignDocument(withJobs);
     const channelSendStats = byConn.get(raw.id);
     out.push(channelSendStats?.length ? { ...healed, channelSendStats } : healed);
@@ -104,6 +108,7 @@ export async function getCampaign(tenantId: string, campaignId: string): Promise
   );
   if (!r.rows[0]) return null;
   const raw = rowToCampaign(r.rows[0]);
+  await requeuePhantomDeadCampaignJobs(campaignId);
   const withJobs = applyJobCountersToCampaign(raw, await countCampaignJobsByStatus(campaignId));
   const healed = healCampaignDocument(withJobs);
   persistHealedCampaignCounters(tenantId, raw, healed);

@@ -94,3 +94,16 @@ export function humanizeCampaignOutboundError(detail?: string): string {
 export function isRetryableCampaignOutboundKind(kind: CampaignOutboundErrorKind): boolean {
   return kind === 'chip_auth' || kind === 'other' || kind === 'content_dup';
 }
+
+/**
+ * Falha de job que NÃO é erro real de envio (anti-spam / adiamento / BullMQ delayed).
+ * Não deve entrar em failedCount nem DLQ definitiva.
+ */
+export function isPhantomCampaignJobFailure(detail?: string): boolean {
+  const d = String(detail || '');
+  if (!d.trim()) return false;
+  if (classifyCampaignOutboundError(d) === 'content_dup') return true;
+  return /DelayedError|moveToDelayed|circuit breaker de hash|jobs adiados, não marcados como falha/i.test(
+    d
+  );
+}
