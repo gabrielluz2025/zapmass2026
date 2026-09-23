@@ -1,6 +1,8 @@
 import { findActionableReplyInHistory, type ReplyIntentContext } from '../shared/replyFlowMatch.js';
 import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
+import { contactIsBlacklisted, leadTempFromContact } from '../src/utils/contactTemperature.js';
 import { applyLeadClassificationForTenant } from './replyIntentApply.js';
+import { isContactOptedOut } from './contactOptOutService.js';
 import { fetchCampaignDoc } from './campaignStore.js';
 import { findContactByPhoneKey } from './repositories/contactsRepository.js';
 import { resolveActiveReplyFlowCampaignId } from './evolutionService.js';
@@ -16,7 +18,7 @@ import {
   resolveMergedMessagesForScan,
 } from './replyIntentScan.js';
 import { routeInboundReplyWithoutSession } from './replyFlowCatchUp.js';
-import type { Conversation } from './types.js';
+import type { Contact, Conversation } from './types.js';
 
 export type AutoApplyReplyIntentResult = {
   scanned: number;
@@ -24,6 +26,7 @@ export type AutoApplyReplyIntentResult = {
   eligible: number;
   appliedHot: number;
   appliedBlacklist: number;
+  skippedAlreadyApplied: number;
   skippedNoContact: number;
   skippedWarmup: number;
   skippedNeutral: number;
@@ -73,6 +76,31 @@ type EligibleRow = {
   queroThenSair: boolean;
 };
 
+function dedupeEligibleRows(rows: EligibleRow[]): EligibleRow[] {
+  const byKey = new Map<string, EligibleRow>();
+  for (const row of rows) {
+    const key = `${row.phoneDigits}:${row.classification}`;
+    if (!byKey.has(key)) byKey.set(key, row);
+  }
+  return [...byKey.values()];
+}
+
+async function replyIntentAlreadyApplied(
+  tenantId: string,
+  phoneDigits: string,
+  contact: Contact | null,
+  classification: 'hot' | 'blacklist'
+): Promise<boolean> {
+  if (classification === 'blacklist') {
+    if (await isContactOptedOut(tenantId, phoneDigits)) return true;
+    if (contact && contactIsBlacklisted(contact)) return true;
+    return false;
+  }
+  if (contact && contactIsBlacklisted(contact)) return true;
+  if (contact && leadTempFromContact(contact) === 'hot') return true;
+  return false;
+}
+
 async function analyzeConversation(
   tenantId: string,
   conv: Conversation,
@@ -81,6 +109,7 @@ async function analyzeConversation(
   | { kind: 'no_inbound' }
   | { kind: 'warmup' }
   | { kind: 'neutral' }
+  | { kind: 'already_applied' }
   | { kind: 'eligible'; row: EligibleRow }
 > {
   const connectionId = String(conv.connectionId || '').trim();
@@ -104,6 +133,10 @@ async function analyzeConversation(
   if (!actionable) {
     if (excludeWarmup && isWarmupOnlyThread(messages)) return { kind: 'warmup' };
     return { kind: 'neutral' };
+  }
+
+  if (await replyIntentAlreadyApplied(tenantId, phoneDigits, contact, actionable.classification)) {
+    return { kind: 'already_applied' };
   }
 
   return {
@@ -133,6 +166,7 @@ export async function autoApplyReplyIntentsForTenant(
   let withInbound = 0;
   let skippedWarmup = 0;
   let skippedNeutral = 0;
+  let skippedAlreadyApplied = 0;
 
   for (const conv of convs) {
     const result = await analyzeConversation(tenantId, conv, excludeWarmup);
@@ -146,10 +180,16 @@ export async function autoApplyReplyIntentsForTenant(
       skippedNeutral += 1;
       continue;
     }
+    if (result.kind === 'already_applied') {
+      skippedAlreadyApplied += 1;
+      continue;
+    }
     eligible.push(result.row);
   }
 
-  const preview = eligible.map((row) => ({
+  const deduped = dedupeEligibleRows(eligible);
+
+  const preview = deduped.map((row) => ({
     contactName: row.contactName,
     phoneDigits: row.phoneDigits,
     lastInboundText: row.replyText,
@@ -160,13 +200,14 @@ export async function autoApplyReplyIntentsForTenant(
   const base = {
     scanned: convs.length,
     withInbound,
-    eligible: eligible.length,
-    appliedHot: eligible.filter((e) => e.classification === 'hot').length,
-    appliedBlacklist: eligible.filter((e) => e.classification === 'blacklist').length,
+    eligible: deduped.length,
+    appliedHot: deduped.filter((e) => e.classification === 'hot').length,
+    appliedBlacklist: deduped.filter((e) => e.classification === 'blacklist').length,
+    skippedAlreadyApplied,
     skippedNoContact: 0,
     skippedWarmup,
     skippedNeutral,
-    queroThenSair: eligible.filter((e) => e.queroThenSair).length,
+    queroThenSair: deduped.filter((e) => e.queroThenSair).length,
     errors: [] as Array<{ phoneDigits: string; error: string }>,
     preview,
   };
@@ -178,7 +219,7 @@ export async function autoApplyReplyIntentsForTenant(
   let skippedNoContact = 0;
   const errors: Array<{ phoneDigits: string; error: string }> = [];
 
-  for (const row of eligible) {
+  for (const row of deduped) {
     const result = await applyLeadClassificationForTenant(tenantId, {
       contactId: row.contactId || undefined,
       phoneDigits: row.phoneDigits,

@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.168',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Lote quero/sair: pula já classificados/opt-out e deduplica por telefone' },
+    ],
+  },
+  {
     version: '2.3.167',
     date: '23/09/2026',
     highlights: [

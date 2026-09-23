@@ -33,11 +33,17 @@ async function main() {
   console.log(JSON.stringify(result, null, 2));
   if (dryRun) {
     console.log(
-      `[classify-pending] dry-run: ${result.eligible} elegível(is) — ${result.appliedHot} quente(s), ${result.appliedBlacklist} lista negra`
+      `[classify-pending] dry-run: ${result.eligible} pendente(s) — ${result.appliedHot} quente(s), ${result.appliedBlacklist} lista negra` +
+        (result.skippedAlreadyApplied
+          ? `; ${result.skippedAlreadyApplied} já classificado(s)/opt-out`
+          : '')
     );
   } else {
     console.log(
       `[classify-pending] aplicado: ${result.appliedHot} quente(s), ${result.appliedBlacklist} lista negra` +
+        (result.skippedAlreadyApplied
+          ? `; ${result.skippedAlreadyApplied} já estavam classificados`
+          : '') +
         (result.skippedNoContact ? `; ${result.skippedNoContact} sem contato na base` : '')
     );
   }
@@ -48,4 +54,7 @@ main()
     console.error('[classify-pending] falhou:', (e as Error)?.message || e);
     process.exit(1);
   })
-  .finally(() => closeZapmassPool().catch(() => undefined));
+  .finally(async () => {
+    await new Promise((r) => setTimeout(r, 2000));
+    await closeZapmassPool().catch(() => undefined);
+  });

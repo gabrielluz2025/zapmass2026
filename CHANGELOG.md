@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.168] - 2026-09-23
+### Corrigido
+- **Classificação em lote**: ignora contatos já quentes/lista negra/opt-out; deduplica por telefone; dry-run reflete pendentes reais; CLI aguarda timeline antes de fechar pool Postgres.
+
 ## [2.3.167] - 2026-09-23
 ### Corrigido
 - **Classificar respostas pendentes (CLI e scan)**: conversas `conn_*` legadas voltam ao escopo do tenant (`connectionOwnerUid` + dono em `connections_settings`), evitando `scanned: 0` na VPS.
