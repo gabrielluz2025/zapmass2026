@@ -34,6 +34,19 @@ describe('campaignClockVars', () => {
     expect(vars.saudacao).toBe(vars.horario);
   });
 
+  it('às 08h em Brasília retorna Bom dia (não Boa tarde)', () => {
+    // 11:00 UTC = 08:00 America/Sao_Paulo
+    const vars = campaignClockVars(new Date('2026-09-23T11:00:00Z'));
+    expect(vars.horario).toBe('Bom dia');
+    expect(vars.saudacao).toBe('Bom dia');
+  });
+
+  it('às 15h em Brasília retorna Boa tarde', () => {
+    // 18:00 UTC = 15:00 America/Sao_Paulo
+    const vars = campaignClockVars(new Date('2026-09-23T18:00:00Z'));
+    expect(vars.horario).toBe('Boa tarde');
+  });
+
   it('hora está no formato HH:mm', () => {
     const vars = campaignClockVars(new Date('2026-05-08T14:00:00Z'));
     expect(vars.hora).toMatch(/^\d{2}:\d{2}$/);

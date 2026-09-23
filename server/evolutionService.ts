@@ -67,6 +67,7 @@ import { LID_SEND_BLOCKED_MSG } from './evolutionLidResolve.js';
 import {
     ReplyFlowEngine,
     applyMessageVars,
+    refreshCampaignGreetingInText,
     buildRecipientVarsMap,
     extractEvolutionReplyBody,
     normalizePhoneKey,
@@ -7485,10 +7486,44 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             return varsMap instanceof Map ? varsMap.get(phone) : undefined;
         })() ??
         {};
-    const resolvedQueueMessage = applyMessageVars(item.message, item.to, queueVars, item.rotationIndex);
+    const resolvedQueueMessage = refreshCampaignGreetingInText(
+        applyMessageVars(item.message, item.to, queueVars, item.rotationIndex)
+    );
     if (resolvedQueueMessage !== item.message) {
         item.message = resolvedQueueMessage;
         await job.updateData(item).catch(() => {});
+    }
+
+    // Rodízio: redistribui job preso num único chip quando a campanha tem pool multi-canal.
+    // Corrige filas antigas (tudo no Disparo 0) sem exigir novo "Salvar chips".
+    if (
+        !item.replyFlowResponse &&
+        !item.nurtureFollowUp &&
+        item.campaignId &&
+        Array.isArray(item.alternateChannelIds) &&
+        item.alternateChannelIds.length > 1
+    ) {
+        const poolCfg = await loadCampaignPoolConfig(item.campaignId).catch(() => null);
+        const poolIds = (
+            poolCfg?.connectionIds?.length ? poolCfg.connectionIds : item.alternateChannelIds
+        )
+            .map((id) => String(id || '').trim())
+            .filter(Boolean);
+        const usable = poolIds.filter((id) => isCampaignChannelUsable(id));
+        if (usable.length > 1) {
+            const strategy = resolvePoolStrategy(poolCfg?.strategy, poolCfg?.channelWeights);
+            const assigned = pickInitialDispatchChannel({
+                strategy,
+                connectionIds: usable,
+                channelWeights: poolCfg?.channelWeights || {},
+                index: item.rotationIndex ?? 0,
+            });
+            if (assigned && assigned !== item.connectionId) {
+                item.connectionId = assigned;
+                item.alternateChannelIds = poolIds.length > 1 ? poolIds : item.alternateChannelIds;
+                await job.updateData(item).catch(() => {});
+            }
+        }
     }
 
     const ownerUidForJob = campaignState?.ownerUid || item.ownerUid;
@@ -8732,14 +8767,22 @@ function pickRemapConnectionForCampaign(
     item: MessageQueueItem,
     connectionIds: string[],
     strategy: PoolStrategy,
-    channelWeights?: Record<string, number>
+    channelWeights?: Record<string, number>,
+    opts?: { forceRedistribute?: boolean }
 ): string {
     const current = String(item.connectionId || '').trim();
-    if (connectionIds.includes(current) && isCampaignChannelUsable(current)) {
-        return current;
-    }
     const usable = connectionIds.filter((id) => isCampaignChannelUsable(id));
     const pool = usable.length > 0 ? usable : connectionIds;
+    // Em "Trocar chips" / remapeamento forçado: sempre redistribui (rodízio).
+    // Sem force: só troca se o chip atual saiu do pool ou está inutilizável (failover).
+    if (
+        !opts?.forceRedistribute &&
+        current &&
+        connectionIds.includes(current) &&
+        isCampaignChannelUsable(current)
+    ) {
+        return current;
+    }
     return pickInitialDispatchChannel({
         strategy,
         connectionIds: pool,
@@ -8862,7 +8905,8 @@ export async function updateCampaignChannels(
                     data,
                     filtered,
                     poolStrategy,
-                    channelWeights
+                    channelWeights,
+                    { forceRedistribute: true }
                 );
                 const alt = filtered.length > 1 ? filtered : undefined;
                 const altChanged =
@@ -9217,7 +9261,9 @@ export async function redispatchCampaign(
 
         if (useLazyMotor && stageConfigs?.[stepIndex]) {
             const stage = stageConfigs[stepIndex];
-            const personalizedMessage = applyMessageVars(stage.body, cleanPhone, vars, i);
+            const personalizedMessage = applyMessageVars(stage.body, cleanPhone, vars, i, {
+                deferClock: true,
+            });
             pendingEnqueue.push({
                 item: {
                     connectionId: assignedConnectionId,
@@ -9234,7 +9280,9 @@ export async function redispatchCampaign(
                 delayMs: staggerDelay,
             });
         } else if (useReplyFlow && stepIndex === 0) {
-            const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars, i);
+            const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars, i, {
+                deferClock: true,
+            });
             pendingEnqueue.push({
                 item: {
                     connectionId: assignedConnectionId,
@@ -9256,7 +9304,9 @@ export async function redispatchCampaign(
             });
         } else {
             const template = templates[stepIndex] || templates[0] || campaign.message;
-            const personalizedMessage = applyMessageVars(template, cleanPhone, vars, i);
+            const personalizedMessage = applyMessageVars(template, cleanPhone, vars, i, {
+                deferClock: true,
+            });
             pendingEnqueue.push({
                 item: {
                     connectionId: assignedConnectionId,
@@ -9676,7 +9726,9 @@ export async function startCampaign(
 
             if (useLazyMotor) {
                 const firstStage = validStageConfigs[0];
-                const personalizedMessage = applyMessageVars(firstStage.body, cleanPhone, vars, i);
+                const personalizedMessage = applyMessageVars(firstStage.body, cleanPhone, vars, i, {
+                    deferClock: true,
+                });
                 pendingEnqueue.push({
                     item: {
                         connectionId: assignedConnectionId,
@@ -9694,7 +9746,9 @@ export async function startCampaign(
                     delayMs: staggerDelay,
                 });
             } else if (useReplyFlow) {
-                const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars, i);
+                const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars, i, {
+                    deferClock: true,
+                });
                 pendingEnqueue.push({
                     item: {
                         connectionId: assignedConnectionId,
@@ -9726,7 +9780,9 @@ export async function startCampaign(
                         skippedSettled += 1;
                         continue;
                     }
-                    const personalizedMessage = applyMessageVars(templates[stageIndex], cleanPhone, vars, i);
+                    const personalizedMessage = applyMessageVars(templates[stageIndex], cleanPhone, vars, i, {
+                        deferClock: true,
+                    });
                     const interStageMinDelay = dispatchSettings.minDelayMs;
                     const stageDelay = staggerDelay + stageIndex * interStageMinDelay;
                     pendingEnqueue.push({

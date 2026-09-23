@@ -8,10 +8,13 @@ function hourInTimeZone(d, timeZone) {
     const parts = new Intl.DateTimeFormat('en-GB', {
         timeZone,
         hour: 'numeric',
-        hour12: false
+        hour12: false,
+        hourCycle: 'h23'
     }).formatToParts(d);
     const v = parts.find((p) => p.type === 'hour')?.value;
-    const n = v != null ? parseInt(v, 10) : NaN;
+    let n = v != null ? parseInt(v, 10) : NaN;
+    if (n === 24)
+        n = 0;
     return Number.isFinite(n) ? n : 12;
 }
 /** Saudação por hora em Brasília: 05–11 Bom dia, 12–17 Boa tarde, caso contrário Boa noite. */

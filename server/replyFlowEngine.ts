@@ -138,12 +138,19 @@ export const applyMessageVars = (
     template: string,
     phone: string,
     vars: Record<string, string> = {},
-    rotationIndex?: number
+    rotationIndex?: number,
+    options?: { deferClock?: boolean }
 ): string => {
+    const CLOCK_KEYS = new Set(['horario', 'saudacao', 'hora', 'data']);
     const clock = campaignClockVars();
+    // Contato/importação nunca sobrescreve relógio da campanha (ex.: coluna "horario" na planilha).
+    const filteredVars: Record<string, string> = { ...vars };
+    for (const k of CLOCK_KEYS) {
+        delete filteredVars[k];
+        delete filteredVars[k.toUpperCase()];
+    }
     const safeVars: Record<string, string> = {
-        ...clock,
-        ...vars,
+        ...filteredVars,
         telefone: vars.telefone || phone,
     };
     // Evita saudar com placeholders de agenda bagunçada ("- Casas", "Sem Nome").
@@ -153,12 +160,18 @@ export const applyMessageVars = (
             safeVars[key] = '';
         }
     }
+    // Na fila: deixa {horario}/{saudacao}/{hora}/{data} para o instante do envio.
+    if (!options?.deferClock) {
+        Object.assign(safeVars, clock);
+    }
     let out = template.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_, key: string) => {
         const v = safeVars[key.toLowerCase()];
         return typeof v === 'string' ? v : '';
     });
     out = out.replace(/\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}/g, (match, key: string) => {
-        const v = safeVars[key.toLowerCase()];
+        const k = key.toLowerCase();
+        if (options?.deferClock && CLOCK_KEYS.has(k)) return match;
+        const v = safeVars[k];
         return typeof v === 'string' ? v : match;
     });
     const rot =
@@ -167,6 +180,17 @@ export const applyMessageVars = (
             : campaignRotationIndexFromPhone(phone);
     return resolveCampaignSpintax(out, rot);
 };
+
+/** Corrige saudação já “assada” na fila (jobs antigos sem deferClock). Só no início da mensagem. */
+export function refreshCampaignGreetingInText(text: string, at: Date = new Date()): string {
+    const periodo = campaignClockVars(at).horario;
+    if (!periodo || !text) return text;
+    const headLen = Math.min(120, text.length);
+    const head = text.slice(0, headLen);
+    const rest = text.slice(headLen);
+    const refreshed = head.replace(/\b(Bom dia|Boa tarde|Boa noite)\b/i, periodo);
+    return refreshed + rest;
+}
 
 export const sanitizeReplyFlowSteps = (
     raw: Array<{

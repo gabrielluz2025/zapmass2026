@@ -22,6 +22,43 @@ describe('applyMessageVars', () => {
     expect(result).not.toContain('{nome}');
     expect(result).not.toContain('{horario}');
   });
+
+  it('deferClock mantém {horario} até o envio', () => {
+    const deferred = applyMessageVars(
+      '{Olá|Oi} {horario}, tudo bem?',
+      '5548999999999',
+      {},
+      0,
+      { deferClock: true }
+    );
+    expect(deferred).toContain('{horario}');
+    expect(deferred.startsWith('Olá ')).toBe(true);
+
+    const sent = applyMessageVars(deferred, '5548999999999', {}, 0);
+    expect(sent).not.toContain('{horario}');
+    expect(['Bom dia', 'Boa tarde', 'Boa noite'].some((g) => sent.includes(g))).toBe(true);
+  });
+
+  it('coluna horario do contato não sobrescreve o relógio da campanha', () => {
+    const result = applyMessageVars(
+      'Oi {horario}',
+      '5548999999999',
+      { horario: 'Boa tarde' },
+      0
+    );
+    expect(result).not.toBe('Oi Boa tarde');
+    expect(['Oi Bom dia', 'Oi Boa tarde', 'Oi Boa noite']).toContain(result);
+  });
+});
+
+describe('refreshCampaignGreetingInText', () => {
+  it('corrige saudação no início da mensagem', async () => {
+    const { refreshCampaignGreetingInText } = await import('./replyFlowEngine.js');
+    const { campaignClockVars } = await import('../src/utils/campaignClockVars.js');
+    const expected = campaignClockVars().horario;
+    const out = refreshCampaignGreetingInText('Olá Boa tarde, como vai? Texto longo depois.');
+    expect(out.startsWith(`Olá ${expected}`)).toBe(true);
+  });
 });
 
 describe('matchReplyTriggerToken', () => {

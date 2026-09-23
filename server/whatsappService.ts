@@ -4702,21 +4702,30 @@ export const applyMessageVars = (
     template: string,
     phone: string,
     vars: Record<string, string> = {},
-    rotationIndex?: number
+    rotationIndex?: number,
+    options?: { deferClock?: boolean }
 ): string => {
-    /** Data/hora/saudação em Brasília no instante da personalização (filas/disparos). Recipient pode sobrescrever via vars explícitos. */
+    const CLOCK_KEYS = new Set(['horario', 'saudacao', 'hora', 'data']);
     const clock = campaignClockVars();
+    const filteredVars: Record<string, string> = { ...vars };
+    for (const k of CLOCK_KEYS) {
+        delete filteredVars[k];
+    }
     const safeVars: Record<string, string> = {
-        ...clock,
-        ...vars,
+        ...filteredVars,
         telefone: vars.telefone || phone
     };
+    if (!options?.deferClock) {
+        Object.assign(safeVars, clock);
+    }
     let out = template.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_, key: string) => {
         const v = safeVars[key.toLowerCase()];
         return typeof v === 'string' ? v : '';
     });
     out = out.replace(/\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}/g, (match, key: string) => {
-        const v = safeVars[key.toLowerCase()];
+        const k = key.toLowerCase();
+        if (options?.deferClock && CLOCK_KEYS.has(k)) return match;
+        const v = safeVars[k];
         return typeof v === 'string' ? v : match;
     });
     const rot =
