@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.153',
+    date: '23/09/2026',
+    highlights: [
+      { type: 'perf', text: 'Base de contatos não rebaixa a cada abertura: cache IndexedDB 24h + só confere COUNT se já estiver completa' },
+    ],
+  },
+  {
     version: '2.3.152',
     date: '23/09/2026',
     highlights: [

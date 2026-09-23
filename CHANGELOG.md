@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.153] - 2026-09-23
+### Corrigido
+- **Base de contatos recarregava a cada abertura**: o IndexedDB apagava a entrada do dia por bug na chave; cache agora vale 24h (rolling) e, se a base já estiver completa no navegador, só confere o COUNT no servidor em background — sem rebaixar milhares de contatos.
+
 ## [2.3.152] - 2026-09-23
 ### Corrigido
 - **Abrir campanha congela o Chrome (“Página sem resposta”)**: detalhes não disparam mais centenas de `loadChatHistory` em paralelo nem montam/renderizam milhares de linhas de uma vez — amostra limitada, enriquecimento leve em campanhas grandes e tabela paginada (50/página).

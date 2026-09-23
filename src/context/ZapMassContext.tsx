@@ -85,6 +85,7 @@ import {
   clearTenantDailyCache,
   flushTenantDailyCacheWrite,
   isTenantDailyCacheBootstrapValid,
+  isTenantContactsCacheComplete,
   healTenantDailyContactsCache,
   readTenantDailyCache,
   scheduleTenantDailyCacheWrite,
@@ -1075,15 +1076,55 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             if (idbContacts && idbContacts.length > 0) {
               setContacts(idbContacts);
               contactsVpsOffsetRef.current = Math.max(cached.contactsOffset, idbContacts.length);
-              devLog('[bootstrap] cache IDB restaurado', { contacts: idbContacts.length });
-              // Se há mais a carregar, retoma de onde parou
-              if (cached.contactsHasMore) {
+              const complete = isTenantContactsCacheComplete(
+                {
+                  ...cached,
+                  contactsOffset: Math.max(cached.contactsOffset, idbContacts.length),
+                },
+                idbContacts.length
+              );
+              devLog('[bootstrap] cache IDB restaurado', {
+                contacts: idbContacts.length,
+                complete,
+                hasMore: cached.contactsHasMore,
+              });
+              if (complete) {
+                // Base completa no navegador — não rebaixar. Só confere COUNT em background.
+                setContactsHasMore(false);
+                contactsVpsOffsetRef.current = idbContacts.length;
+                void (async () => {
+                  try {
+                    const total = await fetchContactsCount();
+                    if (currentUidRef.current !== uid) return;
+                    setContactsSavedTotal(total);
+                    contactsSavedTotalRef.current = total;
+                    // Só retoma download se a base no servidor cresceu de verdade.
+                    if (total > idbContacts.length + 80) {
+                      setContactsHasMore(true);
+                      contactsVpsOffsetRef.current = idbContacts.length;
+                      void reloadVpsContactsRef.current();
+                    }
+                  } catch {
+                    /* mantém cache offline */
+                  }
+                })();
+                return;
+              }
+              // Cache incompleto — continua de onde parou
+              if (cached.contactsHasMore || idbContacts.length < (cached.contactsSavedTotal ?? 0)) {
+                setContactsHasMore(true);
                 void reloadVpsContactsRef.current();
+              } else {
+                setContactsHasMore(false);
               }
             } else if (isTenantDailyCacheBootstrapValid(cached) && cached.contacts.length > 0) {
               // Fallback: contatos no localStorage antigo (caches v1)
               setContacts(cached.contacts);
+              setContactsHasMore(cached.contactsHasMore);
               devLog('[bootstrap] cache localStorage (legado) restaurado', { contacts: cached.contacts.length });
+              if (cached.contactsHasMore) {
+                void reloadVpsContactsRef.current();
+              }
             } else {
               // IDB vazio e localStorage sem contatos — força reload
               devLog('[bootstrap] IDB vazio, recarregando contatos do servidor');
@@ -1093,6 +1134,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             // IDB falhou — tenta localStorage legado ou reload
             if (cached.contacts && cached.contacts.length > 0) {
               setContacts(cached.contacts);
+              setContactsHasMore(cached.contactsHasMore);
+              if (cached.contactsHasMore) void reloadVpsContactsRef.current();
             } else {
               void reloadVpsContactsRef.current();
             }
