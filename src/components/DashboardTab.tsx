@@ -198,7 +198,7 @@ const DashboardStat: React.FC<{
           ? 'zm-stat-card--clickable cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2'
           : ''
       }`}
-      style={{
+    style={{
         ['--zm-stat-accent' as string]: gradient[0],
         background: `linear-gradient(145deg, color-mix(in srgb, ${gradient[0]} 7%, var(--surface-1)) 0%, var(--surface-0) 100%)`,
         border: `1px solid color-mix(in srgb, ${gradient[0]} 24%, var(--border))`,
@@ -209,8 +209,8 @@ const DashboardStat: React.FC<{
       <div
         className="absolute -top-8 -right-8 w-32 h-32 rounded-full pointer-events-none opacity-20"
         style={{ background: `radial-gradient(circle, ${gradient[0]}, transparent 70%)`, filter: 'blur(16px)' }}
-        aria-hidden
-      />
+      aria-hidden
+    />
       {/* Ring gauge */}
       <div className="zm-stat-ring relative w-[88px] h-[88px] mb-3">
         <svg className="w-full h-full" viewBox="0 0 80 80" style={{ transform: 'rotate(-90deg)' }}>
@@ -235,19 +235,19 @@ const DashboardStat: React.FC<{
               {Math.round(progress)}%
             </span>
           )}
-        </div>
       </div>
+    </div>
       <p className="text-[28px] sm:text-[32px] font-black leading-none tabular-nums tracking-tight" style={{ color: 'var(--text-1)' }}>
-        {value}
-      </p>
+      {value}
+    </p>
       <p className="ui-overline mt-2" style={{ color: gradient[0], opacity: 0.9 }}>
         {label}
-      </p>
-      {helper && (
+    </p>
+    {helper && (
         <p className="text-[11px] mt-1.5 text-center leading-snug" style={{ color: 'var(--text-3)' }}>
-          {helper}
-        </p>
-      )}
+        {helper}
+      </p>
+    )}
     </Tag>
   );
 };
@@ -285,8 +285,8 @@ const QuickAction: React.FC<{
         boxShadow: `0 8px 24px -8px ${gradient[0]}cc`
       }}
     >
-      {icon}
-    </div>
+        {icon}
+      </div>
     <span className="relative text-[12.5px] font-bold leading-tight text-center" style={{ color: 'var(--text-1)' }}>
       {label}
     </span>
@@ -684,9 +684,9 @@ export const DashboardTab: React.FC = () => {
       markBirthdayGreeted(sentContactId);
       refreshGreetedBirthdays();
       toast.success(`Mensagem enviada para ${sentContactName}.`);
-      setSelectedContact(null);
-      setShowChannelSelector(false);
-      setMessageText('');
+    setSelectedContact(null);
+    setShowChannelSelector(false);
+    setMessageText('');
       pickCampaignAttachment(null, setBirthdayAttachment);
       leaveBirthdayContext('contacts');
     } catch (err: unknown) {
@@ -911,10 +911,10 @@ export const DashboardTab: React.FC = () => {
           </Badge>
           <span className="ui-caption tabular-nums">
             Canais {onlineCount}/{connections.length}
-          </span>
+              </span>
           <span className="ui-caption tabular-nums">
             Enviados {animSent.toLocaleString('pt-BR')}
-          </span>
+                  </span>
           <span className="ui-caption tabular-nums">Respostas {replyRate}%</span>
         </>
       }
@@ -986,21 +986,21 @@ export const DashboardTab: React.FC = () => {
             title="Funil de desempenho"
             subtitle="Acumulado histórico — persiste após reinícios"
             actions={
-              <div className="flex items-center gap-2">
-                <Badge variant="success" dot>
-                  Tempo real
-                </Badge>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setConfirmClearFunnel(true)}
+            <div className="flex items-center gap-2">
+              <Badge variant="success" dot>
+                Tempo real
+              </Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmClearFunnel(true)}
                   disabled={funnelEmpty}
-                  title="Zerar contadores do funil"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
-                  Limpar
-                </Button>
-              </div>
+                title="Zerar contadores do funil"
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                Limpar
+              </Button>
+            </div>
             }
           />
           <div className="mt-4">
@@ -1496,41 +1496,41 @@ export const DashboardTab: React.FC = () => {
           <div className="zm-channel-accent" aria-hidden />
           <div className="p-4">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-              <div>
-                <h3 className="ui-title text-[15px]">Canais em destaque</h3>
+            <div>
+              <h3 className="ui-title text-[15px]">Canais em destaque</h3>
                 <p className="ui-subtitle text-[12px]">
                   {accountSummary.totalChannels > 0
                     ? `${accountSummary.sentToday.toLocaleString('pt-BR')} envios hoje · ${accountSummary.onlineChannels} online`
                     : 'Top envios de hoje'}
                 </p>
-              </div>
+            </div>
               <div className="flex items-center gap-2">
-                <Badge variant="neutral">Hoje</Badge>
+            <Badge variant="neutral">Hoje</Badge>
                 {accountSummary.totalChannels > 0 && (
                   <Button type="button" size="xs" variant="ghost" onClick={() => setCurrentView('connections')}>
                     Ver todos
                   </Button>
                 )}
               </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {channelSpotlight.length === 0 ? (
-                <div className="col-span-full py-10 text-center">
-                  <div
-                    className="mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-3"
-                    style={{
-                      background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.12))',
-                      border: '1px solid rgba(16,185,129,0.2)'
-                    }}
-                  >
-                    <Smartphone className="w-7 h-7" style={{ color: 'var(--brand-600)' }} />
-                  </div>
-                  <p className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
-                    Nenhum canal ativo ainda
-                  </p>
-                  <p className="text-[12px] mt-1 max-w-xs mx-auto" style={{ color: 'var(--text-3)' }}>
-                    Conecte seu primeiro WhatsApp na aba <strong style={{ color: 'var(--text-2)' }}>Canais</strong> para começar a enviar campanhas.
-                  </p>
+              <div className="col-span-full py-10 text-center">
+                <div
+                  className="mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-3"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.12))',
+                    border: '1px solid rgba(16,185,129,0.2)'
+                  }}
+                >
+                  <Smartphone className="w-7 h-7" style={{ color: 'var(--brand-600)' }} />
+                </div>
+                <p className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
+                  Nenhum canal ativo ainda
+                </p>
+                <p className="text-[12px] mt-1 max-w-xs mx-auto" style={{ color: 'var(--text-3)' }}>
+                  Conecte seu primeiro WhatsApp na aba <strong style={{ color: 'var(--text-2)' }}>Canais</strong> para começar a enviar campanhas.
+                </p>
                   <Button
                     type="button"
                     variant="secondary"
@@ -1541,8 +1541,8 @@ export const DashboardTab: React.FC = () => {
                   >
                     Conectar canal
                   </Button>
-                </div>
-              ) : (
+              </div>
+            ) : (
                 channelSpotlight.map((row) => {
                   const conn = row.connection;
                   const isOnline = conn.status === ConnectionStatus.CONNECTED;
@@ -1552,11 +1552,11 @@ export const DashboardTab: React.FC = () => {
                     row.trendPct > 0 ? `+${row.trendPct}%` : row.trendPct < 0 ? `${row.trendPct}%` : 'estável';
                   const trendColor = row.trendPct > 0 ? '#10b981' : row.trendPct < 0 ? '#f43f5e' : 'var(--text-3)';
                   return (
-                    <div
-                      key={conn.id}
+                <div
+                  key={conn.id}
                       className="p-3.5 rounded-xl"
-                      style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                    >
+                  style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                >
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-start gap-2.5 min-w-0">
                           <div
@@ -1569,11 +1569,11 @@ export const DashboardTab: React.FC = () => {
                               className="w-full h-full object-cover"
                             />
                           </div>
-                          <div className="min-w-0">
+                  <div className="min-w-0">
                             <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                              <p className="font-semibold text-[13px] truncate" style={{ color: 'var(--text-1)' }}>
-                                {conn.name}
-                              </p>
+                      <p className="font-semibold text-[13px] truncate" style={{ color: 'var(--text-1)' }}>
+                        {conn.name}
+                      </p>
                               {isOnline ? <Badge variant="success" dot /> : <Badge variant="danger" dot />}
                               <span
                                 className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full"
@@ -1581,21 +1581,21 @@ export const DashboardTab: React.FC = () => {
                               >
                                 {row.tempLabel}
                               </span>
-                            </div>
+                    </div>
                             <p className="text-[11px] font-mono" style={{ color: 'var(--text-3)' }}>
                               {conn.phoneNumber || 'Sem número'}
-                            </p>
-                          </div>
+                    </p>
+                  </div>
                         </div>
                         <div className="text-right flex-shrink-0">
-                          <p className="text-[20px] font-bold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
+                    <p className="text-[20px] font-bold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
                             {row.sentToday}
-                          </p>
+                    </p>
                           <p className="text-[9px] uppercase font-semibold tracking-widest mt-1" style={{ color: 'var(--text-3)' }}>
-                            envios
-                          </p>
-                        </div>
-                      </div>
+                      envios
+                    </p>
+                  </div>
+                </div>
                       <div className="flex items-end justify-between gap-2">
                         <Sparkline values={row.spark} color={row.tempColor} width={88} height={24} id={`spot-${conn.id}`} />
                         <div className="text-right">
@@ -1628,17 +1628,17 @@ export const DashboardTab: React.FC = () => {
                   <span className="ui-overline">Canais no plano</span>
                   <span className="ui-body font-semibold tabular-nums">
                     {planScopedCount} / {maxPlanChannelSlots}
-                  </span>
-                </div>
+                </span>
+              </div>
                 <div className="h-1.5 rounded-full overflow-hidden mt-2" style={{ background: 'var(--surface-2)' }}>
-                  <div
-                    className="h-full rounded-full transition-all duration-700"
-                    style={{
-                      width: `${planUsagePct}%`,
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{
+                          width: `${planUsagePct}%`,
                       background: atPlanChannelLimit || planUsagePct >= 80 ? 'var(--warning)' : 'var(--success)'
-                    }}
-                  />
-                </div>
+                        }}
+                      />
+                    </div>
               </div>
 
               <div className="zm-stat-grid">
@@ -1680,14 +1680,14 @@ export const DashboardTab: React.FC = () => {
           </CollapsibleSection>
         ) : (
           <CollapsibleSection
-            title="Operações de servidor"
+                title="Operações de servidor"
             summary={`RAM ${adminOps.ramPct != null ? `${adminOps.ramPct}%` : '—'} · ${adminOps.offlineChannels} offline`}
             defaultOpen={false}
-            actions={
-              <Button type="button" size="sm" variant="primary" onClick={() => setCurrentView('admin-ops')}>
+                actions={
+                  <Button type="button" size="sm" variant="primary" onClick={() => setCurrentView('admin-ops')}>
                 Abrir
-              </Button>
-            }
+                  </Button>
+                }
           >
             <div className="space-y-3">
               <div className="zm-stat-grid">
@@ -1695,7 +1695,7 @@ export const DashboardTab: React.FC = () => {
                 <StatTile label="Latência" value={adminOps.latencyMs != null ? `${adminOps.latencyMs} ms` : '—'} warn={(adminOps.latencyMs ?? 0) >= 400} />
                 <StatTile label="Offline" value={String(adminOps.offlineChannels)} warn={adminOps.offlineChannels > 0} />
                 <StatTile label="Fila" value={String(adminOps.queueTotal)} warn={adminOps.queueTotal > 50} />
-              </div>
+            </div>
               {adminOps.ramPct != null && (
                 <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
                   <div
@@ -1710,7 +1710,7 @@ export const DashboardTab: React.FC = () => {
               <p className="ui-caption">
                 {planScopedCount} canais · {accountSummary.runningCampaigns} campanha(s) em disparo. Detalhes na aba Operações.
               </p>
-            </div>
+              </div>
           </CollapsibleSection>
         )}
       </div>

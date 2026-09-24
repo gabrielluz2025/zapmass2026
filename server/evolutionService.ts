@@ -3894,7 +3894,8 @@ async function hydrateConnectionSendCountersFromJobs(): Promise<void> {
     }
 }
 
-function checkAndResetDailyLimits(conn: EvolutionInstance) {
+function checkAndResetDailyLimits(conn: EvolutionInstance | undefined | null) {
+    if (!conn) return;
     checkAndResetDailyLimitsWithDeps(conn, connectionDailyQuotaDeps());
 }
 
@@ -5688,31 +5689,30 @@ export async function releaseCampaignAfterUserDelete(campaignId: string): Promis
     campaignStallNotified.delete(`${cid}:wake`);
     campaignStallRemapAt.delete(cid);
     void deleteCampaignRuntimeFromRedis(cid);
-    const queue = getCampaignQueue();
-    if (!queue) return;
-    // Purge da fila BullMQ em segundo plano (com timeout de 30s)
-    const purgePromise = (async () => {
+    // Purge da fila BullMQ em background — retorna imediatamente para o route handler
+    void (async () => {
+        const queue = getCampaignQueue();
+        if (!queue) return;
         try {
             const { fastPurgeCampaignJobsByRedis, purgeCampaignQueueJobs } = await import('./campaignQueueAdmin.js');
             const redisConn = getRedisConnectionForOps();
             let removed = 0;
             if (redisConn) {
                 removed = await fastPurgeCampaignJobsByRedis(cid, redisConn);
-                log('info', `[delete] Purge rápido Redis SCAN: ${removed} job(s) removidos`, { campaignId: cid });
+                if (removed > 0) {
+                    log('info', `[delete] Purge rápido Redis SCAN: ${removed} job(s) removidos`, { campaignId: cid });
+                }
             }
             if (removed === 0) {
-                // Fallback: scan BullMQ convencional (campanhas sem ID de job estável)
                 await purgeCampaignQueueJobs(queue, cid, { dryRun: false });
             }
         } catch (e) {
-            log('warn', 'releaseCampaignAfterUserDelete: falha ao limpar fila BullMQ', {
+            log('warn', 'releaseCampaignAfterUserDelete: falha ao limpar fila BullMQ (background)', {
                 campaignId: cid,
                 error: (e as Error)?.message,
             });
         }
     })();
-    const timeout = new Promise<void>((resolve) => setTimeout(resolve, 20_000));
-    await Promise.race([purgePromise, timeout]);
 }
 
 async function applyProgressSeedToRuntime(campaignId: string, ownerUid?: string): Promise<void> {
@@ -7789,10 +7789,38 @@ async function deferCampaignJobForDailyLimit(
             campaignId: item.campaignId,
         });
     }
+    // Tenta redirecionar para qualquer chip online do tenant antes de adiar até meia-noite
+    const limitOwner = campaignState?.ownerUid || resolveOwnerUid(item.connectionId);
+    const limitFallback = Array.from(connections.values()).find((c) => {
+        if (c.instanceName === item.connectionId) return false;
+        if (!isEvolutionOpenState(c.status)) return false;
+        if (limitOwner && resolveOwnerUid(c.instanceName) !== limitOwner) return false;
+        checkAndResetDailyLimits(c);
+        const cLimit = c.dailyLimit || 0;
+        const cSent = getEffectiveMessagesSentToday(c.instanceName, connectionDailyQuotaDeps());
+        return cLimit === 0 || cSent < cLimit;
+    });
+    if (limitFallback) {
+        emitCampaignLog(
+            'WARN',
+            `Limite diário atingido no canal ${conn.friendlyName || item.connectionId}. Redirecionando para ${limitFallback.friendlyName || limitFallback.instanceName} (disponível no tenant).`,
+            { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
+            campaignState?.ownerUid
+        );
+        item.connectionId = limitFallback.instanceName;
+        await job.updateData(item).catch(() => {});
+        await job.moveToDelayed(Date.now() + 1500, token);
+        throw new DelayedError();
+    }
+
     item._limitDelayCount = (item._limitDelayCount || 0) + 1;
-    if (item._limitDelayCount > 3) {
-        throw new Error(
-            `Limite diário atingido no canal ${conn.friendlyName || item.connectionId} por ${item._limitDelayCount} dias consecutivos. Aumente o limite ou adicione outro chip.`
+    // Aviso progressivo mas nunca elimina o job permanentemente — ele volta no próximo dia.
+    if (item._limitDelayCount >= 3) {
+        emitCampaignLog(
+            'WARN',
+            `Limite diário atingido por ${item._limitDelayCount} dias seguidos no canal ${conn.friendlyName || item.connectionId}. Aumente o limite diário ou adicione outro chip para continuar o envio.`,
+            { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
+            campaignState?.ownerUid
         );
     }
     await job.updateData(item).catch(() => {});
@@ -10816,9 +10844,21 @@ async function reconcilePendingJobsFromRedis() {
 }
 
 const CAMPAIGN_STALL_MS = 120_000;
-const campaignStallNotified = new Set<string>();
+/** Stall notified com TTL: chave → timestamp da notificação. Expira em 30 min para permitir nova tentativa. */
+const campaignStallNotified = new Map<string, number>();
+const CAMPAIGN_STALL_NOTIFY_TTL_MS = 30 * 60_000;
 /** Evita remap agressivo a cada tick do watchdog. */
 const campaignStallRemapAt = new Map<string, number>();
+
+function isCampaignStallNotified(key: string): boolean {
+    const ts = campaignStallNotified.get(key);
+    if (!ts) return false;
+    if (Date.now() - ts > CAMPAIGN_STALL_NOTIFY_TTL_MS) {
+        campaignStallNotified.delete(key);
+        return false;
+    }
+    return true;
+}
 
 /** Auto-reenvio de falhas "seguras" (chip/sessão) — não inclui 463 nem sem WhatsApp. */
 const SAFE_AUTO_RETRY_COOLDOWN_MS = 12 * 60_000;
@@ -11056,8 +11096,8 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
         }
 
         if (pending <= 0 && state.ownerUid) {
-            if (campaignStallNotified.has(`${campaignId}:reenqueue`)) continue;
-            campaignStallNotified.add(`${campaignId}:reenqueue`);
+            if (isCampaignStallNotified(`${campaignId}:reenqueue`)) continue;
+            campaignStallNotified.set(`${campaignId}:reenqueue`, now);
             log('warn', `[stall-watchdog] Campanha ${campaignId} sem jobs na fila — tentando retomar`, {
                 ownerUid: state.ownerUid,
             });
@@ -11096,8 +11136,8 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
         const usable = connIds.filter((id) => isCampaignChannelUsable(id));
         if (connIds.length > 0 && usable.length === 0) {
             const notifyKey = `${campaignId}:offline`;
-            if (campaignStallNotified.has(notifyKey)) continue;
-            campaignStallNotified.add(notifyKey);
+            if (isCampaignStallNotified(notifyKey)) continue;
+            campaignStallNotified.set(notifyKey, now);
             const stallMsg =
                 'Nenhum chip do pool online no momento — o disparo continua ativo e tenta de novo quando um chip voltar.';
             emitCampaignLog('WARN', stallMsg, { campaignId, connectionIds: connIds }, state.ownerUid);
@@ -12544,17 +12584,22 @@ function collectCampaignChannelIdsForRuntime(
 }
 
 function computeResumeDispatchHeadroom(channelIds: string[]): number {
-    let headroom = 400;
+    // Headroom = total de vagas disponíveis em TODOS os chips (não o mínimo)
+    // Se nenhum chip tem limite configurado, retorna valor alto (sem restrição)
+    let total = 0;
+    let hasLimit = false;
     for (const id of channelIds) {
         const cid = String(id || '').trim();
         if (!cid || !isCampaignChannelUsable(cid)) continue;
         const conn = connections.get(cid);
+        checkAndResetDailyLimits(conn as Parameters<typeof checkAndResetDailyLimits>[0]);
         const limit = Math.max(0, Number(conn?.dailyLimit) || 0);
-        if (limit <= 0) continue;
+        if (limit <= 0) return 400; // sem limite → sem restrição
+        hasLimit = true;
         const sent = getEffectiveMessagesSentToday(cid, connectionDailyQuotaDeps());
-        headroom = Math.min(headroom, Math.max(0, limit - sent));
+        total += Math.max(0, limit - sent);
     }
-    return headroom;
+    return hasLimit ? total : 400;
 }
 
 async function runPostResumeCampaignQueueRepair(

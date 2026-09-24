@@ -10,6 +10,17 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.198',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Watchdog nunca re-alertava: campaignStallNotified virou Map com TTL 30 min — campanha parada de novo volta a ser tratada' },
+      { type: 'fix', text: 'Headroom de cota no resume: soma total de vagas entre chips (não mínimo) e considera reset de cota antes de calcular' },
+      { type: 'fix', text: 'Phantom pending rows: limpeza automática de linhas pending de campanhas deletadas ou já concluídas' },
+      { type: 'fix', text: 'Chip substituto no limite diário: redireciona para outro chip do tenant com cota antes de adiar para meia-noite' },
+      { type: 'fix', text: 'Jobs não morrem mais definitivamente após 3 dias no limite diário — apenas aviso e adiamento' },
+    ],
+  },
+  {
     version: '2.3.197',
     date: '24/09/2026',
     highlights: [

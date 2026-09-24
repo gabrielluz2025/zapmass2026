@@ -1472,28 +1472,28 @@ export const ContactsTab: React.FC = () => {
 
   const navigateOpenChat = useCallback(
     (contact: Contact, connectionId: string) => {
-      const digits = (contact.phone || '').replace(/\D/g, '');
+    const digits = (contact.phone || '').replace(/\D/g, '');
       if (!digits) return;
       const existing = connectionId
         ? findConversationForPhoneOnChannel(deferredConversations, digits, connectionId)
         : findBestConversationForPhone(deferredConversations, digits);
       if (existing?.id) {
         openChatByConversationIdNavigate(setCurrentView, existing.id);
-        return;
-      }
+      return;
+    }
       const pic = (picOverrides[contact.id] || contact.profilePicUrl || '').trim();
-      try {
-        const payload = JSON.stringify({
-          phone: digits,
-          name: contact.name || '',
+    try {
+      const payload = JSON.stringify({
+        phone: digits,
+        name: contact.name || '',
           profilePicUrl: pic,
           connectionId: connectionId || undefined
-        });
-        sessionStorage.setItem('zapmass.openChatByPhone', payload);
-      } catch {
-        /* ignore */
-      }
-      setCurrentView('chat');
+      });
+      sessionStorage.setItem('zapmass.openChatByPhone', payload);
+    } catch {
+      /* ignore */
+    }
+    setCurrentView('chat');
     },
     [setCurrentView, deferredConversations, picOverrides]
   );
@@ -2195,7 +2195,7 @@ export const ContactsTab: React.FC = () => {
         setContactTemps({ ...contactTempsAccRef.current });
         contactTempsReadyRef.current = true;
         setContactTempsReady(true);
-      } else {
+    } else {
         // Só pinta a UI no meio do cálculo na 1ª vez. Recálculo fica invisível até o fim.
         if (!contactTempsReadyRef.current && cursor % (CHUNK * 2) < CHUNK) {
           setContactTemps({ ...contactTempsAccRef.current });
@@ -2209,10 +2209,10 @@ export const ContactsTab: React.FC = () => {
     // Inicia após frame ocioso ou pequena pausa
     if (typeof requestIdleCallback !== 'undefined') {
       const idleId = requestIdleCallback(() => { timerId = setTimeout(processChunk, 0); }, { timeout: 500 });
-      return () => {
+    return () => {
         cancelIdleCallback(idleId as number);
         clearTimeout(timerId);
-      };
+    };
     }
     timerId = setTimeout(processChunk, 0);
     return () => clearTimeout(timerId);
@@ -3309,7 +3309,7 @@ export const ContactsTab: React.FC = () => {
           if (rv.include) {
             serverRows.push({
               mode: 'upsert',
-              phone,
+            phone,
               name: rv.contact.name.trim() || 'Sem Nome',
               city: rv.contact.city,
               state: rv.contact.state,
@@ -3319,7 +3319,7 @@ export const ContactsTab: React.FC = () => {
               number: rv.contact.number,
               email: rv.contact.email,
               notes: rv.contact.notes,
-              tags: (rv.contact.tags || []).length > 0 ? rv.contact.tags : ['Importado'],
+            tags: (rv.contact.tags || []).length > 0 ? rv.contact.tags : ['Importado'],
             });
             continue;
           }
@@ -3374,7 +3374,7 @@ export const ContactsTab: React.FC = () => {
         }
 
         await apiStartContactImportJob(created.id);
-        patchQueued({
+          patchQueued({
           phase: 'import',
           percent: 10,
           current: 0,
@@ -4653,14 +4653,14 @@ export const ContactsTab: React.FC = () => {
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
         onSelectFilter={handleSelectSmartFilter}
-        onNewContact={openNewContactModal}
-        onImportXLSX={openImportXLSX}
-        onImportVcf={openImportVcf}
-        onSmartImport={openSmartImport}
-        onDownloadTemplate={handleDownloadTemplate}
-        onExport={handleExport}
-        onOpenInsights={openInsights}
-        onOpenNormalizeNames={openNameNormalizeModal}
+          onNewContact={openNewContactModal}
+          onImportXLSX={openImportXLSX}
+          onImportVcf={openImportVcf}
+          onSmartImport={openSmartImport}
+          onDownloadTemplate={handleDownloadTemplate}
+          onExport={handleExport}
+          onOpenInsights={openInsights}
+          onOpenNormalizeNames={openNameNormalizeModal}
         onSyncWaNames={handleSyncWaNamesManual}
         onOpenFixBase={() => setBaseFixModalOpen(true)}
         onSaveBaseToChip={() => void openBaseChipSyncModal()}
@@ -4691,27 +4691,27 @@ export const ContactsTab: React.FC = () => {
         ] as { id: SmartFilterId; label: string; count: number; clr?: string; cbg?: string }[]).map((f) => {
           const active = activeFilter === f.id;
           return (
-            <button
+              <button
               key={f.id}
-              type="button"
+                type="button"
               className={`ch-fchip${active ? ' ch-fchip--active' : ''}`}
               style={active && f.clr ? { background: f.cbg, color: f.clr, borderColor: `${f.clr}50` } : undefined}
               onClick={() => handleSelectSmartFilter(f.id)}
             >
               {f.label}
               {f.count > 0 && <span className="ch-fchip__badge">{f.count.toLocaleString('pt-BR')}</span>}
-            </button>
+              </button>
           );
         })}
 
         {/* Mais filtros toggle */}
-        <button
-          type="button"
+              <button
+                type="button"
           className={`ch-fchip ch-fchip--more${showMoreFilters ? ' ch-fchip--active' : ''}`}
           onClick={() => setShowMoreFilters((v) => !v)}
-        >
+              >
           Filtros avançados {showMoreFilters ? '▴' : '▾'}
-        </button>
+              </button>
 
         {/* Filtros extras (visíveis quando expandido) */}
         {showMoreFilters && ([
@@ -4733,19 +4733,19 @@ export const ContactsTab: React.FC = () => {
         ] as { id: SmartFilterId; label: string; count: number; clr: string }[]).map((f) => {
           const active = activeFilter === f.id;
           return (
-            <button
+                  <button
               key={f.id}
-              type="button"
+                    type="button"
               className={`ch-fchip${active ? ' ch-fchip--active' : ''}`}
               style={active ? { background: `${f.clr}18`, color: f.clr, borderColor: `${f.clr}50` } : undefined}
               onClick={() => handleSelectSmartFilter(f.id)}
             >
               {f.label}
               {f.count > 0 && <span className="ch-fchip__badge">{f.count.toLocaleString('pt-BR')}</span>}
-            </button>
+                  </button>
           );
         })}
-      </div>
+                </div>
 
       {/* ── Workspace full-width (sem sidebar) ── */}
       <div className="ch-workspace">
@@ -4777,7 +4777,7 @@ export const ContactsTab: React.FC = () => {
               do mesmo número. Une e fica um cadastro só.
             </p>
             <Button
-              type="button"
+                        type="button"
               size="sm"
               variant="primary"
               leftIcon={<Layers className="w-3.5 h-3.5" />}
@@ -4787,7 +4787,7 @@ export const ContactsTab: React.FC = () => {
             >
               Unir duplicados
             </Button>
-          </div>
+                    </div>
         )}
 
         {managedListForView ? (
@@ -4819,23 +4819,23 @@ export const ContactsTab: React.FC = () => {
             onToggleAddSelectAll={toggleListAddSelectAll}
             onAddSelected={() => void handleAddIdsToList(managedListForView.id, listAddSelectedIds)}
           />
-        ) : (
-          <>
+      ) : (
+      <>
           {contactsBootstrapStale && (
             <div className="flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-xl bg-rose-50/80 dark:bg-rose-950/20 border border-rose-200/70 dark:border-rose-900/40">
               <div className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center shrink-0">
                 <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-              </div>
+        </div>
               <div className="min-w-0 flex-1">
                 <p className="text-[12px] font-bold text-rose-900 dark:text-rose-100">
                   Não foi possível carregar os contatos ({contactsSavedTotal?.toLocaleString('pt-BR')} na base)
                 </p>
                 <p className="text-[11px] text-rose-800/80 dark:text-rose-200/80 mt-0.5">
                   A conexão com o servidor pode ter expirado. O sistema tentará de novo automaticamente — ou clique em Recarregar.
-                </p>
-              </div>
+                  </p>
+                </div>
               <Button
-                type="button"
+                    type="button"
                 size="sm"
                 variant="secondary"
                 loading={contactsLoadingMore}
@@ -4843,8 +4843,8 @@ export const ContactsTab: React.FC = () => {
               >
                 Recarregar contatos
               </Button>
-            </div>
-          )}
+                    </div>
+                  )}
           {activeFilter === 'no_list' && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-orange-200/80 dark:border-orange-900/50 bg-orange-50/60 dark:bg-orange-950/20 px-3 py-2">
               <span className="text-[12px] text-orange-900 dark:text-orange-200 font-medium">
@@ -4864,8 +4864,8 @@ export const ContactsTab: React.FC = () => {
               >
                 Adicionar todos à lista…
               </Button>
-            </div>
-          )}
+                  </div>
+                )}
           {(activeFilter === 'bday_week' || activeFilter === 'bday_today') && listFilteredContacts.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2">
               <span className="text-[12px] text-amber-900 dark:text-amber-200 font-medium">
@@ -4902,7 +4902,7 @@ export const ContactsTab: React.FC = () => {
               </Button>
             </div>
           )}
-          <ContactsTableVirtual
+            <ContactsTableVirtual
               rows={tableContacts}
               contactTemps={contactTemps}
               selectedIds={selectedIds}
@@ -4930,7 +4930,7 @@ export const ContactsTab: React.FC = () => {
                       : 'Sua base está vazia. Importe ou crie um contato.'
                     : activeFilter === 'no_list'
                       ? 'Todos os contatos carregados já estão em alguma lista.'
-                      : activeFilter === 'retorno_todos' || activeFilter === 'retorno_atrasados' || activeFilter === 'retorno_hoje' || activeFilter === 'retorno_semana'
+                    : activeFilter === 'retorno_todos' || activeFilter === 'retorno_atrasados' || activeFilter === 'retorno_hoje' || activeFilter === 'retorno_semana'
                       ? 'Nenhum contato com retorno neste filtro. Edite um contato e defina data em Retorno.'
                       : activeFilter === 'wedding_today' || activeFilter === 'wedding_week'
                         ? 'Ninguém com data de casamento neste período.'
@@ -4995,24 +4995,24 @@ export const ContactsTab: React.FC = () => {
             </div>
           )}
           </>
-        )}
-      </div>
+          )}
+          </div>
 
       {!managedListForView && (
-        <ContactsBulkBar
-          count={selectedIds.length}
-          onClear={clearBulkSelection}
-          onCreateCampaign={handleCreateCampaignWithSelection}
-          onAddToList={handleBulkAddToList}
-          onAddTag={() => void handleBulkAddTag()}
-          onExport={handleBulkExport}
-          onDelete={() => void handleBulkDelete()}
+      <ContactsBulkBar
+        count={selectedIds.length}
+        onClear={clearBulkSelection}
+        onCreateCampaign={handleCreateCampaignWithSelection}
+        onAddToList={handleBulkAddToList}
+        onAddTag={() => void handleBulkAddTag()}
+        onExport={handleBulkExport}
+        onDelete={() => void handleBulkDelete()}
           onAddToBlacklist={() => void handleBulkAddToBlacklist()}
           onRemoveFromBlacklist={() => void handleBulkRemoveFromBlacklist()}
           onSaveToChip={openSaveToChipForSelection}
           onSyncWaNames={handleSyncWaNamesManual}
           activeFilter={activeFilter}
-        />
+      />
       )}
 
       </>
@@ -5756,7 +5756,7 @@ export const ContactsTab: React.FC = () => {
                                 <input 
                                   id="newContactCity"
                                   name="newContactCity"
-                                  type="text"
+                                  type="text" 
                                   value={newContact.city}
                                   onChange={e => handleCityInputChange(e.target.value)}
                                   onBlur={() => setTimeout(() => setShowIbgeCityDropdown(false), 150)}
@@ -5824,23 +5824,23 @@ export const ContactsTab: React.FC = () => {
                                <span className="ml-1.5 text-[10px] font-medium normal-case tracking-normal text-emerald-600 dark:text-emerald-400">preenche sozinho</span>
                              </label>
                              <div className="relative">
-                               <input
-                                 id="newContactZipCode"
-                                 type="text"
-                                 inputMode="numeric"
-                                 value={newContact.zipCode || ''}
-                                 onChange={e => {
-                                   const digits = e.target.value.replace(/\D/g, '').slice(0, 8);
-                                   const formatted = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
+                             <input
+                               id="newContactZipCode"
+                               type="text"
+                               inputMode="numeric"
+                               value={newContact.zipCode || ''}
+                               onChange={e => {
+                                 const digits = e.target.value.replace(/\D/g, '').slice(0, 8);
+                                 const formatted = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
                                    if (cepLookupState !== 'idle') setCepLookupState('idle');
-                                   setNewContact({...newContact, zipCode: formatted});
+                                 setNewContact({...newContact, zipCode: formatted});
                                    if (digits.length === 8) void lookupCepAndFill(digits);
-                                 }}
+                               }}
                                  onBlur={e => void lookupCepAndFill(e.target.value)}
                                  className="ui-input pr-8"
-                                 placeholder="00000-000"
-                                 maxLength={9}
-                               />
+                               placeholder="00000-000"
+                               maxLength={9}
+                             />
                                {cepLookupState === 'loading' && (
                                  <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-emerald-500" />
                                )}
@@ -6121,14 +6121,14 @@ export const ContactsTab: React.FC = () => {
 
               {/* Modal Footer */}
               <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 rounded-b-2xl flex justify-between items-center gap-4">
-                 <button
+                 <button 
                     type="button"
                     onClick={() => { setIsModalOpen(false); setEditingContactId(null); setFollowUpDatetimeLocal(''); setNewContactTargetMode('none'); setNewContactTargetListId(''); setNewContactNewListName(''); setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); setReligiousMemberForm(emptyForm()); }}
                     className="px-6 py-2.5 text-sm font-bold text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                  >
                     Cancelar
                  </button>
-                 <button
+                 <button 
                     type="button"
                     disabled={savingContact}
                     onClick={() => void handleSaveNewContact()}
@@ -7386,7 +7386,7 @@ export const ContactsTab: React.FC = () => {
         </div>
       )}
 
-    </div>
+      </div>
     </PageShell>
   );
 };

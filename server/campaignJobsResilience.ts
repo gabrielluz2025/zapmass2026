@@ -675,14 +675,43 @@ export async function maybeCleanupOldCampaignJobs(): Promise<void> {
   const pool = getZapmassPool();
   if (!pool) return;
   try {
-    const r = await pool.query(
+    // 1. Remove linhas antigas já finalizadas (sent/failed/dead com > 7 dias)
+    const r1 = await pool.query(
       `DELETE FROM zapmass.campaign_jobs
         WHERE status IN ('sent', 'failed', 'dead')
           AND COALESCE(sent_at, updated_at, created_at) < NOW() - INTERVAL '${CAMPAIGN_JOBS_CLEANUP_RETENTION_DAYS} days'`
     );
-    const deleted = r.rowCount ?? 0;
-    if (deleted > 0) {
-      console.info(`[CampaignJobsCleanup] ${deleted} linhas antigas removidas (>${CAMPAIGN_JOBS_CLEANUP_RETENTION_DAYS}d).`);
+    const d1 = r1.rowCount ?? 0;
+    if (d1 > 0) {
+      console.info(`[CampaignJobsCleanup] ${d1} linhas antigas (sent/failed/dead) removidas.`);
+    }
+
+    // 2. Remove linhas "pending" fantasma de campanhas que já foram excluídas
+    //    (campaign_id não existe mais na tabela campaigns)
+    const r2 = await pool.query(
+      `DELETE FROM zapmass.campaign_jobs
+        WHERE status = 'pending'
+          AND campaign_id IS NOT NULL
+          AND campaign_id NOT IN (SELECT id FROM zapmass.campaigns)
+          AND created_at < NOW() - INTERVAL '1 hour'`
+    );
+    const d2 = r2.rowCount ?? 0;
+    if (d2 > 0) {
+      console.info(`[CampaignJobsCleanup] ${d2} linhas pending fantasma de campanhas excluídas removidas.`);
+    }
+
+    // 3. Remove linhas "pending" de campanhas COMPLETED (já processadas mas PG não foi atualizado)
+    const r3 = await pool.query(
+      `DELETE FROM zapmass.campaign_jobs cj
+        USING zapmass.campaigns c
+        WHERE cj.campaign_id = c.id
+          AND cj.status = 'pending'
+          AND c.status = 'COMPLETED'
+          AND cj.created_at < NOW() - INTERVAL '1 hour'`
+    );
+    const d3 = r3.rowCount ?? 0;
+    if (d3 > 0) {
+      console.info(`[CampaignJobsCleanup] ${d3} linhas pending de campanhas COMPLETED removidas.`);
     }
   } catch (e) {
     console.warn('[CampaignJobsCleanup] Falha:', (e as Error)?.message);

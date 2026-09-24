@@ -820,7 +820,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           connectionId: snap.connectionId || hint?.connectionId,
           errorMessage: snap.errorMessage
         };
-        const existing = mergedByPhone.get(rk);
+      const existing = mergedByPhone.get(rk);
         mergedByPhone.set(
           rk,
           existing ? (pickBetterCampaignReportRow(existing, snapRow) as ReportRow) : snapRow
@@ -833,18 +833,18 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       if (!legacy?.length) return [];
       // Cap: estimativa com milhares de linhas trava o React.
       const capped = legacy.slice(0, 400);
-      return dedupeCampaignReportRowsByRecipient(
+    return dedupeCampaignReportRowsByRecipient(
         capped.map((r) => ({
-          id: r.id,
-          phone: r.phone,
-          contactName: r.contactName,
-          status: r.status,
-          sentTime: r.sentTime,
-          sentTimestampMs: r.sentTimestampMs,
-          errorMessage: r.errorMessage,
-          legacyEstimate: true
-        }))
-      );
+        id: r.id,
+        phone: r.phone,
+        contactName: r.contactName,
+        status: r.status,
+        sentTime: r.sentTime,
+        sentTimestampMs: r.sentTimestampMs,
+        errorMessage: r.errorMessage,
+        legacyEstimate: true
+      }))
+    );
     }
 
     const HEAVY_ENRICH_MAX = 250;
@@ -1066,33 +1066,33 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         ? performance
         : (() => {
             const sent = Math.max(0, metrics.effectiveProcessed, metrics.ok + metrics.fail);
-            if (sent <= 0) return performance;
-            const failCount = Math.max(metrics.fail, performance.counts.FAILED);
-            const delivered = Math.min(sent, Math.max(0, metrics.ok));
-            const total = sent;
-            const successPct = total > 0 ? Math.round(((total - failCount) / total) * 100) : 0;
-            const deliveryPct = total > 0 ? Math.round((delivered / total) * 100) : 0;
-            const counts: Record<ReportStatus, number> = {
-              PENDING: 0,
-              FAILED: failCount,
-              SENT: Math.max(0, total - failCount - delivered),
-              DELIVERED: delivered,
-              READ: 0,
+    if (sent <= 0) return performance;
+    const failCount = Math.max(metrics.fail, performance.counts.FAILED);
+    const delivered = Math.min(sent, Math.max(0, metrics.ok));
+    const total = sent;
+    const successPct = total > 0 ? Math.round(((total - failCount) / total) * 100) : 0;
+    const deliveryPct = total > 0 ? Math.round((delivered / total) * 100) : 0;
+    const counts: Record<ReportStatus, number> = {
+      PENDING: 0,
+      FAILED: failCount,
+      SENT: Math.max(0, total - failCount - delivered),
+      DELIVERED: delivered,
+      READ: 0,
               REPLIED: 0,
               SKIPPED: 0
-            };
-            return {
-              ...performance,
-              total,
-              counts,
-              delivered,
-              read: 0,
-              replied: 0,
-              successPct,
-              deliveryPct,
-              readPct: 0,
-              replyPct: 0
-            };
+    };
+    return {
+      ...performance,
+      total,
+      counts,
+      delivered,
+      read: 0,
+      replied: 0,
+      successPct,
+      deliveryPct,
+      readPct: 0,
+      replyPct: 0
+    };
           })();
 
     const total = Math.max(base.total, metrics.effectiveProcessed);
@@ -1662,9 +1662,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 </Button>
               )}
               {canResumeSameCampaign && (
-                <Button
-                  variant="secondary"
-                  size="sm"
+              <Button
+                variant="secondary"
+                size="sm"
                   leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${retrying ? 'animate-spin' : ''}`} />}
                   disabled={retrying}
                   onClick={() =>
@@ -1679,12 +1679,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                     : metrics.pending > 0
                       ? 'Enviar para quem não recebeu'
                       : 'Retomar disparo'}
-                </Button>
+              </Button>
               )}
               {(isWaitingForReplies || isRunning || isDone) && (
-                <Button
-                  variant="secondary"
-                  size="sm"
+              <Button
+                variant="secondary"
+                size="sm"
                   leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${reportLoading ? 'animate-spin' : ''}`} />}
                   disabled={reportLoading}
                   onClick={() => {
@@ -1693,7 +1693,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   title="Recarregar logs, entregas e respostas"
                 >
                   Atualizar
-                </Button>
+              </Button>
               )}
               <Button
                 variant="ghost"
@@ -1767,19 +1767,19 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   </span>
                 )}
               </div>
-            </div>
+              </div>
             <Badge variant={statusVariant} dot={isRunning || isWaitingForReplies} className="shrink-0 text-[12px] px-3 py-1">
               {statusLabel}
               {isRunning && (
                 <span className="ml-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
               )}
             </Badge>
-          </div>
+            </div>
 
           {reportLoading && (
             <div
               className="rounded-xl px-3 py-2 flex items-center gap-2 text-[12px]"
-              style={{
+                    style={{
                 background: 'var(--surface-1)',
                 border: '1px solid var(--border-subtle)',
                 color: 'var(--text-2)'
@@ -1811,7 +1811,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 }}
               />
               {/* fail bar */}
-              {metrics.fail > 0 && (
+                  {metrics.fail > 0 && (
                 <div
                   className="absolute top-0 h-full rounded-full"
                   style={{
@@ -1874,7 +1874,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                     Desta lista: {listName}
                     <span className="font-medium normal-case tracking-normal ml-1.5" style={{ color: 'var(--text-3)' }}>
                       — clique para ver os nomes no relatório
-                    </span>
+                  </span>
                   </p>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     {roster.map((item) => (
@@ -1883,7 +1883,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                         type="button"
                         onClick={() => handleFilterClick(item.filter)}
                         className="rounded-xl px-3 py-2.5 text-left transition-colors"
-                        style={{
+                    style={{
                           background: 'var(--surface-1)',
                           border: detailFilter === item.filter ? `1px solid ${item.color}` : '1px solid var(--border-subtle)'
                         }}
@@ -1937,7 +1937,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                               </span>
                               <span className="text-[10px] font-bold shrink-0" style={{ color: chip.online ? '#10b981' : '#ef4444' }}>
                                 {chip.online ? 'online' : 'offline'}
-                              </span>
+                      </span>
                             </div>
                             {chip.limit > 0 ? (
                               <>
@@ -1964,15 +1964,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                                   : ''}
                                 {chip.phone ? ` · ${chip.phone}` : ''}
                                 {!chip.online ? ' · reconecte para voltar a enviar' : ''}
-                              </div>
-                            )}
-                          </div>
+                    </div>
+                  )}
+                </div>
                         );
                       })}
-                    </div>
-                  </div>
-                )}
               </div>
+            </div>
+                )}
+          </div>
             );
           })()}
 
@@ -2071,7 +2071,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
             filter: 'PENDING' as ReportFilter
           }
         ].map((kpi) => (
-          <KpiPill
+        <KpiPill
             key={kpi.label}
             label={kpi.label}
             value={kpi.value}
@@ -2443,9 +2443,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}
                 >
                   AO VIVO
-                </span>
-              )}
-            </div>
+                        </span>
+                      )}
+                  </div>
             <Button variant="ghost" size="sm" onClick={() => setShowLogModal(true)}>
               Ver todos
             </Button>
@@ -2605,11 +2605,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                       !/^\+?\d[\d\s]*$/.test(nameForInitials) &&
                       nameForInitials !== `+${item.phone}`
                         ? nameForInitials
-                            .replace(/^\+/, '')
-                            .split(/\s+/)
-                            .map((p) => p[0])
-                            .join('')
-                            .slice(0, 2)
+                      .replace(/^\+/, '')
+                      .split(/\s+/)
+                      .map((p) => p[0])
+                      .join('')
+                      .slice(0, 2)
                             .toUpperCase()
                         : item.phone.slice(-2);
                     const replyTextResolved = item.replyText || logHint?.replyText;
@@ -2731,7 +2731,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                         <td className="px-4 py-3 text-right whitespace-nowrap">
                           <div className="inline-flex items-center gap-1">
                             {displayStatus === 'FAILED' && (
-                              <button
+                          <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -2745,15 +2745,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                             )}
                             <button
                               type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                copyPhone(item.phone);
-                              }}
-                              className="p-1.5 rounded-md transition-colors hover:bg-[var(--surface-2)]"
-                              title="Copiar número"
-                            >
-                              <Copy className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} />
-                            </button>
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              copyPhone(item.phone);
+                            }}
+                            className="p-1.5 rounded-md transition-colors hover:bg-[var(--surface-2)]"
+                            title="Copiar número"
+                          >
+                            <Copy className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} />
+                          </button>
                           </div>
                         </td>
                       </tr>
@@ -2923,8 +2923,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 )}
                 {modalStatus === 'FAILED' && (
                   <div className="space-y-2">
-                    <div className="flex items-start gap-2" style={{ color: 'var(--danger)' }}>
-                      <XCircle className="w-3.5 h-3.5 mt-0.5" />
+                  <div className="flex items-start gap-2" style={{ color: 'var(--danger)' }}>
+                    <XCircle className="w-3.5 h-3.5 mt-0.5" />
                       <span>{humanizeCampaignOutboundError(openRow.errorMessage) || 'Falha no envio.'}</span>
                     </div>
                     <Button
@@ -2996,24 +2996,24 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   </div>
                 ) : (
                   modalReplyText && (
-                    <div className="flex justify-start">
-                      <div
-                        className="max-w-[80%] px-3 py-2 rounded-2xl rounded-bl-sm text-[13px] whitespace-pre-wrap"
-                        style={{
-                          background: 'var(--surface-2)',
-                          color: 'var(--text-1)',
-                          border: '1px solid var(--border-subtle)'
-                        }}
-                      >
+                  <div className="flex justify-start">
+                    <div
+                      className="max-w-[80%] px-3 py-2 rounded-2xl rounded-bl-sm text-[13px] whitespace-pre-wrap"
+                      style={{
+                        background: 'var(--surface-2)',
+                        color: 'var(--text-1)',
+                        border: '1px solid var(--border-subtle)'
+                      }}
+                    >
                         {modalReplyText}
-                        <div
-                          className="text-[10px] mt-1 text-right font-mono"
-                          style={{ color: 'var(--text-3)' }}
-                        >
+                      <div
+                        className="text-[10px] mt-1 text-right font-mono"
+                        style={{ color: 'var(--text-3)' }}
+                      >
                           {modalReplyTime}
-                        </div>
                       </div>
                     </div>
+                  </div>
                   )
                 )}
               </div>

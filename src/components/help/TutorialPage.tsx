@@ -427,8 +427,8 @@ export const TutorialPage: React.FC = () => {
                   {s.icon} {s.title}
                 </button>
               ))}
-            </div>
-          </div>
+        </div>
+      </div>
 
           {TUTORIAL_SECTIONS.map((sec) => {
             const Illu = sec.illuKey ? ILLUSTRATIONS[sec.illuKey] : null;
@@ -438,7 +438,7 @@ export const TutorialPage: React.FC = () => {
               <div key={sec.id} id={`section-${sec.id}`} className="tu-section" style={{ marginBottom: 40 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                   <div
-                    style={{
+        style={{
                       width: 44,
                       height: 44,
                       borderRadius: 12,
@@ -499,7 +499,7 @@ export const TutorialPage: React.FC = () => {
             <button
               onClick={handleDownload}
               className="tu-download-btn tu-no-print"
-              style={{
+          style={{
                 marginTop: 20,
                 padding: '10px 24px',
                 background: downloading ? '#059669' : '#10b981',
@@ -514,7 +514,7 @@ export const TutorialPage: React.FC = () => {
             >
               {downloading ? '⏳ Gerando...' : '⬇️ Baixar este guia em PDF'}
             </button>
-          </div>
+        </div>
         </div>
       </div>
     </>

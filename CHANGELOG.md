@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.198] - 2026-09-24
+### Corrigido
+- **campaignStallNotified vazando para sempre**: trocado de `Set<string>` para `Map<string,number>` com TTL de 30 min — o watchdog volta a alertar/agir em campanhas que pararam de novo após longo intervalo.
+- **Headroom de cota calculado errado no resume**: `computeResumeDispatchHeadroom` usava o mínimo entre chips; agora soma o total de vagas disponíveis e considera reset de cota diária antes de comparar.
+- **Phantom pending rows**: `maybeCleanupOldCampaignJobs` agora remove também linhas `pending` de campanhas já deletadas e linhas `pending` de campanhas em status `COMPLETED`.
+- **Chip substituto no limite diário**: `deferCampaignJobForDailyLimit` redireciona para outro chip do mesmo tenant com cota disponível antes de adiar para meia-noite; jobs não morrem mais permanentemente após 3 dias de limite.
+- **`checkAndResetDailyLimits` com undefined**: protegido contra receber `null`/`undefined` — evita crash silencioso no headroom de resume.
+
 ## [2.3.197] - 2026-09-24
 ### Corrigido
 - **Sistema sob backpressure**: limite elevado de 50k para 200k jobs (configurável via `BACKPRESSURE_THRESHOLD`); adicionada limpeza automática de linhas antigas (>7 dias) da tabela `campaign_jobs` a cada 6h para evitar acúmulo.
