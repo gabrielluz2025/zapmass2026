@@ -108,6 +108,20 @@ import {
 } from './chipUnifiedHealthScore.js';
 import { getReconnectStormProgress } from './chipProtectionService.js';
 import {
+    getGoHistorySyncOpsForOwner,
+    markHistorySyncDeferredForOwner,
+    recordGoHistorySyncRestart,
+    type GoHistorySyncOpsSnapshot,
+} from './goHistorySyncOps.js';
+import {
+    enqueueAutomatedPhoneFullSync,
+    getInboxSyncOpsExtras,
+    onCampaignEnded,
+    notifyCampaignBlocking,
+    registerInboxSyncExecutor,
+    startInboxSyncOrchestratorSweep,
+} from './goInboxSyncOrchestrator.js';
+import {
     CAMPAIGN_RESUME_GRACE_MS,
     isInCampaignResumeGrace,
     isInDeployGraceWindow,
@@ -1324,6 +1338,7 @@ export async function syncGoInboxFromPhoneForOwner(
     }
 
     if (ownerHasBlockingActiveCampaign(uid)) {
+        markHistorySyncDeferredForOwner(uid);
         const hydrated = await hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
         log('warn', 'syncGoInboxFromPhoneForOwner ignorado — campanha ativa (sem restart em massa)', {
             ownerUid: uid,
@@ -1398,6 +1413,8 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
             isGoWebhookInboxMode() && ownerHasBlockingActiveCampaign(uid);
         if (page.total === 0 && hasOpenChip && isGoWebhookInboxMode()) {
             if (campaignBlocksMassHistorySync) {
+                markHistorySyncDeferredForOwner(uid);
+                enqueueAutomatedPhoneFullSync(uid, 'deferred_ram_empty');
                 log('info', 'reemitConversationsForOwner: Go RAM vazia — campanha ativa, só arquivo (sem restart)', {
                     ownerUid: uid,
                 });
@@ -1407,7 +1424,7 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
             log('info', 'reemitConversationsForOwner: Go RAM vazia — HistorySync do celular', {
                 ownerUid: uid,
             });
-            await syncGoInboxFromPhoneForOwner(uid, { force: true }).catch(() => undefined);
+            enqueueAutomatedPhoneFullSync(uid, 'ram_empty');
             return;
         }
         const sparseEmpty = countSparseEmptyGoInboxStubs(page.conversations);
@@ -1422,6 +1439,8 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
             Date.now() - lastSparse > GO_INBOX_SPARSE_RECOVERY_MIN_INTERVAL_MS
         ) {
             if (campaignBlocksMassHistorySync) {
+                markHistorySyncDeferredForOwner(uid);
+                enqueueAutomatedPhoneFullSync(uid, 'deferred_sparse');
                 log('info', 'reemitConversationsForOwner: threads vazias — campanha ativa, sem HistorySync em massa', {
                     ownerUid: uid,
                     total: page.total,
@@ -1438,7 +1457,7 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
                 sparseEmpty,
                 sparseRatio: Math.round(sparseRatio * 100),
             });
-            await syncGoInboxFromPhoneForOwner(uid, { force: true }).catch(() => undefined);
+            enqueueAutomatedPhoneFullSync(uid, 'sparse_inbox');
             return;
         }
         if (page.total === 0 && hasOpenChip && !isGoWebhookInboxMode()) {
@@ -4583,6 +4602,7 @@ async function requestGoInboxHistorySync(
 
     const ou = resolveOwnerUid(id);
     if (ou && ownerHasBlockingActiveCampaign(ou)) {
+        markHistorySyncDeferredForOwner(ou);
         log('info', `Go inbox history sync adiado — campanha ativa: ${id}`, {
             ownerUid: ou,
             activeCampaigns: countActiveCampaignsForOwner(ou),
@@ -4624,6 +4644,7 @@ async function requestGoInboxHistorySync(
     try {
         await api.post(`/instance/restart/${evoInst(id)}`, {});
         markHistorySyncRestartHold(id);
+        if (ou) recordGoHistorySyncRestart(ou, id);
         log('info', `Go inbox history sync solicitado via reconnect: ${id}`, {
             userInitiated: Boolean(opts?.userInitiated),
         });
@@ -4927,6 +4948,7 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
                     failCount: state.failCount,
                     total: state.total,
                 });
+                onCampaignEnded(state.ownerUid);
                 void notifyTenant(
                     state.ownerUid,
                     'campaign_complete',
@@ -10183,6 +10205,7 @@ export async function startCampaign(
             ownerUid
         );
         publishOwnerEvent(ownerUid, 'campaign-started', { total: pendingEnqueue.length, campaignId: cid });
+        notifyCampaignBlocking(ownerUid, countActiveCampaignsForOwner(ownerUid) > 0);
         void import('./chipProtectionService.js').then((m) =>
             m.refreshEffectiveProtection(ownerUid)
         );
@@ -10343,6 +10366,15 @@ async function reconcileConnectionHealth() {
 
 export function init(socketIO: SocketIOServer) {
     io = socketIO;
+    registerInboxSyncExecutor({
+        reemitLight: (ou) => reemitConversationsForOwner(ou),
+        syncFromPhone: (ou, opts) => syncGoInboxFromPhoneForOwner(ou, opts),
+        isCampaignBlocking: (ou) => countActiveCampaignsForOwner(ou) > 0,
+        isWarmupBlocking: (ou) => getAutoWarmupState(ou).active,
+        publishPolicy: (ou, payload) =>
+            publishOwnerEvent(ou, 'inbox-sync-policy', payload as unknown as Record<string, unknown>),
+    });
+    startInboxSyncOrchestratorSweep();
     chatStore.init(socketIO, { notifyConversationsChanged: emitScopedConversationsUpdate });
     ensureReplyFlowEngine();
     initEvolutionWebhookQueue(handleWebhook);
@@ -11407,6 +11439,15 @@ export function countActiveCampaignsForOwner(ownerUid: string): number {
     return listActiveBlockingCampaignIdsForOwner(ownerUid).length;
 }
 
+/** Métricas HistorySync (Go) para painel do tenant. */
+export function getOwnerGoHistorySyncOps(ownerUid: string): GoHistorySyncOpsSnapshot & {
+    queuePending: boolean;
+} {
+    const base = getGoHistorySyncOpsForOwner(ownerUid, GO_HISTORY_SYNC_MAX_CONCURRENT_PER_OWNER);
+    const extras = getInboxSyncOpsExtras(ownerUid);
+    return { ...base, queuePending: extras.queuePending };
+}
+
 /** IDs de campanhas que bloqueiam novo disparo (em execução, não pausadas). */
 export function listActiveBlockingCampaignIdsForOwner(ownerUid: string): string[] {
     if (!ownerUid) return [];
@@ -12215,6 +12256,7 @@ export function pauseCampaign(campaignId: string, ownerUid?: string) {
     }
     void saveCampaignRuntimeToRedis(campaignId);
     publishOwnerEvent(ou, 'campaign-paused', { campaignId });
+    if (ou) notifyCampaignBlocking(ou, countActiveCampaignsForOwner(ou) > 0);
 }
 
 export function resumeCampaign(campaignId: string, ownerUid?: string) {
@@ -12268,6 +12310,7 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
         });
     }
     publishOwnerEvent(ou, 'campaign-resumed', { campaignId });
+    if (ou) notifyCampaignBlocking(ou, countActiveCampaignsForOwner(ou) > 0);
     void saveCampaignRuntimeToRedis(campaignId);
     ensureCampaignWorker();
 }

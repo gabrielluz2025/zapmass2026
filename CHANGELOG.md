@@ -7,6 +7,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.175] - 2026-09-24
+### Adicionado
+- **Orquestrador de sync (Go)**: fila única por tenant, coalescência de pedidos (F5/recovery/pós-campanha), retry automático quando campanha ou aquecimento bloqueiam; evento socket `inbox-sync-policy`.
+
+## [2.3.174] - 2026-09-24
+### Adicionado
+- **Bate-papo**: aviso quando campanha RUNNING pausa sync pesada do celular; botão Atualizar faz só sync leve.
+- **Operação**: fila pós-campanha para HistorySync adiado; métrica «Restart inbox (1h)» no painel Saúde da operação.
+
 ## [2.3.173] - 2026-09-24
 ### Corrigido
 - **Evolution Go / HistorySync**: no máximo 1 restart simultâneo por tenant; close de restart interno não conta em reconnect_storm; sync de conexões e open pós-conexão respeitam campanha ativa.

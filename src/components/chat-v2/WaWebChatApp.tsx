@@ -66,6 +66,7 @@ import {
   isInboxFullSyncDoneToday,
   markInboxFullSyncDoneForToday,
 } from '../../utils/tenantDailyCache';
+import { isCampaignBlockingGoHistorySync } from '../../utils/campaignHistorySyncPolicy';
 
 export const WaWebChatApp: React.FC<{
   autoSelectedConversationId?: string | null;
@@ -85,6 +86,7 @@ export const WaWebChatApp: React.FC<{
   const isGoWebhookInbox = systemMetrics.whatsappEngine === 'evolution-go';
   const {
     contacts,
+    campaigns,
     sendMessage,
     sendMedia,
     markAsRead,
@@ -146,9 +148,20 @@ export const WaWebChatApp: React.FC<{
     if (socket?.connected) socket.emit('request-conversations-sync', opts);
   }, [socket]);
 
-  const { socketStatus, syncing, historyImporting, runResync } = useWaRealtime(socket, requestSync, {
+  const { socketStatus, syncing, historyImporting, inboxSyncPolicy, runResync } = useWaRealtime(socket, requestSync, {
     chipsConnected: connectedChannels.length
   });
+
+  const historySyncCampaignBlocked = useMemo(() => {
+    if (inboxSyncPolicy.phoneFullBlocked && inboxSyncPolicy.blockReason === 'campaign') return true;
+    return isGoWebhookInbox && isCampaignBlockingGoHistorySync(campaigns);
+  }, [inboxSyncPolicy, isGoWebhookInbox, campaigns]);
+
+  const historySyncPhoneFullBlocked =
+    inboxSyncPolicy.phoneFullBlocked || historySyncCampaignBlocked;
+
+  const historySyncPendingAfterCampaign =
+    inboxSyncPolicy.pendingPhoneFull && !historySyncPhoneFullBlocked;
 
   /** Sync leve ao abrir; full 1×/dia puxa o histórico do celular (Go = HistorySync). */
   const initialFullSyncDoneRef = useRef(false);
@@ -159,7 +172,11 @@ export const WaWebChatApp: React.FC<{
     if (!isBackendConnected || !socket?.connected || !tenantUid) return;
     if (initialFullSyncDoneRef.current) return;
     initialFullSyncDoneRef.current = true;
-    if (connectedChannels.length === 0 || isInboxFullSyncDoneToday(tenantUid)) {
+    if (
+      connectedChannels.length === 0 ||
+      isInboxFullSyncDoneToday(tenantUid) ||
+      historySyncPhoneFullBlocked
+    ) {
       requestSync({ full: false });
       return;
     }
@@ -172,11 +189,13 @@ export const WaWebChatApp: React.FC<{
     tenantUid,
     runResync,
     requestSync,
+    historySyncPhoneFullBlocked,
   ]);
 
   /** Inbox vazia ou com muitas threads sem mensagens — pede HistorySync do celular (Go). */
   useEffect(() => {
     if (!isBackendConnected || !socket?.connected || connectedChannels.length === 0) return;
+    if (historySyncPhoneFullBlocked) return;
     if (conversations.length === 0) {
       if (emptyInboxRecoveryRef.current) return;
       emptyInboxRecoveryRef.current = true;
@@ -213,6 +232,7 @@ export const WaWebChatApp: React.FC<{
     connectedChannels.length,
     conversations,
     runResync,
+    historySyncPhoneFullBlocked,
   ]);
 
   useEffect(() => {
@@ -1034,6 +1054,14 @@ export const WaWebChatApp: React.FC<{
   );
 
   const handleRefresh = useCallback(() => {
+    if (historySyncPhoneFullBlocked) {
+      runResync({ full: false, force: true });
+      toast('Sync pesado pausado — o servidor enfileira e aplica sozinho quando for seguro.', {
+        icon: '⚠️',
+        duration: 4000,
+      });
+      return;
+    }
     runResync({ full: true, force: true });
     if (selectedId) void loadMoreHistory(selectedId, true);
     toast.success(
@@ -1042,7 +1070,7 @@ export const WaWebChatApp: React.FC<{
         : 'Atualizando conversas do celular…',
       { duration: 2500 }
     );
-  }, [runResync, isGoWebhookInbox, selectedId, loadMoreHistory]);
+  }, [runResync, isGoWebhookInbox, selectedId, loadMoreHistory, historySyncPhoneFullBlocked]);
 
   const handleNewConversation = useCallback(() => {
     const raw = window.prompt('Telefone com DDD (apenas números ou +55…)');
@@ -1330,6 +1358,8 @@ export const WaWebChatApp: React.FC<{
         socketStatus={isBackendConnected ? socketStatus : 'offline'}
         syncing={syncing}
         historyImporting={historyImporting}
+        historySyncCampaignBlocked={historySyncCampaignBlocked}
+        historySyncPendingAfterCampaign={historySyncPendingAfterCampaign}
         isGoWebhookInbox={isGoWebhookInbox}
         chipsConnected={connectedChannels.length}
         connections={connections}

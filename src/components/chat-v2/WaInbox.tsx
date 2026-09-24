@@ -33,6 +33,9 @@ type Props = {
   connections: WhatsAppConnection[];
   syncing: boolean;
   historyImporting?: boolean;
+  /** Disparo RUNNING: servidor não faz restart Go em massa. */
+  historySyncCampaignBlocked?: boolean;
+  historySyncPendingAfterCampaign?: boolean;
   isGoWebhookInbox?: boolean;
   onSearch: (q: string) => void;
   onToggleUnread: () => void;
@@ -73,6 +76,8 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   connections,
   syncing,
   historyImporting = false,
+  historySyncCampaignBlocked = false,
+  historySyncPendingAfterCampaign = false,
   isGoWebhookInbox = false,
   onSearch,
   onToggleUnread,
@@ -227,6 +232,25 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
           </button>
         </div>
       </div>
+
+      {historySyncCampaignBlocked && isGoWebhookInbox ? (
+        <div
+          className="wa-inbox-status px-3 py-2 text-[11px] leading-snug"
+          data-state="import"
+          style={{ background: 'rgba(245,158,11,0.12)', color: 'var(--text-2)' }}
+        >
+          Campanha em disparo: sincronização pesada do celular pausada para proteger os chips. Mensagens
+          ao vivo continuam; histórico completo após terminar o envio.
+        </div>
+      ) : historySyncPendingAfterCampaign && isGoWebhookInbox ? (
+        <div
+          className="wa-inbox-status px-3 py-2 text-[11px] leading-snug"
+          data-state="import"
+          style={{ background: 'rgba(59,130,246,0.1)', color: 'var(--text-2)' }}
+        >
+          Sync do celular na fila — o servidor aplica sozinho em alguns minutos (sem precisar F5).
+        </div>
+      ) : null}
 
       {/* Status compacto — só quando relevante */}
       {(isOffline || isSlow || syncing || historyImporting || chipsConnected === 0) && (

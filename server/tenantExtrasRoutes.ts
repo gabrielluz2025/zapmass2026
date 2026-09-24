@@ -10,6 +10,8 @@ import { listContacts } from './repositories/contactsRepository.js';
 import { listContactLists } from './repositories/contactListsRepository.js';
 import { getQueueHealthMetrics } from './campaignJobsResilience.js';
 import { WHATSAPP_RISK_VERSION } from '../shared/whatsappLegal.js';
+import { getOwnerGoHistorySyncOps } from './evolutionService.js';
+import { isGoWebhookInboxMode } from './evolutionConfig.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DLQ_FILE = path.join(__dirname, '../data/dead_letter_queue.json');
@@ -39,6 +41,7 @@ export function registerTenantExtrasRoutes(app: Express): void {
       ok: true,
       queue: queue ?? { pending: 0, sending: 0, failed: 0, dead: 0, sent_last_hour: 0, backpressureActive: false },
       redisUsedPct: redisPct,
+      goHistorySync: isGoWebhookInboxMode() ? getOwnerGoHistorySyncOps(ctx.tenantId) : null,
     });
   });
 

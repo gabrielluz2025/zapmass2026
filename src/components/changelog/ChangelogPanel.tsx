@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.175',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Orquestrador automático de sync da inbox (fila, coalescência, pós-campanha, política via socket)' },
+    ],
+  },
+  {
+    version: '2.3.174',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Bate-papo avisa sync pausada em campanha; fila pós-disparo e métrica de restart inbox no painel' },
+    ],
+  },
+  {
     version: '2.3.173',
     date: '24/09/2026',
     highlights: [

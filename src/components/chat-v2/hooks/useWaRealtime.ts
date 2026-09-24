@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Socket } from 'socket.io-client';
+import type { InboxSyncPolicyPayload } from '../../../shared/inboxSyncPolicy';
+import { defaultInboxSyncPolicy } from '../../../shared/inboxSyncPolicy';
 
 export type WaSocketStatus = 'online' | 'offline' | 'slow';
 
@@ -32,6 +34,9 @@ export function useWaRealtime(
   const [socketStatus, setSocketStatus] = useState<WaSocketStatus>('offline');
   const [syncing, setSyncing] = useState(false);
   const [historyImporting, setHistoryImporting] = useState(false);
+  const [inboxSyncPolicy, setInboxSyncPolicy] = useState<InboxSyncPolicyPayload>(() =>
+    defaultInboxSyncPolicy()
+  );
   const pingSentAtRef = useRef(0);
   const slowStrikeRef = useRef(0);
   const lastRealtimeActivityRef = useRef(0);
@@ -167,7 +172,13 @@ export function useWaRealtime(
       setHistoryImporting(Boolean(payload?.importing));
       if (!payload?.importing) markRealtimeActivity();
     };
+    const onInboxSyncPolicy = (payload: InboxSyncPolicyPayload) => {
+      if (payload && typeof payload.phoneFullBlocked === 'boolean') {
+        setInboxSyncPolicy(payload);
+      }
+    };
     socket.on('history-sync-status', onHistorySync);
+    socket.on('inbox-sync-policy', onInboxSyncPolicy);
 
     return () => {
       socket.off('connect', onConnect);
@@ -177,6 +188,7 @@ export function useWaRealtime(
       socket.off('conversation-delta', onConv);
       socket.off('inbox-page', onConv);
       socket.off('history-sync-status', onHistorySync);
+      socket.off('inbox-sync-policy', onInboxSyncPolicy);
       document.removeEventListener('visibilitychange', onVis);
       clearInterval(pingTimer);
       clearInterval(lightSyncTimer);
@@ -185,5 +197,5 @@ export function useWaRealtime(
     };
   }, [socket, runResync]);
 
-  return { socketStatus, syncing, historyImporting, runResync };
+  return { socketStatus, syncing, historyImporting, inboxSyncPolicy, runResync };
 }

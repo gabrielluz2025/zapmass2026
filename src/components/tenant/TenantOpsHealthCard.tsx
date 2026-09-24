@@ -80,6 +80,20 @@ export const TenantOpsHealthCard: React.FC = () => {
                 <Server className="w-3 h-3" /> Backpressure ativo — envios mais lentos
               </span>
             ) : null}
+            {data.goHistorySync ? (
+              <>
+                <Stat
+                  label="Restart inbox (1h)"
+                  value={String(data.goHistorySync.restartsLastHour)}
+                  warn={data.goHistorySync.restartsLastHour >= 4}
+                />
+                {data.goHistorySync.deferredPostCampaign || data.goHistorySync.queuePending ? (
+                  <span className="col-span-2 text-[11px]" style={{ color: 'var(--text-2)' }}>
+                    Sync do celular na fila automática (pós-campanha ou recovery)
+                  </span>
+                ) : null}
+              </>
+            ) : null}
           </div>
         </div>
       </div>

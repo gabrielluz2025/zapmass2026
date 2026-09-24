@@ -24,6 +24,12 @@ export type OpsHealth = {
     backpressureActive: boolean;
   };
   redisUsedPct: number | null;
+  goHistorySync?: {
+    restartsLastHour: number;
+    deferredPostCampaign: boolean;
+    maxConcurrentPerOwner: number;
+    queuePending?: boolean;
+  } | null;
 };
 
 export type CampaignFailure = {
