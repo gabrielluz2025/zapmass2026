@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.194] - 2026-09-24
+### Corrigido
+- **Disparo parado com chip online**: circuit breaker (muitas falhas de número) não trava mais o único chip conectado da campanha. A janela diária, o intervalo e o fluxo de resposta continuam valendo. Iniciar/retomar solta jobs que estavam só na espera curta de 5 min.
+
 ## [2.3.193] - 2026-09-24
 ### Corrigido
 - **Iniciar / parar disparo**: iniciar limpa pausa antiga que segurava a fila; parar segura o job antes do envio (respostas do fluxo continuam); o progresso não devolve o cartão para Executando. Cronograma diário e fluxo por resposta permanecem.

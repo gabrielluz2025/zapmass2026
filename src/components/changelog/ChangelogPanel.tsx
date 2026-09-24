@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.194',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Chip online único não fica mais mudo por circuit breaker: o disparo segue no ritmo e na janela da campanha' },
+    ],
+  },
+  {
     version: '2.3.193',
     date: '24/09/2026',
     highlights: [

@@ -167,7 +167,7 @@ import {
     type DailyScheduleWindow,
 } from './campaignDailyScheduleDelay.js';
 import { buildCampaignSendJobId, isDuplicateBullmqJobError } from './campaignJobIdentity.js';
-import { countQueueJobsForCampaign, collectCampaignJobCountsFromQueue } from './campaignQueueScan.js';
+import { countQueueJobsForCampaign, collectCampaignJobCountsFromQueue, forEachCampaignQueueJob } from './campaignQueueScan.js';
 import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
 import { refreshRedispatchTargetPhones } from './campaignRedispatchPhoneRefresh.js';
 import {
@@ -3960,6 +3960,8 @@ function evoInst(instanceName: string): string {
 
 // Controle de pausa por campanha
 const pausedCampaigns = new Set<string>();
+/** Evita repetir o aviso de “segue no único chip online” a cada job. */
+const circuitBypassLoggedCampaigns = new Set<string>();
 
 // Limite de frequência: ownerUid → phone → última vez enviado (ms epoch)
 // Evita reenviar para o mesmo contato em menos de FREQUENCY_CAP_MS.
@@ -8159,9 +8161,24 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             await job.updateData(item).catch(() => {});
             await job.moveToDelayed(Date.now() + 2000, token);
             throw new DelayedError();
+        } else if (
+            !getConnectionBanInfo(item.connectionId).inQuarantine &&
+            isCampaignChannelUsable(item.connectionId)
+        ) {
+            // Único chip online da campanha: circuit breaker (falhas de número/463)
+            // não pode zerar o disparo. O intervalo e a janela diária já foram aplicados acima.
+            const cid = String(item.campaignId || '');
+            if (cid && !circuitBypassLoggedCampaigns.has(cid)) {
+                circuitBypassLoggedCampaigns.add(cid);
+                const label = connections.get(item.connectionId)?.friendlyName || item.connectionId;
+                emitCampaignLog(
+                    'WARN',
+                    `Chip ${label} online com muitas falhas recentes e sem outro chip no pool — o disparo continua neste chip, no ritmo da campanha.`,
+                    { campaignId: item.campaignId, connectionId: item.connectionId, to: item.to },
+                    campaignState?.ownerUid
+                );
+            }
         } else {
-            // Chip com circuit OPEN e sem alternativo disponível — não enviar.
-            // Continuar causaria mais falhas e risco de ban no WhatsApp.
             emitCampaignLog(
                 'WARN',
                 `Chip ${item.connectionId} isolado por circuit breaker e sem alternativo no pool — aguardando 5min`,
@@ -10361,6 +10378,10 @@ export async function startCampaign(
                 campaignId: cid,
                 protection: Boolean(runtimeAfterEnqueue?.protectionPaused),
             });
+        } else {
+            void releaseShortHeldCampaignJobs(cid).catch((e) =>
+                log('warn', 'releaseShortHeldCampaignJobs falhou', { campaignId: cid, error: (e as Error)?.message })
+            );
         }
         notifyCampaignBlocking(ownerUid, countActiveCampaignsForOwner(ownerUid) > 0);
         void import('./chipProtectionService.js').then((m) =>
@@ -12437,6 +12458,40 @@ export function pauseCampaign(campaignId: string, ownerUid?: string) {
     if (ou) notifyCampaignBlocking(ou, countActiveCampaignsForOwner(ou) > 0);
 }
 
+/**
+ * Jobs presos no ciclo curto do circuit breaker (até 6 min) voltam a ficar elegíveis.
+ * Atrasos longos (cronograma, limite diário, madrugada) não são antecipados:
+ * o worker reavalia a janela quando o job acorda.
+ */
+async function releaseShortHeldCampaignJobs(campaignId: string): Promise<number> {
+    const cid = String(campaignId || '').trim();
+    const queue = getCampaignQueue();
+    if (!queue || !cid || pausedCampaigns.has(cid)) return 0;
+    const now = Date.now();
+    const maxRemainMs = 6 * 60_000;
+    let released = 0;
+    let stagger = 0;
+    await forEachCampaignQueueJob(queue, async (job, state) => {
+        if (state !== 'delayed') return;
+        const data = job.data as MessageQueueItem;
+        if (String(data?.campaignId || '') !== cid) return;
+        const runAt = (Number(job.timestamp) || now) + (Number(job.delay) || 0);
+        const remain = runAt - now;
+        if (remain > maxRemainMs) return;
+        try {
+            await job.changeDelay(500 + stagger);
+            stagger = Math.min(stagger + 250, 15_000);
+            released += 1;
+        } catch {
+            /* job ativo ou já promovido */
+        }
+    });
+    if (released > 0) {
+        log('info', `[dispatch] ${released} job(s) de espera curta liberados para envio`, { campaignId: cid });
+    }
+    return released;
+}
+
 export function resumeCampaign(campaignId: string, ownerUid?: string) {
     const stateBefore = campaignsById.get(campaignId);
     const wasProtection = Boolean(stateBefore?.protectionPaused);
@@ -12491,6 +12546,9 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
     if (ou) notifyCampaignBlocking(ou, countActiveCampaignsForOwner(ou) > 0);
     void saveCampaignRuntimeToRedis(campaignId);
     ensureCampaignWorker();
+    void releaseShortHeldCampaignJobs(campaignId).catch((e) =>
+        log('warn', 'releaseShortHeldCampaignJobs falhou', { campaignId, error: (e as Error)?.message })
+    );
 }
 
 /**
