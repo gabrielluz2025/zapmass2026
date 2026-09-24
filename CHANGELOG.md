@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.183] - 2026-09-24
+### Adicionado
+- **Fila campanhas**: API admin/internal summary + purge por `campaignId` (dry-run); script `deployment/campaign-queue-vps.sh`.
+
 ## [2.3.182] - 2026-09-24
 ### Corrigido
 - **check-evolution-go-chat-campaign.sh**: f-strings Python quebravam o `python3 -c` no bash (syntax error linha 64).

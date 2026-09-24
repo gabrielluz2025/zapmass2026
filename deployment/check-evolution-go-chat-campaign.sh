@@ -230,7 +230,8 @@ echo "    • Após deploy, inbox pode precisar de sync leve ou fila automática
 echo "    • Botão Atualizar enfileira sync do celular (1 chip/vez por tenant)"
 echo "  Campanhas:"
 echo "    • Disparo usa POST /send/text e /send/media com token do chip"
-echo "    • Chip precisa status ONLINE; retome campanhas pausadas manualmente se necessário"
+    echo "    • Chip precisa status ONLINE; retome campanhas pausadas manualmente se necessário"
+    echo "    • Fila grande: bash deployment/campaign-queue-vps.sh summary"
 echo ""
 
 if [ "$fail" -eq 0 ]; then

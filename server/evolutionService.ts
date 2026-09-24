@@ -3204,6 +3204,11 @@ export function getCampaignBullmqQueue(): Queue<MessageQueueItem> | null {
     return getCampaignQueue();
 }
 
+/** Redis compartilhado (ops/admin) — somente localhost ou admin autenticado. */
+export function getRedisConnectionForOps(): IORedis | null {
+    return getRedisConnection();
+}
+
 /** Enfileira lembrete semanal de prospecção (silenciosos). */
 export async function enqueueProspectingSilentBump(params: {
     campaignId: string;

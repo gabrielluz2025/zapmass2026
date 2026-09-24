@@ -1,24 +1,35 @@
-import type { Queue } from 'bullmq';
+import type { Job, Queue } from 'bullmq';
 
 const PAGE = 250;
 
-async function forEachQueueJob(
-  queue: Queue,
-  onJob: (data: { campaignId?: string; ownerUid?: string; replyFlowOpen?: { ownerUid?: string } }) => void
+const QUEUE_STATES = ['active', 'waiting', 'delayed', 'paused'] as const;
+export type CampaignQueueScanState = (typeof QUEUE_STATES)[number];
+
+export async function forEachCampaignQueueJob<T extends { campaignId?: string }>(
+  queue: Queue<T>,
+  fn: (job: Job<T>, state: CampaignQueueScanState) => void | Promise<void>
 ): Promise<void> {
-  const states = ['active', 'waiting', 'delayed', 'paused'] as const;
-  for (const state of states) {
+  for (const state of QUEUE_STATES) {
     let start = 0;
     for (;;) {
       const batch = await queue.getJobs([state], start, start + PAGE - 1, true);
       if (batch.length === 0) break;
-      for (const j of batch) {
-        onJob((j.data || {}) as { campaignId?: string; ownerUid?: string; replyFlowOpen?: { ownerUid?: string } });
+      for (const job of batch) {
+        await fn(job, state);
       }
       if (batch.length < PAGE) break;
       start += PAGE;
     }
   }
+}
+
+async function forEachQueueJob(
+  queue: Queue,
+  onJob: (data: { campaignId?: string; ownerUid?: string; replyFlowOpen?: { ownerUid?: string } }) => void
+): Promise<void> {
+  await forEachCampaignQueueJob(queue, (job) => {
+    onJob((job.data || {}) as { campaignId?: string; ownerUid?: string; replyFlowOpen?: { ownerUid?: string } });
+  });
 }
 
 /** Conta jobs da campanha em todos os estados da fila (não só os 200 primeiros). */

@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.183',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'feature', text: 'Inspeção e purge seguro da fila campaign-messages por campanha (VPS + admin API)' },
+    ],
+  },
+  {
     version: '2.3.182',
     date: '24/09/2026',
     highlights: [

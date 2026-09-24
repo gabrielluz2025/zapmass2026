@@ -35,6 +35,7 @@
     "warmup:optout-cache": "tsx scripts/warmupOptOutCache.ts",
     "classify:pending-replies": "tsx scripts/classify-pending-reply-intents.ts",
     "replay:inbound": "tsx scripts/replay-inbound-connection.ts",
+    "campaign:queue": "tsx scripts/campaign-queue-inspect.ts",
     "deploy:firestore-rules": "firebase deploy --only firestore:rules",
     "deploy:hosting": "npm run build && firebase deploy --only hosting",
     "deploy:hosting:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-hosting.ps1",
