@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.195',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Retomar não pausa mais sozinho: texto igual para outra pessoa não trava a campanha, e chip offline não marca pausa manual' },
+    ],
+  },
+  {
     version: '2.3.194',
     date: '24/09/2026',
     highlights: [

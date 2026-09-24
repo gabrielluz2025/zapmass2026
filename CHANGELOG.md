@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.195] - 2026-09-24
+### Corrigido
+- **Retomar pausava sozinho**: o mesmo texto para contatos diferentes não pausa mais a campanha (a trava vale só se o mesmo número repetir). Retomar zera essa trava e a janela de auto-pausa. Chip offline adia o job sem marcar a campanha como pausada pelo usuário. Número sem WhatsApp não entra na auto-pausa.
+
 ## [2.3.194] - 2026-09-24
 ### Corrigido
 - **Disparo parado com chip online**: circuit breaker (muitas falhas de número) não trava mais o único chip conectado da campanha. A janela diária, o intervalo e o fluxo de resposta continuam valendo. Iniciar/retomar solta jobs que estavam só na espera curta de 5 min.

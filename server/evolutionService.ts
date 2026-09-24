@@ -4834,7 +4834,11 @@ const AUTO_PAUSE_WINDOW = 20;
 const AUTO_PAUSE_FAIL_THRESHOLD = 0.6; // 60%
 const AUTO_PAUSE_MIN_PROCESSED = 10;   // só avalia após atingir este mínimo
 
-function bumpCampaignProgress(campaignId: string | undefined, success: boolean) {
+function bumpCampaignProgress(
+    campaignId: string | undefined,
+    success: boolean,
+    countTowardAutoPause = true
+) {
     if (!campaignId) return;
     const state = campaignsById.get(campaignId);
     if (!state) return;
@@ -4843,8 +4847,13 @@ function bumpCampaignProgress(campaignId: string | undefined, success: boolean) 
     if (success) state.successCount += 1;
     else state.failCount += 1;
 
-    // ── Auto-pausa por alta taxa de erros ───────────────────────────────────────
-    state.recentOutcomes.push(success);
+    // ── Auto-pausa por alta taxa de erros do CHIP ───────────────────────────────
+    // Número sem WhatsApp / 463 não entra: senão a lista suja pausa o disparo
+    // e o Retomar cai de novo no primeiro lote.
+    if (!state.recentOutcomes) state.recentOutcomes = [];
+    if (success || countTowardAutoPause) {
+        state.recentOutcomes.push(success);
+    }
     if (state.recentOutcomes.length > AUTO_PAUSE_WINDOW) {
         state.recentOutcomes.shift();
     }
@@ -5036,9 +5045,13 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
             }
         }
 
-function finishCampaignJob(campaignId: string | undefined, success: boolean) {
+function finishCampaignJob(
+    campaignId: string | undefined,
+    success: boolean,
+    countTowardAutoPause = true
+) {
     if (!campaignId) return;
-    bumpCampaignProgress(campaignId, success);
+    bumpCampaignProgress(campaignId, success, countTowardAutoPause);
 
     const pending = Math.max(0, (campaignPendingJobs.get(campaignId) || 0) - 1);
     if (pending <= 0) {
@@ -5090,12 +5103,13 @@ async function skipCampaignJobOnce(
 async function accountCampaignJobOnce(
     job: Job<MessageQueueItem>,
     item: MessageQueueItem,
-    success: boolean
+    success: boolean,
+    countTowardAutoPause = true
 ): Promise<void> {
     if (item._progressAccounted) return;
     item._progressAccounted = true;
     await job.updateData(item).catch(() => {});
-    finishCampaignJob(item.campaignId, success);
+    finishCampaignJob(item.campaignId, success, countTowardAutoPause);
 }
 
 /** Campanha ativa pertence ao tenant; reconcilia ownerUid de membro da equipa. */
@@ -7955,7 +7969,8 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             getSharedRedis(),
             ownerUidForJob,
             item.campaignId,
-            textForHashLock
+            textForHashLock,
+            item.to
         );
         if (hashLock.action === 'PAUSE_CAMPAIGN') {
             if (item.campaignId) {
@@ -8387,17 +8402,14 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 await job.moveToDelayed(Date.now() + 60_000, token);
                 throw new DelayedError();
             }
-            const stallMsg = `Campanha pausada: chip ${connLabel} offline no servidor e nenhum alternativo disponível. Reconecte em Conexões e clique em Retomar.`;
+            const stallMsg = `Chip ${connLabel} offline e sem alternativo — envio adiado, campanha segue ativa. Reconecte o WhatsApp em Conexões.`;
             emitCampaignLog(
                 'WARN',
                 stallMsg,
                 { campaignId: item.campaignId, connectionId: item.connectionId, to: item.to },
                 campaignState?.ownerUid
             );
-            if (item.campaignId) {
-                pauseCampaign(item.campaignId, campaignState?.ownerUid);
-            }
-            await job.moveToDelayed(Date.now() + 300_000, token);
+            await job.moveToDelayed(Date.now() + 120_000, token);
             throw new DelayedError();
         }
         if (item._offlineDelayCount > 180) {
@@ -8536,7 +8548,8 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             ownerUidForJob,
             item.campaignId,
             mutated.buffer,
-            mediaToSend.caption || item.message
+            mediaToSend.caption || item.message,
+            item.to
         );
         if (mediaHashLock.action === 'PAUSE_CAMPAIGN') {
             if (item.campaignId) {
@@ -9154,7 +9167,12 @@ async function failCampaignSend(
 
     if (unrecoverable) {
         bumpQueueSize(item.connectionId, -1);
-        await accountCampaignJobOnce(job, item, false);
+        await accountCampaignJobOnce(
+            job,
+            item,
+            false,
+            !isRecipientPolicyOutboundError(errDetail)
+        );
         publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {
             campaignId: item.campaignId,
             to: item.to,
@@ -10079,6 +10097,7 @@ export async function startCampaign(
     // Iniciar de novo não pode herdar pausa manual, auto-pausa ou proteção antiga.
     // Sem isso os jobs entram na fila e o worker só os adia de 3 em 3s.
     pausedCampaigns.delete(cid);
+    void clearCampaignContentHashHits(cid).catch(() => undefined);
     const prevRuntime = campaignsById.get(cid);
     const seededSuccess = Math.max(prevRuntime?.successCount || 0, progressSeed.successCount);
     const seededFail = Math.max(prevRuntime?.failCount || 0, progressSeed.failedCount);
@@ -10098,7 +10117,7 @@ export async function startCampaign(
         isRunning: true,
         startedAt: prevRuntime?.startedAt ?? Date.now(),
         connectionIds: [...activeConnectionIds],
-        recentOutcomes: prevRuntime?.recentOutcomes ?? [],
+        recentOutcomes: [],
         // Guarda variáveis dos destinatários para uso em etapas posteriores (multi-step/reply-flow)
         _recipientVars: recipientVars,
     });
@@ -11024,9 +11043,8 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
             if (campaignStallNotified.has(notifyKey)) continue;
             campaignStallNotified.add(notifyKey);
             const stallMsg =
-                'Campanha pausada: nenhum chip do pool online/disponível. Abra Conexões, reconecte o WhatsApp e clique em Retomar.';
+                'Nenhum chip do pool online no momento — o disparo continua ativo e tenta de novo quando um chip voltar.';
             emitCampaignLog('WARN', stallMsg, { campaignId, connectionIds: connIds }, state.ownerUid);
-            pauseCampaign(campaignId, state.ownerUid);
             publishOwnerEvent(state.ownerUid, 'campaign-stall-paused', {
                 campaignId,
                 reason: 'chip_offline',
@@ -12506,7 +12524,12 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
         state.protectionPauseReason = undefined;
         state.protectionPauseUntil = undefined;
         state.protectionPauseMessage = undefined;
+        // Janela de falha e contador de texto idêntico não podem recolocar a pausa
+        // no primeiro job depois do clique em Retomar.
+        state.autoPauseEmitted = false;
+        state.recentOutcomes = [];
     }
+    void clearCampaignContentHashHits(campaignId).catch(() => undefined);
     if (wasProtection) {
         const queue = getCampaignQueue();
         if (queue) {

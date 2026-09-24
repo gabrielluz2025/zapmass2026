@@ -66,6 +66,10 @@ export function mediaContentFingerprint(buffer: Buffer, caption?: string): strin
   return createHash('md5').update(sha, 'utf8').digest('hex');
 }
 
+function recipientDigits(phone?: string): string {
+  return String(phone || '').replace(/\D/g, '');
+}
+
 async function applyHashLockTracking(
   client: IORedis,
   tid: string,
@@ -73,9 +77,27 @@ async function applyHashLockTracking(
   md5: string,
   threshold: number,
   delayMs: number,
-  violationThreshold: number
+  violationThreshold: number,
+  phone?: string
 ): Promise<ValidateCampaignContentHashResult> {
-  const key = hashKey(tid, md5);
+  const to = recipientDigits(phone);
+  // Campanha manda o mesmo texto para muita gente: isso não é loop.
+  // A trava dura só quando o MESMO número recebe o mesmo conteúdo de novo.
+  const key = to ? `${hashKey(tid, md5)}:to:${to}` : hashKey(tid, md5);
+  if (to) {
+    const count = await client.incr(key);
+    if (count === 1) await client.expire(key, WINDOW_SEC);
+    const perPhoneLimit = 3;
+    if (count <= perPhoneLimit) {
+      return { action: 'PROCEED', hash: md5, count };
+    }
+    return {
+      action: 'DELAY_JOB',
+      hash: md5,
+      count,
+      delayMs,
+    };
+  }
   const count = await client.incr(key);
   if (count === 1) {
     await client.expire(key, WINDOW_SEC);
@@ -186,7 +208,8 @@ export async function validateCampaignContentHash(
   redis: IORedis | null | undefined,
   tenantId: string,
   campaignId: string | undefined,
-  rawText: string
+  rawText: string,
+  phone?: string
 ): Promise<ValidateCampaignContentHashResult> {
   const tid = String(tenantId || '').trim();
   const cid = String(campaignId || '').trim();
@@ -213,7 +236,8 @@ export async function validateCampaignContentHash(
       md5,
       threshold,
       delayMs,
-      violationThreshold
+      violationThreshold,
+      phone
     );
   } catch (e) {
     console.warn('[ContentHashLock] Redis indisponível — prosseguindo sem lock', {
@@ -232,7 +256,8 @@ export async function validateCampaignMediaHash(
   tenantId: string,
   campaignId: string | undefined,
   buffer: Buffer,
-  caption?: string
+  caption?: string,
+  phone?: string
 ): Promise<ValidateCampaignContentHashResult> {
   const tid = String(tenantId || '').trim();
   const cid = String(campaignId || '').trim();
@@ -259,7 +284,8 @@ export async function validateCampaignMediaHash(
       md5,
       threshold,
       delayMs,
-      violationThreshold
+      violationThreshold,
+      phone
     );
   } catch (e) {
     console.warn('[ContentHashLock] Redis indisponível — prosseguindo sem lock de mídia', {
