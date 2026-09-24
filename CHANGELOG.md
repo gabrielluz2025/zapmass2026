@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.178] - 2026-09-24
+### Corrigido
+- **Go HistorySync**: threads vazias enfileiram no orquestrador (não restart por conversa); debounce 45s/chip; log inflight no máximo 1/min.
+
+## [2.3.177] - 2026-09-24
+### Corrigido
+- **CI**: typecheck em replyIntent (Contact import, Conversation, blacklist).
+
 ## [2.3.176] - 2026-09-24
 ### Corrigido
 - **CI/build**: import de `inboxSyncPolicy` no hook do Bate-papo (caminho `shared/`).

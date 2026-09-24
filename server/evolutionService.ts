@@ -4501,8 +4501,16 @@ const api = createEvolutionHttpClient({
 const chatStore: EvolutionChatStore = createEvolutionChat(api, {
     resolveConnectionOwnerUid,
     ownerUidFromConnectionId,
-    requestGoInboxHistorySync: (connectionId) =>
-        requestGoInboxHistorySync(connectionId, { force: true, userInitiated: true }),
+    /** Thread vazia: enfileira no orquestrador (1 restart coalescido), não restart por conversa. */
+    requestGoInboxHistorySync: (connectionId) => {
+        const id = String(connectionId || '').trim();
+        const ou = resolveOwnerUid(id);
+        if (ou) {
+            enqueueAutomatedPhoneFullSync(ou, 'thread_sparse');
+            return Promise.resolve(false);
+        }
+        return requestGoInboxHistorySync(id, { force: false, userInitiated: false });
+    },
 });
 
 /** Evita POST repetido em /settings/set na mesma sessão do processo. */
@@ -4515,6 +4523,9 @@ const GO_INBOX_HISTORY_SYNC_FORCE_MIN_INTERVAL_MS = 90 * 1000;
 const goInboxHistorySyncLastRun = new Map<string, number>();
 const goInboxHistorySyncInflight = new Set<string>();
 const goInboxHistorySyncInflightTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** Evita spam de log quando dezenas de threads pedem sync no mesmo chip inflight. */
+const goInboxHistorySyncInflightLogAt = new Map<string, number>();
+const GO_INBOX_HISTORY_SYNC_INFLIGHT_LOG_MS = 60_000;
 /** Tempo máximo que o lock de reconnect fica ativo aguardando OfflineSyncCompleted. */
 const GO_INBOX_HISTORY_SYNC_INFLIGHT_TTL_MS = 3 * 60 * 1000;
 /** Close causado por POST /instance/restart (HistorySync) — não contar em reconnect_storm. */
@@ -4582,7 +4593,12 @@ async function requestGoInboxHistorySync(
     }
     if (!opts?.userInitiated && !isEvolutionFullHistorySyncEnabled()) return false;
     if (goInboxHistorySyncInflight.has(id)) {
-        log('info', `Go inbox history sync já em andamento: ${id}`);
+        const now = Date.now();
+        const lastLog = goInboxHistorySyncInflightLogAt.get(id) ?? 0;
+        if (now - lastLog >= GO_INBOX_HISTORY_SYNC_INFLIGHT_LOG_MS) {
+            goInboxHistorySyncInflightLogAt.set(id, now);
+            log('info', `Go inbox history sync já em andamento: ${id}`);
+        }
         return false;
     }
 

@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.178',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'HistorySync: sem rajada ao abrir threads — fila orquestrador + debounce por chip' },
+    ],
+  },
+  {
     version: '2.3.177',
     date: '24/09/2026',
     highlights: [{ type: 'fix', text: 'CI typecheck: replyIntent (Contact, Conversation, blacklist)' }],

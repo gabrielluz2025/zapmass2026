@@ -259,6 +259,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     /** Rajadas HistorySync — flush único após idle. */
     let historySyncIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const historySyncActiveConnections = new Set<string>();
+    /** Uma solicitação por chip a cada N ms ao abrir threads vazias (evita rajada pós-deploy). */
+    const threadGoHistorySyncLastAsk = new Map<string, number>();
+    const THREAD_GO_HISTORY_SYNC_ASK_MS = 45_000;
     const withStoreLock = <T>(fn: () => Promise<T>): Promise<T> => {
         const run = storeLock.then(fn);
         storeLock = run.then(
