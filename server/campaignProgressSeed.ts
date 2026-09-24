@@ -60,6 +60,8 @@ export async function loadCampaignProgressSeed(
 
   const settled = await listSettledCampaignJobs(cid);
   for (const job of settled) {
+    // Job religado de outra campanha (prefixo diferente) não pode pular o disparo desta.
+    if (job.idempotencyKey && !job.idempotencyKey.startsWith(`${cid}__`)) continue;
     if (job.idempotencyKey) empty.settledJobIds.add(job.idempotencyKey);
     const digits = digitsForCampaignJobId(job.toNumber);
     if (digits.length >= 8) {

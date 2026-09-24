@@ -15,12 +15,12 @@ import {
   WhatsAppConnection, 
   ConnectionStatus, 
   CampaignStatus,
-  Campaign,
+  Campaign, 
   CampaignReplyFlow,
   CampaignStageConfig,
   CampaignScheduleSlot,
   CampaignDailySchedule,
-  DashboardMetrics,
+  DashboardMetrics, 
   ZapMassContextType,
   BirthdayContact,
   ChatMessage,
@@ -480,6 +480,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const reloadVpsContactsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsContactListsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsCampaignsRef = useRef<() => Promise<void>>(async () => {});
+  const deletedCampaignIdsRef = useRef<Set<string>>(new Set());
+  const campaignsFetchGenRef = useRef(0);
   const lastTenantDataRefetchMsRef = useRef(0);
   const tenantDataRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadAllContactsRef = useRef<() => Promise<void>>(async () => {});
@@ -491,10 +493,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   reloadVpsCampaignsRef.current = async () => {
     const uid = currentUidRef.current;
     if (!uid) return;
+    const gen = ++campaignsFetchGenRef.current;
     try {
       const list = await fetchCampaigns();
       if (currentUidRef.current !== uid) return;
-      setCampaigns(healStuckRunningCampaignsList(list));
+      if (gen !== campaignsFetchGenRef.current) return;
+      const visible = list.filter((c) => !deletedCampaignIdsRef.current.has(c.id));
+      setCampaigns(healStuckRunningCampaignsList(visible));
       dismissApiOfflineToast();
     } catch (err) {
       warnProd('[VPS] reload campaigns:', (err as Error)?.message || err);
@@ -977,7 +982,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           const expected = contactsSavedTotalRef.current ?? 0;
           // Página vazia após já ter linhas = fim real (COUNT(*) pode estar acima do retorno).
           if (offset > 0) {
-            setContactsHasMore(false);
+        setContactsHasMore(false);
           } else {
             setContactsHasMore(expected > 0 && offset < expected);
           }
@@ -1044,7 +1049,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!uid) return;
     try {
       const lists = await fetchContactLists();
-      if (currentUidRef.current !== uid) return;
+              if (currentUidRef.current !== uid) return;
       setContactLists(lists);
       dismissApiOfflineToast();
     } catch (err) {
@@ -1095,7 +1100,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                 void (async () => {
                   try {
                     const total = await fetchContactsCount();
-                    if (currentUidRef.current !== uid) return;
+                if (currentUidRef.current !== uid) return;
                     setContactsSavedTotal(total);
                     contactsSavedTotalRef.current = total;
                     // Só retoma download se a base no servidor cresceu de verdade.
@@ -1108,8 +1113,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                     /* mantém cache offline */
                   }
                 })();
-                return;
-              }
+                  return;
+                }
               // Cache incompleto — continua de onde parou
               if (cached.contactsHasMore || idbContacts.length < (cached.contactsSavedTotal ?? 0)) {
                 setContactsHasMore(true);
@@ -1143,8 +1148,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           // Listas/campanhas sempre do servidor — cache local pode estar vazio ou desatualizado.
           void reloadVpsContactListsRef.current();
           void reloadVpsCampaignsRef.current();
-          return;
-        }
+                  return;
+                }
         if (cachedRaw && !cached) {
           clearTenantDailyCache(uid);
         }
@@ -2100,8 +2105,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (warmupRafId != null) cancelAnimationFrame(warmupRafId);
       warmupRafId = requestAnimationFrame(() => {
         warmupRafId = null;
-        setWarmupQueue(Array.isArray(data?.pending) ? data.pending : []);
-        setWarmedCount(Number.isFinite(data?.warmedCount) ? data.warmedCount : 0);
+      setWarmupQueue(Array.isArray(data?.pending) ? data.pending : []);
+      setWarmedCount(Number.isFinite(data?.warmedCount) ? data.warmedCount : 0);
       });
     });
 
@@ -3004,7 +3009,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             .catch(() => {
               if (!socket.connected) socket.connect();
             });
-      }
+        }
     };
     document.addEventListener('visibilitychange', onVisibilityOrFocus);
     window.addEventListener('focus', onVisibilityOrFocus);
@@ -3213,7 +3218,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
       toast('Gerando QR para conectar...', { icon: '📱' });
     } else {
-      toast('Tentando reconectar...', { icon: '🔄' });
+    toast('Tentando reconectar...', { icon: '🔄' });
     }
   };
 
@@ -4002,7 +4007,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (campaign?.status === CampaignStatus.RUNNING) {
       socketRef.current?.emit('pause-campaign', { campaignId });
     }
-    await purgeCampaignForUser(uid, campaignId);
+    deletedCampaignIdsRef.current.add(campaignId);
+    try {
+      await purgeCampaignForUser(uid, campaignId);
+    } catch (err) {
+      deletedCampaignIdsRef.current.delete(campaignId);
+      throw err;
+    }
     setCampaigns((prev) => prev.filter((c) => c.id !== campaignId));
     void reloadVpsCampaignsRef.current();
     toast.success('Campanha removida.');
@@ -4021,6 +4032,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     const removed = new Set<string>();
     const failures: string[] = [];
+    for (const id of campaignIds) deletedCampaignIdsRef.current.add(id);
 
     if (campaignIds.length > 1) {
       try {
@@ -4035,7 +4047,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           }
         }
       } catch (bulkErr) {
-        if (!isCampaignApiDeleteRetryable(bulkErr)) throw bulkErr;
+        if (!isCampaignApiDeleteRetryable(bulkErr)) {
+          for (const id of campaignIds) deletedCampaignIdsRef.current.delete(id);
+          throw bulkErr;
+        }
         for (const id of campaignIds) {
           try {
             await purgeCampaignForUser(uid, id);
@@ -4054,6 +4069,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           failures.push(id);
         }
       }
+    }
+
+    for (const id of campaignIds) {
+      if (!removed.has(id)) deletedCampaignIdsRef.current.delete(id);
     }
 
     if (removed.size === 0) {

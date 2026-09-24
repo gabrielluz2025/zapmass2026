@@ -620,10 +620,10 @@ function extractEvolutionQr(source: unknown): ExtractedEvolutionQr | null {
             return { displayValue: trimmed, kind: 'code' };
         }
         if (trimmed.startsWith('data:image/') || looksLikeBase64Image(trimmed)) {
-            if (trimmed.startsWith('data:image/')) {
-                return { displayValue: trimmed, kind: 'image' };
-            }
-            return { displayValue: `data:image/png;base64,${trimmed}`, kind: 'image' };
+        if (trimmed.startsWith('data:image/')) {
+            return { displayValue: trimmed, kind: 'image' };
+        }
+        return { displayValue: `data:image/png;base64,${trimmed}`, kind: 'image' };
         }
     }
 
@@ -639,10 +639,10 @@ function extractEvolutionQr(source: unknown): ExtractedEvolutionQr | null {
             return { displayValue: trimmed, kind: 'code' };
         }
         if (trimmed.startsWith('data:image/') || looksLikeBase64Image(trimmed)) {
-            return {
-                displayValue: trimmed.startsWith('data:image/') ? trimmed : `data:image/png;base64,${trimmed}`,
-                kind: 'image',
-            };
+        return {
+            displayValue: trimmed.startsWith('data:image/') ? trimmed : `data:image/png;base64,${trimmed}`,
+            kind: 'image',
+        };
         }
     }
     return null;
@@ -2351,7 +2351,7 @@ function applyConnectionStateUpdate(
                 }, waitMs);
             } else if (campaignBlocksHistory && syncProfile.fullHistory) {
                 log('info', `[HistorySync] adiado — campanha ativa: ${instance}`);
-                if (ou) {
+            if (ou) {
                     markHistorySyncDeferredForOwner(ou);
                     enqueueAutomatedPhoneFullSync(ou, 'deferred_chip_open');
                 }
@@ -2767,10 +2767,10 @@ async function fetchConnectQr(
                     });
                 }
             } else {
-                log('warn', `POST connect/${instanceName} falhou`, {
-                    error: error?.message,
-                    status: error?.response?.status,
-                });
+            log('warn', `POST connect/${instanceName} falhou`, {
+                error: error?.message,
+                status: error?.response?.status,
+            });
             }
         }
 
@@ -5656,6 +5656,28 @@ async function deleteCampaignRuntimeFromRedis(campaignId: string): Promise<void>
     } catch { /* ignora */ }
 }
 
+/** Tira a campanha da RAM/fila para o DELETE no Postgres não voltar no próximo reload. */
+export async function releaseCampaignAfterUserDelete(campaignId: string): Promise<void> {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return;
+    pausedCampaigns.delete(cid);
+    campaignsById.delete(cid);
+    campaignPendingJobs.delete(cid);
+    campaignStageConfigsById.delete(cid);
+    void deleteCampaignRuntimeFromRedis(cid);
+    const queue = getCampaignQueue();
+    if (!queue) return;
+    try {
+        const { purgeCampaignQueueJobs } = await import('./campaignQueueAdmin.js');
+        await purgeCampaignQueueJobs(queue, cid, { dryRun: false });
+    } catch (e) {
+        log('warn', 'releaseCampaignAfterUserDelete: falha ao limpar fila', {
+            campaignId: cid,
+            error: (e as Error)?.message,
+        });
+    }
+}
+
 async function applyProgressSeedToRuntime(campaignId: string, ownerUid?: string): Promise<void> {
     const state = campaignsById.get(campaignId);
     if (!state) return;
@@ -6076,7 +6098,7 @@ function log(level: 'info' | 'warn' | 'error', message: string, data?: any) {
     const timestamp = new Date().toISOString();
     const prefix = `[EvolutionAPI:${level.toUpperCase()}]`;
     console.log(`${prefix} ${timestamp} ${message}`, data || '');
-
+    
     let sock: SocketIOServer | null = null;
     try {
         sock = io;
@@ -6560,10 +6582,10 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
     }
 
     if (!needsCleanReconnect) {
-        try {
-            await api.delete(`/instance/logout/${evoInst(id)}`);
-        } catch {
-            /* instância pode já estar deslogada */
+    try {
+        await api.delete(`/instance/logout/${evoInst(id)}`);
+    } catch {
+        /* instância pode já estar deslogada */
         }
     }
 
@@ -6779,7 +6801,7 @@ export async function deleteConnection(
     } catch (error: any) {
         const status = error?.response?.status;
         const msg = String(
-            error?.response?.data?.message ||
+                error?.response?.data?.message ||
                 error?.response?.data?.error ||
                 error?.message ||
                 ''
@@ -6851,12 +6873,12 @@ async function sendMediaInternal(
         return { ok: false, errorDetail: `Número inválido: ${to}` };
     }
 
-    let type = 'document';
-    if (mimeType.startsWith('image/')) type = 'image';
-    else if (mimeType.startsWith('video/')) type = 'video';
-    else if (mimeType.startsWith('audio/')) type = 'audio';
+        let type = 'document';
+        if (mimeType.startsWith('image/')) type = 'image';
+        else if (mimeType.startsWith('video/')) type = 'video';
+        else if (mimeType.startsWith('audio/')) type = 'audio';
 
-    const { url } = await saveMediaFromBase64(base64, mimeType, fileName);
+        const { url } = await saveMediaFromBase64(base64, mimeType, fileName);
     const variants = buildOutboundPhoneVariants(number);
     let lastResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
 
@@ -6901,7 +6923,7 @@ async function attemptEvolutionSendMedia(
     try {
         const response = await api.post(`/message/sendMedia/${evoInst(connectionId)}`, {
             number,
-            delay: 1200,
+                delay: 1200,
             mediatype: payload.mediatype,
             mimetype: payload.mimetype,
             caption: payload.caption,
@@ -8328,7 +8350,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             throw new DelayedError();
         }
         if (item._offlineDelayCount > 180) {
-            const state = await getConnectionState(item.connectionId);
+    const state = await getConnectionState(item.connectionId);
             throw new Error(
                 `Nenhum chip do grupo conectado após várias tentativas (${item.connectionId}, ${state})`
             );
@@ -8995,10 +9017,10 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     });
 
     if (humanizeSkip) {
-        const delay =
-            dispatchSettings.minDelayMs +
-            Math.random() * (dispatchSettings.maxDelayMs - dispatchSettings.minDelayMs);
-        await new Promise((r) => setTimeout(r, delay));
+    const delay =
+        dispatchSettings.minDelayMs +
+        Math.random() * (dispatchSettings.maxDelayMs - dispatchSettings.minDelayMs);
+    await new Promise((r) => setTimeout(r, delay));
     }
 }
 
@@ -9015,10 +9037,10 @@ async function sendMediaByUrlInternal(
         return { ok: false, errorDetail: `Número inválido: ${to}` };
     }
 
-    let type = 'document';
-    if (mimeType.startsWith('image/')) type = 'image';
-    else if (mimeType.startsWith('video/')) type = 'video';
-    else if (mimeType.startsWith('audio/')) type = 'audio';
+        let type = 'document';
+        if (mimeType.startsWith('image/')) type = 'image';
+        else if (mimeType.startsWith('video/')) type = 'video';
+        else if (mimeType.startsWith('audio/')) type = 'audio';
 
     const variants = buildOutboundPhoneVariants(number);
     let lastResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
@@ -10108,15 +10130,15 @@ export async function startCampaign(
     let skippedSettled = 0;
 
     try {
-        for (let i = 0; i < numbers.length; i++) {
-            const num = numbers[i];
-            const cleanPhone = normalizePhoneKey(num);
+    for (let i = 0; i < numbers.length; i++) {
+        const num = numbers[i];
+        const cleanPhone = normalizePhoneKey(num);
             if (cleanPhone.length < 8) continue;
             const phoneCanon = canonicalBrazilMobileKey(cleanPhone) || cleanPhone;
             if (seenPhones.has(phoneCanon) || seenPhones.has(cleanPhone)) continue;
             seenPhones.add(phoneCanon);
             seenPhones.add(cleanPhone);
-            const vars = recipientVars.get(cleanPhone) || {};
+        const vars = recipientVars.get(cleanPhone) || {};
             const assignedConnectionId = usePoolDispatch
                 ? pickInitialDispatchChannel({
                       strategy: poolStrategy,
@@ -10124,7 +10146,7 @@ export async function startCampaign(
                       channelWeights: resolvedPoolWeights,
                       index: i,
                   })
-                : activeConnectionIds[i % activeConnectionIds.length];
+            : activeConnectionIds[i % activeConnectionIds.length];
 
             if (skipPhoneIfAlreadySent) {
                 const settledJobId = buildCampaignSendJobId({ campaignId: cid, to: num, stageIndex: 0 });
@@ -10197,14 +10219,14 @@ export async function startCampaign(
                 });
                 pendingEnqueue.push({
                     item: {
-                        connectionId: assignedConnectionId,
-                        to: num,
-                        message: personalizedMessage,
-                        campaignId: cid,
+                    connectionId: assignedConnectionId,
+                    to: num,
+                    message: personalizedMessage,
+                    campaignId: cid,
                         ownerUid,
                         stageIndex: 0,
                         rotationIndex: i,
-                        sendAsMedia: hasMedia,
+                    sendAsMedia: hasMedia,
                         multiStepContact: { contactId: cleanPhone, stepIndex: 0 },
                         skipFrequencyCap: skipFrequencyCap === true,
                         alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
@@ -10226,17 +10248,17 @@ export async function startCampaign(
                         sendAsMedia: hasMedia,
                         skipFrequencyCap: skipFrequencyCap === true,
                         alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
-                        replyFlowOpen: {
-                            campaignId: cid,
-                            phoneDigits: cleanPhone,
-                            vars,
-                            ownerUid,
-                        },
+                    replyFlowOpen: {
+                        campaignId: cid,
+                        phoneDigits: cleanPhone,
+                        vars,
+                        ownerUid,
                     },
+                },
                     delayMs: staggerDelay,
                 });
-            } else {
-                for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
+        } else {
+            for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
                     const settledJobId = buildCampaignSendJobId({
                         campaignId: cid,
                         to: num,
@@ -10253,14 +10275,14 @@ export async function startCampaign(
                     const stageDelay = staggerDelay + stageIndex * interStageMinDelay;
                     pendingEnqueue.push({
                         item: {
-                            connectionId: assignedConnectionId,
-                            to: num,
-                            message: personalizedMessage,
-                            campaignId: cid,
+                        connectionId: assignedConnectionId,
+                        to: num,
+                        message: personalizedMessage,
+                        campaignId: cid,
                             ownerUid,
                             stageIndex,
                             rotationIndex: i,
-                            sendAsMedia: hasMedia && stageIndex === 0,
+                        sendAsMedia: hasMedia && stageIndex === 0,
                             skipFrequencyCap: skipFrequencyCap === true,
                             alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
                         },
@@ -11368,15 +11390,15 @@ export async function handleWebhook(event: any) {
                     });
 
                     void processInboundAutomationMessage({
-                        connectionId: instance,
-                        phoneDigits,
-                        bodyText,
-                        nonTextReply,
+                            connectionId: instance,
+                            phoneDigits,
+                            bodyText,
+                            nonTextReply,
                         incomingConvId,
                         messageOwnerUid,
                         dedupeKey,
                         source: 'webhook',
-                    });
+                        });
                 }
                 break;
             }

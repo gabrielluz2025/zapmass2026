@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.192',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Disparo: campanha nova não herda envios de campanha apagada (fila zerada)' },
+      { type: 'fix', text: 'Excluir campanha remove a fila e não volta no reload' },
+    ],
+  },
+  {
     version: '2.3.191',
     date: '24/09/2026',
     highlights: [

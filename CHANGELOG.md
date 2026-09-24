@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.192] - 2026-09-24
+### Corrigido
+- **Campanha não envia**: jobs de campanha apagada deixam de ser colados na campanha nova (o disparo tratava os contatos como já enviados e enfileirava 0).
+- **Excluir campanha**: remove fila e histórico da campanha; a lista não restaura o card por uma resposta antiga da API.
+
 ## [2.3.191] - 2026-09-24
 ### Corrigido
 - **Fluxo por resposta**: campanhas com `replyFlow` + `stageConfigs` legado passam a abrir sessão (`replyFlowOpen`) em vez do motor multi-etapas.

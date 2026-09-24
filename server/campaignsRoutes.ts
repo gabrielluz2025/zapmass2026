@@ -132,6 +132,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
     const id = String(req.params.id || '').trim();
     if (!id) return res.status(400).json({ ok: false, error: 'ID inválido.' });
     try {
+      await evolutionService.releaseCampaignAfterUserDelete(id);
       const ok = await deleteCampaign(ctx.tenantId, id);
       if (!ok) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
       evolutionService.purgeCampaignMediaFiles(id);
@@ -161,6 +162,9 @@ export function registerCampaignsDataRoutes(app: Express): void {
       return res.status(400).json({ ok: false, error: 'Máximo de 200 campanhas por vez.' });
     }
     try {
+      for (const id of ids) {
+        await evolutionService.releaseCampaignAfterUserDelete(id);
+      }
       const { deleted, missing, blocked } = await deleteCampaigns(ctx.tenantId, ids);
       for (const id of deleted) {
         evolutionService.purgeCampaignMediaFiles(id);

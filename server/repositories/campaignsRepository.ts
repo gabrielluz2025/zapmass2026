@@ -10,7 +10,6 @@ import {
 } from './campaignMapper.js';
 import { healCampaignDocument } from '../../src/utils/campaignMetrics.js';
 import {
-  campaignJobsStillActive,
   countCampaignJobsByStatus,
   countTenantCampaignJobsByConnection,
   countTenantCampaignJobsByStatus,
@@ -231,10 +230,17 @@ export class CampaignDeleteBlockedError extends Error {
 export async function deleteCampaign(tenantId: string, campaignId: string): Promise<boolean> {
   const pool = getZapmassPool();
   if (!pool || !isUuid(campaignId)) return false;
-  const active = campaignJobsStillActive(await countCampaignJobsByStatus(campaignId));
-  if (active > 0) {
-    throw new CampaignDeleteBlockedError();
-  }
+  // Apaga o histórico desta campanha antes do DELETE (ON DELETE SET NULL deixaria
+  // jobs órfãos que o reload colava em outra campanha e bloqueava o disparo).
+  await pool.query(
+    `DELETE FROM zapmass.campaign_jobs
+      WHERE tenant_id = $1::uuid
+        AND (
+          campaign_id = $2::uuid
+          OR (campaign_id IS NULL AND payload->>'campaignId' = $2)
+        )`,
+    [tenantId, campaignId]
+  );
   const r = await pool.query(
     `DELETE FROM zapmass.campaigns WHERE tenant_id = $1::uuid AND id = $2::uuid`,
     [tenantId, campaignId]

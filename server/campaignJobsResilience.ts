@@ -10,7 +10,6 @@
  */
 
 import { isUuid } from './auth/firebaseUidMap.js';
-import { pickOrphanJobCampaignTarget } from './campaignOrphanJobs.js';
 import { getZapmassPool, isZapmassPostgresConfigured } from './db/postgres.js';
 
 /** Espelha `isPhantomCampaignJobFailure` — falhas anti-spam/adiamento, não envio. */
@@ -603,40 +602,10 @@ export async function reattachOrphanCampaignJobs(tenantId: string): Promise<numb
           )`,
       [uid]
     );
-    let attached = fromPayload.rowCount ?? 0;
+    const attached = fromPayload.rowCount ?? 0;
 
-    const stillOrphan = await pool.query<{ cnt: string }>(
-      `SELECT COUNT(*)::text AS cnt
-         FROM zapmass.campaign_jobs
-        WHERE tenant_id = $1::uuid AND campaign_id IS NULL`,
-      [uid]
-    );
-    if ((parseInt(stillOrphan.rows[0]?.cnt || '0', 10) || 0) > 0) {
-      const camps = await pool.query<{ id: string; status: string; created_at: Date }>(
-        `SELECT id::text AS id, status, created_at
-           FROM zapmass.campaigns
-          WHERE tenant_id = $1::uuid`,
-        [uid]
-      );
-      const target = pickOrphanJobCampaignTarget(
-        camps.rows.map((row) => ({
-          id: row.id,
-          status: row.status,
-          createdAt: row.created_at?.toISOString?.(),
-        }))
-      );
-      if (target && isUuid(target)) {
-        const fallback = await pool.query(
-          `UPDATE zapmass.campaign_jobs
-              SET campaign_id = $2::uuid,
-                  updated_at = NOW()
-            WHERE tenant_id = $1::uuid
-              AND campaign_id IS NULL`,
-          [uid, target]
-        );
-        attached += fallback.rowCount ?? 0;
-      }
-    }
+    // Não recolocar órfãos na "única campanha viva": isso marcava a campanha nova
+    // como já enviada (idempotency de outra campanha) e o disparo saía com 0 jobs.
 
     if (attached > 0) {
       console.warn('[CampaignJobs] Relinked orphan jobs to campaign', { tenantId: uid, attached });
