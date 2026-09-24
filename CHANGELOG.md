@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.196] - 2026-09-24
+### Corrigido
+- **Campanha Executando sem enviar**: jobs vencidos na fila BullMQ voltam a ser processados; retomar/iniciar reidrata chips na Evolution antes da proteção decidir “todos offline”; realinhamento respeita cota diária do chip. Watchdog também acorda fila quando já houve entregas mas o progresso parou.
+
 ## [2.3.195] - 2026-09-24
 ### Corrigido
 - **Retomar pausava sozinho**: o mesmo texto para contatos diferentes não pausa mais a campanha (a trava vale só se o mesmo número repetir). Retomar zera essa trava e a janela de auto-pausa. Chip offline adia o job sem marcar a campanha como pausada pelo usuário. Número sem WhatsApp não entra na auto-pausa.

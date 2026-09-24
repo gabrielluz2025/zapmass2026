@@ -92,7 +92,7 @@ import {
     evaluateCampaignDispatchGuard,
     type CampaignDispatchGuardResult
 } from './campaignChipGuard.js';
-import { spreadCampaignJobsOnResume } from './campaignGradualResume.js';
+import { estimateJobRunAt, realignCampaignJobsAfterResume, spreadCampaignJobsOnResume } from './campaignGradualResume.js';
 import { pickDispatchChannel, pickInitialDispatchChannel, type CollectHealthyChannelsContext } from './campaignPoolDispatch.js';
 import {
     loadCampaignPoolConfig,
@@ -7477,10 +7477,26 @@ async function runCampaignDispatchGuard(
 ): Promise<CampaignDispatchGuardResult | null> {
     if (!item.campaignId || !state.ownerUid) return null;
     const ctx = await buildCampaignGuardContext(item, state);
-    const guard = await evaluateCampaignDispatchGuard({
+    let guard = await evaluateCampaignDispatchGuard({
         ...ctx,
         isChannelUsable: isCampaignChannelUsable,
     });
+    if (guard.action === 'pause' && guard.reason === 'all_channels_down') {
+        await refreshConnectionsForCampaign(ctx.channelIds);
+        for (const id of ctx.channelIds) {
+            const cid = String(id || '').trim();
+            if (!cid || isCampaignChannelUsable(cid)) continue;
+            try {
+                await isConnectionOpen(cid);
+            } catch {
+                /* probe falhou — mantém decisão anterior */
+            }
+        }
+        guard = await evaluateCampaignDispatchGuard({
+            ...ctx,
+            isChannelUsable: isCampaignChannelUsable,
+        });
+    }
     if (guard.action === 'pause' && !state.protectionPaused) {
         pauseCampaignForProtection(item.campaignId, {
             reason: guard.reason,
@@ -10059,6 +10075,7 @@ export async function startCampaign(
         emitCampaignLog('ERROR', connErr, { campaignId: cid }, ownerUid);
         throw new Error(connErr);
     }
+    await refreshConnectionsForCampaign(activeConnectionIds);
 
     // Verifica se há stageConfigs → motor multi-etapas lazy (qualquer trigger_type)
     const validStageConfigs = Array.isArray(stageConfigs) && stageConfigs.length > 0
@@ -10398,8 +10415,11 @@ export async function startCampaign(
                 protection: Boolean(runtimeAfterEnqueue?.protectionPaused),
             });
         } else {
-            void releaseShortHeldCampaignJobs(cid).catch((e) =>
-                log('warn', 'releaseShortHeldCampaignJobs falhou', { campaignId: cid, error: (e as Error)?.message })
+            void runPostResumeCampaignQueueRepair(cid, ownerUid, false).catch((e) =>
+                log('warn', 'runPostResumeCampaignQueueRepair falhou após start', {
+                    campaignId: cid,
+                    error: (e as Error)?.message,
+                })
             );
         }
         notifyCampaignBlocking(ownerUid, countActiveCampaignsForOwner(ownerUid) > 0);
@@ -10975,7 +10995,7 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
 
         // Sem sucesso ainda (0 entregues) — mesmo com falhas, ainda é stall de envio.
         const noSuccessYet = (state.successCount || 0) === 0;
-        if (!noSuccessYet) continue;
+        const hasSuccess = !noSuccessYet;
 
         const pendingMem = campaignPendingJobs.get(campaignId) || 0;
         let pendingQueue = pendingMem;
@@ -10989,6 +11009,23 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
         }
 
         const pending = Math.max(pendingMem, pendingQueue);
+
+        if (hasSuccess && pending > 0 && queue) {
+            const lastWake = campaignStallRemapAt.get(`${campaignId}:wake`) || 0;
+            if (now - lastWake >= 120_000) {
+                campaignStallRemapAt.set(`${campaignId}:wake`, now);
+                const channelIds = collectCampaignChannelIdsForRuntime(campaignId, state.ownerUid);
+                const headroom = computeResumeDispatchHeadroom(channelIds);
+                if (headroom > 0 || channelIds.some((id) => isCampaignChannelUsable(id))) {
+                    void runPostResumeCampaignQueueRepair(campaignId, state.ownerUid, headroom <= 0).catch(
+                        () => undefined
+                    );
+                }
+            }
+            continue;
+        }
+
+        if (!noSuccessYet) continue;
 
         if (pending > 0) {
             const lastRemap = campaignStallRemapAt.get(campaignId) || 0;
@@ -12476,6 +12513,76 @@ export function pauseCampaign(campaignId: string, ownerUid?: string) {
     if (ou) notifyCampaignBlocking(ou, countActiveCampaignsForOwner(ou) > 0);
 }
 
+function collectCampaignChannelIdsForRuntime(
+    campaignId: string,
+    ownerUid?: string
+): string[] {
+    const state = campaignsById.get(campaignId);
+    const poolIds =
+        state?.connectionIds?.filter(Boolean) ||
+        [];
+    return Array.from(new Set(poolIds.map((id) => String(id || '').trim()).filter(Boolean)));
+}
+
+function computeResumeDispatchHeadroom(channelIds: string[]): number {
+    let headroom = 400;
+    for (const id of channelIds) {
+        const cid = String(id || '').trim();
+        if (!cid || !isCampaignChannelUsable(cid)) continue;
+        const conn = connections.get(cid);
+        const limit = Math.max(0, Number(conn?.dailyLimit) || 0);
+        if (limit <= 0) continue;
+        const sent = getEffectiveMessagesSentToday(cid, connectionDailyQuotaDeps());
+        headroom = Math.min(headroom, Math.max(0, limit - sent));
+    }
+    return headroom;
+}
+
+async function runPostResumeCampaignQueueRepair(
+    campaignId: string,
+    ownerUid?: string,
+    skipPullForward?: boolean
+): Promise<void> {
+    const cid = String(campaignId || '').trim();
+    if (!cid || pausedCampaigns.has(cid)) return;
+    const state = campaignsById.get(cid);
+    const poolCfg = await loadCampaignPoolConfig(cid).catch(() => null);
+    const channelIds = Array.from(
+        new Set(
+            [...(state?.connectionIds || []), ...(poolCfg?.connectionIds || [])]
+                .map((id) => String(id || '').trim())
+                .filter(Boolean)
+        )
+    );
+    await refreshConnectionsForCampaign(channelIds);
+    await saveCampaignRuntimeToRedis(cid);
+
+    const queue = getCampaignQueue();
+    if (!queue) return;
+
+    const dispatchSettings = getTenantDispatchSettings(ownerUid || state?.ownerUid);
+    const spreadStep = (dispatchSettings.minDelayMs + dispatchSettings.maxDelayMs) / 2;
+    const headroom = computeResumeDispatchHeadroom(channelIds);
+
+    const realign = await realignCampaignJobsAfterResume(queue, cid, {
+        wakeOverdue: true,
+        overdueGraceMs: 20_000,
+        stuckFutureThresholdMs: skipPullForward ? Number.MAX_SAFE_INTEGER : 30 * 60_000,
+        maxPullForward: skipPullForward ? 0 : headroom,
+        maxWakeOverdue: 150,
+        spreadStepMs: spreadStep,
+        jitterMaxMs: Number(process.env.GRADUAL_RESUME_JITTER_MS ?? 5_000),
+    });
+    if (realign.wokenOverdue > 0 || realign.pulledForward > 0) {
+        log('info', `[dispatch] Fila realinhada após retomar ${cid}`, {
+            wokenOverdue: realign.wokenOverdue,
+            pulledForward: realign.pulledForward,
+            headroom,
+        });
+    }
+    await releaseShortHeldCampaignJobs(cid);
+}
+
 /**
  * Jobs presos no ciclo curto do circuit breaker (até 6 min) voltam a ficar elegíveis.
  * Atrasos longos (cronograma, limite diário, madrugada) não são antecipados:
@@ -12493,7 +12600,7 @@ async function releaseShortHeldCampaignJobs(campaignId: string): Promise<number>
         if (state !== 'delayed') return;
         const data = job.data as MessageQueueItem;
         if (String(data?.campaignId || '') !== cid) return;
-        const runAt = (Number(job.timestamp) || now) + (Number(job.delay) || 0);
+        const runAt = estimateJobRunAt(job);
         const remain = runAt - now;
         if (remain > maxRemainMs) return;
         try {
@@ -12569,8 +12676,8 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
     if (ou) notifyCampaignBlocking(ou, countActiveCampaignsForOwner(ou) > 0);
     void saveCampaignRuntimeToRedis(campaignId);
     ensureCampaignWorker();
-    void releaseShortHeldCampaignJobs(campaignId).catch((e) =>
-        log('warn', 'releaseShortHeldCampaignJobs falhou', { campaignId, error: (e as Error)?.message })
+    void runPostResumeCampaignQueueRepair(campaignId, ou, wasProtection).catch((e) =>
+        log('warn', 'runPostResumeCampaignQueueRepair falhou', { campaignId, error: (e as Error)?.message })
     );
 }
 

@@ -83,6 +83,10 @@ describe('estimateJobRunAt', () => {
   it('soma timestamp + delay', () => {
     expect(estimateJobRunAt({ timestamp: 1000, opts: { delay: 5000 } })).toBe(6000);
   });
+
+  it('usa job.delay quando opts.delay ausente', () => {
+    expect(estimateJobRunAt({ timestamp: 2000, delay: 3000 } as { timestamp: number; delay: number })).toBe(5000);
+  });
 });
 
 describe('ChipCircuitBreaker.classifyCounts', () => {

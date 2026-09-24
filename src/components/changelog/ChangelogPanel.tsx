@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.196',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Executando sem disparo: fila acorda jobs vencidos, chips são reidratados antes da pausa por “offline”, retomar respeita cota diária' },
+    ],
+  },
+  {
     version: '2.3.195',
     date: '24/09/2026',
     highlights: [

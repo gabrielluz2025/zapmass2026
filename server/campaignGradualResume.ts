@@ -40,9 +40,14 @@ type CampaignJobLike = {
   getState: () => Promise<string>;
 };
 
-/** Quando o job deve rodar (epoch ms). */
-export function estimateJobRunAt(job: { timestamp: number; opts: { delay?: number } }): number {
-  const delay = Math.max(0, Number(job.opts.delay) || 0);
+/** Quando o job deve rodar (epoch ms). BullMQ expõe delay em `opts.delay` e/ou `delay`. */
+export function estimateJobRunAt(job: {
+  timestamp: number;
+  opts?: { delay?: number };
+  delay?: number;
+}): number {
+  const raw = job.opts?.delay ?? job.delay;
+  const delay = Math.max(0, Number(raw) || 0);
   return job.timestamp + delay;
 }
 
@@ -176,5 +181,128 @@ export async function spreadCampaignJobsOnResume<T extends { campaignId?: string
   }
 
   result.skipped = result.scanned - result.rescheduled - result.errors;
+  return result;
+}
+
+export type RealignCampaignQueueOptions = {
+  /** Jobs com runAt já passado (± grace) voltam para a fila imediata. */
+  wakeOverdue?: boolean;
+  overdueGraceMs?: number;
+  /** Só puxa jobs cujo runAt está além deste delta (ex.: 30 min). */
+  stuckFutureThresholdMs?: number;
+  /** Máximo de jobs “futuro preso” a recolocar a partir de agora (cota diária). */
+  maxPullForward?: number;
+  /** Limite de jobs vencidos a acordar por chamada. */
+  maxWakeOverdue?: number;
+  spreadStepMs?: number;
+  jitterMaxMs?: number;
+  respectNightWindow?: boolean;
+};
+
+/**
+ * Após retomar/iniciar: acorda jobs vencidos e puxa os primeiros jobs
+ * absurdamente distantes quando a janela atual permite envio (sem estourar cota).
+ */
+export async function realignCampaignJobsAfterResume<T extends { campaignId?: string }>(
+  queue: import('bullmq').Queue<T>,
+  campaignId: string,
+  opts?: RealignCampaignQueueOptions
+): Promise<GradualResumeResult & { wokenOverdue: number; pulledForward: number }> {
+  const cfg = {
+    wakeOverdue: true,
+    overdueGraceMs: 15_000,
+    stuckFutureThresholdMs: 30 * 60_000,
+    maxPullForward: 0,
+    maxWakeOverdue: 120,
+    spreadStepMs: DEFAULT_OPTS.spreadStepMs,
+    jitterMaxMs: DEFAULT_OPTS.jitterMaxMs,
+    respectNightWindow: DEFAULT_OPTS.respectNightWindow,
+    ...opts,
+  };
+  const cid = String(campaignId || '').trim();
+  const extra = { wokenOverdue: 0, pulledForward: 0 };
+  const result: GradualResumeResult & typeof extra = {
+    scanned: 0,
+    rescheduled: 0,
+    skipped: 0,
+    errors: 0,
+    ...extra,
+  };
+  if (!cid) return result;
+
+  const collected: CampaignJobLike[] = [];
+  const states: Array<'delayed' | 'waiting'> = ['delayed', 'waiting'];
+  const pageSize = 200;
+
+  for (const state of states) {
+    let start = 0;
+    while (true) {
+      const batch = (await queue.getJobs([state], start, start + pageSize - 1, true)) as import('bullmq').Job<T>[];
+      if (batch.length === 0) break;
+      for (const job of batch) {
+        if (!matchesCampaign(job as CampaignJobLike, cid)) continue;
+        collected.push(job as unknown as CampaignJobLike);
+      }
+      if (batch.length < pageSize) break;
+      start += pageSize;
+    }
+  }
+
+  collected.sort((a, b) => estimateJobRunAt(a) - estimateJobRunAt(b));
+  result.scanned = collected.length;
+  if (collected.length === 0) return result;
+
+  const now = Date.now();
+  let wakeStagger = 0;
+  let pullIndex = 0;
+
+  for (const job of collected) {
+    const runAt = estimateJobRunAt(job);
+    const remain = runAt - now;
+
+    if (cfg.wakeOverdue && remain <= cfg.overdueGraceMs) {
+      if (result.wokenOverdue >= cfg.maxWakeOverdue) {
+        result.skipped++;
+        continue;
+      }
+      try {
+        await rescheduleJob(job, 500 + wakeStagger);
+        wakeStagger = Math.min(wakeStagger + 250, 15_000);
+        result.rescheduled++;
+        result.wokenOverdue++;
+      } catch {
+        result.errors++;
+      }
+      continue;
+    }
+
+    if (
+      cfg.maxPullForward > 0 &&
+      cfg.stuckFutureThresholdMs > 0 &&
+      remain > cfg.stuckFutureThresholdMs &&
+      result.pulledForward < cfg.maxPullForward
+    ) {
+      const newDelayMs = computeGradualDelayMs({
+        index: pullIndex,
+        nowMs: now,
+        originalRunAtMs: now,
+        spreadStepMs: cfg.spreadStepMs,
+        jitterMaxMs: cfg.jitterMaxMs,
+        respectNightWindow: cfg.respectNightWindow,
+      });
+      pullIndex++;
+      try {
+        await rescheduleJob(job, newDelayMs);
+        result.rescheduled++;
+        result.pulledForward++;
+      } catch {
+        result.errors++;
+      }
+      continue;
+    }
+
+    result.skipped++;
+  }
+
   return result;
 }
