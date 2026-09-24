@@ -2109,11 +2109,16 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             const have = conv?.messages?.length || 0;
             let historySyncTriggered = false;
             if (conv && conversationNeedsGoHistorySync(conv)) {
-                historySyncTriggered = Boolean(
-                    await archiveCtx
-                        ?.requestGoInboxHistorySync?.(parsed.connectionId)
-                        .catch(() => false)
-                );
+                const connKey = String(parsed.connectionId || '').trim();
+                const lastAsk = threadGoHistorySyncLastAsk.get(connKey) ?? 0;
+                if (Date.now() - lastAsk >= THREAD_GO_HISTORY_SYNC_ASK_MS) {
+                    threadGoHistorySyncLastAsk.set(connKey, Date.now());
+                    historySyncTriggered = Boolean(
+                        await archiveCtx
+                            ?.requestGoInboxHistorySync?.(parsed.connectionId)
+                            .catch(() => false)
+                    );
+                }
             }
             const msgs = conv ? prepareConversationHistoryForClient(conv, requested) : [];
             return { ok: true, total: have, messages: msgs, historySyncTriggered };

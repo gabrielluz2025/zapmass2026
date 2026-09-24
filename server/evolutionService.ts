@@ -1338,7 +1338,7 @@ function ownerHasBlockingActiveCampaign(ownerUid: string): boolean {
 /** Go: hidrata arquivo + reconnect nos chips abertos para puxar HistorySync do celular. */
 export async function syncGoInboxFromPhoneForOwner(
     ownerUid: string,
-    opts?: { force?: boolean }
+    opts?: { force?: boolean; userInitiated?: boolean }
 ): Promise<{ hydrated: number; triggered: string[] }> {
     const uid = String(ownerUid || '').trim();
     if (!uid || uid === 'anonymous' || !isGoWebhookInboxMode()) {
@@ -1371,6 +1371,15 @@ export async function syncGoInboxFromPhoneForOwner(
             await reemitConversationsForOwner(uid);
             return { hydrated, triggered };
         }
+        const { isAutomatedGoPhoneHistorySyncBlocked } = await import('./chipProtectionService.js');
+        const userInitiated = Boolean(opts?.userInitiated);
+        if (!userInitiated && (await isAutomatedGoPhoneHistorySyncBlocked(uid))) {
+            log('info', 'syncGoInboxFromPhoneForOwner: perfil quieto/env — só arquivo, sem restart', {
+                ownerUid: uid,
+            });
+            await reemitConversationsForOwner(uid);
+            return { hydrated, triggered };
+        }
         const scoped = filterByConnectionScope(uid, getConnections());
         const openIds: string[] = [];
         for (const conn of scoped) {
@@ -1379,13 +1388,21 @@ export async function syncGoInboxFromPhoneForOwner(
             const st = String(conn.status || '').toUpperCase();
             if (st === 'CONNECTED' || st === 'OPEN') openIds.push(id);
         }
-        for (let i = 0; i < openIds.length; i++) {
-            if (i > 0) await sleep(2_500);
-            const ok = await requestGoInboxHistorySync(openIds[i]!, {
+        /** Um canal por ciclo — evita restart em série em todos os chips abertos. */
+        const targetId = openIds[0];
+        if (targetId) {
+            if (openIds.length > 1) {
+                log('info', 'syncGoInboxFromPhoneForOwner: um chip por vez (demais na fila coalescida)', {
+                    ownerUid: uid,
+                    targetId,
+                    openCount: openIds.length,
+                });
+            }
+            const ok = await requestGoInboxHistorySync(targetId, {
                 force: opts?.force,
-                userInitiated: true,
+                userInitiated,
             });
-            if (ok) triggered.push(openIds[i]!);
+            if (ok) triggered.push(targetId);
         }
         await reemitConversationsForOwner(uid);
         if (triggered.length > 0) {
@@ -4609,6 +4626,10 @@ async function requestGoInboxHistorySync(
         return false;
     }
     if (!opts?.userInitiated && !isEvolutionFullHistorySyncEnabled()) return false;
+    if (!opts?.userInitiated && ou) {
+        const { isAutomatedGoPhoneHistorySyncBlocked } = await import('./chipProtectionService.js');
+        if (await isAutomatedGoPhoneHistorySyncBlocked(ou)) return false;
+    }
     if (goInboxHistorySyncInflight.has(id)) {
         const now = Date.now();
         const lastLog = goInboxHistorySyncInflightLogAt.get(id) ?? 0;
@@ -10410,6 +10431,8 @@ export function init(socketIO: SocketIOServer) {
         syncFromPhone: (ou, opts) => syncGoInboxFromPhoneForOwner(ou, opts),
         isCampaignBlocking: (ou) => countActiveCampaignsForOwner(ou) > 0,
         isWarmupBlocking: (ou) => getAutoWarmupState(ou).active,
+        isChipProtectionBlocking: (ou) =>
+            import('./chipProtectionService.js').then((m) => m.isAutomatedGoPhoneHistorySyncBlocked(ou)),
         publishPolicy: (ou, payload) =>
             publishOwnerEvent(ou, 'inbox-sync-policy', payload as unknown as Record<string, unknown>),
     });

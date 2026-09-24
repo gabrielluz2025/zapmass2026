@@ -1,6 +1,6 @@
 /** Política de sync da inbox (servidor → UI via socket `inbox-sync-policy`). */
 
-export type InboxSyncBlockReason = 'campaign' | 'warmup' | 'none';
+export type InboxSyncBlockReason = 'campaign' | 'warmup' | 'chip_protection' | 'none';
 
 export type InboxSyncPolicyPayload = {
   phoneFullBlocked: boolean;

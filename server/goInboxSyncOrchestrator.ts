@@ -37,9 +37,14 @@ const maxConcurrentPerOwner = Math.max(
 
 export type InboxSyncExecutor = {
   reemitLight: (ownerUid: string) => Promise<void>;
-  syncFromPhone: (ownerUid: string, opts?: { force?: boolean }) => Promise<unknown>;
+  syncFromPhone: (
+    ownerUid: string,
+    opts?: { force?: boolean; userInitiated?: boolean }
+  ) => Promise<unknown>;
   isCampaignBlocking: (ownerUid: string) => boolean;
   isWarmupBlocking?: (ownerUid: string) => boolean;
+  /** Proteção de chip (quiet/storm/ban) — bloqueia restart automático do celular. */
+  isChipProtectionBlocking?: (ownerUid: string) => boolean | Promise<boolean>;
   publishPolicy: (ownerUid: string, payload: InboxSyncPolicyPayload) => void;
 };
 
@@ -73,6 +78,37 @@ export function getInboxSyncQueueDepth(ownerUid: string): number {
   return queueByOwner.has(uid) ? 1 : 0;
 }
 
+/** Atualiza cache de proteção e emite política (socket boot). */
+export async function emitInboxSyncPolicyForOwner(ownerUid: string): Promise<void> {
+  const uid = uidNorm(ownerUid);
+  if (!uid || !executor) return;
+  await resolveChipPhoneSyncBlocked(uid);
+  executor.publishPolicy(uid, buildInboxSyncPolicy(uid));
+}
+
+const chipPhoneBlockCache = new Map<string, boolean>();
+
+async function resolveChipPhoneSyncBlocked(uid: string): Promise<boolean> {
+  if (!executor?.isChipProtectionBlocking) {
+    chipPhoneBlockCache.set(uid, false);
+    return false;
+  }
+  const blocked = Boolean(await Promise.resolve(executor.isChipProtectionBlocking(uid)));
+  chipPhoneBlockCache.set(uid, blocked);
+  return blocked;
+}
+
+function chipPhoneSyncBlockedSync(uid: string): boolean {
+  return chipPhoneBlockCache.get(uid) ?? false;
+}
+
+async function isPhoneFullBlocked(uid: string): Promise<boolean> {
+  if (!executor) return false;
+  if (executor.isCampaignBlocking(uid)) return true;
+  if (executor.isWarmupBlocking?.(uid)) return true;
+  return resolveChipPhoneSyncBlocked(uid);
+}
+
 export function buildInboxSyncPolicy(ownerUid: string): InboxSyncPolicyPayload {
   const uid = uidNorm(ownerUid);
   const base = defaultInboxSyncPolicy();
@@ -80,11 +116,18 @@ export function buildInboxSyncPolicy(ownerUid: string): InboxSyncPolicyPayload {
 
   const campaign = executor.isCampaignBlocking(uid);
   const warmup = executor.isWarmupBlocking?.(uid) ?? false;
+  const chipBlocked = chipPhoneSyncBlockedSync(uid);
   const pending = queueByOwner.has(uid);
-  const blockReason = campaign ? 'campaign' : warmup ? 'warmup' : 'none';
+  const blockReason = campaign
+    ? 'campaign'
+    : warmup
+      ? 'warmup'
+      : chipBlocked
+        ? 'chip_protection'
+        : 'none';
 
   return {
-    phoneFullBlocked: campaign || warmup,
+    phoneFullBlocked: campaign || warmup || chipBlocked,
     blockReason,
     pendingPhoneFull: pending,
     nextAutoAttemptSec: nextAutoAttemptSecByOwner.get(uid) ?? 0,
@@ -94,7 +137,10 @@ export function buildInboxSyncPolicy(ownerUid: string): InboxSyncPolicyPayload {
 
 function publishPolicy(ownerUid: string): void {
   if (!executor) return;
-  executor.publishPolicy(ownerUid, buildInboxSyncPolicy(ownerUid));
+  const uid = uidNorm(ownerUid);
+  void resolveChipPhoneSyncBlocked(uid).finally(() => {
+    if (executor) executor.publishPolicy(uid, buildInboxSyncPolicy(uid));
+  });
 }
 
 function scheduleCoalescedProcess(ownerUid: string, delayMs = COALESCE_MS): void {
@@ -136,7 +182,11 @@ async function drainOwnerQueue(ownerUid: string): Promise<void> {
     return;
   }
 
-  if (executor.isCampaignBlocking(uid) || executor.isWarmupBlocking?.(uid)) {
+  if (
+    executor.isCampaignBlocking(uid) ||
+    executor.isWarmupBlocking?.(uid) ||
+    (await isPhoneFullBlocked(uid))
+  ) {
     markHistorySyncDeferredForOwner(uid);
     scheduleBlockedRetry(uid);
     return;
@@ -147,7 +197,11 @@ async function drainOwnerQueue(ownerUid: string): Promise<void> {
     if (intent.mode === 'light') {
       await executor!.reemitLight(uid);
     } else {
-      await executor!.syncFromPhone(uid, { force: intent.source === 'socket' || intent.source === 'automated' });
+      const userInitiated = intent.source === 'socket';
+      await executor!.syncFromPhone(uid, {
+        force: userInitiated,
+        userInitiated,
+      });
     }
     publishPolicy(uid);
     if (queueByOwner.has(uid)) scheduleCoalescedProcess(uid, 1_500);
@@ -173,7 +227,12 @@ export async function handleOwnerInboxSyncRequest(ownerUid: string, fullSync: bo
   }
 
   enqueue(uid, 'phone_full', 'socket');
-  if (executor.isCampaignBlocking(uid) || executor.isWarmupBlocking?.(uid)) {
+  void resolveChipPhoneSyncBlocked(uid);
+  if (
+    executor.isCampaignBlocking(uid) ||
+    executor.isWarmupBlocking?.(uid) ||
+    (await isPhoneFullBlocked(uid))
+  ) {
     await executor.reemitLight(uid);
     publishPolicy(uid);
     scheduleBlockedRetry(uid);
@@ -190,11 +249,18 @@ export function enqueueAutomatedPhoneFullSync(ownerUid: string, source: string):
   enqueue(uid, 'phone_full', source);
   publishPolicy(uid);
   if (!executor) return;
-  if (executor.isCampaignBlocking(uid) || executor.isWarmupBlocking?.(uid)) {
-    scheduleBlockedRetry(uid);
-    return;
-  }
-  scheduleCoalescedProcess(uid);
+  void resolveChipPhoneSyncBlocked(uid);
+  void (async () => {
+    if (await isPhoneFullBlocked(uid)) {
+      scheduleBlockedRetry(uid);
+      return;
+    }
+    if (executor!.isCampaignBlocking(uid) || executor!.isWarmupBlocking?.(uid)) {
+      scheduleBlockedRetry(uid);
+      return;
+    }
+    scheduleCoalescedProcess(uid);
+  })();
 }
 
 export function notifyCampaignBlocking(ownerUid: string, blocking: boolean): void {

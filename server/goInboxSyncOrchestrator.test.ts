@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import {
   buildInboxSyncPolicy,
+  emitInboxSyncPolicyForOwner,
   enqueueAutomatedPhoneFullSync,
   getInboxSyncQueueDepth,
   handleOwnerInboxSyncRequest,
@@ -51,7 +52,21 @@ describe('goInboxSyncOrchestrator', () => {
     expect(p.pendingPhoneFull).toBe(true);
   });
 
-  it('notifyCampaignBlocking dispara publish', () => {
+  it('policy reflete proteção de chip (cache)', async () => {
+    registerInboxSyncExecutor({
+      reemitLight: vi.fn(),
+      syncFromPhone: vi.fn(),
+      isCampaignBlocking: () => false,
+      isChipProtectionBlocking: async () => true,
+      publishPolicy: vi.fn(),
+    });
+    await emitInboxSyncPolicyForOwner('chip-quiet');
+    const p = buildInboxSyncPolicy('chip-quiet');
+    expect(p.phoneFullBlocked).toBe(true);
+    expect(p.blockReason).toBe('chip_protection');
+  });
+
+  it('notifyCampaignBlocking dispara publish', async () => {
     const publishPolicy = vi.fn();
     registerInboxSyncExecutor({
       reemitLight: vi.fn(),
@@ -60,6 +75,7 @@ describe('goInboxSyncOrchestrator', () => {
       publishPolicy,
     });
     notifyCampaignBlocking('t2', false);
+    await new Promise((r) => setTimeout(r, 0));
     expect(publishPolicy).toHaveBeenCalled();
   });
 });

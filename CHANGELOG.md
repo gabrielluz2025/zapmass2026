@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.189] - 2026-09-24
+### Corrigido
+- **Bate-papo Go / HistorySync**: sync do celular respeita perfil de proteção e env; automático deixa de usar `userInitiated` (não bypassa EVOLUTION_SYNC_FULL_HISTORY); **1 chip por ciclo** (não restart em série em todos os abertos); orquestrador expõe bloqueio `chip_protection` na política socket.
+### Documentação
+- **docs/BATE-PAPO-GO-PROTECAO-CANAIS.md**: mapa de fluxos, camadas anti-queda e variáveis .env.
+
 ## [2.3.188] - 2026-09-24
 ### Corrigido
 - **Purge fila campanha**: coleta jobs antes de remover (purge completo numa passada; antes ficava ~30k/46k).

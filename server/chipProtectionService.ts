@@ -407,6 +407,12 @@ export async function getSyncProfileForTenant(tenantId: string): Promise<ChipSyn
   return mergeSyncProfile(envChipSyncProfileNormal(), true);
 }
 
+/** Go: restart (HistorySync) só quando o perfil permite fullHistory ou env global ligado. */
+export async function isAutomatedGoPhoneHistorySyncBlocked(tenantId: string): Promise<boolean> {
+  const profile = await getSyncProfileForTenant(tenantId);
+  return !profile.fullHistory;
+}
+
 export async function getReconnectLimitsForOwner(ownerUid: string): Promise<{
   maxAttempts: number;
   baseDelayMs: number;

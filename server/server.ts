@@ -25,7 +25,7 @@ import { registerAdminAppConfigRoutes } from './adminAppConfigRoutes.js';
 import { registerAdminSystemAnnouncementRoutes } from './adminSystemAnnouncementRoutes.js';
 import { registerAdminOpsRoutes } from './adminOpsRoutes.js';
 import { isGoWebhookInboxMode, usesEvolutionMotor } from './evolutionConfig.js';
-import { buildInboxSyncPolicy, handleOwnerInboxSyncRequest } from './goInboxSyncOrchestrator.js';
+import { emitInboxSyncPolicyForOwner, handleOwnerInboxSyncRequest } from './goInboxSyncOrchestrator.js';
 import { isInDeployGraceWindow } from '../shared/deployGrace.js';
 import { activeEvolutionBaseUrl } from './evolutionEngineConfig.js';
 import { registerEvolutionEngineRoutes } from './evolutionEngineRoutes.js';
@@ -1121,7 +1121,7 @@ const registerSocketHandlers = () => {
     if (uid && uid !== 'anonymous') {
       socket.join(`user:${uid}`);
       if (isGoWebhookInboxMode()) {
-        socket.emit('inbox-sync-policy', buildInboxSyncPolicy(uid));
+        void emitInboxSyncPolicyForOwner(uid).catch(() => undefined);
       }
     }
     const requireActiveSubscription = async (): Promise<boolean> => {

@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.189',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'HistorySync Go: 1 chip/ciclo, proteção de chip no orquestrador, automático sem bypass de env' },
+      { type: 'improvement', text: 'Doc BATE-PAPO-GO-PROTECAO-CANAIS (fluxos e .env)' },
+    ],
+  },
+  {
     version: '2.3.188',
     date: '24/09/2026',
     highlights: [
