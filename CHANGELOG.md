@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.181] - 2026-09-24
+### Corrigido
+- **Diagnóstico Go**: prioriza instância com JID; lista todos os chips (online/qr/offline); aviso explícito fila ~20k.
+
 ## [2.3.180] - 2026-09-24
 ### Corrigido
 - **Diagnóstico Go**: detecta chip aguardando QR vs webhook ok; aviso se fila de campanha > 5k jobs.

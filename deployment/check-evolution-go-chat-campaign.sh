@@ -43,16 +43,34 @@ def has_qr_pending(r):
     q = r.get('qrcode') or ''
     return isinstance(q, str) and len(q) > 40 and not looks_connected(r)
 
+def inst_label(r):
+    if looks_connected(r):
+        return 'online'
+    if has_qr_pending(r):
+        return 'qr'
+    return 'offline'
+
+def pick_score(r):
+    wh = 1 if 'webhook/evolution' in (r.get('webhook') or '') else 0
+    j = 1 if r.get('jid') else 0
+    return (wh, j, r.get('createdAt') or '')
+
 try:
     rows = json.load(sys.stdin).get('data') or []
 except Exception:
     rows = []
 
+summary = '; '.join(
+    f"{r.get('name') or '?'}:{inst_label(r)}" for r in rows[:15]
+)
+if len(rows) > 15:
+    summary += f'; +{len(rows) - 15} mais"
+
 online = [r for r in rows if looks_connected(r)]
 if online:
     with_wh = [r for r in online if 'webhook/evolution' in (r.get('webhook') or '')]
     pool = with_wh or online
-    pool.sort(key=lambda r: r.get('createdAt') or '', reverse=True)
+    pool.sort(key=pick_score, reverse=True)
     pick = pool[0]
     print(pick.get('name') or '')
     print(pick.get('token') or '')
@@ -61,10 +79,12 @@ if online:
     print('1')
     print(len(online))
     print('0')
+    print(len(rows))
+    print(summary)
 else:
     with_wh = [r for r in rows if 'webhook/evolution' in (r.get('webhook') or '')]
     pool = with_wh or rows
-    pool.sort(key=lambda r: r.get('createdAt') or '', reverse=True)
+    pool.sort(key=pick_score, reverse=True)
     pick = pool[0] if pool else {}
     print(pick.get('name') or '')
     print(pick.get('token') or '')
@@ -73,7 +93,9 @@ else:
     print('0')
     print('0')
     print('1' if has_qr_pending(pick) else '0')
-" 2>/dev/null || printf '%s\n' '' '' '' '' '0' '0' '0')
+    print(len(rows))
+    print(summary)
+" 2>/dev/null || printf '%s\n' '' '' '' '' '0' '0' '0' '0' '')
 CONN_NAME="${_chip[0]:-}"
 TOKEN="${_chip[1]:-}"
 JID="${_chip[2]:-}"
@@ -83,9 +105,13 @@ CONNECTED=""
 CONNECTED_COUNT="${_chip[5]:-0}"
 QR_PENDING=""
 [ "${_chip[6]:-0}" = "1" ] && QR_PENDING="true"
+INST_COUNT="${_chip[7]:-0}"
+INST_SUMMARY="${_chip[8]:-}"
 unset _chip
 
-echo "    chip: ${CONN_NAME:-?}"
+echo "    instâncias Go: ${INST_COUNT:-0}"
+[ -n "$INST_SUMMARY" ] && echo "    chips: ${INST_SUMMARY}"
+echo "    chip (diagnóstico): ${CONN_NAME:-?}"
 echo "    jid:  ${JID:-?}"
 echo "    webhook: ${WEBHOOK:-vazio}"
 
@@ -95,7 +121,7 @@ if [ -n "$CONNECTED" ]; then
     warn "${CONNECTED_COUNT} chips connected=true no Go — use só 1 na UI; diagnóstico usa o mais recente com webhook"
   fi
 elif [ -n "$QR_PENDING" ] && [ -n "$CONN_NAME" ]; then
-  bad "Chip ${CONN_NAME} aguardando QR no Go (sessão caiu — comum após HistorySync/restart). Abra Conexões no ZapMass e escaneie de novo."
+  bad "Chip ${CONN_NAME} aguardando QR no Go (sessão caiu — comum após deploy/HistorySync). Conexões no ZapMass → escaneie; repita em todos com :qr no resumo acima."
 elif [ -n "$CONN_NAME" ]; then
   bad "Chip ${CONN_NAME} offline no Go — reconecte no painel Conexões"
 else
@@ -148,8 +174,10 @@ fi
 section "4/5 Envio (campanha / sendText via Go)"
 if [ "$SKIP_SEND_TEST" = "1" ]; then
   warn "SKIP_SEND_TEST=1 — pulando teste de envio"
+elif [ -z "$CONNECTED" ]; then
+  warn "Chip offline/QR — teste send/text só após reconectar (campanhas também param)"
 elif [ -z "$TOKEN" ] || [ -z "$JID" ]; then
-  warn "Sem token/jid — pulando teste send/text"
+  warn "Sem token/jid no chip escolhido — pulando teste send/text"
 else
   # Número do próprio chip (antes do :device)
   PHONE="$(echo "$JID" | cut -d: -f1 | cut -d@ -f1 | tr -cd '0-9')"
@@ -178,6 +206,9 @@ if docker compose exec -T redis redis-cli ping 2>/dev/null | grep -q PONG; then
     QLEN="$(docker compose exec -T redis redis-cli LLEN "bull:${q}:wait" 2>/dev/null | tr -d '\r' || echo 0)"
     ACTIVE="$(docker compose exec -T redis redis-cli LLEN "bull:${q}:active" 2>/dev/null | tr -d '\r' || echo 0)"
     echo "    fila ${q}: wait=${QLEN:-0} active=${ACTIVE:-0}"
+    if [ "$q" = "campaign-messages" ] && [ "${QLEN:-0}" -gt 5000 ] 2>/dev/null; then
+      warn "Fila campaign-messages muito grande (wait=${QLEN}) — chip offline ou campanha pausada; reconecte antes de retomar/disparar"
+    fi
   done
   CAMP_LOG="$(docker compose logs zapmass --tail "$LOG_LINES" 2>/dev/null | grep -ciE 'processCampaignJob|Mensagem aceita|campaign-paused|all_channels_down' || true)"
   echo "    linhas campanha nos logs: ${CAMP_LOG:-0}"

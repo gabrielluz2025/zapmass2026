@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.181',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Diagnóstico Go: resumo multi-chip e pick com JID/webhook' },
+    ],
+  },
+  {
     version: '2.3.180',
     date: '24/09/2026',
     highlights: [
