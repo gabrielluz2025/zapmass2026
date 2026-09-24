@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.193] - 2026-09-24
+### Corrigido
+- **Iniciar / parar disparo**: iniciar limpa pausa antiga que segurava a fila; parar segura o job antes do envio (respostas do fluxo continuam); o progresso não devolve o cartão para Executando. Cronograma diário e fluxo por resposta permanecem.
+- **Chip offline na fila**: se outro chip selecionado está online, o job troca de canal em vez de esperar 60s no chip caído.
+
 ## [2.3.192] - 2026-09-24
 ### Corrigido
 - **Campanha não envia**: jobs de campanha apagada deixam de ser colados na campanha nova (o disparo tratava os contatos como já enviados e enfileirava 0).

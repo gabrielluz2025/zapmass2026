@@ -95,6 +95,7 @@ import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
 import {
   getCampaignPlannedSendTotal,
   getCampaignProgressMetrics,
+  campaignStatusAfterProgress,
   healStuckRunningCampaignsList,
   isCampaignLikelyStartedOnServer,
   isCampaignQueueWorkComplete
@@ -2334,11 +2335,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           if (uid) syncStuckCampaignsToFirestore(next, uid);
           return healStuckRunningCampaignsList(next);
         });
-        if (uid) {
-          patchCampaignPersist(uid, campaignId, {
-          status: CampaignStatus.RUNNING
-          });
-        }
       }
     });
 
@@ -2384,11 +2380,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               processedCount: Math.max(c.processedCount || 0, d.processedCount),
               successCount: Math.max(c.successCount || 0, d.successCount),
               failedCount: Math.max(c.failedCount || 0, d.failedCount),
-              // Não sobrescrever WAITING_REPLY com RUNNING — campanha de fluxo
-              // pode estar aguardando respostas enquanto ainda chegam progresso tardios.
-              status: c.status === CampaignStatus.WAITING_REPLY
-                ? CampaignStatus.WAITING_REPLY
-                : CampaignStatus.RUNNING
+              // Pausa, agenda e conclusão não voltam para Executando por um job atrasado.
+              status: campaignStatusAfterProgress(c.status)
             };
           });
           const u = currentUidRef.current;
@@ -2407,8 +2400,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
 
       if (bar) {
+        const barCampaignPaused =
+          ids.length > 0 &&
+          ids.every((id) => {
+            const cur = campaignsRef.current.find((c) => c.id === id);
+            return cur?.status === CampaignStatus.PAUSED;
+          });
         setCampaignStatus({
-          isRunning: true,
+          isRunning: !barCampaignPaused,
           total: bar.total,
           processed: bar.processed,
           success: bar.successCount,

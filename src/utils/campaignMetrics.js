@@ -157,6 +157,17 @@ export function isCampaignPauseControlVisible(status) {
 export function isCampaignPauseAction(status) {
     return status === CampaignStatus.RUNNING || status === CampaignStatus.WAITING_REPLY;
 }
+/** Progresso de job não desfaz pausa, agenda ou conclusão. */
+export function campaignStatusAfterProgress(current) {
+    if (current === CampaignStatus.PAUSED ||
+        current === CampaignStatus.WAITING_REPLY ||
+        current === CampaignStatus.COMPLETED ||
+        current === CampaignStatus.SCHEDULED ||
+        current === CampaignStatus.FAILED) {
+        return current;
+    }
+    return CampaignStatus.RUNNING;
+}
 /**
  * Quando o documento da campanha vem com contadores zerados mas o relatório
  * já mostra envios, alinha o hero/gauge. PENDING não conta como processado.

@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.193',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Iniciar dispara de novo (pausa antiga não segura a fila) e Parar para de verdade, sem voltar sozinho para Executando' },
+      { type: 'fix', text: 'Job preso em chip offline passa para o chip online selecionado; cronograma e fluxo de resposta seguem valendo' },
+    ],
+  },
+  {
     version: '2.3.192',
     date: '24/09/2026',
     highlights: [

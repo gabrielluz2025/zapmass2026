@@ -193,6 +193,24 @@ export function isCampaignPauseAction(status: CampaignStatus): boolean {
   return status === CampaignStatus.RUNNING || status === CampaignStatus.WAITING_REPLY;
 }
 
+/**
+ * Progresso de um job não pode desfazer pausa, agenda ou conclusão.
+ * Sem isso o cartão volta para Executando depois do usuário clicar em Parar,
+ * e o botão deixa de oferecer Retomar.
+ */
+export function campaignStatusAfterProgress(current: CampaignStatus): CampaignStatus {
+  if (
+    current === CampaignStatus.PAUSED ||
+    current === CampaignStatus.WAITING_REPLY ||
+    current === CampaignStatus.COMPLETED ||
+    current === CampaignStatus.SCHEDULED ||
+    current === CampaignStatus.FAILED
+  ) {
+    return current;
+  }
+  return CampaignStatus.RUNNING;
+}
+
 export type CampaignProgressMetrics = ReturnType<typeof getCampaignProgressMetrics>;
 
 /**

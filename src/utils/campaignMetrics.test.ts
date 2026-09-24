@@ -4,6 +4,7 @@ import {
   getCampaignPlannedSendTotal,
   getCampaignProgressMetrics,
   healCampaignCounters,
+  campaignStatusAfterProgress,
   healStuckCampaignStatus,
   isCampaignLikelyStartedOnServer,
   isCampaignQueueWorkComplete,
@@ -121,6 +122,16 @@ describe('healStuckCampaignStatus', () => {
     });
     expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.COMPLETED);
     expect(isCampaignQueueWorkComplete(c)).toBe(true);
+  });
+});
+
+describe('campaignStatusAfterProgress', () => {
+  it('não devolve campanha pausada para executando', () => {
+    expect(campaignStatusAfterProgress(CampaignStatus.PAUSED)).toBe(CampaignStatus.PAUSED);
+    expect(campaignStatusAfterProgress(CampaignStatus.SCHEDULED)).toBe(CampaignStatus.SCHEDULED);
+    expect(campaignStatusAfterProgress(CampaignStatus.WAITING_REPLY)).toBe(CampaignStatus.WAITING_REPLY);
+    expect(campaignStatusAfterProgress(CampaignStatus.RUNNING)).toBe(CampaignStatus.RUNNING);
+    expect(campaignStatusAfterProgress(CampaignStatus.DRAFT)).toBe(CampaignStatus.RUNNING);
   });
 });
 

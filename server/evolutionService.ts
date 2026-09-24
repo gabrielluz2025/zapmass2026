@@ -4857,7 +4857,9 @@ function bumpCampaignProgress(campaignId: string | undefined, success: boolean) 
         const failRate = recentFails / state.recentOutcomes.length;
         if (failRate >= AUTO_PAUSE_FAIL_THRESHOLD) {
             state.autoPauseEmitted = true;
+            state.manualPaused = true;
             pausedCampaigns.add(campaignId);
+            void saveCampaignRuntimeToRedis(campaignId);
             const pct = Math.round(failRate * 100);
             log('warn', `[auto-pausa] Campanha ${campaignId} pausada: ${pct}% de falhas nos últimos ${AUTO_PAUSE_WINDOW} jobs`, {
                 campaignId, failRate: pct, recentFails, window: AUTO_PAUSE_WINDOW,
@@ -7752,6 +7754,18 @@ async function deferCampaignJobForDailyLimit(
     throw new DelayedError();
 }
 
+/** Segura o job ativo sem enviar. Resposta de fluxo continua (não deixa o contato sem resposta). */
+async function deferActiveJobWhileCampaignPaused(
+    job: Job<MessageQueueItem>,
+    item: MessageQueueItem,
+    token?: string
+): Promise<boolean> {
+    if (item.replyFlowResponse || !item.campaignId) return false;
+    if (!pausedCampaigns.has(item.campaignId)) return false;
+    await job.moveToDelayed(Date.now() + 3000, token);
+    return true;
+}
+
 async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const item = job.data;
 
@@ -7804,8 +7818,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
     }
 
-    if (!item.replyFlowResponse && item.campaignId && pausedCampaigns.has(item.campaignId)) {
-        await job.moveToDelayed(Date.now() + 3000, token);
+    if (await deferActiveJobWhileCampaignPaused(job, item, token)) {
         throw new DelayedError();
     }
 
@@ -8326,6 +8339,27 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             const anyUsable = allIds.some((id) => isCampaignChannelUsable(id));
             const connLabel = connections.get(item.connectionId)?.friendlyName || item.connectionId;
             if (anyUsable) {
+                const fallbackId = allIds.find(
+                    (id) => id !== item.connectionId && isCampaignChannelUsable(id)
+                );
+                if (fallbackId) {
+                    emitCampaignLog(
+                        'WARN',
+                        `Chip ${connLabel} offline — envio passa para ${connections.get(fallbackId)?.friendlyName || fallbackId}`,
+                        {
+                            campaignId: item.campaignId,
+                            de: item.connectionId,
+                            para: fallbackId,
+                            to: item.to,
+                        },
+                        campaignState?.ownerUid
+                    );
+                    item.connectionId = fallbackId;
+                    item._offlineDelayCount = 0;
+                    await job.updateData(item).catch(() => {});
+                    await job.moveToDelayed(Date.now() + 1500, token);
+                    throw new DelayedError();
+                }
                 emitCampaignLog(
                     'WARN',
                     `Chip ${connLabel} offline — outros canais do pool seguem ativos; job reagendado (tentativa ${item._offlineDelayCount}).`,
@@ -8585,6 +8619,10 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
         await executePresenceSimulation(humanizeCtx, sendPresenceComposing);
         await applyGaussianSendDelay(humanizeCtx);
+    }
+
+    if (await deferActiveJobWhileCampaignPaused(job, item, token)) {
+        throw new DelayedError();
     }
 
     const connForQuota = connections.get(item.connectionId);
@@ -10021,6 +10059,9 @@ export async function startCampaign(
     }
 
     const progressSeed = await loadCampaignProgressSeed(ownerUid, cid);
+    // Iniciar de novo não pode herdar pausa manual, auto-pausa ou proteção antiga.
+    // Sem isso os jobs entram na fila e o worker só os adia de 3 em 3s.
+    pausedCampaigns.delete(cid);
     const prevRuntime = campaignsById.get(cid);
     const seededSuccess = Math.max(prevRuntime?.successCount || 0, progressSeed.successCount);
     const seededFail = Math.max(prevRuntime?.failCount || 0, progressSeed.failedCount);
@@ -10310,15 +10351,24 @@ export async function startCampaign(
             },
             ownerUid
         );
+        const runtimeAfterEnqueue = campaignsById.get(cid);
         publishOwnerEvent(ownerUid, 'campaign-started', { total: pendingEnqueue.length, campaignId: cid });
+        const heldAfterStart =
+            pausedCampaigns.has(cid) ||
+            Boolean(runtimeAfterEnqueue?.protectionPaused || runtimeAfterEnqueue?.manualPaused);
+        if (heldAfterStart) {
+            publishOwnerEvent(ownerUid, 'campaign-paused', {
+                campaignId: cid,
+                protection: Boolean(runtimeAfterEnqueue?.protectionPaused),
+            });
+        }
         notifyCampaignBlocking(ownerUid, countActiveCampaignsForOwner(ownerUid) > 0);
         void import('./chipProtectionService.js').then((m) =>
             m.refreshEffectiveProtection(ownerUid)
         );
         // Não sobrescrever PAUSED se o 1º job já ativou proteção durante o enqueue.
         // Nunca gravar 0,0,0 — usa os contadores já hidratados do PG/Redis.
-        const runtimeAfterEnqueue = campaignsById.get(cid);
-        if (!runtimeAfterEnqueue?.protectionPaused) {
+        if (!runtimeAfterEnqueue?.protectionPaused && !runtimeAfterEnqueue?.manualPaused && !pausedCampaigns.has(cid)) {
             void persistCampaignProgressToFirestore(
                 ownerUid,
                 cid,
