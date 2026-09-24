@@ -2,7 +2,7 @@
  * Inspeção e purge seguro de jobs BullMQ `campaign-messages` por campaignId.
  */
 
-import type { Queue } from 'bullmq';
+import type { Job, Queue } from 'bullmq';
 import {
   collectCampaignJobCountsFromQueue,
   countQueueJobsForCampaign,

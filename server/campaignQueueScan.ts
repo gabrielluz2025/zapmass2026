@@ -15,7 +15,7 @@ export async function forEachCampaignQueueJob<T extends { campaignId?: string }>
       const batch = await queue.getJobs([state], start, start + PAGE - 1, true);
       if (batch.length === 0) break;
       for (const job of batch) {
-        await fn(job, state);
+        await fn(job as Job<T>, state);
       }
       if (batch.length < PAGE) break;
       start += PAGE;

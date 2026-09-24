@@ -4621,6 +4621,7 @@ async function requestGoInboxHistorySync(
 ): Promise<boolean> {
     const id = String(instanceName || '').trim();
     if (!id || !isGoWebhookInboxMode()) return false;
+    const ou = resolveOwnerUid(id);
     if (isConnectionInActiveWarmup(id)) {
         log('info', `Go inbox history sync adiado — chip em aquecimento: ${id}`);
         return false;
@@ -4654,7 +4655,6 @@ async function requestGoInboxHistorySync(
     const open = await isConnectionOpen(id);
     if (!open) return false;
 
-    const ou = resolveOwnerUid(id);
     if (ou && ownerHasBlockingActiveCampaign(ou)) {
         markHistorySyncDeferredForOwner(ou);
         log('info', `Go inbox history sync adiado — campanha ativa: ${id}`, {
