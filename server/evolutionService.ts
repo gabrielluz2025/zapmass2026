@@ -1298,6 +1298,13 @@ export async function hydrateInboxFromArchiveForOwner(ownerUid: string): Promise
     return chatStore.hydrateInboxStubsFromArchive(uid);
 }
 
+/** HistorySync em massa derruba chips no Go — não rodar durante disparo ativo. */
+function ownerHasBlockingActiveCampaign(ownerUid: string): boolean {
+    const uid = String(ownerUid || '').trim();
+    if (!uid || uid === 'anonymous') return false;
+    return countActiveCampaignsForOwner(uid) > 0;
+}
+
 /** Go: hidrata arquivo + reconnect nos chips abertos para puxar HistorySync do celular. */
 export async function syncGoInboxFromPhoneForOwner(
     ownerUid: string,
@@ -1306,6 +1313,17 @@ export async function syncGoInboxFromPhoneForOwner(
     const uid = String(ownerUid || '').trim();
     if (!uid || uid === 'anonymous' || !isGoWebhookInboxMode()) {
         return { hydrated: 0, triggered: [] };
+    }
+
+    if (ownerHasBlockingActiveCampaign(uid)) {
+        const hydrated = await hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
+        log('warn', 'syncGoInboxFromPhoneForOwner ignorado — campanha ativa (sem restart em massa)', {
+            ownerUid: uid,
+            activeCampaigns: countActiveCampaignsForOwner(uid),
+            hydrated,
+        });
+        await reemitConversationsForOwner(uid).catch(() => undefined);
+        return { hydrated, triggered: [] };
     }
 
     const inflight = goInboxSyncInFlightByOwner.get(uid);
@@ -1368,7 +1386,16 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
             reset: true,
             limit: isGoWebhookInboxMode() ? INBOX_FIRST_PAGE_SIZE : INBOX_PAGE_SIZE_DEFAULT,
         });
+        const campaignBlocksMassHistorySync =
+            isGoWebhookInboxMode() && ownerHasBlockingActiveCampaign(uid);
         if (page.total === 0 && hasOpenChip && isGoWebhookInboxMode()) {
+            if (campaignBlocksMassHistorySync) {
+                log('info', 'reemitConversationsForOwner: Go RAM vazia — campanha ativa, só arquivo (sem restart)', {
+                    ownerUid: uid,
+                });
+                publishOwnerEvent(uid, 'inbox-page', page as unknown as Record<string, unknown>);
+                return;
+            }
             log('info', 'reemitConversationsForOwner: Go RAM vazia — HistorySync do celular', {
                 ownerUid: uid,
             });
@@ -1386,6 +1413,16 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
             sparseRatio >= 0.35 &&
             Date.now() - lastSparse > GO_INBOX_SPARSE_RECOVERY_MIN_INTERVAL_MS
         ) {
+            if (campaignBlocksMassHistorySync) {
+                log('info', 'reemitConversationsForOwner: threads vazias — campanha ativa, sem HistorySync em massa', {
+                    ownerUid: uid,
+                    total: page.total,
+                    sparseEmpty,
+                    sparseRatio: Math.round(sparseRatio * 100),
+                });
+                publishOwnerEvent(uid, 'inbox-page', page as unknown as Record<string, unknown>);
+                return;
+            }
             goInboxSparseRecoveryLastRun.set(uid, Date.now());
             log('info', 'reemitConversationsForOwner: Go inbox com threads vazias — HistorySync do celular', {
                 ownerUid: uid,
@@ -4488,6 +4525,15 @@ async function requestGoInboxHistorySync(
     const open = await isConnectionOpen(id);
     if (!open) return false;
 
+    const ou = resolveOwnerUid(id);
+    if (ou && ownerHasBlockingActiveCampaign(ou)) {
+        log('info', `Go inbox history sync adiado — campanha ativa: ${id}`, {
+            ownerUid: ou,
+            activeCampaigns: countActiveCampaignsForOwner(ou),
+        });
+        return false;
+    }
+
     goInboxHistorySyncInflight.add(id);
     goInboxHistorySyncLastRun.set(id, Date.now());
     const ttlTimer = setTimeout(() => {
@@ -4503,7 +4549,6 @@ async function requestGoInboxHistorySync(
     }, GO_INBOX_HISTORY_SYNC_INFLIGHT_TTL_MS);
     goInboxHistorySyncInflightTimers.set(id, ttlTimer);
 
-    const ou = resolveOwnerUid(id);
     if (ou) {
         publishOwnerEvent(ou, 'history-sync-status', {
             connectionId: id,
