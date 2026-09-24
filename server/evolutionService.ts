@@ -179,7 +179,9 @@ import {
     countSentJobsByConnection,
     requeuePhantomDeadCampaignJobs,
     resetCampaignJobAfterPhantomFailure,
+    deleteAllCampaignJobsForCampaign,
 } from './campaignJobsResilience.js';
+import { purgeCampaignQueueJobs } from './campaignQueueAdmin.js';
 import {
     checkAndResetDailyLimitsWithDeps,
     consumeDailyCampaignQuota,
@@ -10272,6 +10274,21 @@ export async function startCampaign(
 
         await enqueueCampaignItemsBulk(pendingEnqueue);
 
+        if (
+            pendingEnqueue.length === 0 &&
+            !(totalJobs > 0 && seededProcessed >= totalJobs)
+        ) {
+            campaignsById.delete(cid);
+            void deleteCampaignRuntimeFromRedis(cid);
+            const emptyMsg =
+                skippedSettled > 0
+                    ? 'Nenhuma mensagem nova para enviar — os contatos já constam como entregues nesta campanha. Duplique a campanha ou use outra lista.'
+                    : 'Nenhuma mensagem enfileirada — confira números válidos (10+ dígitos) e o texto do disparo.';
+            emitCampaignLog('ERROR', emptyMsg, { campaignId: cid, skippedSettled, totalJobs }, ownerUid);
+            publishOwnerEvent(ownerUid, 'campaign-error', { campaignId: cid, error: emptyMsg });
+            throw new Error(emptyMsg);
+        }
+
         emitCampaignLog(
             'INFO',
             skippedSettled > 0
@@ -12340,6 +12357,50 @@ function resolveCampaignOwnerUid(campaignId: string, explicitOwnerUid?: string):
     const state = campaignsById.get(campaignId);
     if (state?.ownerUid) return state.ownerUid;
     return getCampaignGeoOwner(campaignId);
+}
+
+/**
+ * Para fila/memória/Redis antes de apagar a campanha no Postgres.
+ * Evita jobs órfãos (ON DELETE SET NULL) religados a outra campanha na listagem.
+ */
+export async function teardownCampaignForDeletion(
+    campaignId: string,
+    ownerUid?: string
+): Promise<void> {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return;
+    const ou = resolveCampaignOwnerUid(cid, ownerUid);
+
+    pauseCampaign(cid, ou);
+    pausedCampaigns.delete(cid);
+
+    const queue = getCampaignBullmqQueue();
+    if (queue) {
+        try {
+            await purgeCampaignQueueJobs(queue, cid, { dryRun: false });
+        } catch (e) {
+            log('warn', 'teardownCampaignForDeletion: purge BullMQ falhou', {
+                campaignId: cid,
+                error: (e as Error)?.message,
+            });
+        }
+    }
+
+    await deleteAllCampaignJobsForCampaign(cid);
+
+    campaignStageConfigsById.delete(cid);
+    campaignPendingJobs.delete(cid);
+    campaignEnqueueInFlight.delete(cid);
+    campaignsById.delete(cid);
+    releaseCampaignMediaFromMemory(cid);
+    releaseCampaignMediaFromMemory(campaignMediaStorageKey(cid, 1));
+    await deleteCampaignRuntimeFromRedis(cid);
+
+    if (replyFlowEngine) {
+        replyFlowEngine.disposeSessionsForCampaign(cid);
+    }
+
+    log('info', 'Campanha desmontada para exclusão', { campaignId: cid, ownerUid: ou });
 }
 
 export function pauseCampaign(campaignId: string, ownerUid?: string) {

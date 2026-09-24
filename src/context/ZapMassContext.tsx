@@ -89,6 +89,7 @@ import {
   healTenantDailyContactsCache,
   readTenantDailyCache,
   scheduleTenantDailyCacheWrite,
+  writeTenantDailyCache,
 } from '../utils/tenantDailyCache';
 import { readContactsFromIdb } from '../utils/contactsIdbCache';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
@@ -480,6 +481,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const reloadVpsContactsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsContactListsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsCampaignsRef = useRef<() => Promise<void>>(async () => {});
+  /** IDs apagados nesta sessão — evita cache local / refetch tardio trazer a campanha de volta. */
+  const deletedCampaignIdsRef = useRef<Set<string>>(new Set());
   const lastTenantDataRefetchMsRef = useRef(0);
   const tenantDataRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadAllContactsRef = useRef<() => Promise<void>>(async () => {});
@@ -494,7 +497,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     try {
       const list = await fetchCampaigns();
       if (currentUidRef.current !== uid) return;
-      setCampaigns(healStuckRunningCampaignsList(list));
+      const tomb = deletedCampaignIdsRef.current;
+      const filtered = tomb.size > 0 ? list.filter((c) => !tomb.has(c.id)) : list;
+      for (const id of [...tomb]) {
+        if (!list.some((c) => c.id === id)) tomb.delete(id);
+      }
+      setCampaigns(healStuckRunningCampaignsList(filtered));
       dismissApiOfflineToast();
     } catch (err) {
       warnProd('[VPS] reload campaigns:', (err as Error)?.message || err);
@@ -1170,6 +1178,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setContacts([]);
         setContactLists([]);
         setCampaigns([]);
+        deletedCampaignIdsRef.current.clear();
         setConnections([]);
       setConversations([]);
       setBirthdays([]);
@@ -4003,7 +4012,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       socketRef.current?.emit('pause-campaign', { campaignId });
     }
     await purgeCampaignForUser(uid, campaignId);
-    setCampaigns((prev) => prev.filter((c) => c.id !== campaignId));
+    deletedCampaignIdsRef.current.add(campaignId);
+    setCampaigns((prev) => {
+      const next = prev.filter((c) => c.id !== campaignId);
+      writeTenantDailyCache(uid, { campaigns: next });
+      flushTenantDailyCacheWrite();
+      return next;
+    });
     void reloadVpsCampaignsRef.current();
     toast.success('Campanha removida.');
   };
@@ -4064,7 +4079,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       );
     }
 
-    setCampaigns((prev) => prev.filter((c) => !removed.has(c.id)));
+    for (const id of removed) deletedCampaignIdsRef.current.add(id);
+    setCampaigns((prev) => {
+      const next = prev.filter((c) => !removed.has(c.id));
+      writeTenantDailyCache(uid, { campaigns: next });
+      flushTenantDailyCacheWrite();
+      return next;
+    });
     void reloadVpsCampaignsRef.current();
 
     if (failures.length > 0) {

@@ -542,6 +542,18 @@ export class ReplyFlowEngine {
         return this.sessionCountByCampaign.get(campaignId) || 0;
     }
 
+    /** Encerra todas as sessões de uma campanha (exclusão / purge). */
+    disposeSessionsForCampaign(campaignId: string): void {
+        const cid = String(campaignId || '').trim();
+        if (!cid) return;
+        for (const [key, session] of [...this.sessions.entries()]) {
+            if (session.campaignId === cid) {
+                this.disposeSession(key, session);
+            }
+        }
+        this.defs.delete(cid);
+    }
+
     private adjustSessionCount(campaignId: string, delta: number) {
         if (!campaignId) return;
         const next = (this.sessionCountByCampaign.get(campaignId) || 0) + delta;
