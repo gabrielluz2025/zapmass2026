@@ -1,4 +1,5 @@
 import { refreshAllKnownTenantProtections, tickChipEarlyWarningWatchdog } from './chipProtectionService.js';
+import { maybeCleanupOldCampaignJobs } from './campaignJobsResilience.js';
 
 const TICK_MS = 60_000;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -14,6 +15,10 @@ async function tick(): Promise<void> {
   } catch (e) {
     console.warn('[ChipProtection] tick campanhas falhou:', (e as Error)?.message);
   }
+  // Limpeza periódica da tabela campaign_jobs (máx 1x/6h)
+  void maybeCleanupOldCampaignJobs().catch((e) =>
+    console.warn('[CampaignJobsCleanup] erro no tick:', (e as Error)?.message)
+  );
 }
 
 export function startChipProtectionScheduler(): void {

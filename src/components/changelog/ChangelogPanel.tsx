@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.197',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Sistema sob backpressure: limite elevado de 50k→200k; limpeza automática de jobs antigos a cada 6h' },
+      { type: 'fix', text: 'Erro ao remover campanha: purge de fila via Redis SCAN (rápido mesmo com 45k+ jobs); timeout protege a rota' },
+      { type: 'fix', text: 'Tudo travado: RAM limpa imediatamente ao excluir; purge da fila em background não bloqueia resposta' },
+    ],
+  },
+  {
     version: '2.3.196',
     date: '24/09/2026',
     highlights: [

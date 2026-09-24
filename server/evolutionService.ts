@@ -5678,22 +5678,41 @@ async function deleteCampaignRuntimeFromRedis(campaignId: string): Promise<void>
 export async function releaseCampaignAfterUserDelete(campaignId: string): Promise<void> {
     const cid = String(campaignId || '').trim();
     if (!cid) return;
+    // Remove imediatamente da RAM — jobs em voo não encontram runtime e são descartados
     pausedCampaigns.delete(cid);
     campaignsById.delete(cid);
     campaignPendingJobs.delete(cid);
     campaignStageConfigsById.delete(cid);
+    campaignStallNotified.delete(`${cid}:reenqueue`);
+    campaignStallNotified.delete(`${cid}:offline`);
+    campaignStallNotified.delete(`${cid}:wake`);
+    campaignStallRemapAt.delete(cid);
     void deleteCampaignRuntimeFromRedis(cid);
     const queue = getCampaignQueue();
     if (!queue) return;
-    try {
-        const { purgeCampaignQueueJobs } = await import('./campaignQueueAdmin.js');
-        await purgeCampaignQueueJobs(queue, cid, { dryRun: false });
-    } catch (e) {
-        log('warn', 'releaseCampaignAfterUserDelete: falha ao limpar fila', {
-            campaignId: cid,
-            error: (e as Error)?.message,
-        });
-    }
+    // Purge da fila BullMQ em segundo plano (com timeout de 30s)
+    const purgePromise = (async () => {
+        try {
+            const { fastPurgeCampaignJobsByRedis, purgeCampaignQueueJobs } = await import('./campaignQueueAdmin.js');
+            const redisConn = getRedisConnectionForOps();
+            let removed = 0;
+            if (redisConn) {
+                removed = await fastPurgeCampaignJobsByRedis(cid, redisConn);
+                log('info', `[delete] Purge rápido Redis SCAN: ${removed} job(s) removidos`, { campaignId: cid });
+            }
+            if (removed === 0) {
+                // Fallback: scan BullMQ convencional (campanhas sem ID de job estável)
+                await purgeCampaignQueueJobs(queue, cid, { dryRun: false });
+            }
+        } catch (e) {
+            log('warn', 'releaseCampaignAfterUserDelete: falha ao limpar fila BullMQ', {
+                campaignId: cid,
+                error: (e as Error)?.message,
+            });
+        }
+    })();
+    const timeout = new Promise<void>((resolve) => setTimeout(resolve, 20_000));
+    await Promise.race([purgePromise, timeout]);
 }
 
 async function applyProgressSeedToRuntime(campaignId: string, ownerUid?: string): Promise<void> {

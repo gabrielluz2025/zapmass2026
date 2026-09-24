@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.197] - 2026-09-24
+### Corrigido
+- **Sistema sob backpressure**: limite elevado de 50k para 200k jobs (configurável via `BACKPRESSURE_THRESHOLD`); adicionada limpeza automática de linhas antigas (>7 dias) da tabela `campaign_jobs` a cada 6h para evitar acúmulo.
+- **Erro ao remover campanha**: purge da fila agora usa Redis SCAN por prefixo do campaignId (ordens de grandeza mais rápido com 45k+ jobs); timeout de 20s no fallback para evitar que o DELETE espere eternamente.
+- **Tudo travado**: RAM limpa imediatamente ao excluir (pausedCampaigns, campaignsById, stall state) mesmo que o purge BullMQ demore.
+
 ## [2.3.196] - 2026-09-24
 ### Corrigido
 - **Campanha Executando sem enviar**: jobs vencidos na fila BullMQ voltam a ser processados; retomar/iniciar reidrata chips na Evolution antes da proteção decidir “todos offline”; realinhamento respeita cota diária do chip. Watchdog também acorda fila quando já houve entregas mas o progresso parou.

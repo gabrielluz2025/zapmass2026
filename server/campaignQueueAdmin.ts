@@ -3,12 +3,85 @@
  */
 
 import type { Job, Queue } from 'bullmq';
+import type IORedis from 'ioredis';
 import {
   collectCampaignJobCountsFromQueue,
   countQueueJobsForCampaign,
   forEachCampaignQueueJob,
   type CampaignQueueScanState,
 } from './campaignQueueScan.js';
+
+const QUEUE_KEY_PREFIX = 'bull:campaign-messages';
+
+/**
+ * Purge rápido via Redis SCAN:
+ * Em vez de iterar todos os jobs da fila (O(totalJobs)),
+ * usa SCAN com padrão `{prefix}:{campaignId}__*` para encontrar
+ * apenas os jobs da campanha e removê-los com pipeline.
+ * Muito mais rápido para campanhas grandes (>1k jobs).
+ */
+export async function fastPurgeCampaignJobsByRedis(
+  campaignId: string,
+  redisClient: IORedis
+): Promise<number> {
+  const cid = String(campaignId || '').trim();
+  if (!cid) return 0;
+
+  const pattern = `${QUEUE_KEY_PREFIX}:${cid}__*`;
+  const jobIds: string[] = [];
+
+  // SCAN para encontrar todos os hashes de jobs desta campanha
+  let cursor = '0';
+  do {
+    const [nextCursor, keys] = await redisClient.scan(
+      cursor,
+      'MATCH',
+      pattern,
+      'COUNT',
+      '500'
+    );
+    cursor = nextCursor;
+    for (const key of keys) {
+      const jobId = key.slice(QUEUE_KEY_PREFIX.length + 1);
+      if (jobId) jobIds.push(jobId);
+    }
+  } while (cursor !== '0');
+
+  if (jobIds.length === 0) return 0;
+
+  // Obter lista de jobs ativos para não remover em voo
+  const activeIds = new Set<string>(
+    await redisClient.lrange(`${QUEUE_KEY_PREFIX}:active`, 0, -1)
+  );
+
+  const toDelete = jobIds.filter((id) => !activeIds.has(id));
+  if (toDelete.length === 0) return 0;
+
+  const BATCH = 500;
+  let removed = 0;
+
+  for (let i = 0; i < toDelete.length; i += BATCH) {
+    const batch = toDelete.slice(i, i + BATCH);
+    const pipeline = redisClient.pipeline();
+
+    // Remove do sorted set de delayed e prioridade
+    pipeline.zrem(`${QUEUE_KEY_PREFIX}:delayed`, ...batch);
+    pipeline.zrem(`${QUEUE_KEY_PREFIX}:prioritized`, ...batch);
+
+    // Remove das listas wait e paused (LREM = O(N) por chamada, mas com pipeline)
+    for (const jobId of batch) {
+      pipeline.lrem(`${QUEUE_KEY_PREFIX}:wait`, 0, jobId);
+      pipeline.lrem(`${QUEUE_KEY_PREFIX}:paused`, 0, jobId);
+      pipeline.del(`${QUEUE_KEY_PREFIX}:${jobId}`);
+      pipeline.del(`${QUEUE_KEY_PREFIX}:${jobId}:logs`);
+    }
+
+    await pipeline.exec();
+    removed += batch.length;
+  }
+
+  return removed;
+}
 
 export type CampaignQueueStateCounts = Record<CampaignQueueScanState, number>;
 

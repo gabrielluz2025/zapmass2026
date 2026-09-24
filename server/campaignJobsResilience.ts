@@ -267,7 +267,7 @@ export interface QueueHealthMetrics {
   backpressureActive: boolean;
 }
 
-const BACKPRESSURE_THRESHOLD = 50_000;
+const BACKPRESSURE_THRESHOLD = Number(process.env.BACKPRESSURE_THRESHOLD ?? 200_000);
 
 export async function getQueueHealthMetrics(): Promise<QueueHealthMetrics | null> {
   if (!isZapmassPostgresConfigured()) return null;
@@ -655,5 +655,36 @@ export async function listSettledCampaignJobs(campaignId: string): Promise<Settl
     }));
   } catch {
     return [];
+  }
+}
+
+let _lastCampaignJobsCleanupAt = 0;
+const CAMPAIGN_JOBS_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6h
+const CAMPAIGN_JOBS_CLEANUP_RETENTION_DAYS = 7;
+
+/**
+ * Remove linhas antigas (> 7 dias) com status sent/failed/dead da tabela campaign_jobs.
+ * Evita crescimento ilimitado da tabela que dispara backpressure prematuro.
+ * Executa no máximo uma vez a cada 6 horas.
+ */
+export async function maybeCleanupOldCampaignJobs(): Promise<void> {
+  const now = Date.now();
+  if (now - _lastCampaignJobsCleanupAt < CAMPAIGN_JOBS_CLEANUP_INTERVAL_MS) return;
+  _lastCampaignJobsCleanupAt = now;
+  if (!isZapmassPostgresConfigured()) return;
+  const pool = getZapmassPool();
+  if (!pool) return;
+  try {
+    const r = await pool.query(
+      `DELETE FROM zapmass.campaign_jobs
+        WHERE status IN ('sent', 'failed', 'dead')
+          AND COALESCE(sent_at, updated_at, created_at) < NOW() - INTERVAL '${CAMPAIGN_JOBS_CLEANUP_RETENTION_DAYS} days'`
+    );
+    const deleted = r.rowCount ?? 0;
+    if (deleted > 0) {
+      console.info(`[CampaignJobsCleanup] ${deleted} linhas antigas removidas (>${CAMPAIGN_JOBS_CLEANUP_RETENTION_DAYS}d).`);
+    }
+  } catch (e) {
+    console.warn('[CampaignJobsCleanup] Falha:', (e as Error)?.message);
   }
 }
