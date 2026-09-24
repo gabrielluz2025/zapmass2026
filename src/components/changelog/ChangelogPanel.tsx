@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.182',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Script diagnóstico Go: corrige syntax error bash/python3 -c' },
+    ],
+  },
+  {
     version: '2.3.181',
     date: '24/09/2026',
     highlights: [

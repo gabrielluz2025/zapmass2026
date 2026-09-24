@@ -61,10 +61,10 @@ except Exception:
     rows = []
 
 summary = '; '.join(
-    f"{r.get('name') or '?'}:{inst_label(r)}" for r in rows[:15]
+    '{}:{}'.format(r.get('name') or '?', inst_label(r)) for r in rows[:15]
 )
 if len(rows) > 15:
-    summary += f'; +{len(rows) - 15} mais"
+    summary += '; +{} mais'.format(len(rows) - 15)
 
 online = [r for r in rows if looks_connected(r)]
 if online:
