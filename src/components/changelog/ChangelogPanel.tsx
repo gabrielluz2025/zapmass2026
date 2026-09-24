@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.185',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Script fila campanha: summary rápido (limit), diag e Node exec sem JSON quebrado' },
+    ],
+  },
+  {
     version: '2.3.184',
     date: '24/09/2026',
     highlights: [

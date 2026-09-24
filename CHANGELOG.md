@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.185] - 2026-09-24
+### Corrigido
+- **campaign-queue-vps.sh**: summary via Node no container, `?limit=30` por padrão (fila ~100k); comando `diag`; exemplos com UUID real.
+
 ## [2.3.184] - 2026-09-24
 ### Corrigido
 - **campaign-queue-vps.sh**: curl via `docker compose exec` (403 loopback); send/text diagnóstico mostra HTTP/body.
