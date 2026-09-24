@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.186',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Script fila campanha: dry-run/purge POST com body JSON corrigido' },
+    ],
+  },
+  {
     version: '2.3.185',
     date: '24/09/2026',
     highlights: [

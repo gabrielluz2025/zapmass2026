@@ -39,27 +39,35 @@ api_json() {
   local path="$2"
   local body="${3:-}"
   local rc=0
+  local exec_env=(
+    -e "ZMQ_METHOD=${method}"
+    -e "ZMQ_PATH=${path}"
+  )
   if [ -n "$body" ]; then
-    printf '%s' "$body" | docker compose exec -T -i \
-      -e "ZMQ_METHOD=${method}" \
-      -e "ZMQ_PATH=${path}" \
-      zapmass node <<'NODE' || rc=$?
-const fs = require('fs');
+    local b64
+    b64="$(printf '%s' "$body" | base64 -w0 2>/dev/null || printf '%s' "$body" | base64 | tr -d '\n')"
+    exec_env+=(-e "ZMQ_BODY_B64=${b64}")
+  fi
+  docker compose exec -T "${exec_env[@]}" zapmass node <<'NODE' || rc=$?
 const method = process.env.ZMQ_METHOD || 'GET';
 const path = process.env.ZMQ_PATH || '/';
 const port = Number(process.env.PORT || 3001);
 const url = 'http://127.0.0.1:' + port + path;
 const key = String(process.env.ZAPMASS_INTERNAL_MONITOR_KEY || process.env.INTERNAL_MONITOR_KEY || '').trim();
-const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
+const headers = { Accept: 'application/json' };
 if (key) headers['X-Internal-Secret'] = key;
 let reqBody = '';
-try { reqBody = fs.readFileSync(0, 'utf8'); } catch { /* vazio */ }
+const b64 = String(process.env.ZMQ_BODY_B64 || '').trim();
+if (b64) {
+  reqBody = Buffer.from(b64, 'base64').toString('utf8');
+  headers['Content-Type'] = 'application/json';
+}
 (async () => {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), 25 * 60 * 1000);
   try {
     const init = { method, headers, signal: ac.signal };
-    if (reqBody.trim()) init.body = reqBody;
+    if (reqBody) init.body = reqBody;
     const res = await fetch(url, init);
     const text = await res.text();
     if (!res.ok) {
@@ -81,44 +89,6 @@ try { reqBody = fs.readFileSync(0, 'utf8'); } catch { /* vazio */ }
   }
 })();
 NODE
-  else
-    docker compose exec -T \
-      -e "ZMQ_METHOD=${method}" \
-      -e "ZMQ_PATH=${path}" \
-      zapmass node <<'NODE' || rc=$?
-const method = process.env.ZMQ_METHOD || 'GET';
-const path = process.env.ZMQ_PATH || '/';
-const port = Number(process.env.PORT || 3001);
-const url = 'http://127.0.0.1:' + port + path;
-const key = String(process.env.ZAPMASS_INTERNAL_MONITOR_KEY || process.env.INTERNAL_MONITOR_KEY || '').trim();
-const headers = { Accept: 'application/json' };
-if (key) headers['X-Internal-Secret'] = key;
-(async () => {
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), 25 * 60 * 1000);
-  try {
-    const res = await fetch(url, { method, headers, signal: ac.signal });
-    const text = await res.text();
-    if (!res.ok) {
-      process.stderr.write('HTTP ' + res.status + ' ' + path + '\n');
-      process.stderr.write((text || '(corpo vazio)').slice(0, 4000) + '\n');
-      if (res.status === 404) process.stderr.write('Dica: deploy ZapMass >= 2.3.183.\n');
-      process.exit(1);
-    }
-    if (!text.trim()) {
-      process.stderr.write('Resposta HTTP 200 vazia em ' + path + '\n');
-      process.exit(1);
-    }
-    process.stdout.write(text);
-  } catch (e) {
-    process.stderr.write(String(e && e.message ? e.message : e) + '\n');
-    process.exit(1);
-  } finally {
-    clearTimeout(t);
-  }
-})();
-NODE
-  fi
   return "$rc"
 }
 
