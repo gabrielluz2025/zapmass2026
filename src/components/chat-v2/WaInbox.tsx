@@ -35,6 +35,8 @@ type Props = {
   historyImporting?: boolean;
   /** Disparo RUNNING: servidor não faz restart Go em massa. */
   historySyncCampaignBlocked?: boolean;
+  /** Proteção quiet/storm/ban ou env — sem restart automático do celular. */
+  historySyncChipProtectionBlocked?: boolean;
   historySyncPendingAfterCampaign?: boolean;
   isGoWebhookInbox?: boolean;
   onSearch: (q: string) => void;
@@ -77,6 +79,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   syncing,
   historyImporting = false,
   historySyncCampaignBlocked = false,
+  historySyncChipProtectionBlocked = false,
   historySyncPendingAfterCampaign = false,
   isGoWebhookInbox = false,
   onSearch,
@@ -241,6 +244,15 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
         >
           Campanha em disparo: sincronização pesada do celular pausada para proteger os chips. Mensagens
           ao vivo continuam; histórico completo após terminar o envio.
+        </div>
+      ) : historySyncChipProtectionBlocked && isGoWebhookInbox ? (
+        <div
+          className="wa-inbox-status px-3 py-2 text-[11px] leading-snug"
+          data-state="import"
+          style={{ background: 'rgba(148,163,184,0.15)', color: 'var(--text-2)' }}
+        >
+          Modo proteção: sync pesado do celular pausado para não derrubar o canal. Use Atualizar só se
+          precisar; mensagens novas seguem pelo WhatsApp normalmente.
         </div>
       ) : historySyncPendingAfterCampaign && isGoWebhookInbox ? (
         <div

@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.190] - 2026-09-24
+### Melhorado
+- **Bate-papo Go**: faixa na inbox quando sync pesado bloqueado por proteção de chip; toasts do botão Atualizar distinguem campanha vs proteção.
+- **HistorySync**: rotação round-robin entre chips abertos (1 restart por ciclo).
+
 ## [2.3.189] - 2026-09-24
 ### Corrigido
 - **Bate-papo Go / HistorySync**: sync do celular respeita perfil de proteção e env; automático deixa de usar `userInitiated` (não bypassa EVOLUTION_SYNC_FULL_HISTORY); **1 chip por ciclo** (não restart em série em todos os abertos); orquestrador expõe bloqueio `chip_protection` na política socket.

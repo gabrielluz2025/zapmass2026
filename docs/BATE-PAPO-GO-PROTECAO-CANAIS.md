@@ -67,3 +67,7 @@ Métricas admin: restarts inbox (1h), fila orquestrador via `inbox-sync-policy` 
 ## Release 2.3.189
 
 Correções: `userInitiated` só no botão (automático respeita env + perfil); orquestrador bloqueia `chip_protection`; phone sync **um chip por ciclo**.
+
+## Release 2.3.190
+
+UI: faixa «modo proteção» na inbox; sync pesado **round-robin** entre chips abertos.

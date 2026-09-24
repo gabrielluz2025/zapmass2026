@@ -157,6 +157,11 @@ export const WaWebChatApp: React.FC<{
     return isGoWebhookInbox && isCampaignBlockingGoHistorySync(campaigns);
   }, [inboxSyncPolicy, isGoWebhookInbox, campaigns]);
 
+  const historySyncChipProtectionBlocked = useMemo(
+    () => inboxSyncPolicy.phoneFullBlocked && inboxSyncPolicy.blockReason === 'chip_protection',
+    [inboxSyncPolicy]
+  );
+
   const historySyncPhoneFullBlocked =
     inboxSyncPolicy.phoneFullBlocked || historySyncCampaignBlocked;
 
@@ -1056,10 +1061,13 @@ export const WaWebChatApp: React.FC<{
   const handleRefresh = useCallback(() => {
     if (historySyncPhoneFullBlocked) {
       runResync({ full: false, force: true });
-      toast('Sync pesado pausado — o servidor enfileira e aplica sozinho quando for seguro.', {
-        icon: '⚠️',
-        duration: 4000,
-      });
+      const msg =
+        inboxSyncPolicy.blockReason === 'campaign' || historySyncCampaignBlocked
+          ? 'Campanha ativa — sync pesado na fila até terminar o disparo.'
+          : inboxSyncPolicy.blockReason === 'chip_protection'
+            ? 'Proteção de chip ativa — só sync leve agora; histórico pesado quando liberar.'
+            : 'Sync pesado pausado — o servidor enfileira e aplica sozinho quando for seguro.';
+      toast(msg, { icon: '⚠️', duration: 4500 });
       return;
     }
     runResync({ full: true, force: true });
@@ -1070,7 +1078,7 @@ export const WaWebChatApp: React.FC<{
         : 'Atualizando conversas do celular…',
       { duration: 2500 }
     );
-  }, [runResync, isGoWebhookInbox, selectedId, loadMoreHistory, historySyncPhoneFullBlocked]);
+  }, [runResync, isGoWebhookInbox, selectedId, loadMoreHistory, historySyncPhoneFullBlocked, inboxSyncPolicy.blockReason, historySyncCampaignBlocked]);
 
   const handleNewConversation = useCallback(() => {
     const raw = window.prompt('Telefone com DDD (apenas números ou +55…)');
@@ -1359,6 +1367,7 @@ export const WaWebChatApp: React.FC<{
         syncing={syncing}
         historyImporting={historyImporting}
         historySyncCampaignBlocked={historySyncCampaignBlocked}
+        historySyncChipProtectionBlocked={historySyncChipProtectionBlocked}
         historySyncPendingAfterCampaign={historySyncPendingAfterCampaign}
         isGoWebhookInbox={isGoWebhookInbox}
         chipsConnected={connectedChannels.length}

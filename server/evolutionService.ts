@@ -1388,16 +1388,22 @@ export async function syncGoInboxFromPhoneForOwner(
             const st = String(conn.status || '').toUpperCase();
             if (st === 'CONNECTED' || st === 'OPEN') openIds.push(id);
         }
-        /** Um canal por ciclo — evita restart em série em todos os chips abertos. */
-        const targetId = openIds[0];
-        if (targetId) {
+        /** Um canal por ciclo — rotação se houver vários abertos. */
+        let targetId: string | undefined;
+        if (openIds.length > 0) {
+            const rr = goInboxPhoneSyncRoundRobin.get(uid) ?? 0;
+            targetId = openIds[rr % openIds.length];
             if (openIds.length > 1) {
-                log('info', 'syncGoInboxFromPhoneForOwner: um chip por vez (demais na fila coalescida)', {
+                goInboxPhoneSyncRoundRobin.set(uid, (rr + 1) % openIds.length);
+                log('info', 'syncGoInboxFromPhoneForOwner: um chip por vez (rotação entre abertos)', {
                     ownerUid: uid,
                     targetId,
                     openCount: openIds.length,
+                    nextIndex: goInboxPhoneSyncRoundRobin.get(uid),
                 });
             }
+        }
+        if (targetId) {
             const ok = await requestGoInboxHistorySync(targetId, {
                 force: opts?.force,
                 userInitiated,
@@ -1849,6 +1855,8 @@ function isPairedConnection(connectionId: string): boolean {
 let connectionHealthTimer: ReturnType<typeof setInterval> | null = null;
 /** Dedupe de sync Go inbox por tenant (reconnect HistorySync). */
 const goInboxSyncInFlightByOwner = new Map<string, Promise<{ hydrated: number; triggered: string[] }>>();
+/** Próximo chip na fila quando há vários abertos (1 restart por ciclo, rotação). */
+const goInboxPhoneSyncRoundRobin = new Map<string, number>();
 const goInboxSparseRecoveryLastRun = new Map<string, number>();
 const GO_INBOX_SPARSE_RECOVERY_MIN_INTERVAL_MS = 5 * 60 * 1000;
 

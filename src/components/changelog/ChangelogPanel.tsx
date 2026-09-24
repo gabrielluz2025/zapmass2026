@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.190',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Inbox Go: aviso proteção de chip + toasts Atualizar por motivo de bloqueio' },
+      { type: 'improvement', text: 'Sync celular: round-robin entre chips abertos' },
+    ],
+  },
+  {
     version: '2.3.189',
     date: '24/09/2026',
     highlights: [
