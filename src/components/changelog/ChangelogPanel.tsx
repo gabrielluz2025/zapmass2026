@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.191',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Fluxo por resposta: sessão + menu disparam após resposta (prioridade sobre stageConfigs, catch-up e hash lock)' },
+    ],
+  },
+  {
     version: '2.3.190',
     date: '24/09/2026',
     highlights: [

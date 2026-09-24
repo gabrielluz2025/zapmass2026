@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.191] - 2026-09-24
+### Corrigido
+- **Fluxo por resposta**: campanhas com `replyFlow` + `stageConfigs` legado passam a abrir sessão (`replyFlowOpen`) em vez do motor multi-etapas.
+- **Fluxo por resposta**: telefone da sessão normalizado ao abrir; respostas do menu enfileiradas via catch-up quando a sessão cai (restart/race); definição do fluxo recarregada no bootstrap inbound.
+- **Fluxo por resposta**: respostas automáticas não passam pelo bloqueio de hash de conteúdo duplicado.
+
 ## [2.3.190] - 2026-09-24
 ### Melhorado
 - **Bate-papo Go**: faixa na inbox quando sync pesado bloqueado por proteção de chip; toasts do botão Atualizar distinguem campanha vs proteção.

@@ -7903,7 +7903,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     const ownerUidForJob = campaignState?.ownerUid || item.ownerUid;
     const textForHashLock = String(item.message || '').trim();
-    if (ownerUidForJob && textForHashLock.length >= 8 && !item.nurtureFollowUp) {
+    if (
+        ownerUidForJob &&
+        textForHashLock.length >= 8 &&
+        !item.nurtureFollowUp &&
+        !item.replyFlowResponse
+    ) {
         const skipHashForMediaOnly =
             Boolean(item.sendAsMedia) &&
             Boolean(item.campaignId || item.mediaLookupKey) &&
@@ -8882,16 +8887,18 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     ensureReplyFlowEngine();
     if (item.replyFlowOpen?.campaignId) {
+        const sessionPhone =
+            normalizePhoneKey(item.replyFlowOpen.phoneDigits || item.to) || phoneDigits;
         const remoteJid =
-            phoneDigits.length >= 8 ? `${phoneDigits}@s.whatsapp.net` : undefined;
+            sessionPhone.length >= 8 ? `${sessionPhone}@s.whatsapp.net` : undefined;
         replyFlowEngine.openSession({
             connectionId: item.connectionId,
-            phoneDigits: item.replyFlowOpen.phoneDigits,
+            phoneDigits: sessionPhone,
             campaignId: item.replyFlowOpen.campaignId,
             ownerUid: item.replyFlowOpen.ownerUid,
-            vars: item.replyFlowOpen.vars,
-            toRaw: item.to,
-            convKey: `${item.connectionId}:${item.replyFlowOpen.phoneDigits}`,
+            vars: item.replyFlowOpen.vars || {},
+            toRaw: item.to || sessionPhone,
+            convKey: `${item.connectionId}:${sessionPhone}`,
             remoteJid,
         });
     }
@@ -9524,7 +9531,15 @@ export async function redispatchCampaign(
         stageConfigs = campaign.stageConfigs.filter((s) => String(s?.body || '').trim().length > 0);
         if (stageConfigs.length) campaignStageConfigsById.set(campaignId, stageConfigs);
     }
-    const useLazyMotor = Boolean(stageConfigs?.length);
+
+    const snapRfEarly = campaign.scheduleStartSnapshot?.replyFlow;
+    const replyFlowEarly = campaign.replyFlow?.enabled ? campaign.replyFlow : snapRfEarly;
+    const sanitizedReplyStepsEarly =
+        replyFlowEarly?.enabled && Array.isArray(replyFlowEarly.steps) && replyFlowEarly.steps.length >= 1
+            ? sanitizeReplyFlowSteps(replyFlowEarly.steps)
+            : [];
+    const useReplyFlowEarly = sanitizedReplyStepsEarly.length >= 1;
+    const useLazyMotor = Boolean(stageConfigs?.length) && !useReplyFlowEarly;
 
     type Target = { phone: string; stepIndex: number };
     let targets: Target[] = [];
@@ -9954,7 +9969,8 @@ export async function startCampaign(
     const validStageConfigs = Array.isArray(stageConfigs) && stageConfigs.length > 0
         ? stageConfigs.filter((s) => s?.body?.trim?.())
         : [];
-    const useLazyMotor = validStageConfigs.length > 0;
+    // Fluxo por resposta tem prioridade: stageConfigs legado no doc não pode suprimir replyFlowOpen.
+    const useLazyMotor = validStageConfigs.length > 0 && !useReplyFlow;
 
     if (useLazyMotor) {
         campaignStageConfigsById.set(cid, validStageConfigs);
@@ -10998,6 +11014,8 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
             phoneDigits,
             incomingConvId,
             hasSession: replyFlowEngine.hasSession(instance, phoneDigits),
+            registerDef: (campaignId, steps, meta) =>
+                replyFlowEngine!.registerDef(campaignId, steps, meta),
             openSession: (p) => replyFlowEngine!.openSession(p),
         });
     }
@@ -11008,6 +11026,24 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
         nonTextReply,
         incomingConvId,
     });
+
+    if (!flowResult.handled && messageOwnerUid && (bodyText?.trim() || nonTextReply)) {
+        const { tryDeliverReplyFlowCatchUp } = await import('./replyFlowCatchUp.js');
+        const catchUp = await tryDeliverReplyFlowCatchUp({
+            tenantId: messageOwnerUid,
+            connectionId: instance,
+            phoneDigits,
+            bodyText,
+            nonTextReply,
+            enqueue: (item) => {
+                const replyDelay = 3000 + Math.random() * 4000;
+                void enqueueCampaignItem(item, replyDelay);
+            },
+        });
+        if (catchUp.handled) {
+            flowResult = { handled: true };
+        }
+    }
 
     if (!flowResult.handled && messageOwnerUid && bodyText?.trim()) {
         const { routeInboundReplyWithoutSession } = await import('./replyFlowCatchUp.js');

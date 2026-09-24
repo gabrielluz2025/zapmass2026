@@ -3,6 +3,7 @@ import { normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
 import {
   classifyReplyIntent,
   findBestMatchingOption,
+  replyMatchesGate,
   type ReplyMatchMode,
 } from '../shared/replyFlowMatch.js';
 import { fetchCampaignDoc } from './campaignStore.js';
@@ -10,6 +11,7 @@ import { processContactOptOut } from './contactOptOutService.js';
 import { getZapmassPool, isZapmassPostgresConfigured } from './db/postgres.js';
 import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
 import {
+  applyMessageVars,
   parseReplyFlowDefFromCampaignDoc,
   sanitizeReplyFlowMeta,
   type ReplyFlowStepDef,
@@ -264,6 +266,88 @@ export async function routeInboundReplyWithoutSession(
   return { handled: true, marketingEffect: 'opt_in' };
 }
 
+export type ReplyFlowCatchUpEnqueueItem = {
+  connectionId: string;
+  to: string;
+  message: string;
+  campaignId: string;
+  ownerUid?: string;
+  replyFlowResponse: true;
+  replyFlowDisposeAfterSend?: boolean;
+  replyFlowAfterSend?: { phoneDigits: string; newAwaitingAfterStep: number };
+  skipFrequencyCap: true;
+};
+
+/**
+ * Quando a sessão em RAM caiu (restart, race, purge) mas o contato responde ao menu/gatilho,
+ * enfileira a mesma resposta que o ReplyFlowEngine enviaria — sem depender de opt-in/out.
+ */
+export async function tryDeliverReplyFlowCatchUp(params: {
+  tenantId: string;
+  connectionId: string;
+  phoneDigits: string;
+  bodyText: string;
+  nonTextReply?: boolean;
+  enqueue: (item: ReplyFlowCatchUpEnqueueItem) => void | Promise<void>;
+}): Promise<{ handled: boolean }> {
+  const bodyText = String(params.bodyText || '').trim();
+  if (!bodyText && !params.nonTextReply) return { handled: false };
+
+  const resolved = await resolveCampaignForInboundReply(
+    params.tenantId,
+    params.connectionId,
+    params.phoneDigits
+  );
+  if (!resolved?.campaignId) return { handled: false };
+
+  const gateCtx = await loadGateStep(params.tenantId, resolved.campaignId);
+  if (!gateCtx) return { handled: false };
+
+  const { gate, steps } = gateCtx;
+  const phone = normalizePhoneDigits(params.phoneDigits);
+  const vars: Record<string, string> = {};
+  const ownerUid = resolved.ownerUid || params.tenantId;
+
+  let outboundMessage = '';
+  let disposeAfterSend = false;
+  let afterSend: ReplyFlowCatchUpEnqueueItem['replyFlowAfterSend'];
+
+  if (gate.options && gate.options.length > 0) {
+    const best = findBestMatchingOption(gate.options, bodyText, gate.matchMode || 'word');
+    if (best) {
+      const opt = gate.options[best.optionIndex];
+      outboundMessage = String(opt?.reply || '').trim();
+      disposeAfterSend = true;
+    } else if (gate.invalidReplyBody) {
+      outboundMessage = gate.invalidReplyBody;
+    }
+  } else if (replyMatchesGate(gate, bodyText, { nonTextReply: params.nonTextReply })) {
+    const nextIdx = 1;
+    if (nextIdx < steps.length) {
+      outboundMessage = steps[nextIdx].body;
+      afterSend = { phoneDigits: phone, newAwaitingAfterStep: nextIdx };
+    }
+  } else if (gate.invalidReplyBody) {
+    outboundMessage = gate.invalidReplyBody;
+  }
+
+  if (!outboundMessage.trim()) return { handled: false };
+
+  const message = applyMessageVars(outboundMessage, phone, vars);
+  await params.enqueue({
+    connectionId: params.connectionId,
+    to: phone,
+    message,
+    campaignId: resolved.campaignId,
+    ownerUid,
+    replyFlowResponse: true,
+    skipFrequencyCap: true,
+    ...(disposeAfterSend ? { replyFlowDisposeAfterSend: true } : {}),
+    ...(afterSend ? { replyFlowAfterSend: afterSend } : {}),
+  });
+  return { handled: true };
+}
+
 /** Reabre sessão quando o contato já recebeu disparo mas a sessão caiu (respostas novas com texto do fluxo). */
 export async function bootstrapReplyFlowSessionForInbound(params: {
   tenantId: string;
@@ -271,6 +355,11 @@ export async function bootstrapReplyFlowSessionForInbound(params: {
   phoneDigits: string;
   incomingConvId?: string;
   hasSession: boolean;
+  registerDef?: (
+    campaignId: string,
+    steps: ReplyFlowStepDef[],
+    meta: ReturnType<typeof sanitizeReplyFlowMeta>
+  ) => void;
   openSession: (p: {
     connectionId: string;
     phoneDigits: string;
@@ -293,6 +382,8 @@ export async function bootstrapReplyFlowSessionForInbound(params: {
   const doc = await fetchCampaignDoc(params.tenantId, resolved.campaignId);
   const parsed = parseReplyFlowDefFromCampaignDoc(doc);
   if (!parsed?.steps?.length) return false;
+
+  params.registerDef?.(resolved.campaignId, parsed.steps, parsed.meta);
 
   const phone = normalizePhoneDigits(params.phoneDigits);
   const remoteJid =
