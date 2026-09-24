@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.187',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Purge fila campanha: confirmação via ZAPMASS_PURGE_CONFIRM na VPS' },
+    ],
+  },
+  {
     version: '2.3.186',
     date: '24/09/2026',
     highlights: [

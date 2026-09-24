@@ -10,6 +10,7 @@
 #   bash deployment/campaign-queue-vps.sh summary --campaign 91bd39d7-5ae8-4df1-99b2-fb34396134c2
 #   bash deployment/campaign-queue-vps.sh dry-run 91bd39d7-5ae8-4df1-99b2-fb34396134c2
 #   bash deployment/campaign-queue-vps.sh purge 91bd39d7-5ae8-4df1-99b2-fb34396134c2
+#   ZAPMASS_PURGE_CONFIRM='PURGE <uuid>' bash deployment/campaign-queue-vps.sh purge <uuid>
 #   bash deployment/campaign-queue-vps.sh diag
 set -euo pipefail
 
