@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.176] - 2026-09-24
+### Corrigido
+- **CI/build**: import de `inboxSyncPolicy` no hook do Bate-papo (caminho `shared/`).
+
 ## [2.3.175] - 2026-09-24
 ### Adicionado
 - **Orquestrador de sync (Go)**: fila única por tenant, coalescência de pedidos (F5/recovery/pós-campanha), retry automático quando campanha ou aquecimento bloqueiam; evento socket `inbox-sync-policy`.

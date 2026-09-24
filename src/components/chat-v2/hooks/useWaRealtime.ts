@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Socket } from 'socket.io-client';
-import type { InboxSyncPolicyPayload } from '../../../shared/inboxSyncPolicy';
-import { defaultInboxSyncPolicy } from '../../../shared/inboxSyncPolicy';
+import type { InboxSyncPolicyPayload } from '../../../../shared/inboxSyncPolicy';
+import { defaultInboxSyncPolicy } from '../../../../shared/inboxSyncPolicy';
 
 export type WaSocketStatus = 'online' | 'offline' | 'slow';
 
