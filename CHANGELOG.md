@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.192] - 2026-09-24
+### Corrigido
+- **Excluir campanha**: ao apagar, a API derruba fila BullMQ, jobs no Postgres e runtime Redis/memória; cache local do navegador deixa de restaurar a campanha excluída.
+- **Iniciar disparo**: se nenhuma mensagem for enfileirada (lista vazia ou tudo já constava como enviado), o servidor retorna erro claro em vez de marcar campanha como iniciada com fila zero.
+
 ## [2.3.191] - 2026-09-24
 ### Corrigido
 - **Fluxo por resposta**: campanhas com `replyFlow` + `stageConfigs` legado passam a abrir sessão (`replyFlowOpen`) em vez do motor multi-etapas.

@@ -228,12 +228,18 @@ export class CampaignDeleteBlockedError extends Error {
   }
 }
 
-export async function deleteCampaign(tenantId: string, campaignId: string): Promise<boolean> {
+export async function deleteCampaign(
+  tenantId: string,
+  campaignId: string,
+  opts?: { skipActiveJobGuard?: boolean }
+): Promise<boolean> {
   const pool = getZapmassPool();
   if (!pool || !isUuid(campaignId)) return false;
-  const active = campaignJobsStillActive(await countCampaignJobsByStatus(campaignId));
-  if (active > 0) {
-    throw new CampaignDeleteBlockedError();
+  if (!opts?.skipActiveJobGuard) {
+    const active = campaignJobsStillActive(await countCampaignJobsByStatus(campaignId));
+    if (active > 0) {
+      throw new CampaignDeleteBlockedError();
+    }
   }
   const r = await pool.query(
     `DELETE FROM zapmass.campaigns WHERE tenant_id = $1::uuid AND id = $2::uuid`,
@@ -244,14 +250,15 @@ export async function deleteCampaign(tenantId: string, campaignId: string): Prom
 
 export async function deleteCampaigns(
   tenantId: string,
-  campaignIds: string[]
+  campaignIds: string[],
+  opts?: { skipActiveJobGuard?: boolean }
 ): Promise<{ deleted: string[]; missing: string[]; blocked: string[] }> {
   const deleted: string[] = [];
   const missing: string[] = [];
   const blocked: string[] = [];
   for (const id of campaignIds) {
     try {
-      const ok = await deleteCampaign(tenantId, id);
+      const ok = await deleteCampaign(tenantId, id, opts);
       if (ok) deleted.push(id);
       else missing.push(id);
     } catch (e) {

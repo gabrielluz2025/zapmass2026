@@ -574,6 +574,21 @@ export function campaignJobsStillActive(counts: Record<string, number> | undefin
  * Jobs com campaign_id NULL (campanha apagada no timeout/deploy: ON DELETE SET NULL).
  * Religa ao UUID ainda no payload, ou à única campanha viva do tenant.
  */
+/** Remove espelho PG dos jobs da campanha (exclusão definitiva — evita órfãos religados a outra campanha). */
+export async function deleteAllCampaignJobsForCampaign(campaignId: string): Promise<number> {
+  const cid = String(campaignId || '').trim();
+  if (!cid || !isUuid(cid) || !isZapmassPostgresConfigured()) return 0;
+  const pool = getZapmassPool();
+  if (!pool) return 0;
+  try {
+    const r = await pool.query(`DELETE FROM zapmass.campaign_jobs WHERE campaign_id = $1::uuid`, [cid]);
+    return r.rowCount ?? 0;
+  } catch (err) {
+    console.error('[CampaignJobs] deleteAllCampaignJobsForCampaign:', (err as Error)?.message);
+    return 0;
+  }
+}
+
 export async function reattachOrphanCampaignJobs(tenantId: string): Promise<number> {
   const uid = String(tenantId || '').trim();
   if (!uid || !isUuid(uid) || !isZapmassPostgresConfigured()) return 0;

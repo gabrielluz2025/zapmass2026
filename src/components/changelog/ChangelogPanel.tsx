@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.192',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Excluir campanha: purge fila + jobs PG + cache local (não volta na lista)' },
+      { type: 'fix', text: 'Disparo sem fila zero: erro explícito se nada for enfileirado' },
+    ],
+  },
+  {
     version: '2.3.191',
     date: '24/09/2026',
     highlights: [
