@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.179',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'syncConnectionsForOwner Go: 1 HistorySync/tenant; open adia com campanha na fila' },
+    ],
+  },
+  {
     version: '2.3.178',
     date: '24/09/2026',
     highlights: [

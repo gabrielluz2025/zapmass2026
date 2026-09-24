@@ -107,6 +107,18 @@ if [ "${WH_FAIL:-0}" -gt 5 ]; then
   bad "Muitos webhooks descartados/falhas (${WH_FAIL}) — verifique token/ownerUid da instância"
 fi
 
+HS_RESTART="$(docker compose logs zapmass --tail "$LOG_LINES" 2>/dev/null | grep -c 'solicitado via reconnect' || true)"
+HS_INFLIGHT="$(docker compose logs zapmass --tail "$LOG_LINES" 2>/dev/null | grep -c 'já em andamento' || true)"
+HS_CAMPAIGN="$(docker compose logs zapmass --tail "$LOG_LINES" 2>/dev/null | grep -ciE 'campanha ativa|sem HistorySync em massa' || true)"
+echo "    HistorySync restart (logs): ${HS_RESTART:-0} | inflight bloqueado: ${HS_INFLIGHT:-0} | campanha adiou: ${HS_CAMPAIGN:-0}"
+if [ "${HS_RESTART:-0}" -gt 8 ]; then
+  warn "Muitos restarts HistorySync — evite sync pesado/F5 com campanha RUNNING"
+elif [ "${HS_INFLIGHT:-0}" -gt 40 ]; then
+  warn "Rajada inflight (threads abertas) — confira versão >= 2.3.178"
+else
+  ok "HistorySync nos logs dentro do esperado"
+fi
+
 section "4/5 Envio (campanha / sendText via Go)"
 if [ "$SKIP_SEND_TEST" = "1" ]; then
   warn "SKIP_SEND_TEST=1 — pulando teste de envio"
@@ -155,9 +167,10 @@ fi
 
 section "Resumo — o que esperar na UI"
 echo "  Bate-papo (Evolution Go):"
+echo "    • Sync pesado passa pelo orquestrador (fila + campanha RUNNING pausa restart)"
 echo "    • Conversas entram via WEBHOOK (Message/SendMessage) — não há findChats histórico"
-echo "    • Após deploy, inbox começa vazia até chegar mensagem nova ou sync offline do Go"
-echo "    • Botão 'Atualizar' no Go dispara reconnect → webhooks HistorySync (aguarde ~30s)"
+echo "    • Após deploy, inbox pode precisar de sync leve ou fila automática pós-campanha"
+echo "    • Botão Atualizar enfileira sync do celular (1 chip/vez por tenant)"
 echo "  Campanhas:"
 echo "    • Disparo usa POST /send/text e /send/media com token do chip"
 echo "    • Chip precisa status ONLINE; retome campanhas pausadas manualmente se necessário"

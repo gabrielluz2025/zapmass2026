@@ -1184,6 +1184,7 @@ export async function syncConnectionsForOwner(
     const syncedChats: string[] = [];
     let mappedChats = 0;
     const syncTasks: Array<() => Promise<void>> = [];
+    const goOwnerWantsPhoneSync = { value: false };
     const { getSyncProfileForTenant } = await import('./chipProtectionService.js');
     const ownerSyncProfile = await getSyncProfileForTenant(uid);
     const staggerSync = !ownerSyncProfile.fullInboxSync;
@@ -1208,15 +1209,15 @@ export async function syncConnectionsForOwner(
                 });
                 if (isGoWebhookInboxMode()) {
                     if (ownerHasBlockingActiveCampaign(uid)) {
+                        markHistorySyncDeferredForOwner(uid);
+                        enqueueAutomatedPhoneFullSync(uid, 'deferred_sync_connections');
                         syncedChats.push(id);
                         return;
                     }
-                    if (ownerSyncProfile.fullHistory) {
-                        await ensureEvolutionFullHistorySync(id);
-                    } else if (opts?.force) {
-                        await requestGoInboxHistorySync(id, { force: true, userInitiated: true });
-                    }
                     syncedChats.push(id);
+                    if (ownerSyncProfile.fullHistory || opts?.force) {
+                        goOwnerWantsPhoneSync.value = true;
+                    }
                     return;
                 }
                 if (ownerHasBlockingActiveCampaign(uid)) {
@@ -1256,6 +1257,13 @@ export async function syncConnectionsForOwner(
     }
 
     if (isGoWebhookInboxMode()) {
+        if (
+            goOwnerWantsPhoneSync.value &&
+            syncedChats.length > 0 &&
+            !ownerHasBlockingActiveCampaign(uid)
+        ) {
+            await syncGoInboxFromPhoneForOwner(uid, { force: Boolean(opts?.force) }).catch(() => undefined);
+        }
         if (syncedChats.length > 0) {
             await hydrateInboxFromArchiveForOwner(uid).catch(() => 0);
             await markOwnerFullSyncDone(uid);
@@ -2318,6 +2326,10 @@ function applyConnectionStateUpdate(
                 }, waitMs);
             } else if (campaignBlocksHistory && syncProfile.fullHistory) {
                 log('info', `[HistorySync] adiado — campanha ativa: ${instance}`);
+                if (ou) {
+                    markHistorySyncDeferredForOwner(ou);
+                    enqueueAutomatedPhoneFullSync(ou, 'deferred_chip_open');
+                }
             }
             if (!isGoWebhookInboxMode()) {
                 if (!postDeployGrace) {
@@ -4690,6 +4702,12 @@ async function ensureEvolutionFullHistorySync(instanceName: string): Promise<boo
     if (fullHistorySyncEnsured.has(id)) return true;
 
     if (isGoWebhookInboxMode()) {
+        const ou = resolveOwnerUid(id);
+        if (ou && ownerHasBlockingActiveCampaign(ou)) {
+            markHistorySyncDeferredForOwner(ou);
+            enqueueAutomatedPhoneFullSync(ou, 'deferred_full_history');
+            return false;
+        }
         const ok = await requestGoInboxHistorySync(id);
         if (ok) fullHistorySyncEnsured.add(id);
         return ok;
