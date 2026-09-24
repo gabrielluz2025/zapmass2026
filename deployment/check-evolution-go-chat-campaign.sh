@@ -32,11 +32,23 @@ section "2/5 Instância Go (token, webhook, chip online)"
 INST_JSON="$(curl -sf -H "apikey: ${GO_KEY}" "http://127.0.0.1:8081/instance/all" 2>/dev/null || echo '{}')"
 mapfile -t _chip < <(echo "$INST_JSON" | python3 -c "
 import json, sys
+
+def looks_connected(r):
+    if r.get('connected') is True:
+        return True
+    st = str(r.get('connectionStatus') or r.get('state') or r.get('status') or '').lower().strip()
+    return st in ('open', 'connected', 'loggedin', 'online')
+
+def has_qr_pending(r):
+    q = r.get('qrcode') or ''
+    return isinstance(q, str) and len(q) > 40 and not looks_connected(r)
+
 try:
     rows = json.load(sys.stdin).get('data') or []
 except Exception:
     rows = []
-online = [r for r in rows if r.get('connected') is True]
+
+online = [r for r in rows if looks_connected(r)]
 if online:
     with_wh = [r for r in online if 'webhook/evolution' in (r.get('webhook') or '')]
     pool = with_wh or online
@@ -48,14 +60,20 @@ if online:
     print(pick.get('webhook') or '')
     print('1')
     print(len(online))
+    print('0')
 else:
-    print('')
-    print('')
-    print('')
-    print('')
+    with_wh = [r for r in rows if 'webhook/evolution' in (r.get('webhook') or '')]
+    pool = with_wh or rows
+    pool.sort(key=lambda r: r.get('createdAt') or '', reverse=True)
+    pick = pool[0] if pool else {}
+    print(pick.get('name') or '')
+    print(pick.get('token') or '')
+    print(pick.get('jid') or '')
+    print(pick.get('webhook') or '')
     print('0')
     print('0')
-" 2>/dev/null || printf '%s\n' '' '' '' '' '0' '0')
+    print('1' if has_qr_pending(pick) else '0')
+" 2>/dev/null || printf '%s\n' '' '' '' '' '0' '0' '0')
 CONN_NAME="${_chip[0]:-}"
 TOKEN="${_chip[1]:-}"
 JID="${_chip[2]:-}"
@@ -63,6 +81,8 @@ WEBHOOK="${_chip[3]:-}"
 CONNECTED=""
 [ "${_chip[4]:-0}" = "1" ] && CONNECTED="true"
 CONNECTED_COUNT="${_chip[5]:-0}"
+QR_PENDING=""
+[ "${_chip[6]:-0}" = "1" ] && QR_PENDING="true"
 unset _chip
 
 echo "    chip: ${CONN_NAME:-?}"
@@ -74,12 +94,18 @@ if [ -n "$CONNECTED" ]; then
   if [ "${CONNECTED_COUNT:-0}" -gt 1 ]; then
     warn "${CONNECTED_COUNT} chips connected=true no Go — use só 1 na UI; diagnóstico usa o mais recente com webhook"
   fi
+elif [ -n "$QR_PENDING" ] && [ -n "$CONN_NAME" ]; then
+  bad "Chip ${CONN_NAME} aguardando QR no Go (sessão caiu — comum após HistorySync/restart). Abra Conexões no ZapMass e escaneie de novo."
+elif [ -n "$CONN_NAME" ]; then
+  bad "Chip ${CONN_NAME} offline no Go — reconecte no painel Conexões"
 else
-  bad "Nenhum chip connected=true — campanhas e bate-papo ficam limitados"
+  bad "Nenhuma instância no Go — crie/conecte um chip no ZapMass"
 fi
 
 if echo "${WEBHOOK:-}" | grep -q 'webhook/evolution'; then
   ok "Webhook apontando para ZapMass"
+elif [ -n "$CONN_NAME" ]; then
+  bad "Webhook não configurado em ${CONN_NAME} — mensagens não chegam ao bate-papo"
 else
   bad "Webhook não configurado — mensagens não chegam ao bate-papo"
 fi

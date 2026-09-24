@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.180',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Script diagnóstico Go: QR pendente, fila campanha grande, status conexão alinhado ao app' },
+    ],
+  },
+  {
     version: '2.3.179',
     date: '24/09/2026',
     highlights: [
