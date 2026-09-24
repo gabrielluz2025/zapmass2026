@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.184] - 2026-09-24
+### Corrigido
+- **campaign-queue-vps.sh**: curl via `docker compose exec` (403 loopback); send/text diagnóstico mostra HTTP/body.
+
 ## [2.3.183] - 2026-09-24
 ### Adicionado
 - **Fila campanhas**: API admin/internal summary + purge por `campaignId` (dry-run); script `deployment/campaign-queue-vps.sh`.

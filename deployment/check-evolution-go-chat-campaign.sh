@@ -182,18 +182,22 @@ else
   # Número do próprio chip (antes do :device)
   PHONE="$(echo "$JID" | cut -d: -f1 | cut -d@ -f1 | tr -cd '0-9')"
   if [ -n "$PHONE" ]; then
-    SEND_JSON="$(curl -sf -X POST "http://127.0.0.1:8081/send/text" \
+    SEND_HTTP="$(curl -sS -o /tmp/zm_send_test.json -w '%{http_code}' -X POST "http://127.0.0.1:8081/send/text" \
       -H "apikey: ${TOKEN}" \
       -H "Content-Type: application/json" \
-      -d "{\"number\":\"${PHONE}\",\"text\":\"[ZapMass] teste diagnóstico $(date +%H:%M)\",\"delay\":800}" 2>/dev/null || echo '{"error":"request failed"}')"
-    echo "    send/text → ${SEND_JSON}" | head -c 300 || true
+      -d "{\"number\":\"${PHONE}\",\"text\":\"[ZapMass] teste diagnóstico $(date +%H:%M)\",\"delay\":800}" 2>/dev/null || echo 000)"
+    SEND_JSON="$(cat /tmp/zm_send_test.json 2>/dev/null || echo '{}')"
+    rm -f /tmp/zm_send_test.json 2>/dev/null || true
+    echo "    send/text HTTP ${SEND_HTTP:-?} → ${SEND_JSON}" | head -c 400 || true
     echo ""
-    if echo "$SEND_JSON" | grep -qiE '"message"[[:space:]]*:[[:space:]]*"success"|"id"|messageId'; then
+    if echo "$SEND_JSON" | grep -qiE '"message"[[:space:]]*:[[:space:]]*"success"|"id"|messageId|"ID"|go-queued|PENDING'; then
       ok "Go aceitou send/text (campanhas usam o mesmo endpoint)"
+    elif [ "${SEND_HTTP:-000}" = "000" ]; then
+      bad "send/text sem resposta HTTP — Go :8081 acessível?"
     elif echo "$SEND_JSON" | grep -qi 'error'; then
-      bad "send/text falhou — campanhas também falharão"
+      bad "send/text falhou (HTTP ${SEND_HTTP}) — campanhas também falharão neste chip"
     else
-      warn "Resposta send/text ambígua — confira manualmente"
+      warn "Resposta send/text ambígua (HTTP ${SEND_HTTP}) — confira token do chip ${CONN_NAME:-?}"
     fi
   else
     warn "Não foi possível extrair número do JID para teste"

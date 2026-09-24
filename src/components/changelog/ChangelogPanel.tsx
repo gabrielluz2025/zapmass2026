@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.184',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Script fila campanha VPS: exec no container; diagnóstico send/text com HTTP' },
+    ],
+  },
+  {
     version: '2.3.183',
     date: '24/09/2026',
     highlights: [

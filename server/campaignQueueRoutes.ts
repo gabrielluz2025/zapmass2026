@@ -5,7 +5,7 @@ import {
   countCampaignQueueJobsDetailed,
   purgeCampaignQueueJobs,
 } from './campaignQueueAdmin.js';
-import { isLoopbackRequest } from './chipHealthMonitorAuth.js';
+import { isChipHealthMonitorInternalAccess, isLoopbackRequest } from './chipHealthMonitorAuth.js';
 import * as evolutionService from './evolutionService.js';
 
 function parseConfirmPhrase(campaignId: string, raw: unknown): boolean {
@@ -92,11 +92,20 @@ async function handlePurge(req: Request, res: Response): Promise<void> {
   });
 }
 
+function assertInternalCampaignQueueAccess(req: Request, res: Response): boolean {
+  if (isLoopbackRequest(req) || isChipHealthMonitorInternalAccess(req)) {
+    return true;
+  }
+  res.status(403).json({
+    ok: false,
+    error: 'Acesso negado. Use docker compose exec zapmass curl … ou X-Internal-Secret.',
+  });
+  return false;
+}
+
 export function registerCampaignQueueRoutes(app: Express): void {
   app.get('/api/internal/campaign-queue/summary', async (req, res) => {
-    if (!isLoopbackRequest(req)) {
-      return res.status(403).json({ ok: false, error: 'Somente localhost.' });
-    }
+    if (!assertInternalCampaignQueueAccess(req, res)) return;
     try {
       await handleSummary(req, res);
     } catch (e) {
@@ -107,9 +116,7 @@ export function registerCampaignQueueRoutes(app: Express): void {
   });
 
   app.post('/api/internal/campaign-queue/purge', async (req, res) => {
-    if (!isLoopbackRequest(req)) {
-      return res.status(403).json({ ok: false, error: 'Somente localhost.' });
-    }
+    if (!assertInternalCampaignQueueAccess(req, res)) return;
     try {
       await handlePurge(req, res);
     } catch (e) {
