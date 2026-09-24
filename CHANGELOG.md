@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.173] - 2026-09-24
+### Corrigido
+- **Evolution Go / HistorySync**: no máximo 1 restart simultâneo por tenant; close de restart interno não conta em reconnect_storm; sync de conexões e open pós-conexão respeitam campanha ativa.
+
 ## [2.3.172] - 2026-09-24
 ### Corrigido
 - **Campanha + Evolution Go**: bloqueia HistorySync em massa (`instance/restart`) enquanto houver disparo RUNNING — evita derrubar vários chips ao abrir Bate-papo/F5 ou recovery de threads vazias.

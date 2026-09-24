@@ -334,13 +334,19 @@ export function onConnectionClosed(connectionId: string, wasBan: boolean): void 
       return;
     }
 
+    const cid = String(connectionId || '').trim();
+    if (evo.isHistorySyncRestartHoldActive?.(cid)) {
+      console.log(
+        `[ChipProtection] Close ignorado (HistorySync/restart interno): ${cid}`
+      );
+      return;
+    }
+
     const now = Date.now();
 
     if (isInDeployGraceWindow()) {
       return;
     }
-
-    const cid = String(connectionId || '').trim();
     const chipPrev = closeEventsByConnection.get(cid) ?? [];
     const chipRecent = chipPrev.filter((t) => now - t < CLOSE_STORM_WINDOW_MS);
     chipRecent.push(now);

@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.173',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'HistorySync: 1 restart/tenant, storm não conta restart interno, sync conexões seguro em campanha' },
+    ],
+  },
+  {
+    version: '2.3.172',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Com campanha ativa: sem restart em massa do Go (HistorySync) — chips não caem em cascata' },
+    ],
+  },
+  {
     version: '2.3.171',
     date: '23/09/2026',
     highlights: [

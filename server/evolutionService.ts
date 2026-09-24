@@ -1193,11 +1193,19 @@ export async function syncConnectionsForOwner(
                     });
                 });
                 if (isGoWebhookInboxMode()) {
+                    if (ownerHasBlockingActiveCampaign(uid)) {
+                        syncedChats.push(id);
+                        return;
+                    }
                     if (ownerSyncProfile.fullHistory) {
                         await ensureEvolutionFullHistorySync(id);
                     } else if (opts?.force) {
                         await requestGoInboxHistorySync(id, { force: true, userInitiated: true });
                     }
+                    syncedChats.push(id);
+                    return;
+                }
+                if (ownerHasBlockingActiveCampaign(uid)) {
                     syncedChats.push(id);
                     return;
                 }
@@ -2268,18 +2276,29 @@ function applyConnectionStateUpdate(
             const openAt = connections.get(instance)?.lastOpenAt ?? Date.now();
             const openAgeMs = Date.now() - openAt;
             const HISTORY_SYNC_MIN_OPEN_MS = 10 * 60 * 1000;
-            if (syncProfile.fullHistory && !postDeployGrace && openAgeMs >= HISTORY_SYNC_MIN_OPEN_MS) {
+            const campaignBlocksHistory =
+                Boolean(ou && ownerHasBlockingActiveCampaign(ou));
+            if (
+                syncProfile.fullHistory &&
+                !postDeployGrace &&
+                !campaignBlocksHistory &&
+                openAgeMs >= HISTORY_SYNC_MIN_OPEN_MS
+            ) {
                 await ensureEvolutionFullHistorySync(instance);
-            } else if (syncProfile.fullHistory && !postDeployGrace) {
+            } else if (syncProfile.fullHistory && !postDeployGrace && !campaignBlocksHistory) {
                 const waitMs = HISTORY_SYNC_MIN_OPEN_MS - openAgeMs;
                 log('info', `[HistorySync] adiando sync de ${instance} por ${Math.ceil(waitMs / 1000)}s (sessão nova)`);
                 setTimeout(() => {
                     void (async () => {
                         const still = connections.get(instance);
                         if (!still || still.status !== 'open') return;
+                        const ouLater = resolveOwnerUid(instance);
+                        if (ouLater && ownerHasBlockingActiveCampaign(ouLater)) return;
                         await ensureEvolutionFullHistorySync(instance);
                     })();
                 }, waitMs);
+            } else if (campaignBlocksHistory && syncProfile.fullHistory) {
+                log('info', `[HistorySync] adiado — campanha ativa: ${instance}`);
             }
             if (!isGoWebhookInboxMode()) {
                 if (!postDeployGrace) {
@@ -4479,6 +4498,43 @@ const goInboxHistorySyncInflight = new Set<string>();
 const goInboxHistorySyncInflightTimers = new Map<string, ReturnType<typeof setTimeout>>();
 /** Tempo máximo que o lock de reconnect fica ativo aguardando OfflineSyncCompleted. */
 const GO_INBOX_HISTORY_SYNC_INFLIGHT_TTL_MS = 3 * 60 * 1000;
+/** Close causado por POST /instance/restart (HistorySync) — não contar em reconnect_storm. */
+const historySyncRestartHoldUntil = new Map<string, number>();
+const HISTORY_SYNC_RESTART_HOLD_MS = 5 * 60 * 1000;
+/** Máximo de restarts Go simultâneos por tenant (Evolution retorna 500 em rajada). */
+const GO_HISTORY_SYNC_MAX_CONCURRENT_PER_OWNER = Math.max(
+    1,
+    Math.min(3, Number(process.env.GO_HISTORY_SYNC_MAX_CONCURRENT_PER_OWNER ?? 1))
+);
+
+function markHistorySyncRestartHold(connectionId: string): void {
+    const id = String(connectionId || '').trim();
+    if (!id) return;
+    historySyncRestartHoldUntil.set(id, Date.now() + HISTORY_SYNC_RESTART_HOLD_MS);
+}
+
+/** Usado pela proteção anti-storm: restart interno ≠ queda real do chip. */
+export function isHistorySyncRestartHoldActive(connectionId: string): boolean {
+    const id = String(connectionId || '').trim();
+    if (!id) return false;
+    const until = historySyncRestartHoldUntil.get(id);
+    if (!until) return false;
+    if (Date.now() >= until) {
+        historySyncRestartHoldUntil.delete(id);
+        return false;
+    }
+    return true;
+}
+
+function countOwnerHistorySyncInflight(ownerUid: string): number {
+    const uid = String(ownerUid || '').trim();
+    if (!uid) return 0;
+    let n = 0;
+    for (const cid of goInboxHistorySyncInflight) {
+        if (resolveOwnerUid(cid) === uid) n++;
+    }
+    return n;
+}
 
 function releaseGoInboxHistorySyncInflight(instanceName: string): void {
     const id = String(instanceName || '').trim();
@@ -4533,6 +4589,15 @@ async function requestGoInboxHistorySync(
         });
         return false;
     }
+    if (
+        ou &&
+        countOwnerHistorySyncInflight(ou) >= GO_HISTORY_SYNC_MAX_CONCURRENT_PER_OWNER
+    ) {
+        log('info', `Go inbox history sync adiado — limite ${GO_HISTORY_SYNC_MAX_CONCURRENT_PER_OWNER} por tenant: ${id}`, {
+            ownerUid: ou,
+        });
+        return false;
+    }
 
     goInboxHistorySyncInflight.add(id);
     goInboxHistorySyncLastRun.set(id, Date.now());
@@ -4558,6 +4623,7 @@ async function requestGoInboxHistorySync(
 
     try {
         await api.post(`/instance/restart/${evoInst(id)}`, {});
+        markHistorySyncRestartHold(id);
         log('info', `Go inbox history sync solicitado via reconnect: ${id}`, {
             userInitiated: Boolean(opts?.userInitiated),
         });
