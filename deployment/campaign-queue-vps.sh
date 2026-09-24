@@ -176,7 +176,13 @@ PY
     fi
     echo "AVISO: remove jobs waiting/delayed/paused da campanha e pausa a campanha na RAM."
     echo "Confirm phrase: PURGE ${CID}"
-    read -r -p "Digite exatamente a frase acima: " phrase
+    if [ -n "${ZAPMASS_PURGE_CONFIRM:-}" ]; then
+      phrase="${ZAPMASS_PURGE_CONFIRM}"
+      echo "(confirmação via ZAPMASS_PURGE_CONFIRM)" >&2
+    else
+      echo "(Dica: uma linha só — ou use ZAPMASS_PURGE_CONFIRM='PURGE ${CID}' no mesmo comando)" >&2
+      read -r -p "Digite exatamente a frase acima: " phrase
+    fi
     if [ "$phrase" != "PURGE ${CID}" ]; then
       echo "Confirmação incorreta — abortado." >&2
       exit 1

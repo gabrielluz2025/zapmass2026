@@ -118,6 +118,7 @@ export async function purgeCampaignQueueJobs(
   let wouldRemove = 0;
   let skippedActive = 0;
   let failedRemove = 0;
+  const toRemove: Job[] = [];
 
   await forEachCampaignQueueJob(queue, async (job, state) => {
     if (String(job.data?.campaignId || '').trim() !== cid) return;
@@ -134,13 +135,17 @@ export async function purgeCampaignQueueJobs(
       return;
     }
 
+    toRemove.push(job);
+  });
+
+  for (const job of toRemove) {
     try {
       await job.remove();
       removed += 1;
     } catch {
       failedRemove += 1;
     }
-  });
+  }
 
   return {
     campaignId: cid,

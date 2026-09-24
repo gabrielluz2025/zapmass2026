@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.188',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Purge BullMQ por campanha remove todos os jobs (scan + remove separados)' },
+    ],
+  },
+  {
     version: '2.3.187',
     date: '24/09/2026',
     highlights: [

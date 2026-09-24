@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.188] - 2026-09-24
+### Corrigido
+- **Purge fila campanha**: coleta jobs antes de remover (purge completo numa passada; antes ficava ~30k/46k).
+
 ## [2.3.187] - 2026-09-24
 ### Corrigido
 - **campaign-queue-vps.sh**: purge com `ZAPMASS_PURGE_CONFIRM` (evita colar comando errado no prompt interativo).
