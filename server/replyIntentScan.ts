@@ -196,7 +196,6 @@ function enrichConversationsForConnectionScope(convs: Conversation[]): Conversat
     return {
       ...c,
       connectionOwnerUid,
-      ownerUid: c.ownerUid || connectionOwnerUid,
     };
   });
 }

@@ -128,8 +128,7 @@ export async function applyLeadClassificationForTenant(
     body.reprocessFlow &&
     body.connectionId &&
     phoneDigits.length >= 8 &&
-    replySnippet &&
-    classification !== 'blacklist'
+    replySnippet
   ) {
     await reprocessReplyFlowInbound({
       connectionId: String(body.connectionId),

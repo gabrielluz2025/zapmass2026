@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.177',
+    date: '24/09/2026',
+    highlights: [{ type: 'fix', text: 'CI typecheck: replyIntent (Contact, Conversation, blacklist)' }],
+  },
+  {
+    version: '2.3.176',
+    date: '24/09/2026',
+    highlights: [{ type: 'fix', text: 'Build: caminho correto do shared/inboxSyncPolicy no Bate-papo' }],
+  },
+  {
     version: '2.3.175',
     date: '24/09/2026',
     highlights: [

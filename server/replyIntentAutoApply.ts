@@ -18,7 +18,7 @@ import {
   resolveMergedMessagesForScan,
 } from './replyIntentScan.js';
 import { routeInboundReplyWithoutSession } from './replyFlowCatchUp.js';
-import type { Contact, Conversation } from './types.js';
+import type { Contact, Conversation } from '../src/types.js';
 
 export type AutoApplyReplyIntentResult = {
   scanned: number;
