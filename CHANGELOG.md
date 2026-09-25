@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.201] - 2026-09-25
+### Melhorado
+- **Cotas diárias e divisão por períodos respeitam o limite do canal**: Quando um canal possui limite diário próprio configurado (`conn.dailyLimit > 0`), este prevalece como teto máximo sobre a cota diária da campanha (`effectiveChannelLimit = Math.min(campaignLimit, connDailyLimit)`).
+- **Proporcionalidade de períodos com teto do canal**: No fracionamento em períodos (ex: 50% manhã e 50% tarde), a divisão percentual é calculada sobre o teto efetivo do canal (ex: limite do canal 40 msg vira 20 de manhã e 20 à tarde, em vez de extrapolar para 50/50).
+- **Enfileiramento inteligente por dia e período**: O agendamento da campanha aloca até a cota diária efetiva do canal no dia antes de direcionar os contatos restantes para os próximos dias programados.
+- **Aviso no Wizard de Campanhas**: O assistente de criação de campanhas exibe aviso claro e explicativo quando o canal selecionado possui limite diário menor que o configurado na campanha, detalhando as cotas resultantes da manhã e da tarde.
+
 ## [2.3.200] - 2026-09-25
 ### Corrigido
 - **Deleção de campanhas resiliente**: remoção direta indexada em `campaign_jobs` sem sequential scan em JSONB; remoção em tabelas filhas `campaign_contact_state`, `campaign_logs` e `campaign_jobs_dlq_alerts`; suporte a UUID 32-hex e normalizado; rota `DELETE /api/campaigns/:id` idempotente.

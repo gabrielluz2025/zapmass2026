@@ -162,6 +162,7 @@ import {
 } from './antiBanProactiveNotifications.js';
 import {
     computeDailyScheduleDelayMs,
+    computeEffectiveChannelDailyLimit,
     msUntilNextDailyScheduleWindow,
     parseCampaignDailySchedule,
     type DailyScheduleWindow,
@@ -10338,12 +10339,20 @@ export async function startCampaign(
                     enqueuedIndexPerDayPerChannel[assignedConnectionId] = {};
                 }
 
+                // Limite configurado no próprio canal prevalece como teto máximo sobre a cota da campanha
+                const connObj = connections.get(assignedConnectionId);
+                const connDailyLimit = Math.max(0, Number(connObj?.dailyLimit) || 0);
+
                 let chosenDayIndex = 0;
                 let dayFound = false;
 
                 for (const dConfig of dailySchedule.days) {
+                    const effectiveLimit = computeEffectiveChannelDailyLimit(
+                        dConfig.limitPerChannel,
+                        connDailyLimit
+                    );
                     const currentCount = enqueuedCountPerDayPerChannel[assignedConnectionId][dConfig.dayIndex] || 0;
-                    if (currentCount < dConfig.limitPerChannel) {
+                    if (currentCount < effectiveLimit) {
                         chosenDayIndex = dConfig.dayIndex;
                         dayFound = true;
                         break;
@@ -10365,7 +10374,9 @@ export async function startCampaign(
                         ? Math.round((120_000 + Math.random() * 180_000))
                         : 0);
 
-                const dayLimit = dailySchedule.days.find(d => d.dayIndex === chosenDayIndex)?.limitPerChannel ?? 100;
+                const rawDayLimit = dailySchedule.days.find(d => d.dayIndex === chosenDayIndex)?.limitPerChannel ?? 100;
+                const effectiveDayLimit = computeEffectiveChannelDailyLimit(rawDayLimit, connDailyLimit);
+
                 staggerDelay = computeDailyScheduleDelayMs({
                     nowMs: Date.now(),
                     dayIndex: chosenDayIndex,
@@ -10374,7 +10385,8 @@ export async function startCampaign(
                     allowedWeekdays: dailySchedule.allowedWeekdays,
                     timePeriodEnabled: dailySchedule.timePeriodEnabled,
                     periods: dailySchedule.periods,
-                    dayLimit,
+                    dayLimit: effectiveDayLimit,
+                    channelDailyLimit: connDailyLimit,
                 });
             } else {
                 const jitterFactor = 0.75 + Math.random() * 0.5;
@@ -12615,9 +12627,9 @@ function collectCampaignChannelIdsForRuntime(
     return Array.from(new Set(poolIds.map((id) => String(id || '').trim()).filter(Boolean)));
 }
 
-function computeResumeDispatchHeadroom(channelIds: string[]): number {
+function computeResumeDispatchHeadroom(channelIds: string[], campaignDailyLimit?: number): number {
     // Headroom = total de vagas disponíveis em TODOS os chips (não o mínimo)
-    // Se nenhum chip tem limite configurado, retorna valor alto (sem restrição)
+    // Se nenhum chip tem limite configurado e nem campanha tem teto diário, retorna valor alto (sem restrição)
     let total = 0;
     let hasLimit = false;
     for (const id of channelIds) {
@@ -12625,11 +12637,16 @@ function computeResumeDispatchHeadroom(channelIds: string[]): number {
         if (!cid || !isCampaignChannelUsable(cid)) continue;
         const conn = connections.get(cid);
         checkAndResetDailyLimits(conn as Parameters<typeof checkAndResetDailyLimits>[0]);
-        const limit = Math.max(0, Number(conn?.dailyLimit) || 0);
-        if (limit <= 0) return 400; // sem limite → sem restrição
-        hasLimit = true;
-        const sent = getEffectiveMessagesSentToday(cid, connectionDailyQuotaDeps());
-        total += Math.max(0, limit - sent);
+        const connLimit = Math.max(0, Number(conn?.dailyLimit) || 0);
+        const effectiveLimit = computeEffectiveChannelDailyLimit(
+            campaignDailyLimit && campaignDailyLimit > 0 ? campaignDailyLimit : (connLimit || 400),
+            connLimit
+        );
+        if (connLimit > 0 || (campaignDailyLimit && campaignDailyLimit > 0)) {
+            hasLimit = true;
+            const sent = getEffectiveMessagesSentToday(cid, connectionDailyQuotaDeps());
+            total += Math.max(0, effectiveLimit - sent);
+        }
     }
     return hasLimit ? total : 400;
 }

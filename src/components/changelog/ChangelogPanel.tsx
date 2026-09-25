@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.201',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Teto de limite por canal no cronograma: limite próprio do canal (ex: 40 msg) prevalece sobre a cota da campanha (ex: 100 msg)' },
+      { type: 'improvement', text: 'Divisão proporcional por período: se o canal tem limite 40 e 50% manhã / 50% tarde, dispara 20 de manhã e 20 à tarde' },
+      { type: 'improvement', text: 'Distribuição entre dias programados: contatos que excedem a cota diária efetiva do canal avançam para os próximos dias do cronograma' },
+      { type: 'improvement', text: 'Feedback no assistente de criação: resumo visual avisa quando o canal possui teto próprio e detalha os envios da manhã e tarde' },
+    ],
+  },
+  {
     version: '2.3.200',
     date: '25/09/2026',
     highlights: [

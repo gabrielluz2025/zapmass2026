@@ -164,6 +164,47 @@ export function msUntilNextDailyScheduleWindow(
   return 8 * 3_600_000;
 }
 
+/**
+ * Calcula o limite diário efetivo para um canal numa campanha com cronograma diário:
+ * Se o canal tiver um limite diário próprio configurado (`channelDailyLimit > 0`),
+ * esse limite prevalece como teto: `Math.min(campaignLimitPerChannel, channelDailyLimit)`.
+ * Caso contrário, utiliza a cota da campanha (`campaignLimitPerChannel`).
+ */
+export function computeEffectiveChannelDailyLimit(
+  campaignLimitPerChannel: number,
+  channelDailyLimit?: number | null
+): number {
+  const campLimit = Math.max(1, Math.floor(Number(campaignLimitPerChannel) || 1));
+  const connLimit = Math.max(0, Math.floor(Number(channelDailyLimit) || 0));
+  if (connLimit > 0) {
+    return Math.min(campLimit, connLimit);
+  }
+  return campLimit;
+}
+
+/**
+ * Calcula a divisão proporcional de envios por período (ex: manhã / tarde).
+ * Exemplo: limite efetivo 40 msgs, períodos 50% manhã e 50% tarde -> 20 manhã e 20 tarde.
+ */
+export function computePeriodQuotas(
+  effectiveDailyLimit: number,
+  periods?: DailySchedulePeriod[]
+): Array<{ pct: number; startHour: number; endHour: number; quota: number }> {
+  const limit = Math.max(1, Math.floor(Number(effectiveDailyLimit) || 1));
+  const resolved = resolveDispatchPeriods({ enabled: true, timePeriodEnabled: true, periods });
+  if (resolved.length <= 1) {
+    return [{ ...resolved[0], quota: limit }];
+  }
+  const first = resolved[0];
+  const firstPct = Number(first.pct) || 50;
+  const firstCount = Math.round((limit * firstPct) / 100);
+  const secondCount = Math.max(0, limit - firstCount);
+  return [
+    { ...first, quota: firstCount },
+    { ...resolved[1], quota: secondCount },
+  ];
+}
+
 export function computeDailyScheduleDelayMs(opts: {
   nowMs: number;
   dayIndex: number;
@@ -173,6 +214,7 @@ export function computeDailyScheduleDelayMs(opts: {
   timePeriodEnabled?: boolean;
   periods?: DailySchedulePeriod[];
   dayLimit: number;
+  channelDailyLimit?: number;
 }): number {
   const schedule: DailyScheduleWindow = {
     enabled: true,
@@ -188,7 +230,8 @@ export function computeDailyScheduleDelayMs(opts: {
   let intended = 0;
   if (opts.timePeriodEnabled && Array.isArray(opts.periods) && opts.periods.length >= 2) {
     const [morning, afternoon] = opts.periods;
-    const dayLimit = Math.max(1, opts.dayLimit);
+    const effectiveDayLimit = computeEffectiveChannelDailyLimit(opts.dayLimit, opts.channelDailyLimit);
+    const dayLimit = Math.max(1, effectiveDayLimit);
     const morningCount = Math.round((dayLimit * (morning?.pct ?? 50)) / 100);
     const inMorning = opts.contactIndexInDay < morningCount;
     const period = inMorning ? morning : afternoon;
