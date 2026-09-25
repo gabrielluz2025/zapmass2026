@@ -186,6 +186,203 @@ export function replyMatchesGate(step, bodyText, opts) {
     const mode = step.matchMode || 'word';
     return tokens.some((tok) => matchReplyTriggerToken(cleanReplyTriggerToken(tok), t, mode).matched);
 }
+
+export const GREETING_PHRASES = [
+    'tudo bem com voce',
+    'tudo bem com vc',
+    'tudo bom com voce',
+    'tudo bom com vc',
+    'como vai voce',
+    'como vai vc',
+    'como voce esta',
+    'como vc esta',
+    'como voce ta',
+    'como vc ta',
+    'como c ta',
+    'fala comigo',
+    'fala ai',
+    'fala aí',
+    'boa tarde',
+    'boa noite',
+    'bom dia',
+    'tudo bem',
+    'tudo bom',
+    'tudo joia',
+    'tudo certo',
+    'tudo otimo',
+    'tudo beleza',
+    'td bem',
+    'td bom',
+    'td certo',
+    'td joia',
+    'como vai',
+    'como esta',
+    'como ta',
+    'e ai',
+];
+
+export const GREETING_WORDS = [
+    'ola',
+    'oi',
+    'oii',
+    'oiii',
+    'oie',
+    'opa',
+    'salve',
+    'eai',
+    'buenas',
+    'beleza',
+    'blz',
+    'fala',
+];
+
+export const GREETING_FILLERS = [
+    'amigo',
+    'amiga',
+    'irmao',
+    'irma',
+    'pessoal',
+    'gente',
+    'parceiro',
+    'parceira',
+    'camarada',
+    'cara',
+    'voce',
+    'vc',
+    'por ai',
+    'por aqui',
+    'ai',
+    'aqui',
+];
+
+export function isGreetingMessage(text) {
+    const { norm } = normalizeReplyBodyForMatch(text);
+    if (!norm) return false;
+
+    let current = ` ${norm} `;
+    let hasGreeting = false;
+
+    for (const phrase of GREETING_PHRASES) {
+        const cleanPhrase = cleanReplyTriggerToken(phrase);
+        if (!cleanPhrase) continue;
+        const pattern = new RegExp(`\\b${cleanPhrase.replace(/\\s+/g, '\\s+')}\\b`, 'g');
+        if (pattern.test(current)) {
+            hasGreeting = true;
+            current = current.replace(pattern, ' ');
+        }
+    }
+
+    for (const word of GREETING_WORDS) {
+        const cleanWord = cleanReplyTriggerToken(word);
+        if (!cleanWord) continue;
+        const pattern = new RegExp(`\\b${cleanWord}\\b`, 'g');
+        if (pattern.test(current)) {
+            hasGreeting = true;
+            current = current.replace(pattern, ' ');
+        }
+    }
+
+    if (!hasGreeting) return false;
+
+    for (const filler of GREETING_FILLERS) {
+        const cleanFiller = cleanReplyTriggerToken(filler);
+        if (!cleanFiller) continue;
+        const pattern = new RegExp(`\\b${cleanFiller.replace(/\\s+/g, '\\s+')}\\b`, 'g');
+        current = current.replace(pattern, ' ');
+    }
+
+    const remainder = current.trim().replace(/\s+/g, '');
+    return remainder.length === 0;
+}
+
+export function getBrazilHour(date = new Date()) {
+    try {
+        const parts = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'America/Sao_Paulo',
+            hour: 'numeric',
+            hour12: false,
+            hourCycle: 'h23',
+        }).formatToParts(date);
+        const v = parts.find((p) => p.type === 'hour')?.value;
+        let n = v != null ? parseInt(v, 10) : NaN;
+        if (n === 24) n = 0;
+        if (Number.isFinite(n)) return n;
+    } catch {
+        // fallback
+    }
+    const utcHours = date.getUTCHours();
+    return (utcHours - 3 + 24) % 24;
+}
+
+export function buildPoliteGreeting(incomingText, date = new Date()) {
+    const hour = getBrazilHour(date);
+    let periodoSaudacao;
+    let periodo;
+
+    if (hour >= 5 && hour < 12) {
+        periodoSaudacao = 'Bom dia';
+        periodo = 'manha';
+    } else if (hour >= 12 && hour < 18) {
+        periodoSaudacao = 'Boa tarde';
+        periodo = 'tarde';
+    } else {
+        periodoSaudacao = 'Boa noite';
+        periodo = 'noite';
+    }
+
+    const cleanIncoming = cleanReplyTriggerToken(incomingText || '');
+    const mentionsBomDia = cleanIncoming.includes('bom dia');
+    const mentionsBoaTarde = cleanIncoming.includes('boa tarde');
+    const mentionsBoaNoite = cleanIncoming.includes('boa noite');
+
+    const discordant =
+        (mentionsBomDia && periodo !== 'manha') ||
+        (mentionsBoaTarde && periodo !== 'tarde') ||
+        (mentionsBoaNoite && periodo !== 'noite');
+
+    if (discordant) {
+        return `Olá, ${periodoSaudacao.toLowerCase()}! Tudo bem?`;
+    }
+
+    return `${periodoSaudacao}! Tudo bem?`;
+}
+
+export function formatPoliteGreetingInvalidReply(baseInvalidBody, greeting, date = new Date()) {
+    const g = greeting || buildPoliteGreeting(undefined, date);
+    const raw = String(baseInvalidBody || '').trim();
+
+    if (!raw) {
+        return `${g} Para eu te ajudar da melhor forma, por favor escolha uma das opções acima.`;
+    }
+
+    const stripped = raw
+        .replace(
+            /^(não entendi|nao entendi|opção inválida|opcao invalida|resposta inválida|resposta invalida)[\.\!\,\:\;\s]*/i,
+            ''
+        )
+        .trim();
+
+    if (!stripped) {
+        return `${g} Para eu te ajudar da melhor forma, por favor escolha uma das opções acima.`;
+    }
+
+    if (/^por favor\b/i.test(stripped)) {
+        const afterPorFavor = stripped.replace(/^por favor[\,\:\s]*/i, '').trim();
+        const instruction = afterPorFavor.charAt(0).toLowerCase() + afterPorFavor.slice(1);
+        return `${g} Para eu te ajudar da melhor forma, por favor ${instruction}`;
+    }
+
+    if (
+        stripped.toLowerCase().startsWith('para eu te ajudar') ||
+        stripped.toLowerCase().startsWith(g.toLowerCase())
+    ) {
+        return stripped;
+    }
+
+    const instruction = stripped.charAt(0).toLowerCase() + stripped.slice(1);
+    return `${g} Para eu te ajudar da melhor forma, por favor ${instruction}`;
+}
+
 /** Simula qual rota seria acionada (preview no editor). */
 export function simulateReplyFlowMatch(input) {
     const t = String(input.bodyText || '').trim();
@@ -203,6 +400,13 @@ export function simulateReplyFlowMatch(input) {
                 message: opt?.reply?.trim() || 'Resposta configurada nesta rota.',
             };
         }
+        if (input.politeGreetingEnabled !== false && isGreetingMessage(t)) {
+            const g = buildPoliteGreeting(t);
+            return {
+                kind: 'greeting',
+                message: formatPoliteGreetingInvalidReply(input.invalidReplyBody, g),
+            };
+        }
         return {
             kind: 'invalid',
             message: input.invalidReplyBody?.trim() || 'Resposta não reconhecida — cairia no fallback.',
@@ -213,6 +417,13 @@ export function simulateReplyFlowMatch(input) {
     }
     if (replyMatchesGate(input, t)) {
         return { kind: 'gate', matchedToken: input.validTokens?.[0], matchMode: input.matchMode || 'word' };
+    }
+    if (input.politeGreetingEnabled !== false && isGreetingMessage(t)) {
+        const g = buildPoliteGreeting(t);
+        return {
+            kind: 'greeting',
+            message: formatPoliteGreetingInvalidReply(input.invalidReplyBody, g),
+        };
     }
     return {
         kind: 'invalid',

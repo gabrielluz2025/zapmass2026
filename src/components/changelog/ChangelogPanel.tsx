@@ -10,6 +10,17 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.203',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Detecção inteligente de saudações: identifica "Bom dia", "Olá", "Tudo bem", "Como vai" etc. em respostas de campanhas com fluxo' },
+      { type: 'feat', text: 'Retribuição educada e compatível com o horário: responde cordialmente com base no fuso de Brasília (manhã, tarde ou noite)' },
+      { type: 'feat', text: 'Acolhimento humanizado de resposta inválida: substitui respostas secas por orientação amigável antes de solicitar as opções' },
+      { type: 'feat', text: 'Preservação de tentativas: saudações não gastam o limite de respostas inválidas, permitindo que o contato continue o fluxo' },
+      { type: 'feat', text: 'Toggle para ativar/desativar: controle simples no assistente de campanhas e no editor de fluxos com prévia no simulador' },
+    ],
+  },
+  {
     version: '2.3.202',
     date: '25/09/2026',
     highlights: [

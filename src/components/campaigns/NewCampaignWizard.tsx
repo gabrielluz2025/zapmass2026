@@ -243,6 +243,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('single');
   const [replyFlowGlobalOptOutEnabled, setReplyFlowGlobalOptOutEnabled] = useState(true);
   const [replyFlowGlobalOptOutKeywordsText, setReplyFlowGlobalOptOutKeywordsText] = useState('');
+  const [replyFlowPoliteGreetingEnabled, setReplyFlowPoliteGreetingEnabled] = useState(true);
   const [flowModeChosen, setFlowModeChosen] = useState(true);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [selectedListId, setSelectedListId] = useState('');
@@ -915,6 +916,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       if (initialDraft.replyFlowGlobalOptOutKeywordsText != null) {
         setReplyFlowGlobalOptOutKeywordsText(initialDraft.replyFlowGlobalOptOutKeywordsText);
       }
+      if (typeof initialDraft.replyFlowPoliteGreetingEnabled === 'boolean') {
+        setReplyFlowPoliteGreetingEnabled(initialDraft.replyFlowPoliteGreetingEnabled);
+      }
     }
     // Draft/template/clone já traz o modo definido — não força reescolha.
     setFlowModeChosen(true);
@@ -1003,6 +1007,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       campaignFlowMode === 'reply' ? replyFlowGlobalOptOutEnabled : undefined,
     replyFlowGlobalOptOutKeywordsText:
       campaignFlowMode === 'reply' ? replyFlowGlobalOptOutKeywordsText : undefined,
+    replyFlowPoliteGreetingEnabled:
+      campaignFlowMode === 'reply' ? replyFlowPoliteGreetingEnabled : undefined,
     filterCities: Array.from(filterCities),
     filterChurches: Array.from(filterChurches),
     filterRoles: Array.from(filterRoles),
@@ -1063,6 +1069,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     delaySecondsMax,
     humanizedPauses,
     campaignFlowMode,
+    replyFlowGlobalOptOutEnabled,
+    replyFlowGlobalOptOutKeywordsText,
+    replyFlowPoliteGreetingEnabled,
     messageStages,
     filterCities,
     filterChurches,
@@ -1594,6 +1603,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
             enabled: true,
             globalOptOutEnabled: replyFlowGlobalOptOutEnabled,
             globalOptOutKeywords: parseValidTokensText(replyFlowGlobalOptOutKeywordsText),
+            politeGreetingEnabled: replyFlowPoliteGreetingEnabled,
           steps: messageStages.map((s) => {
             const hasMenuOptions = Array.isArray(s.options) && s.options.length > 0;
             return {
@@ -2537,6 +2547,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         if (patch.enabled !== undefined) setReplyFlowGlobalOptOutEnabled(patch.enabled);
                         if (patch.keywordsText !== undefined) setReplyFlowGlobalOptOutKeywordsText(patch.keywordsText);
                       }}
+                      politeGreetingEnabled={replyFlowPoliteGreetingEnabled}
+                      onPoliteGreetingChange={setReplyFlowPoliteGreetingEnabled}
                           />
                         )}
                       </div>

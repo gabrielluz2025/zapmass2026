@@ -7,6 +7,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.203] - 2026-09-25
+### Adicionado
+- **Retribuição Educada e Inteligente de Saudações no Fluxo por Respostas**:
+  * **Detecção Inteligente**: Identifica mensagens que são primariamente saudações ("Bom dia", "Boa tarde", "Boa noite", "Olá", "Oi", "Tudo bem", "Como vai", "E aí", "Salve", etc.) com normalização tolerante a acentos e pontuação excessiva.
+  * **Retribuição Contextual de Acordo com Horário (Brasília)**: Responde cordialmente com saudações compatíveis com o fuso `America/Sao_Paulo` (05:00–11:59 "Bom dia! Tudo bem?", 12:00–17:59 "Boa tarde! Tudo bem?", 18:00–04:59 "Boa noite! Tudo bem?").
+  * **Correção Cordial para Saudações Discordantes**: Quando o contato envia "Bom dia" no período da tarde, o bot responde acolhedoramente ("Olá, boa tarde! Tudo bem?").
+  * **Acolhimento Humanizado de Mensagem Inválida**: Em vez de responder secamente com mensagens de erro ("Não entendi..."), formata a mensagem com acolhimento educado antes de orientar o contato a escolher a opção.
+  * **Preservação do Contato**: Saudações não penalizam o contador de tentativas inválidas (`invalidReplyCount`), evitando descarte prematuro da conversa. Proteção contra loops automáticos entre robôs.
+  * **Opção de Ativar/Desativar (Toggle)**: Campo `politeGreetingEnabled` no fluxo por respostas e switch intuitivo no assistente de criação (`NewCampaignWizard`) e no editor de fluxo (`CampaignReplyFlowEditor`), com suporte interativo no simulador de testes.
+
 ## [2.3.202] - 2026-09-25
 ### Melhorado
 - **Modernização do Módulo de Bate-Papo (Chat v2)**: Elevado o padrão visual e de usabilidade ao nível WhatsApp Web / Chatwoot / Linear.

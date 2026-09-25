@@ -282,6 +282,8 @@ export const GREETING_WORDS: string[] = [
   'salve',
   'eai',
   'buenas',
+  'beleza',
+  'blz',
   'fala',
 ];
 
