@@ -360,9 +360,18 @@ html .wa-chat-pro {
 }
 
 .wa-chat-pro .wa-unread-badge {
-  min-width: 19px;
-  height: 19px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 9999px;
+  background: #25d366;
+  color: #111b21;
   font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(37, 211, 102, 0.35);
 }
 
 .wa-chat-pro .wa-channel-dot {
@@ -389,10 +398,10 @@ html .wa-chat-pro {
   background: transparent;
 }
 
-/* Não-lidas: apenas nome em branco + badge verde (sem bg diferente) */
+/* Não-lidas: apenas nome em destaque + badge verde (estilo WhatsApp) */
 .wa-chat-pro .wa-conv-name--bold {
   color: var(--wa-text);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .wa-chat-pro .wa-status-strip {
@@ -434,13 +443,19 @@ html .wa-chat-pro {
 }
 
 .wa-chat-pro .wa-bubble .wa-campaign-tag {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  opacity: 0.75;
-  margin-bottom: 2px;
+  letter-spacing: 0.03em;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  background: rgba(234, 179, 8, 0.15);
+  color: #eab308;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  margin-bottom: 4px;
+  user-select: none;
 }
 
 .wa-chat-pro .wa-filter-unread {

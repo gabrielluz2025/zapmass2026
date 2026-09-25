@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, CheckCheck, Clock } from 'lucide-react';
+import { Check, CheckCheck, Clock, Megaphone } from 'lucide-react';
 import type { ChatMessage } from '../../../types';
 
 interface WaBubbleProps {
@@ -40,7 +40,10 @@ export const WaBubble: React.FC<WaBubbleProps> = ({
         data-media={mediaLayout || undefined}
       >
         {fromCampaign && side === 'out' ? (
-          <span className="wa-campaign-tag">Campanha</span>
+          <span className="wa-campaign-tag">
+            <Megaphone className="w-2.5 h-2.5 inline-block opacity-80" />
+            Campanha
+          </span>
         ) : null}
         <div className="wa-bubble-body">{children}</div>
         <span className="wa-bubble-meta">

@@ -153,6 +153,7 @@ function buildCommonDraftFields(c: Campaign): Omit<CampaignWizardDraft, 'name' |
     messageStages,
     replyFlowGlobalOptOutEnabled: replyFlow?.globalOptOutEnabled !== false,
     replyFlowGlobalOptOutKeywordsText: globalOptOutKeywords.join(', '),
+    replyFlowPoliteGreetingEnabled: replyFlow?.politeGreetingEnabled !== false,
     filterCities: [],
     filterChurches: [],
     filterRoles: [],
@@ -221,6 +222,7 @@ export function templateToWizardDraft(t: SavedCampaignTemplate): CampaignWizardD
     replyFlowGlobalOptOutKeywordsText: useReply
       ? (snapshot!.globalOptOutKeywords || []).join(', ')
       : undefined,
+    replyFlowPoliteGreetingEnabled: useReply ? snapshot!.politeGreetingEnabled !== false : undefined,
     filterCities: [],
     filterChurches: [],
     filterRoles: [],

@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Loader2, Mic, MicOff, Paperclip, Send, Smile, Square, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Loader2, Mic, MicOff, Paperclip, Send, Smile, Sparkles, Square, X } from 'lucide-react';
 import type { WhatsAppConnection } from '../../types';
 import { ConnectionStatus } from '../../types';
 import { WaEmojiPicker } from './WaEmojiPicker';
@@ -10,6 +10,7 @@ import {
   loadConversationDraft,
   saveConversationDraft,
 } from '../../utils/chatConversationDraft';
+import { loadChatQuickReplies, type ChatQuickReply } from '../../utils/chatQuickReplies';
 
 const ACCEPT = 'image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt';
 
@@ -54,6 +55,9 @@ export const WaComposer: React.FC<Props> = ({
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
   const [loadingAi, setLoadingAi] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [quickRepliesOpen, setQuickRepliesOpen] = useState(false);
+  const [quickReplyFilter, setQuickReplyFilter] = useState('');
+  const [selectedQuickReplyIndex, setSelectedQuickReplyIndex] = useState(0);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -97,6 +101,23 @@ export const WaComposer: React.FC<Props> = ({
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [recording]);
 
+  const allQuickReplies = useMemo(() => loadChatQuickReplies(), [quickRepliesOpen]);
+  const filteredQuickReplies = useMemo(() => {
+    if (!quickReplyFilter) return allQuickReplies;
+    const q = quickReplyFilter.toLowerCase().trim();
+    return allQuickReplies.filter((item) => item.text.toLowerCase().includes(q));
+  }, [allQuickReplies, quickReplyFilter]);
+
+  const selectQuickReply = (qr: ChatQuickReply) => {
+    setText(qr.text);
+    setQuickRepliesOpen(false);
+    setQuickReplyFilter('');
+    if (textRef.current) {
+      textRef.current.style.height = 'auto';
+      textRef.current.focus();
+    }
+  };
+
   const submit = (override?: string) => {
     const raw = (override ?? text).trim();
     if (!raw || blocked || busy) return;
@@ -107,6 +128,8 @@ export const WaComposer: React.FC<Props> = ({
     }
     onSend(payload);
     setText('');
+    setQuickRepliesOpen(false);
+    setQuickReplyFilter('');
     if (conversationId) clearConversationDraft(conversationId);
     setAiSuggestions([]);
     onClearQuote?.();
@@ -242,6 +265,41 @@ export const WaComposer: React.FC<Props> = ({
           )}
 
           <div className="relative flex-1 min-w-0">
+            {quickRepliesOpen && filteredQuickReplies.length > 0 && (
+              <div
+                className="wa-quick-replies-popover absolute bottom-[calc(100%+8px)] left-0 w-full max-w-md max-h-56 overflow-y-auto rounded-xl shadow-2xl z-50 border p-1"
+                style={{
+                  background: 'var(--wa-panel, #202c33)',
+                  borderColor: 'var(--wa-divider, rgba(255,255,255,0.1))',
+                  backdropFilter: 'blur(8px)'
+                }}
+              >
+                <div className="px-3 py-1.5 text-[11px] font-semibold text-emerald-400 flex items-center justify-between border-b border-[var(--wa-divider,rgba(255,255,255,0.08))] mb-1">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Respostas Rápidas (Tab ou Enter para inserir)
+                  </span>
+                  <span className="text-[10px] opacity-60">Esc para fechar</span>
+                </div>
+                {filteredQuickReplies.map((qr, idx) => (
+                  <button
+                    key={`${qr.text}-${idx}`}
+                    type="button"
+                    className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center gap-2 transition-colors ${
+                      idx === selectedQuickReplyIndex
+                        ? 'bg-emerald-500/20 text-emerald-300 font-medium'
+                        : 'hover:bg-white/5 text-[var(--wa-text,#e9edef)]'
+                    }`}
+                    onClick={() => selectQuickReply(qr)}
+                    onMouseEnter={() => setSelectedQuickReplyIndex(idx)}
+                  >
+                    <span className="text-base shrink-0">{qr.emoji}</span>
+                    <span className="truncate flex-1">{qr.text}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             <textarea
               ref={textRef}
               className="wa-composer-input"
@@ -249,19 +307,53 @@ export const WaComposer: React.FC<Props> = ({
               placeholder={
                 busy ? 'Enviando…'
                   : isDraft && !draftChannelId ? 'Escolha o canal acima'
-                    : 'Digite uma mensagem'
+                    : 'Digite uma mensagem ou "/" para respostas rápidas'
               }
               value={text}
               disabled={blocked || busy}
               aria-describedby={blocked && disabledHint ? 'wa-composer-blocked-hint' : undefined}
               onChange={(e) => {
-                setText(e.target.value);
+                const val = e.target.value;
+                setText(val);
                 const el = e.target;
                 el.style.height = 'auto';
                 el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
                 if (aiSuggestions.length > 0) setAiSuggestions([]);
+
+                if (val.startsWith('/')) {
+                  setQuickRepliesOpen(true);
+                  setQuickReplyFilter(val.slice(1));
+                  setSelectedQuickReplyIndex(0);
+                } else {
+                  setQuickRepliesOpen(false);
+                  setQuickReplyFilter('');
+                }
               }}
               onKeyDown={(e) => {
+                if (quickRepliesOpen && filteredQuickReplies.length > 0) {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSelectedQuickReplyIndex((prev) => (prev + 1) % filteredQuickReplies.length);
+                    return;
+                  }
+                  if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSelectedQuickReplyIndex((prev) => (prev - 1 + filteredQuickReplies.length) % filteredQuickReplies.length);
+                    return;
+                  }
+                  if (e.key === 'Enter' || e.key === 'Tab') {
+                    e.preventDefault();
+                    const chosen = filteredQuickReplies[selectedQuickReplyIndex] || filteredQuickReplies[0];
+                    if (chosen) selectQuickReply(chosen);
+                    return;
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setQuickRepliesOpen(false);
+                    return;
+                  }
+                }
+
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
               }}
             />

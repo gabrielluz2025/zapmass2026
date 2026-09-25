@@ -2,6 +2,7 @@ import React, { memo, useEffect, useRef } from 'react';
 import type { Conversation, WhatsAppConnection } from '../../types';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import {
+  connectionBadgeColor,
   connectionBadgeHue,
   connectionDisplayLabel,
   formatListTime,
@@ -66,6 +67,7 @@ export const WaConvRow = memo(function WaConvRow({
   const online = isContactPresenceOnline(conv);
   const channelLabel = connectionDisplayLabel(connections, conv.connectionId);
   const hue = connectionBadgeHue(conv.connectionId);
+  const channelColor = connectionBadgeColor(conv.connectionId);
 
   useEffect(() => {
     if (!onRequestPicture || !isGeneratedAvatar(avatarSrc)) return;
@@ -177,9 +179,9 @@ export const WaConvRow = memo(function WaConvRow({
                 className="wa-conv-channel-inline"
                 title={`Canal: ${channelLabel}`}
                 style={{
-                  color: `hsl(${hue}, 55%, 68%)`,
-                  background: `hsla(${hue}, 55%, 42%, 0.18)`,
-                  borderColor: `hsla(${hue}, 55%, 50%, 0.35)`,
+                  color: channelColor.text,
+                  background: channelColor.bg,
+                  borderColor: channelColor.border,
                 }}
               >
                 {channelLabel}

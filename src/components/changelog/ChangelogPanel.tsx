@@ -10,6 +10,17 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.202',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Cabeçalho da conversa refinado: botões inoperantes removidos, atalho para Ficha de Contato (CRM), indicador suave de online no avatar e status animado ao digitar' },
+      { type: 'improvement', text: 'Bolhas de mensagem modernizadas: layout fluido sem dentes de linha, cantos elegantes e tag de campanha em pill sutil com micro-ícone' },
+      { type: 'improvement', text: 'Atalho de respostas rápidas (/): digite barra no campo de mensagem para escolher e enviar macros ágeis com navegação por teclado' },
+      { type: 'improvement', text: 'Drag & Drop na thread: arraste e solte arquivos ou fotos direto sobre a área da conversa para envio imediato' },
+      { type: 'improvement', text: 'Harmonização visual de canais e não-lidas: paleta equilibrada e consistente para chips e badge verde esmeralda WhatsApp' },
+    ],
+  },
+  {
     version: '2.3.201',
     date: '25/09/2026',
     highlights: [

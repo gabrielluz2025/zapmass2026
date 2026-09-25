@@ -7,6 +7,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.202] - 2026-09-25
+### Melhorado
+- **Modernização do Módulo de Bate-Papo (Chat v2)**: Elevado o padrão visual e de usabilidade ao nível WhatsApp Web / Chatwoot / Linear.
+- **Cabeçalho da Conversa Refinado**: Removidos botões inoperantes de chamada de voz e vídeo com `cursor-not-allowed` e adicionado botão funcional de Ficha do Contato (`UserRound`). Indicador verde suave de presença no avatar quando `online`, texto animado suave pulsante quando `digitando...` / `gravando...` e chip de canal limpo.
+- **Bolhas de Mensagem e Carimbo de Data/Hora**: Alinhamento fluido de timestamp e ticks de status sem quebras/dentes causados por float manual; padding e border-radius harmoniosos (12px com ponta de 4px no topo); badge de `Campanha` refinado em pill discreto com micro-ícone de megafone.
+- **Atalho de Respostas Rápidas (`/`) no Composer**: Menu popover rápido que surge ao digitar `/` no campo de mensagem para inserção imediata com navegação por setas, Tab, Enter ou clique.
+- **Drag & Drop de Arquivos na Conversa**: Suporte a arrastar e soltar imagens, vídeos, áudios e documentos sobre a área do chat com feedback visual elegante e direcionamento automático para pré-visualização.
+- **Harmonização de Cores dos Canais e Não-Lidas**: Cores de canais organizadas em paleta estável, sóbria e elegante; conversas não lidas com destaque tipográfico refinado e badge verde oficial WhatsApp `#25D366`.
+
 ## [2.3.201] - 2026-09-25
 ### Melhorado
 - **Cotas diárias e divisão por períodos respeitam o limite do canal**: Quando um canal possui limite diário próprio configurado (`conn.dailyLimit > 0`), este prevalece como teto máximo sobre a cota diária da campanha (`effectiveChannelLimit = Math.min(campaignLimit, connDailyLimit)`).

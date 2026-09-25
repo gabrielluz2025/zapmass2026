@@ -269,6 +269,25 @@ export function isGroupConversation(conv: Conversation): boolean {
   return conv.id.includes('@g.us') || conv.id.toLowerCase().includes('group');
 }
 
+/** Paleta harmoniosa e elegante para canais/chips (tons corporativos refinados) */
+export const CHANNEL_COLOR_PALETTE = [
+  { text: '#34d399', bg: 'rgba(52, 211, 153, 0.12)', border: 'rgba(52, 211, 153, 0.28)' }, // Esmeralda
+  { text: '#38bdf8', bg: 'rgba(56, 189, 248, 0.12)', border: 'rgba(56, 189, 248, 0.28)' }, // Sky
+  { text: '#a78bfa', bg: 'rgba(167, 139, 250, 0.12)', border: 'rgba(167, 139, 250, 0.28)' }, // Violeta
+  { text: '#fb923c', bg: 'rgba(251, 146, 60, 0.12)', border: 'rgba(251, 146, 60, 0.28)' }, // Âmbar/Laranja
+  { text: '#f472b6', bg: 'rgba(244, 114, 182, 0.12)', border: 'rgba(244, 114, 182, 0.28)' }, // Rosa
+  { text: '#2dd4bf', bg: 'rgba(45, 212, 191, 0.12)', border: 'rgba(45, 212, 191, 0.28)' }, // Teal
+  { text: '#818cf8', bg: 'rgba(129, 140, 248, 0.12)', border: 'rgba(129, 140, 248, 0.28)' }, // Índigo
+  { text: '#fbbf24', bg: 'rgba(251, 191, 36, 0.12)', border: 'rgba(251, 191, 36, 0.28)' }, // Dourado
+];
+
+export function connectionBadgeColor(connectionId: string) {
+  let h = 0;
+  for (let i = 0; i < connectionId.length; i++) h = (h * 31 + connectionId.charCodeAt(i)) | 0;
+  const idx = Math.abs(h) % CHANNEL_COLOR_PALETTE.length;
+  return CHANNEL_COLOR_PALETTE[idx]!;
+}
+
 /** Cor estável por chip — facilita distinguir canais na lista de conversas. */
 export function connectionBadgeHue(connectionId: string): number {
   let h = 0;
