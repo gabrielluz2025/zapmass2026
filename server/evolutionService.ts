@@ -7351,7 +7351,7 @@ function isCampaignChannelUsable(connectionId: string): boolean {
     let conn = connections.get(id);
     if (!conn) {
         for (const [key, c] of connections.entries()) {
-            if (c.instanceName === id || c.id === id || key === id) {
+            if (c.instanceName === id || key === id) {
                 conn = c;
                 break;
             }
