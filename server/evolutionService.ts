@@ -1593,7 +1593,7 @@ async function isConnectionOpen(instanceName: string): Promise<boolean> {
             .toLowerCase();
     } catch {
         // Erro de rede: se a RAM (webhook) já diz open, o chip está ativo — não bloquear disparo.
-        if (mem?.status === 'open') {
+        if (isEvolutionOpenState(mem?.status)) {
             lastConnectionStateCheck.set(instanceName, { state: true, at: now });
             return true;
         }
@@ -1604,14 +1604,14 @@ async function isConnectionOpen(instanceName: string): Promise<boolean> {
     const isOpen = isEvolutionOpenState(apiState);
     if (isOpen) {
         lastConnectionStateCheck.set(instanceName, { state: true, at: now });
-        if (mem && mem.status !== 'open') {
+        if (mem && !isEvolutionOpenState(mem.status)) {
             applyConnectionStateUpdate(instanceName, 'open', {});
         }
         return true;
     }
     // Probe HTTP não confirmou open. Webhook/RAM ainda pode estar certo (parser Go
     // às vezes devolve envelope "success" ou Connected em PascalCase).
-    if (mem?.status === 'open') {
+    if (isEvolutionOpenState(mem?.status)) {
         lastConnectionStateCheck.set(instanceName, { state: true, at: now });
         return true;
     }
@@ -7348,12 +7348,20 @@ function isCampaignChannelUsable(connectionId: string): boolean {
     const id = String(connectionId || '').trim();
     if (!id) return false;
     if (isConnectionInActiveWarmup(id)) return false;
-    const conn = connections.get(id);
+    let conn = connections.get(id);
+    if (!conn) {
+        for (const [key, c] of connections.entries()) {
+            if (c.instanceName === id || c.id === id || key === id) {
+                conn = c;
+                break;
+            }
+        }
+    }
     // Aceita o chip se a RAM diz 'open' OU se tivemos prova HTTP positiva recente (últimos 60s).
     // Isso evita que um RAM desatualizado (após restart/debounce do hydrate) cause failover falso.
     const ramOpen = isEvolutionOpenState(conn?.status);
     if (!ramOpen) {
-        const recent = lastConnectionStateCheck.get(id);
+        const recent = lastConnectionStateCheck.get(id) || (conn?.instanceName ? lastConnectionStateCheck.get(conn.instanceName) : undefined);
         const recentlyProvedOpen = recent && recent.state && (Date.now() - recent.at < 60_000);
         if (!recentlyProvedOpen) return false;
     }
@@ -9656,11 +9664,23 @@ export async function redispatchCampaign(
         pendingJobs = 0;
     }
     if (pendingJobs > 0 && memState?.isRunning) {
-        return { ok: false, enqueued: 0, error: 'Campanha ainda em execução. Aguarde ou pause antes de reenviar.' };
+        // Se estiver em modo resume, checa se a fila BullMQ realmente ainda tem jobs ativos/esperando
+        const queue = getCampaignQueue();
+        const actualBullJobs = queue ? await countQueueJobsForCampaign(queue, campaignId) : 0;
+        if (actualBullJobs <= 0) {
+            campaignPendingJobs.delete(campaignId);
+            pendingJobs = 0;
+        } else {
+            return { ok: false, enqueued: 0, error: 'Campanha ainda em execução. Aguarde ou pause antes de reenviar.' };
+        }
     }
 
     if (pausedCampaigns.has(campaignId)) {
-        return { ok: false, enqueued: 0, error: 'Campanha pausada. Clique em Retomar para continuar.' };
+        if (mode === 'resume') {
+            pausedCampaigns.delete(campaignId);
+        } else {
+            return { ok: false, enqueued: 0, error: 'Campanha pausada. Clique em Retomar para continuar.' };
+        }
     }
 
     const stepIdx = typeof options.stepIndex === 'number' ? options.stepIndex : 0;
