@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.204] - 2026-09-25
+### Corrigido
+- **Idempotência no Fluxo por Respostas (`ReplyFlowEngine`)**: Adicionado controle de mensagens recebidas por `messageId` com TTL para evitar que webhooks duplicados da Evolution acionem o envio de respostas mais de uma vez.
+- **Deduplicação Inteligente no Chat (Servidor e Frontend)**:
+  * No servidor (`evolutionChat.ts`), incorporada deduplicação temporal (janela de 12s) de mensagens de saída do mesmo remetente com texto idêntico, mesclando metadados em vez de duplicar bolhas por eco do webhook.
+  * No utilitário compartilhado (`chatMessageMerge.ts`), mesclagem de mensagens idênticas em janela curta preservando tags de campanha (`fromCampaign`, `campaignId`) e status mais atualizado.
+
 ## [2.3.203] - 2026-09-25
 ### Adicionado
 - **Retribuição Educada e Inteligente de Saudações no Fluxo por Respostas**:

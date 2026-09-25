@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.204',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Idempotência no replyFlowEngine: previne disparos repetidos de respostas automáticas causados por retentativas de webhook' },
+      { type: 'fix', text: 'Deduplicação e mesclagem de eco no chat: mensagens de saída idênticas em janela curta são mescladas preservando tags de campanha' },
+    ],
+  },
+  {
     version: '2.3.203',
     date: '25/09/2026',
     highlights: [

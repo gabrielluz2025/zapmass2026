@@ -11275,6 +11275,7 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
         bodyText,
         nonTextReply,
         incomingConvId,
+        messageId: params.messageId,
     });
 
     if (!flowResult.handled && messageOwnerUid && (bodyText?.trim() || nonTextReply)) {
@@ -11626,6 +11627,7 @@ export async function handleWebhook(event: any) {
                         messageOwnerUid,
                         dedupeKey,
                         source: 'webhook',
+                        messageId: messageId ? String(messageId) : undefined,
                         });
                 }
                 break;

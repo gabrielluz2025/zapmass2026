@@ -611,6 +611,52 @@ describe('Detecção e retribuição de saudações educadas', () => {
       expect(sess?.invalidReplyCount).toBe(1);
     });
 
+    it('não processa duas vezes a mesma mensagem pelo messageId (idempotência)', async () => {
+      const enqueued: string[] = [];
+      const engine = new ReplyFlowEngine({
+        enqueue: (item) => {
+          enqueued.push(item.message);
+        },
+      });
+
+      engine.registerDef('camp-idem', [
+        {
+          body: 'Etapa 1',
+          acceptAnyReply: false,
+          validTokens: ['sim'],
+          invalidReplyBody: 'Inválido',
+          options: [{ tokens: ['sim'], reply: 'Obrigado por confirmar!' }],
+        },
+      ]);
+
+      engine.openSession({
+        connectionId: 'conn1',
+        phoneDigits: '5548999999999',
+        campaignId: 'camp-idem',
+        vars: {},
+        toRaw: '5548999999999',
+      });
+
+      const res1 = await engine.handleIncoming({
+        connectionId: 'conn1',
+        phoneDigits: '5548999999999',
+        bodyText: 'sim',
+        messageId: 'wamid_12345',
+      });
+
+      const res2 = await engine.handleIncoming({
+        connectionId: 'conn1',
+        phoneDigits: '5548999999999',
+        bodyText: 'sim',
+        messageId: 'wamid_12345',
+      });
+
+      expect(res1.handled).toBe(true);
+      expect(res2.handled).toBe(true);
+      expect(enqueued).toHaveLength(1);
+      expect(enqueued[0]).toBe('Obrigado por confirmar!');
+    });
+
     it('simula saudação educada no simulateReplyFlowMatch', () => {
       const simGreeting = simulateReplyFlowMatch({
         bodyText: 'Bom dia',

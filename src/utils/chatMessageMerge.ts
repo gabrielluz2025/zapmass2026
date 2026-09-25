@@ -22,7 +22,39 @@ export function mergeChatMessageLists(a: ChatMessage[], b: ChatMessage[]): ChatM
       waSenderPn: m.waSenderPn || ex.waSenderPn
     });
   }
-  return Array.from(byId.values()).sort((x, y) => (x.timestampMs || 0) - (y.timestampMs || 0));
+
+  // Deduplicação por texto idêntico no mesmo remetente em janela temporal curta (<= 12s)
+  // Evita bolhas duplicadas entre o disparo de campanha e o eco/upsert do webhook da Evolution.
+  const rawList = Array.from(byId.values()).sort((x, y) => (x.timestampMs || 0) - (y.timestampMs || 0));
+  const deduped: ChatMessage[] = [];
+
+  for (const m of rawList) {
+    const cleanText = (m.text || '').trim();
+    const mTs = m.timestampMs || 0;
+    const existingIndex = deduped.findIndex((d) => {
+      if (d.sender !== m.sender) return false;
+      if ((d.text || '').trim() !== cleanText) return false;
+      const dTs = d.timestampMs || 0;
+      return Math.abs(mTs - dTs) < 12_000;
+    });
+
+    if (existingIndex >= 0) {
+      const ex = deduped[existingIndex];
+      deduped[existingIndex] = {
+        ...ex,
+        ...m,
+        id: ex.id || m.id,
+        fromCampaign: ex.fromCampaign || m.fromCampaign,
+        campaignId: ex.campaignId || m.campaignId,
+        mediaUrl: m.mediaUrl || ex.mediaUrl,
+        status: m.status || ex.status,
+      };
+    } else {
+      deduped.push(m);
+    }
+  }
+
+  return deduped;
 }
 
 function newestMsg(msgs: ChatMessage[]): ChatMessage | undefined {

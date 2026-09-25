@@ -385,6 +385,7 @@ export class ReplyFlowEngine {
     private convToCanonical = new Map<string, string>();
     private sessionCountByCampaign = new Map<string, number>();
     private timeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    private processedInboundMessageIds = new Map<string, number>();
 
     constructor(private callbacks: ReplyFlowCallbacks) {}
 
@@ -777,8 +778,30 @@ export class ReplyFlowEngine {
         bodyText: string;
         nonTextReply?: boolean;
         incomingConvId?: string;
+        messageId?: string;
     }): Promise<{ handled: boolean; marketingEffect?: 'none' | 'opt_in' | 'opt_out' }> {
-        const { connectionId, phoneDigits, bodyText, nonTextReply, incomingConvId } = params;
+        const { connectionId, phoneDigits, bodyText, nonTextReply, incomingConvId, messageId } = params;
+
+        // Idempotência por messageId: não reprocessar o mesmo inbound
+        if (messageId) {
+            const cleanMsgId = String(messageId).trim();
+            const now = Date.now();
+            if (this.processedInboundMessageIds.has(cleanMsgId)) {
+                this.callbacks.onLog?.('Inbound já processado anteriormente no ReplyFlowEngine (idempotência ignorada)', {
+                    messageId: cleanMsgId,
+                    connectionId,
+                    phoneDigits,
+                });
+                return { handled: true };
+            }
+            // Limpa mensagens com mais de 10 minutos
+            if (this.processedInboundMessageIds.size > 2000) {
+                for (const [mid, ts] of this.processedInboundMessageIds) {
+                    if (now - ts > 600_000) this.processedInboundMessageIds.delete(mid);
+                }
+            }
+            this.processedInboundMessageIds.set(cleanMsgId, now);
+        }
 
         let found: { key: string; session: ReplyFlowSession } | null = null;
         if (incomingConvId) {

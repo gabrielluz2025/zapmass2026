@@ -36,15 +36,35 @@ describe('ensureLatestPreviewInMessages', () => {
 });
 
 describe('mergeChatMessageLists', () => {
-  it('nao descarta mensagem nova so porque o historico e maior', () => {
-    const prev = [
-      { id: 'a', text: 'oi', timestamp: '1', sender: 'them' as const, status: 'delivered' as const, type: 'text' as const, timestampMs: 1 },
-      { id: 'b', text: 'ok', timestamp: '2', sender: 'me' as const, status: 'sent' as const, type: 'text' as const, timestampMs: 2 }
+  it('deduplica mensagens com texto idêntico no mesmo remetente em janela curta', () => {
+    const listA = [
+      {
+        id: 'camp_123',
+        text: 'Seu cadastro foi confirmado!',
+        timestamp: '11:29',
+        sender: 'me' as const,
+        status: 'sent' as const,
+        type: 'text' as const,
+        fromCampaign: true,
+        campaignId: 'camp-1',
+        timestampMs: 10000
+      }
     ];
-    const inc = [
-      { id: 'c', text: 'teste', timestamp: '3', sender: 'me' as const, status: 'sent' as const, type: 'text' as const, timestampMs: 3 }
+    const listB = [
+      {
+        id: 'wamid_xyz',
+        text: 'Seu cadastro foi confirmado!',
+        timestamp: '11:29',
+        sender: 'me' as const,
+        status: 'delivered' as const,
+        type: 'text' as const,
+        timestampMs: 11000
+      }
     ];
-    const out = mergeChatMessageLists(prev, inc);
-    expect(out.map((m) => m.id)).toEqual(['a', 'b', 'c']);
+
+    const merged = mergeChatMessageLists(listA, listB);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].fromCampaign).toBe(true);
+    expect(merged[0].campaignId).toBe('camp-1');
   });
 });
