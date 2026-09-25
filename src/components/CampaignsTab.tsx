@@ -37,7 +37,8 @@ import { CampaignInsightsBanner } from './campaigns/CampaignInsightsBanner';
 import { WhatsAppRiskAcceptModal } from './legal/WhatsAppRiskAcceptModal';
 import { CampaignPreviewModal } from './campaigns/CampaignPreviewModal';
 import { CampaignChangeChannelsDialog } from './campaigns/CampaignChangeChannelsDialog';
-import { saveCampaignEdit, updateCampaignChannels } from '../services/campaignsApi';
+import { redispatchCampaign, saveCampaignEdit, updateCampaignChannels } from '../services/campaignsApi';
+import { getCampaignProgressMetrics } from '../utils/campaignMetrics';
 import type { Campaign } from '../types';
 
 interface CampaignsTabProps {
@@ -84,6 +85,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(
     () => restoredSession?.selectedCampaignId ?? null
   );
+  const campaignToggleInFlightRef = useRef(false);
   const [riskModalOpen, setRiskModalOpen] = useState(false);
   const [testOpen, setTestOpen] = useState(() => localStorage.getItem(LS_TEST_OPEN) === '1');
   const [testFromConn, setTestFromConn] = useState<string>('');
@@ -254,12 +256,12 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     setViewState('details');
   };
 
-  const toggleCampaignStatus = (id: string) => {
+  const toggleCampaignStatus = async (id: string) => {
+    if (campaignToggleInFlightRef.current) return;
     const campaign = campaigns.find((c) => c.id === id);
     if (!campaign) return;
-    if (campaign.status === CampaignStatus.SCHEDULED) {
-      return;
-    }
+    if (campaign.status === CampaignStatus.SCHEDULED) return;
+
     if (campaign.status === CampaignStatus.RUNNING || campaign.status === CampaignStatus.WAITING_REPLY) {
       pauseCampaign(id);
       appendAudit({
@@ -267,13 +269,52 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
         label: `Pausar: ${campaign.name}`,
         campaignId: id
       });
-    } else if (campaign.status === CampaignStatus.PAUSED) {
+      return;
+    }
+
+    if (campaign.status === CampaignStatus.PAUSED) {
       resumeCampaign(id);
+      const pending = getCampaignProgressMetrics(campaign).pending;
       appendAudit({
         action: 'campaign_resume',
         label: `Retomar: ${campaign.name}`,
         campaignId: id
       });
+      if (pending <= 0) return;
+
+      campaignToggleInFlightRef.current = true;
+      try {
+        const enqueued = await redispatchCampaign(id, { mode: 'resume' });
+        if (enqueued > 0) {
+          toast.success(`Fila reativada (${enqueued.toLocaleString('pt-BR')} envio(s)).`);
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Não foi possível reativar a fila.');
+      } finally {
+        campaignToggleInFlightRef.current = false;
+      }
+      return;
+    }
+
+    if (campaign.status === CampaignStatus.DRAFT || campaign.status === CampaignStatus.FAILED) {
+      campaignToggleInFlightRef.current = true;
+      try {
+        const enqueued = await redispatchCampaign(id, { mode: 'resume' });
+        if (enqueued > 0) {
+          toast.success(`Disparo iniciado (${enqueued.toLocaleString('pt-BR')} na fila).`);
+          appendAudit({
+            action: 'campaign_resume',
+            label: `Iniciar: ${campaign.name}`,
+            campaignId: id
+          });
+        } else {
+          toast.error('Nada para enviar — abra a campanha e confira lista e chips.');
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Não foi possível iniciar a campanha.');
+      } finally {
+        campaignToggleInFlightRef.current = false;
+      }
     }
   };
 

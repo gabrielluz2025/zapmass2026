@@ -81,9 +81,9 @@ export async function listCampaigns(tenantId: string): Promise<Campaign[]> {
   );
   const byConn = await countTenantCampaignJobsByConnection(tenantId);
   const out: Campaign[] = [];
-  for (const row of r.rows) {
-    await requeuePhantomDeadCampaignJobs(rowToCampaign(row).id);
-  }
+  // Não rodar requeuePhantom por campanha no GET /api/campaigns — com dezenas de milhares
+  // de jobs isso bloqueava a API (UI “travada”, delete/start timeout). Requeue fica no
+  // resume/start, watchdog e getCampaign pontual.
   const jobMapAfterHeal = await countTenantCampaignJobsByStatus(tenantId);
   for (const row of r.rows) {
     const raw = rowToCampaign(row);
@@ -227,20 +227,37 @@ export class CampaignDeleteBlockedError extends Error {
   }
 }
 
+async function deleteCampaignJobsBatched(
+  pool: NonNullable<ReturnType<typeof getZapmassPool>>,
+  tenantId: string,
+  campaignId: string
+): Promise<void> {
+  const BATCH = 8_000;
+  for (;;) {
+    const del = await pool.query(
+      `DELETE FROM zapmass.campaign_jobs
+        WHERE ctid IN (
+          SELECT j.ctid
+            FROM zapmass.campaign_jobs j
+           WHERE j.tenant_id = $1::uuid
+             AND (
+               j.campaign_id = $2::uuid
+               OR (j.campaign_id IS NULL AND j.payload->>'campaignId' = $2)
+             )
+           LIMIT $3
+        )`,
+      [tenantId, campaignId, BATCH]
+    );
+    if ((del.rowCount ?? 0) === 0) break;
+  }
+}
+
 export async function deleteCampaign(tenantId: string, campaignId: string): Promise<boolean> {
   const pool = getZapmassPool();
   if (!pool || !isUuid(campaignId)) return false;
   // Apaga o histórico desta campanha antes do DELETE (ON DELETE SET NULL deixaria
   // jobs órfãos que o reload colava em outra campanha e bloqueava o disparo).
-  await pool.query(
-    `DELETE FROM zapmass.campaign_jobs
-      WHERE tenant_id = $1::uuid
-        AND (
-          campaign_id = $2::uuid
-          OR (campaign_id IS NULL AND payload->>'campaignId' = $2)
-        )`,
-    [tenantId, campaignId]
-  );
+  await deleteCampaignJobsBatched(pool, tenantId, campaignId);
   const r = await pool.query(
     `DELETE FROM zapmass.campaigns WHERE tenant_id = $1::uuid AND id = $2::uuid`,
     [tenantId, campaignId]

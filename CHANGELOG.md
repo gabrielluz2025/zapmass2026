@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.199] - 2026-09-25
+### Corrigido
+- **Campanhas travando a UI**: listagem `/api/campaigns` não executa mais `requeuePhantom` em cada card (bloqueava PostgreSQL com dezenas de milhares de jobs).
+- **Excluir campanha**: DELETE de `campaign_jobs` em lotes + timeout de 90s no cliente (campanhas grandes não estouravam em 18s).
+- **Play em Pendente/Pausada**: botão inicia ou reidrata fila via `redispatch` (rascunho e pausada com pendências); servidor faz kick automático após `resume` se BullMQ estiver vazio.
+
 ## [2.3.198] - 2026-09-24
 ### Corrigido
 - **campaignStallNotified vazando para sempre**: trocado de `Set<string>` para `Map<string,number>` com TTL de 30 min — o watchdog volta a alertar/agir em campanhas que pararam de novo após longo intervalo.

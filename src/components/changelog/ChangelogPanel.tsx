@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.199',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Lista de campanhas deixou de rodar requeue pesado em todo reload — UI e delete/start voltam a responder' },
+      { type: 'fix', text: 'Exclusão de campanha grande: jobs apagados em lotes; API DELETE com timeout de 90s no painel' },
+      { type: 'fix', text: 'Botão Play em Pendente/Pausada reidrata fila; resume no servidor enfileira de novo se Redis estiver vazio' },
+    ],
+  },
+  {
     version: '2.3.198',
     date: '24/09/2026',
     highlights: [

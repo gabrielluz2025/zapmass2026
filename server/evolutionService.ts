@@ -179,6 +179,8 @@ import {
     countSentJobsByConnection,
     requeuePhantomDeadCampaignJobs,
     resetCampaignJobAfterPhantomFailure,
+    countCampaignJobsByStatus,
+    campaignJobsStillActive,
 } from './campaignJobsResilience.js';
 import {
     checkAndResetDailyLimitsWithDeps,
@@ -12602,6 +12604,42 @@ function computeResumeDispatchHeadroom(channelIds: string[]): number {
     return hasLimit ? total : 400;
 }
 
+/** BullMQ vazio mas ainda há pendências no PG/runtime — reenfileira após retomar. */
+async function kickCampaignRedispatchIfQueueEmpty(
+    campaignId: string,
+    ownerUid?: string
+): Promise<void> {
+    const cid = String(campaignId || '').trim();
+    const ou = resolveCampaignOwnerUid(campaignId, ownerUid);
+    if (!cid || !ou || pausedCampaigns.has(cid)) return;
+
+    const queue = getCampaignQueue();
+    const bullCount = queue ? await countQueueJobsForCampaign(queue, cid) : 0;
+    if (bullCount > 0) return;
+
+    const pg = await countCampaignJobsByStatus(cid);
+    const pgWork = campaignJobsStillActive(pg);
+    const state = campaignsById.get(cid);
+    const runtimePending =
+        Boolean(state?.isRunning) &&
+        (state?.total ?? 0) > 0 &&
+        (state?.processed ?? 0) < (state?.total ?? 0);
+
+    if (pgWork <= 0 && !runtimePending) return;
+
+    const result = await redispatchCampaign(ou, cid, { mode: 'resume' });
+    if (result.enqueued > 0) {
+        log('info', `[dispatch] Fila reidratada após resume (${result.enqueued} job(s))`, {
+            campaignId: cid,
+        });
+    } else if (!result.ok && result.error) {
+        log('warn', '[dispatch] kick após resume não enfileirou', {
+            campaignId: cid,
+            error: result.error,
+        });
+    }
+}
+
 async function runPostResumeCampaignQueueRepair(
     campaignId: string,
     ownerUid?: string,
@@ -12740,9 +12778,11 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
     if (ou) notifyCampaignBlocking(ou, countActiveCampaignsForOwner(ou) > 0);
     void saveCampaignRuntimeToRedis(campaignId);
     ensureCampaignWorker();
-    void runPostResumeCampaignQueueRepair(campaignId, ou, wasProtection).catch((e) =>
-        log('warn', 'runPostResumeCampaignQueueRepair falhou', { campaignId, error: (e as Error)?.message })
-    );
+    void runPostResumeCampaignQueueRepair(campaignId, ou, wasProtection)
+        .then(() => kickCampaignRedispatchIfQueueEmpty(campaignId, ou))
+        .catch((e) =>
+            log('warn', 'runPostResumeCampaignQueueRepair falhou', { campaignId, error: (e as Error)?.message })
+        );
 }
 
 /**
