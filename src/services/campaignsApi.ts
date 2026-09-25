@@ -49,7 +49,10 @@ export async function saveCampaignEdit(
 }
 
 export async function apiDeleteCampaign(id: string): Promise<void> {
-  await apiFetchJson(`/api/campaigns/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  await apiFetchJson(`/api/campaigns/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    timeoutMs: 45_000,
+  });
 }
 
 export async function apiBulkDeleteCampaigns(

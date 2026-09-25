@@ -10433,8 +10433,11 @@ export async function startCampaign(
             }
         }
 
-        await enqueueCampaignItemsBulk(pendingEnqueue);
-
+        // Emite campaign-started ANTES do enfileiramento em bulk para que o frontend
+        // receba o ACK imediatamente, evitando o "freeze" de vários minutos em campanhas grandes.
+        // O enfileiramento ocorre em background — erros de fila são notificados separadamente.
+        const pendingCount = pendingEnqueue.length;
+        publishOwnerEvent(ownerUid, 'campaign-started', { total: pendingCount, campaignId: cid });
         emitCampaignLog(
             'INFO',
             skippedSettled > 0
@@ -10443,7 +10446,7 @@ export async function startCampaign(
             {
                 campaignId: cid,
                 total: totalJobs,
-                queued: pendingEnqueue.length,
+                queued: pendingCount,
                 skippedSettled,
                 connections: activeConnectionIds.length,
                 stages: stageCount,
@@ -10451,51 +10454,67 @@ export async function startCampaign(
             },
             ownerUid
         );
-        const runtimeAfterEnqueue = campaignsById.get(cid);
-        publishOwnerEvent(ownerUid, 'campaign-started', { total: pendingEnqueue.length, campaignId: cid });
-        const heldAfterStart =
-            pausedCampaigns.has(cid) ||
-            Boolean(runtimeAfterEnqueue?.protectionPaused || runtimeAfterEnqueue?.manualPaused);
-        if (heldAfterStart) {
-            publishOwnerEvent(ownerUid, 'campaign-paused', {
-                campaignId: cid,
-                protection: Boolean(runtimeAfterEnqueue?.protectionPaused),
-            });
-        } else {
-            void runPostResumeCampaignQueueRepair(cid, ownerUid, false).catch((e) =>
-                log('warn', 'runPostResumeCampaignQueueRepair falhou após start', {
+
+        // Enfileira em background para não bloquear a resposta ao cliente.
+        void (async () => {
+            try {
+                await enqueueCampaignItemsBulk(pendingEnqueue);
+                const runtimeAfterEnqueue = campaignsById.get(cid);
+                const heldAfterStart =
+                    pausedCampaigns.has(cid) ||
+                    Boolean(runtimeAfterEnqueue?.protectionPaused || runtimeAfterEnqueue?.manualPaused);
+                if (heldAfterStart) {
+                    publishOwnerEvent(ownerUid, 'campaign-paused', {
+                        campaignId: cid,
+                        protection: Boolean(runtimeAfterEnqueue?.protectionPaused),
+                    });
+                } else {
+                    void runPostResumeCampaignQueueRepair(cid, ownerUid, false).catch((e) =>
+                        log('warn', 'runPostResumeCampaignQueueRepair falhou após start', {
+                            campaignId: cid,
+                            error: (e as Error)?.message,
+                        })
+                    );
+                }
+                notifyCampaignBlocking(ownerUid, countActiveCampaignsForOwner(ownerUid) > 0);
+                void import('./chipProtectionService.js').then((m) =>
+                    m.refreshEffectiveProtection(ownerUid)
+                );
+                // Não sobrescrever PAUSED se o 1º job já ativou proteção durante o enqueue.
+                // Nunca gravar 0,0,0 — usa os contadores já hidratados do PG/Redis.
+                if (!runtimeAfterEnqueue?.protectionPaused && !runtimeAfterEnqueue?.manualPaused && !pausedCampaigns.has(cid)) {
+                    void persistCampaignProgressToFirestore(
+                        ownerUid,
+                        cid,
+                        runtimeAfterEnqueue?.successCount ?? seededSuccess,
+                        runtimeAfterEnqueue?.failCount ?? seededFail,
+                        runtimeAfterEnqueue?.processed ?? seededProcessed,
+                        pendingCount === 0 && seededProcessed >= totalJobs ? 'COMPLETED' : 'RUNNING'
+                    );
+                }
+            } catch (err: any) {
+                // Falha de enfileiramento (Redis fora, etc.): cancela campanha em RAM e notifica UI.
+                log('error', 'startCampaign falhou ao enfileirar — abortando', {
                     campaignId: cid,
-                    error: (e as Error)?.message,
-                })
-            );
-        }
-        notifyCampaignBlocking(ownerUid, countActiveCampaignsForOwner(ownerUid) > 0);
-        void import('./chipProtectionService.js').then((m) =>
-            m.refreshEffectiveProtection(ownerUid)
-        );
-        // Não sobrescrever PAUSED se o 1º job já ativou proteção durante o enqueue.
-        // Nunca gravar 0,0,0 — usa os contadores já hidratados do PG/Redis.
-        if (!runtimeAfterEnqueue?.protectionPaused && !runtimeAfterEnqueue?.manualPaused && !pausedCampaigns.has(cid)) {
-            void persistCampaignProgressToFirestore(
-                ownerUid,
-                cid,
-                runtimeAfterEnqueue?.successCount ?? seededSuccess,
-                runtimeAfterEnqueue?.failCount ?? seededFail,
-                runtimeAfterEnqueue?.processed ?? seededProcessed,
-                pendingEnqueue.length === 0 && seededProcessed >= totalJobs ? 'COMPLETED' : 'RUNNING'
-            );
-        }
+                    error: err?.message,
+                });
+                campaignsById.delete(cid);
+                publishOwnerEvent(ownerUid, 'campaign-error', {
+                    campaignId: cid,
+                    error: err?.message || 'Falha ao enfileirar mensagens da campanha.',
+                });
+            }
+        })();
     } catch (err: any) {
-        // Falha de enfileiramento (Redis fora, etc.): cancela campanha em RAM
-        // e propaga para o socket handler avisar a UI.
-        log('error', 'startCampaign falhou ao enfileirar — abortando', {
+        // Erros antes do enfileiramento (validação, Redis ping, etc.) — propaga normalmente.
+        log('error', 'startCampaign falhou antes do enfileiramento', {
             campaignId: cid,
             error: err?.message,
         });
         campaignsById.delete(cid);
         publishOwnerEvent(ownerUid, 'campaign-error', {
             campaignId: cid,
-            error: err?.message || 'Falha ao enfileirar mensagens da campanha.',
+            error: err?.message || 'Falha ao iniciar campanha.',
         });
         throw err;
     }

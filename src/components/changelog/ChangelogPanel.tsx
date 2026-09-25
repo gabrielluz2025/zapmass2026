@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.199',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Campanha travada ao iniciar: campaign-started emitido antes do enfileiramento — UI não congela mais para campanhas grandes' },
+      { type: 'fix', text: 'Exclusão de campanha com timeout: limite aumentado para 45s e cleanup de jobs órfãos agora é assíncrono' },
+      { type: 'fix', text: 'DELETE de campaign_jobs otimizado: usa índice campaign_id e não faz mais seq scan de payload JSONB ao excluir' },
+    ],
+  },
+  {
     version: '2.3.198',
     date: '24/09/2026',
     highlights: [

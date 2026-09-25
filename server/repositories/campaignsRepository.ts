@@ -230,17 +230,24 @@ export class CampaignDeleteBlockedError extends Error {
 export async function deleteCampaign(tenantId: string, campaignId: string): Promise<boolean> {
   const pool = getZapmassPool();
   if (!pool || !isUuid(campaignId)) return false;
-  // Apaga o histórico desta campanha antes do DELETE (ON DELETE SET NULL deixaria
-  // jobs órfãos que o reload colava em outra campanha e bloqueava o disparo).
+  // Remove jobs pelo campaign_id indexado (rápido) e pelo payload JSONB apenas para
+  // órfãos (campaign_id IS NULL) — busca limitada por tenant para evitar seq scan total.
   await pool.query(
     `DELETE FROM zapmass.campaign_jobs
       WHERE tenant_id = $1::uuid
-        AND (
-          campaign_id = $2::uuid
-          OR (campaign_id IS NULL AND payload->>'campaignId' = $2)
-        )`,
+        AND campaign_id = $2::uuid`,
     [tenantId, campaignId]
   );
+  // Orphaned jobs (campaign_id IS NULL): cleanup em background para não bloquear o DELETE.
+  void pool.query(
+    `DELETE FROM zapmass.campaign_jobs
+      WHERE tenant_id = $1::uuid
+        AND campaign_id IS NULL
+        AND payload->>'campaignId' = $2`,
+    [tenantId, campaignId]
+  ).catch((e: unknown) => {
+    console.warn('[deleteCampaign] orphan cleanup falhou:', (e as Error)?.message);
+  });
   const r = await pool.query(
     `DELETE FROM zapmass.campaigns WHERE tenant_id = $1::uuid AND id = $2::uuid`,
     [tenantId, campaignId]

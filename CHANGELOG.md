@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.199] - 2026-09-25
+### Corrigido
+- **Campanha trava ao iniciar (freeze)**: `campaign-started` agora é emitido antes do enfileiramento em bulk no Redis/BullMQ — campanhas grandes (10k+) não travam mais a UI por vários minutos enquanto todos os jobs são criados em background.
+- **Exclusão de campanha com timeout**: `apiDeleteCampaign` aumentado para 45s (era 18s padrão) para suportar campanhas com muitos jobs pendentes; cleanup de jobs órfãos (campaign_id IS NULL) agora é assíncrono e não bloqueia a resposta.
+- **DELETE lento de campaign_jobs**: exclusão de jobs indexados por `campaign_id` separada do cleanup de órfãos JSONB — evita seq scan desnecessário na tabela campaign_jobs ao deletar campanhas.
+
 ## [2.3.198] - 2026-09-24
 ### Corrigido
 - **campaignStallNotified vazando para sempre**: trocado de `Set<string>` para `Map<string,number>` com TTL de 30 min — o watchdog volta a alertar/agir em campanhas que pararam de novo após longo intervalo.
