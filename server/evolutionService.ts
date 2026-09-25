@@ -1563,7 +1563,7 @@ export async function refreshConnectionsForCampaign(connectionIds: string[]): Pr
 export function anySelectedConnectionsOpenInMemory(connectionIds: string[]): boolean {
     for (const id of connectionIds) {
         const c = connections.get(id);
-        if (isEvolutionOpenState(c?.status) && c.phoneNumber?.trim()) return true;
+        if (isEvolutionOpenState(c?.status)) return true;
     }
     return false;
 }
@@ -6112,7 +6112,7 @@ async function filterActiveConnections(connectionIds: string[]): Promise<string[
             continue;
         }
         const ram = connections.get(connId);
-        const ramOpen = isEvolutionOpenState(ram?.status) && Boolean(ram.phoneNumber?.trim());
+        const ramOpen = isEvolutionOpenState(ram?.status);
         // Webhook Connected já marcou o chip na RAM: incluir sem esperar probe HTTP
         // (o parser Go costumava recusar chips visivelmente Online).
         if (ramOpen) {
@@ -7358,7 +7358,16 @@ function isCampaignChannelUsable(connectionId: string): boolean {
         if (!recentlyProvedOpen) return false;
     }
     if (isProxyDispatchBlocked(id)) return false;
-    return !getConnectionBanInfo(id).inQuarantine;
+    const banInfo = getConnectionBanInfo(id);
+    if (banInfo.inQuarantine) {
+        const lastOpen = conn?.lastOpenAt || 0;
+        const bannedAt = banInfo.lastBannedAt || 0;
+        if (ramOpen && lastOpen > bannedAt) {
+            return true;
+        }
+        return false;
+    }
+    return true;
 }
 
 async function isCampaignChannelHealthy(connectionId: string): Promise<boolean> {
@@ -11770,6 +11779,7 @@ export function listActiveBlockingCampaignIdsForOwner(ownerUid: string): string[
     for (const [campaignId, state] of campaignsById.entries()) {
         if (!state.isRunning || state.ownerUid !== ownerUid) continue;
         if (pausedCampaigns.has(campaignId)) continue;
+        if (state.total > 0 && state.processed >= state.total) continue;
         ids.push(campaignId);
     }
     return ids;

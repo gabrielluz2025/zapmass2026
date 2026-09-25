@@ -134,11 +134,10 @@ export function registerCampaignsDataRoutes(app: Express): void {
     try {
       await evolutionService.releaseCampaignAfterUserDelete(id);
       const ok = await deleteCampaign(ctx.tenantId, id);
-      if (!ok) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
       evolutionService.purgeCampaignMediaFiles(id);
       purgeCampaignRecipientSnapshot(id);
       notifyTenantDataChanged(ctx.tenantId, 'campaigns');
-      return res.json({ ok: true });
+      return res.json({ ok: true, deleted: ok });
     } catch (e) {
       if (e instanceof CampaignDeleteBlockedError) {
         return res.status(409).json({ ok: false, error: e.message });

@@ -7,6 +7,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.200] - 2026-09-25
+### Corrigido
+- **Deleção de campanhas resiliente**: remoção direta indexada em `campaign_jobs` sem sequential scan em JSONB; remoção em tabelas filhas `campaign_contact_state`, `campaign_logs` e `campaign_jobs_dlq_alerts`; suporte a UUID 32-hex e normalizado; rota `DELETE /api/campaigns/:id` idempotente.
+- **Frontend não trava ao excluir**: `ZapMassContext.tsx` remove localmente o card mesmo em caso de erro de rede ou campanha já inexistente no servidor.
+- **Campanha não iniciava pelo card**: `toggleCampaignStatus` trata campanhas `DRAFT` (Pendente) e `FAILED` com retomada e fila de disparos.
+- **Chips online não reconhecidos**: `anySelectedConnectionsOpenInMemory` e `filterActiveConnections` aceitam canais com status `open` mesmo antes de preencher `phoneNumber` no cache.
+- **Probe de conexões Evolution**: `isConnectionOpen` valida compatibilidade com aliases Evolution (`connected`, `LoggedIn`, `online`) via `isEvolutionOpenState`.
+- **Desbloqueio de chips reconectados**: chips reconectados após quarentena voltam a ser usados no disparo se `lastOpenAt > lastBannedAt`.
+- **Limite de campanhas concorrentes**: campanhas que atingiram 100% de processamento são liberadas de `listActiveBlockingCampaignIdsForOwner`.
+
 ## [2.3.199] - 2026-09-25
 ### Corrigido
 - **Campanhas travando a UI**: listagem `/api/campaigns` não executa mais `requeuePhantom` em cada card (bloqueava PostgreSQL com dezenas de milhares de jobs).

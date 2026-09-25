@@ -227,26 +227,29 @@ export class CampaignDeleteBlockedError extends Error {
   }
 }
 
+function normalizeCampaignUuid(id: string): string | null {
+  const clean = String(id || '').trim().toLowerCase();
+  if (isUuid(clean)) return clean;
+  if (/^[0-9a-f]{32}$/.test(clean)) {
+    return `${clean.slice(0, 8)}-${clean.slice(8, 12)}-${clean.slice(12, 16)}-${clean.slice(16, 20)}-${clean.slice(20, 32)}`;
+  }
+  return null;
+}
+
 async function deleteCampaignJobsBatched(
   pool: NonNullable<ReturnType<typeof getZapmassPool>>,
-  tenantId: string,
-  campaignId: string
+  validUuid: string
 ): Promise<void> {
-  const BATCH = 8_000;
+  const BATCH = 10_000;
   for (;;) {
     const del = await pool.query(
       `DELETE FROM zapmass.campaign_jobs
         WHERE ctid IN (
-          SELECT j.ctid
-            FROM zapmass.campaign_jobs j
-           WHERE j.tenant_id = $1::uuid
-             AND (
-               j.campaign_id = $2::uuid
-               OR (j.campaign_id IS NULL AND j.payload->>'campaignId' = $2)
-             )
-           LIMIT $3
+          SELECT ctid FROM zapmass.campaign_jobs
+          WHERE campaign_id = $1::uuid
+          LIMIT $2
         )`,
-      [tenantId, campaignId, BATCH]
+      [validUuid, BATCH]
     );
     if ((del.rowCount ?? 0) === 0) break;
   }
@@ -254,15 +257,69 @@ async function deleteCampaignJobsBatched(
 
 export async function deleteCampaign(tenantId: string, campaignId: string): Promise<boolean> {
   const pool = getZapmassPool();
-  if (!pool || !isUuid(campaignId)) return false;
-  // Apaga o histórico desta campanha antes do DELETE (ON DELETE SET NULL deixaria
-  // jobs órfãos que o reload colava em outra campanha e bloqueava o disparo).
-  await deleteCampaignJobsBatched(pool, tenantId, campaignId);
-  const r = await pool.query(
-    `DELETE FROM zapmass.campaigns WHERE tenant_id = $1::uuid AND id = $2::uuid`,
-    [tenantId, campaignId]
-  );
-  return (r.rowCount ?? 0) > 0;
+  if (!pool) return false;
+  const rawId = String(campaignId || '').trim();
+  if (!rawId) return false;
+
+  const validUuid = normalizeCampaignUuid(rawId);
+
+  if (validUuid) {
+    // Apaga tabelas filhas vinculadas de forma protegida antes do DELETE
+    // (índices em campaign_id tornam essas queries instantâneas).
+    try {
+      await deleteCampaignJobsBatched(pool, validUuid);
+    } catch (e) {
+      console.warn('[deleteCampaign] aviso ao limpar campaign_jobs:', (e as Error)?.message);
+    }
+
+    try {
+      await pool.query(
+        `DELETE FROM zapmass.campaign_contact_state
+          WHERE campaign_id = $1::uuid`,
+        [validUuid]
+      );
+    } catch (e) {
+      console.warn('[deleteCampaign] aviso ao limpar campaign_contact_state:', (e as Error)?.message);
+    }
+
+    try {
+      await pool.query(
+        `DELETE FROM zapmass.campaign_logs
+          WHERE campaign_id = $1::uuid`,
+        [validUuid]
+      );
+    } catch (e) {
+      console.warn('[deleteCampaign] aviso ao limpar campaign_logs:', (e as Error)?.message);
+    }
+
+    try {
+      await pool.query(
+        `DELETE FROM zapmass.campaign_jobs_dlq_alerts
+          WHERE campaign_id = $1::uuid`,
+        [validUuid]
+      );
+    } catch (e) {
+      console.warn('[deleteCampaign] aviso ao limpar campaign_jobs_dlq_alerts:', (e as Error)?.message);
+    }
+
+    const r = await pool.query(
+      `DELETE FROM zapmass.campaigns WHERE id = $1::uuid`,
+      [validUuid]
+    );
+    return (r.rowCount ?? 0) > 0;
+  }
+
+  // Fallback para campanhas legadas com ID textual não-UUID no doc
+  try {
+    const rDoc = await pool.query(
+      `DELETE FROM zapmass.campaigns
+        WHERE (doc->>'id' = $1 OR doc->>'campaignId' = $1 OR name = $1)`,
+      [rawId]
+    );
+    return (rDoc.rowCount ?? 0) > 0;
+  } catch {
+    return false;
+  }
 }
 
 export async function deleteCampaigns(

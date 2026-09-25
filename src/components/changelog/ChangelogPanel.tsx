@@ -10,6 +10,19 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.200',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Deleção de campanhas resiliente: limpeza indexada e protegida no banco sem locks lentos; idempotência total ao remover' },
+      { type: 'fix', text: 'Card não trava na tela: exclusão no painel é refletida imediatamente sem depender de status de erro transitório da rede' },
+      { type: 'fix', text: 'Campanha Pendente / DRAFT inicia no card: clique no Play verde de campanhas pendentes ou com falha aciona envio imediatamente' },
+      { type: 'fix', text: 'Canais online aceitos de imediato: chips com status open são reconhecidos sem exigir phoneNumber no cache inicial' },
+      { type: 'fix', text: 'Chips reconectados liberados: nova sessão aberta após ban limpa quarentena prévia e restaura envios' },
+      { type: 'fix', text: 'Campanhas concluídas liberam o limite: campanhas que atingiram o total não bloqueiam mais novas campanhas' },
+      { type: 'fix', text: 'Retomada com fila vazia: recupera e enfileira contatos pendentes automaticamente se a fila BullMQ estiver zerada' },
+    ],
+  },
+  {
     version: '2.3.199',
     date: '25/09/2026',
     highlights: [
