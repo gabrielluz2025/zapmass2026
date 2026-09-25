@@ -7,9 +7,58 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.205] - 2026-09-25
+### Corrigido
+- **Canal offline mas recebendo mensagem**: ao receber `MESSAGES_UPSERT` de um chip marcado como "offline" em RAM, o status é restaurado automaticamente para `online` — chegada de mensagem via webhook prova que a Evolution API ainda está ativa. Elimina o falso "Chip desconectado" no bate-papo enquanto mensagens continuam chegando.
+
+## [2.3.204] - 2026-09-25
+### Corrigido
+- **Idempotência no Fluxo por Respostas (`ReplyFlowEngine`)**: Adicionado controle de mensagens recebidas por `messageId` com TTL para evitar que webhooks duplicados da Evolution acionem o envio de respostas mais de uma vez.
+- **Deduplicação Inteligente no Chat (Servidor e Frontend)**:
+  * No servidor (`evolutionChat.ts`), incorporada deduplicação temporal (janela de 12s) de mensagens de saída do mesmo remetente com texto idêntico, mesclando metadados em vez de duplicar bolhas por eco do webhook.
+  * No utilitário compartilhado (`chatMessageMerge.ts`), mesclagem de mensagens idênticas em janela curta preservando tags de campanha (`fromCampaign`, `campaignId`) e status mais atualizado.
+
+## [2.3.203] - 2026-09-25
+### Adicionado
+- **Retribuição Educada e Inteligente de Saudações no Fluxo por Respostas**:
+  * **Detecção Inteligente**: Identifica mensagens que são primariamente saudações ("Bom dia", "Boa tarde", "Boa noite", "Olá", "Oi", "Tudo bem", "Como vai", "E aí", "Salve", etc.) com normalização tolerante a acentos e pontuação excessiva.
+  * **Retribuição Contextual de Acordo com Horário (Brasília)**: Responde cordialmente com saudações compatíveis com o fuso `America/Sao_Paulo` (05:00–11:59 "Bom dia! Tudo bem?", 12:00–17:59 "Boa tarde! Tudo bem?", 18:00–04:59 "Boa noite! Tudo bem?").
+  * **Correção Cordial para Saudações Discordantes**: Quando o contato envia "Bom dia" no período da tarde, o bot responde acolhedoramente ("Olá, boa tarde! Tudo bem?").
+  * **Acolhimento Humanizado de Mensagem Inválida**: Em vez de responder secamente com mensagens de erro ("Não entendi..."), formata a mensagem com acolhimento educado antes de orientar o contato a escolher a opção.
+  * **Preservação do Contato**: Saudações não penalizam o contador de tentativas inválidas (`invalidReplyCount`), evitando descarte prematuro da conversa. Proteção contra loops automáticos entre robôs.
+  * **Opção de Ativar/Desativar (Toggle)**: Campo `politeGreetingEnabled` no fluxo por respostas e switch intuitivo no assistente de criação (`NewCampaignWizard`) e no editor de fluxo (`CampaignReplyFlowEditor`), com suporte interativo no simulador de testes.
+
+## [2.3.202] - 2026-09-25
+### Melhorado
+- **Modernização do Módulo de Bate-Papo (Chat v2)**: Elevado o padrão visual e de usabilidade ao nível WhatsApp Web / Chatwoot / Linear.
+- **Cabeçalho da Conversa Refinado**: Removidos botões inoperantes de chamada de voz e vídeo com `cursor-not-allowed` e adicionado botão funcional de Ficha do Contato (`UserRound`). Indicador verde suave de presença no avatar quando `online`, texto animado suave pulsante quando `digitando...` / `gravando...` e chip de canal limpo.
+- **Bolhas de Mensagem e Carimbo de Data/Hora**: Alinhamento fluido de timestamp e ticks de status sem quebras/dentes causados por float manual; padding e border-radius harmoniosos (12px com ponta de 4px no topo); badge de `Campanha` refinado em pill discreto com micro-ícone de megafone.
+- **Atalho de Respostas Rápidas (`/`) no Composer**: Menu popover rápido que surge ao digitar `/` no campo de mensagem para inserção imediata com navegação por setas, Tab, Enter ou clique.
+- **Drag & Drop de Arquivos na Conversa**: Suporte a arrastar e soltar imagens, vídeos, áudios e documentos sobre a área do chat com feedback visual elegante e direcionamento automático para pré-visualização.
+- **Harmonização de Cores dos Canais e Não-Lidas**: Cores de canais organizadas em paleta estável, sóbria e elegante; conversas não lidas com destaque tipográfico refinado e badge verde oficial WhatsApp `#25D366`.
+
+## [2.3.201] - 2026-09-25
+### Melhorado
+- **Cotas diárias e divisão por períodos respeitam o limite do canal**: Quando um canal possui limite diário próprio configurado (`conn.dailyLimit > 0`), este prevalece como teto máximo sobre a cota diária da campanha (`effectiveChannelLimit = Math.min(campaignLimit, connDailyLimit)`).
+- **Proporcionalidade de períodos com teto do canal**: No fracionamento em períodos (ex: 50% manhã e 50% tarde), a divisão percentual é calculada sobre o teto efetivo do canal (ex: limite do canal 40 msg vira 20 de manhã e 20 à tarde, em vez de extrapolar para 50/50).
+- **Enfileiramento inteligente por dia e período**: O agendamento da campanha aloca até a cota diária efetiva do canal no dia antes de direcionar os contatos restantes para os próximos dias programados.
+- **Aviso no Wizard de Campanhas**: O assistente de criação de campanhas exibe aviso claro e explicativo quando o canal selecionado possui limite diário menor que o configurado na campanha, detalhando as cotas resultantes da manhã e da tarde.
+
+## [2.3.200] - 2026-09-25
+### Corrigido
+- **Deleção de campanhas resiliente**: remoção direta indexada em `campaign_jobs` sem sequential scan em JSONB; remoção em tabelas filhas `campaign_contact_state`, `campaign_logs` e `campaign_jobs_dlq_alerts`; suporte a UUID 32-hex e normalizado; rota `DELETE /api/campaigns/:id` idempotente.
+- **Frontend não trava ao excluir**: `ZapMassContext.tsx` remove localmente o card mesmo em caso de erro de rede ou campanha já inexistente no servidor.
+- **Campanha não iniciava pelo card**: `toggleCampaignStatus` trata campanhas `DRAFT` (Pendente) e `FAILED` com retomada e fila de disparos.
+- **Chips online não reconhecidos**: `anySelectedConnectionsOpenInMemory` e `filterActiveConnections` aceitam canais com status `open` mesmo antes de preencher `phoneNumber` no cache.
+- **Probe de conexões Evolution**: `isConnectionOpen` valida compatibilidade com aliases Evolution (`connected`, `LoggedIn`, `online`) via `isEvolutionOpenState`.
+- **Desbloqueio de chips reconectados**: chips reconectados após quarentena voltam a ser usados no disparo se `lastOpenAt > lastBannedAt`.
+- **Limite de campanhas concorrentes**: campanhas que atingiram 100% de processamento são liberadas de `listActiveBlockingCampaignIdsForOwner`.
+
 ## [2.3.199] - 2026-09-25
 ### Corrigido
-- **Canal caiu mas mensagem chegou**: quando um `MESSAGES_UPSERT` chega de um chip marcado como "offline" em RAM, o status é restaurado automaticamente para `online` — a chegada de mensagem via webhook PROVA que a Evolution API ainda está ativa para aquele chip. Elimina o falso "Chip desconectado" no Bate-papo.
+- **Campanhas travando a UI**: listagem `/api/campaigns` não executa mais `requeuePhantom` em cada card (bloqueava PostgreSQL com dezenas de milhares de jobs).
+- **Excluir campanha**: DELETE de `campaign_jobs` em lotes + timeout de 90s no cliente (campanhas grandes não estouravam em 18s).
+- **Play em Pendente/Pausada**: botão inicia ou reidrata fila via `redispatch` (rascunho e pausada com pendências); servidor faz kick automático após `resume` se BullMQ estiver vazio.
 
 ## [2.3.198] - 2026-09-24
 ### Corrigido

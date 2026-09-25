@@ -21,6 +21,7 @@ export type InboundProcessParams = {
   messageOwnerUid: string | undefined;
   dedupeKey: string;
   source: 'webhook' | 'replay';
+  messageId?: string;
 };
 
 export type InboundReplayDeps = {

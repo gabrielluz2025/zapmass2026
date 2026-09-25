@@ -3,6 +3,7 @@ import {
   consumeDailyCampaignQuota,
   getEffectiveMessagesSentToday,
   releaseDailyCampaignQuota,
+  resolveEffectiveChannelQuota,
   setConnectionPgSentTodayFloor,
 } from './connectionDailyQuota.js';
 
@@ -53,5 +54,15 @@ describe('connectionDailyQuota', () => {
     expect(await consumeDailyCampaignQuota('c3', deps)).toBe('ok');
     await releaseDailyCampaignQuota('c3', deps);
     expect(store.get('c3')!.messagesSentToday).toBe(39);
+  });
+
+  it('resolveEffectiveChannelQuota aplica teto do canal sobre a cota da campanha', () => {
+    // Campanha 100, canal 40 -> 40
+    expect(resolveEffectiveChannelQuota(100, 40)).toBe(40);
+    // Campanha 100, canal 150 -> 100
+    expect(resolveEffectiveChannelQuota(100, 150)).toBe(100);
+    // Campanha 100, canal sem limite (0 ou indefinido) -> 100
+    expect(resolveEffectiveChannelQuota(100, 0)).toBe(100);
+    expect(resolveEffectiveChannelQuota(100, undefined)).toBe(100);
   });
 });

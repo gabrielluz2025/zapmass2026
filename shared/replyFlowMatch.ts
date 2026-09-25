@@ -236,6 +236,217 @@ export function replyMatchesGate(
   return tokens.some((tok) => matchReplyTriggerToken(cleanReplyTriggerToken(tok), t, mode).matched);
 }
 
+/** Frases compostas de saudação (ordenadas da mais longa para a mais curta) */
+export const GREETING_PHRASES: string[] = [
+  'tudo bem com voce',
+  'tudo bem com vc',
+  'tudo bom com voce',
+  'tudo bom com vc',
+  'como vai voce',
+  'como vai vc',
+  'como voce esta',
+  'como vc esta',
+  'como voce ta',
+  'como vc ta',
+  'como c ta',
+  'fala comigo',
+  'fala ai',
+  'fala aí',
+  'boa tarde',
+  'boa noite',
+  'bom dia',
+  'tudo bem',
+  'tudo bom',
+  'tudo joia',
+  'tudo certo',
+  'tudo otimo',
+  'tudo beleza',
+  'td bem',
+  'td bom',
+  'td certo',
+  'td joia',
+  'como vai',
+  'como esta',
+  'como ta',
+  'e ai',
+];
+
+/** Palavras individuais de saudação */
+export const GREETING_WORDS: string[] = [
+  'ola',
+  'oi',
+  'oii',
+  'oiii',
+  'oie',
+  'opa',
+  'salve',
+  'eai',
+  'buenas',
+  'beleza',
+  'blz',
+  'fala',
+];
+
+/** Conectivos e pronomes neutros permitidos junto à saudação */
+export const GREETING_FILLERS: string[] = [
+  'amigo',
+  'amiga',
+  'irmao',
+  'irma',
+  'pessoal',
+  'gente',
+  'parceiro',
+  'parceira',
+  'camarada',
+  'cara',
+  'voce',
+  'vc',
+  'por ai',
+  'por aqui',
+  'ai',
+  'aqui',
+];
+
+/** Identifica se uma mensagem recebida é primariamente uma saudação cortês. */
+export function isGreetingMessage(text: string): boolean {
+  const { norm } = normalizeReplyBodyForMatch(text);
+  if (!norm) return false;
+
+  let current = ` ${norm} `;
+  let hasGreeting = false;
+
+  // 1. Procura e substitui frases compostas de saudação
+  for (const phrase of GREETING_PHRASES) {
+    const cleanPhrase = cleanReplyTriggerToken(phrase);
+    if (!cleanPhrase) continue;
+    const pattern = new RegExp(`\\b${cleanPhrase.replace(/\s+/g, '\\s+')}\\b`, 'g');
+    if (pattern.test(current)) {
+      hasGreeting = true;
+      current = current.replace(pattern, ' ');
+    }
+  }
+
+  // 2. Procura e substitui palavras únicas de saudação
+  for (const word of GREETING_WORDS) {
+    const cleanWord = cleanReplyTriggerToken(word);
+    if (!cleanWord) continue;
+    const pattern = new RegExp(`\\b${cleanWord}\\b`, 'g');
+    if (pattern.test(current)) {
+      hasGreeting = true;
+      current = current.replace(pattern, ' ');
+    }
+  }
+
+  if (!hasGreeting) return false;
+
+  // 3. Remove conectivos e pronomes neutros permitidos
+  for (const filler of GREETING_FILLERS) {
+    const cleanFiller = cleanReplyTriggerToken(filler);
+    if (!cleanFiller) continue;
+    const pattern = new RegExp(`\\b${cleanFiller.replace(/\s+/g, '\\s+')}\\b`, 'g');
+    current = current.replace(pattern, ' ');
+  }
+
+  // 4. Se não sobrar nada significativo além de espaços, é puramente uma saudação
+  const remainder = current.trim().replace(/\s+/g, '');
+  return remainder.length === 0;
+}
+
+/** Obtém a hora civil em Brasília (fuso America/Sao_Paulo). */
+export function getBrazilHour(date: Date = new Date()): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'America/Sao_Paulo',
+      hour: 'numeric',
+      hour12: false,
+      hourCycle: 'h23',
+    }).formatToParts(date);
+    const v = parts.find((p) => p.type === 'hour')?.value;
+    let n = v != null ? parseInt(v, 10) : NaN;
+    if (n === 24) n = 0;
+    if (Number.isFinite(n)) return n;
+  } catch {
+    // fallback
+  }
+  const utcHours = date.getUTCHours();
+  return (utcHours - 3 + 24) % 24;
+}
+
+/** Retorna a saudação cordial de retribuição compatível com o horário de Brasília. */
+export function buildPoliteGreeting(incomingText?: string, date: Date = new Date()): string {
+  const hour = getBrazilHour(date);
+  let periodoSaudacao: string;
+  let periodo: 'manha' | 'tarde' | 'noite';
+
+  if (hour >= 5 && hour < 12) {
+    periodoSaudacao = 'Bom dia';
+    periodo = 'manha';
+  } else if (hour >= 12 && hour < 18) {
+    periodoSaudacao = 'Boa tarde';
+    periodo = 'tarde';
+  } else {
+    periodoSaudacao = 'Boa noite';
+    periodo = 'noite';
+  }
+
+  const cleanIncoming = cleanReplyTriggerToken(incomingText || '');
+  const mentionsBomDia = cleanIncoming.includes('bom dia');
+  const mentionsBoaTarde = cleanIncoming.includes('boa tarde');
+  const mentionsBoaNoite = cleanIncoming.includes('boa noite');
+
+  const discordant =
+    (mentionsBomDia && periodo !== 'manha') ||
+    (mentionsBoaTarde && periodo !== 'tarde') ||
+    (mentionsBoaNoite && periodo !== 'noite');
+
+  if (discordant) {
+    return `Olá, ${periodoSaudacao.toLowerCase()}! Tudo bem?`;
+  }
+
+  return `${periodoSaudacao}! Tudo bem?`;
+}
+
+/** Formata uma resposta acolhedora de erro/instrução prefixada pela saudação cordial. */
+export function formatPoliteGreetingInvalidReply(
+  baseInvalidBody?: string,
+  greeting?: string,
+  date: Date = new Date()
+): string {
+  const g = greeting || buildPoliteGreeting(undefined, date);
+  const raw = String(baseInvalidBody || '').trim();
+
+  if (!raw) {
+    return `${g} Para eu te ajudar da melhor forma, por favor escolha uma das opções acima.`;
+  }
+
+  const stripped = raw
+    .replace(
+      /^(não entendi|nao entendi|opção inválida|opcao invalida|resposta inválida|resposta invalida)[\.\!\,\:\;\s]*/i,
+      ''
+    )
+    .trim();
+
+  if (!stripped) {
+    return `${g} Para eu te ajudar da melhor forma, por favor escolha uma das opções acima.`;
+  }
+
+  if (/^por favor\b/i.test(stripped)) {
+    const afterPorFavor = stripped.replace(/^por favor[\,\:\s]*/i, '').trim();
+    const instruction = afterPorFavor.charAt(0).toLowerCase() + afterPorFavor.slice(1);
+    return `${g} Para eu te ajudar da melhor forma, por favor ${instruction}`;
+  }
+
+  if (
+    stripped.toLowerCase().startsWith('para eu te ajudar') ||
+    stripped.toLowerCase().startsWith(g.toLowerCase())
+  ) {
+    return stripped;
+  }
+
+  const instruction = stripped.charAt(0).toLowerCase() + stripped.slice(1);
+  return `${g} Para eu te ajudar da melhor forma, por favor ${instruction}`;
+}
+
 /** Simula qual rota seria acionada (preview no editor). */
 export function simulateReplyFlowMatch(input: {
   bodyText: string;
@@ -244,8 +455,9 @@ export function simulateReplyFlowMatch(input: {
   matchMode?: ReplyMatchMode;
   options?: ReplyFlowOptionLike[];
   invalidReplyBody?: string;
+  politeGreetingEnabled?: boolean;
 }): {
-  kind: 'any' | 'option' | 'gate' | 'invalid' | 'empty';
+  kind: 'any' | 'option' | 'gate' | 'invalid' | 'greeting' | 'empty';
   optionIndex?: number;
   matchedToken?: string;
   matchMode?: ReplyMatchMode;
@@ -266,6 +478,15 @@ export function simulateReplyFlowMatch(input: {
         message: opt?.reply?.trim() || 'Resposta configurada nesta rota.',
       };
     }
+
+    if (input.politeGreetingEnabled !== false && isGreetingMessage(t)) {
+      const g = buildPoliteGreeting(t);
+      return {
+        kind: 'greeting',
+        message: formatPoliteGreetingInvalidReply(input.invalidReplyBody, g),
+      };
+    }
+
     return {
       kind: 'invalid',
       message: input.invalidReplyBody?.trim() || 'Resposta não reconhecida — cairia no fallback.',
@@ -278,6 +499,14 @@ export function simulateReplyFlowMatch(input: {
 
   if (replyMatchesGate(input, t)) {
     return { kind: 'gate', matchedToken: input.validTokens?.[0], matchMode: input.matchMode || 'word' };
+  }
+
+  if (input.politeGreetingEnabled !== false && isGreetingMessage(t)) {
+    const g = buildPoliteGreeting(t);
+    return {
+      kind: 'greeting',
+      message: formatPoliteGreetingInvalidReply(input.invalidReplyBody, g),
+    };
   }
 
   return {

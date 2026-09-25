@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Conversation } from '../../../types';
-import { buildDisplayIndex, inboxListTitle, initialsAvatarDataUrl } from './conversationDisplay';
+import {
+  buildDisplayIndex,
+  connectionBadgeColor,
+  inboxListTitle,
+  initialsAvatarDataUrl,
+} from './conversationDisplay';
 
 describe('conversationDisplay LID', () => {
   const lidConv: Conversation = {
@@ -26,5 +31,12 @@ describe('conversationDisplay LID', () => {
     const broken = `Jo\uD800o`;
     expect(() => initialsAvatarDataUrl(broken)).not.toThrow();
     expect(initialsAvatarDataUrl(broken).startsWith('data:image/svg+xml,')).toBe(true);
+  });
+
+  it('retorna paleta harmoniosa para canal', () => {
+    const color = connectionBadgeColor('conn_1');
+    expect(color).toBeDefined();
+    expect(color.text).toMatch(/^#/);
+    expect(color.bg).toContain('rgba');
   });
 });

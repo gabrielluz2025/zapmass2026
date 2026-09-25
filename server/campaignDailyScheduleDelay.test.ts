@@ -4,6 +4,8 @@ import {
   brazilMidnightUtcMs,
   calendarDaysUntilWorkDay,
   computeDailyScheduleDelayMs,
+  computeEffectiveChannelDailyLimit,
+  computePeriodQuotas,
   isWithinDailyScheduleWindow,
   msUntilNextDailyScheduleWindow,
 } from './campaignDailyScheduleDelay.js';
@@ -127,5 +129,115 @@ describe('campaignDailyScheduleDelay', () => {
     const brHour = new Date(fireAt - BRAZIL_OFFSET_MS).getUTCHours();
     expect(brHour).toBeGreaterThanOrEqual(13);
     expect(brHour).toBeLessThan(18);
+  });
+
+  describe('limite diário próprio do canal como teto e divisão por período', () => {
+    it('computeEffectiveChannelDailyLimit: limite do canal prevalece quando menor que da campanha', () => {
+      // Cenário do usuário: campanha 100 msg/dia, canal com limite de 40 msg/dia
+      expect(computeEffectiveChannelDailyLimit(100, 40)).toBe(40);
+      // Se canal tem limite maior (ex: 150), respeita a restrição menor da campanha (100)
+      expect(computeEffectiveChannelDailyLimit(100, 150)).toBe(100);
+      // Se canal não tem limite próprio configurado (0, null ou undefined), usa o da campanha
+      expect(computeEffectiveChannelDailyLimit(100, 0)).toBe(100);
+      expect(computeEffectiveChannelDailyLimit(100, null)).toBe(100);
+      expect(computeEffectiveChannelDailyLimit(100, undefined)).toBe(100);
+    });
+
+    it('computePeriodQuotas: divide a cota efetiva proporcionalmente entre manhã e tarde (50%/50% de 40 vira 20/20)', () => {
+      // Cenário: canal com teto de 40 mensagens, 50% manhã e 50% tarde
+      const quotas = computePeriodQuotas(40, [
+        { pct: 50, startHour: 8, endHour: 12 },
+        { pct: 50, startHour: 13, endHour: 18 },
+      ]);
+      expect(quotas).toHaveLength(2);
+      expect(quotas[0].quota).toBe(20); // 20 de manhã
+      expect(quotas[1].quota).toBe(20); // 20 à tarde
+    });
+
+    it('computePeriodQuotas: divide cota de 100 mensagens (50 manhã / 50 tarde)', () => {
+      const quotas = computePeriodQuotas(100, [
+        { pct: 50, startHour: 8, endHour: 12 },
+        { pct: 50, startHour: 13, endHour: 18 },
+      ]);
+      expect(quotas[0].quota).toBe(50);
+      expect(quotas[1].quota).toBe(50);
+    });
+
+    it('computeDailyScheduleDelayMs: aplica o teto do canal (40 msg) dividindo em 20 manhã e 20 tarde', () => {
+      // Quinta-feira 07:00 BRT (antes da janela da manhã)
+      const morningBeforeNow = Date.UTC(2026, 7, 13, 10, 0, 0); // 10h UTC = 7h BRT
+
+      // Contato 0 (primeiro da manhã): deve cair no início da manhã (8h)
+      const delayContact0 = computeDailyScheduleDelayMs({
+        nowMs: morningBeforeNow,
+        dayIndex: 0,
+        contactIndexInDay: 0,
+        intraDayStaggerMs: 0,
+        timePeriodEnabled: true,
+        periods: [
+          { pct: 50, startHour: 8, endHour: 12 },
+          { pct: 50, startHour: 13, endHour: 18 },
+        ],
+        dayLimit: 100, // configurado na campanha
+        channelDailyLimit: 40, // teto do canal
+      });
+      const hourContact0 = new Date(morningBeforeNow + delayContact0 - BRAZIL_OFFSET_MS).getUTCHours();
+      expect(hourContact0).toBe(8);
+
+      // Contato 19 (último da cota de 20 da manhã): deve ainda cair no período da manhã (< 12h)
+      const delayContact19 = computeDailyScheduleDelayMs({
+        nowMs: morningBeforeNow,
+        dayIndex: 0,
+        contactIndexInDay: 19,
+        intraDayStaggerMs: 0,
+        timePeriodEnabled: true,
+        periods: [
+          { pct: 50, startHour: 8, endHour: 12 },
+          { pct: 50, startHour: 13, endHour: 18 },
+        ],
+        dayLimit: 100,
+        channelDailyLimit: 40,
+      });
+      const hourContact19 = new Date(morningBeforeNow + delayContact19 - BRAZIL_OFFSET_MS).getUTCHours();
+      expect(hourContact19).toBeGreaterThanOrEqual(8);
+      expect(hourContact19).toBeLessThan(12);
+
+      // Contato 20 (21º contato, primeiro da cota da tarde): DEVE cair no período da tarde (>= 13h)
+      // Se não houvesse o teto de 40, contato 20 ainda cairia na manhã (pois 20 < 50)
+      const delayContact20 = computeDailyScheduleDelayMs({
+        nowMs: morningBeforeNow,
+        dayIndex: 0,
+        contactIndexInDay: 20,
+        intraDayStaggerMs: 0,
+        timePeriodEnabled: true,
+        periods: [
+          { pct: 50, startHour: 8, endHour: 12 },
+          { pct: 50, startHour: 13, endHour: 18 },
+        ],
+        dayLimit: 100,
+        channelDailyLimit: 40,
+      });
+      const hourContact20 = new Date(morningBeforeNow + delayContact20 - BRAZIL_OFFSET_MS).getUTCHours();
+      expect(hourContact20).toBeGreaterThanOrEqual(13);
+      expect(hourContact20).toBeLessThan(18);
+
+      // Contato 39 (último contato do dia no canal): cai na tarde (< 18h)
+      const delayContact39 = computeDailyScheduleDelayMs({
+        nowMs: morningBeforeNow,
+        dayIndex: 0,
+        contactIndexInDay: 39,
+        intraDayStaggerMs: 0,
+        timePeriodEnabled: true,
+        periods: [
+          { pct: 50, startHour: 8, endHour: 12 },
+          { pct: 50, startHour: 13, endHour: 18 },
+        ],
+        dayLimit: 100,
+        channelDailyLimit: 40,
+      });
+      const hourContact39 = new Date(morningBeforeNow + delayContact39 - BRAZIL_OFFSET_MS).getUTCHours();
+      expect(hourContact39).toBeGreaterThanOrEqual(13);
+      expect(hourContact39).toBeLessThan(18);
+    });
   });
 });

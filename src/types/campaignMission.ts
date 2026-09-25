@@ -41,6 +41,8 @@ export interface CampaignWizardDraft {
   /** Fluxo por resposta: opt-out global antes do menu. */
   replyFlowGlobalOptOutEnabled?: boolean;
   replyFlowGlobalOptOutKeywordsText?: string;
+  /** Fluxo por resposta: retribuição educada de saudações. */
+  replyFlowPoliteGreetingEnabled?: boolean;
   filterCities: string[];
   filterChurches: string[];
   filterRoles: string[];

@@ -64,6 +64,8 @@ type Props = {
   globalOptOutEnabled?: boolean;
   globalOptOutKeywordsText?: string;
   onGlobalOptOutChange?: (patch: { enabled?: boolean; keywordsText?: string }) => void;
+  politeGreetingEnabled?: boolean;
+  onPoliteGreetingChange?: (enabled: boolean) => void;
 };
 
 const MATCH_MODE_OPTIONS: Array<{ value: ReplyMatchMode; label: string }> = [
@@ -113,6 +115,8 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
   globalOptOutEnabled = true,
   globalOptOutKeywordsText = '',
   onGlobalOptOutChange,
+  politeGreetingEnabled = true,
+  onPoliteGreetingChange,
 }) => {
   const [simulatorInput, setSimulatorInput] = useState('');
   const [, setInvalidOpen] = useState(false); // kept for compat; menu mode always shows the field
@@ -213,8 +217,9 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
           }))
         : undefined,
       invalidReplyBody: first?.invalidReplyBody,
+      politeGreetingEnabled,
     });
-  }, [simulatorInput, isAnyReply, first, isConditional, menuOptions]);
+  }, [simulatorInput, isAnyReply, first, isConditional, menuOptions, politeGreetingEnabled]);
 
   return (
     <div className="cw-reply-flow cw-reply-flow--simple">
@@ -582,10 +587,25 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                         {simulatorResult.kind === 'option' && `✅ Rota ${(simulatorResult.optionIndex ?? 0) + 1} — gatilho "${simulatorResult.matchedToken}" (${simulatorResult.matchMode || 'word'})`}
                         {simulatorResult.kind === 'any' && '✅ Qualquer resposta → follow-up'}
                         {simulatorResult.kind === 'gate' && '✅ Gate linear reconhecido'}
+                        {simulatorResult.kind === 'greeting' && `👋 Saudação educada: ${simulatorResult.message}`}
                         {simulatorResult.kind === 'invalid' && `⚠️ Fallback: ${simulatorResult.message}`}
                         {simulatorResult.kind === 'empty' && simulatorResult.message}
                       </p>
                     ) : null}
+                  </div>
+
+                  <div className="rounded-xl border border-emerald-200/60 dark:border-emerald-900/40 bg-emerald-50/30 dark:bg-emerald-950/10 p-4 space-y-2 mt-4">
+                    <label className="flex items-center gap-2 text-[12px] font-bold cursor-pointer" style={{ color: 'var(--text-1)' }}>
+                      <input
+                        type="checkbox"
+                        checked={politeGreetingEnabled !== false}
+                        onChange={(e) => onPoliteGreetingChange?.(e.target.checked)}
+                      />
+                      Retribuir saudações educadamente
+                    </label>
+                    <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                      Se o contato responder com &quot;Bom dia&quot;, &quot;Olá&quot; ou &quot;Tudo bem&quot;, responde com uma saudação amigável antes de solicitar a opção.
+                    </p>
                   </div>
 
                   <div className="rounded-xl border border-rose-200/60 dark:border-rose-900/40 bg-rose-50/30 dark:bg-rose-950/10 p-4 space-y-3 mt-4">

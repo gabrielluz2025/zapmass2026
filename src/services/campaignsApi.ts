@@ -49,7 +49,10 @@ export async function saveCampaignEdit(
 }
 
 export async function apiDeleteCampaign(id: string): Promise<void> {
-  await apiFetchJson(`/api/campaigns/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  await apiFetchJson(`/api/campaigns/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    timeoutMs: CAMPAIGNS_API_TIMEOUT_MS,
+  });
 }
 
 export async function apiBulkDeleteCampaigns(
@@ -57,7 +60,11 @@ export async function apiBulkDeleteCampaigns(
 ): Promise<{ deleted: string[]; missing: string[] }> {
   const j = await apiFetchJson<{ deleted?: string[]; missing?: string[] }>(
     '/api/campaigns/bulk-delete',
-    { method: 'POST', body: JSON.stringify({ ids }) }
+    {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+      timeoutMs: CAMPAIGNS_API_TIMEOUT_MS,
+    }
   );
   return {
     deleted: Array.isArray(j.deleted) ? j.deleted : [],

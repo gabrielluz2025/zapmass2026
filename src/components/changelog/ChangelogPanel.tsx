@@ -10,10 +10,72 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.205',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Canal offline mas mensagem chegou: chip restaurado para online automaticamente quando webhook MESSAGES_UPSERT chega — elimina falso "Chip desconectado" no bate-papo' },
+    ],
+  },
+  {
+    version: '2.3.204',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Idempotência no replyFlowEngine: previne disparos repetidos de respostas automáticas causados por retentativas de webhook' },
+      { type: 'fix', text: 'Deduplicação e mesclagem de eco no chat: mensagens de saída idênticas em janela curta são mescladas preservando tags de campanha' },
+    ],
+  },
+  {
+    version: '2.3.203',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Detecção inteligente de saudações: identifica "Bom dia", "Olá", "Tudo bem", "Como vai" etc. em respostas de campanhas com fluxo' },
+      { type: 'feat', text: 'Retribuição educada e compatível com o horário: responde cordialmente com base no fuso de Brasília (manhã, tarde ou noite)' },
+      { type: 'feat', text: 'Acolhimento humanizado de resposta inválida: substitui respostas secas por orientação amigável antes de solicitar as opções' },
+      { type: 'feat', text: 'Preservação de tentativas: saudações não gastam o limite de respostas inválidas, permitindo que o contato continue o fluxo' },
+      { type: 'feat', text: 'Toggle para ativar/desativar: controle simples no assistente de campanhas e no editor de fluxos com prévia no simulador' },
+    ],
+  },
+  {
+    version: '2.3.202',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Cabeçalho da conversa refinado: botões inoperantes removidos, atalho para Ficha de Contato (CRM), indicador suave de online no avatar e status animado ao digitar' },
+      { type: 'improvement', text: 'Bolhas de mensagem modernizadas: layout fluido sem dentes de linha, cantos elegantes e tag de campanha em pill sutil com micro-ícone' },
+      { type: 'improvement', text: 'Atalho de respostas rápidas (/): digite barra no campo de mensagem para escolher e enviar macros ágeis com navegação por teclado' },
+      { type: 'improvement', text: 'Drag & Drop na thread: arraste e solte arquivos ou fotos direto sobre a área da conversa para envio imediato' },
+      { type: 'improvement', text: 'Harmonização visual de canais e não-lidas: paleta equilibrada e consistente para chips e badge verde esmeralda WhatsApp' },
+    ],
+  },
+  {
+    version: '2.3.201',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'improvement', text: 'Teto de limite por canal no cronograma: limite próprio do canal (ex: 40 msg) prevalece sobre a cota da campanha (ex: 100 msg)' },
+      { type: 'improvement', text: 'Divisão proporcional por período: se o canal tem limite 40 e 50% manhã / 50% tarde, dispara 20 de manhã e 20 à tarde' },
+      { type: 'improvement', text: 'Distribuição entre dias programados: contatos que excedem a cota diária efetiva do canal avançam para os próximos dias do cronograma' },
+      { type: 'improvement', text: 'Feedback no assistente de criação: resumo visual avisa quando o canal possui teto próprio e detalha os envios da manhã e tarde' },
+    ],
+  },
+  {
+    version: '2.3.200',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Deleção de campanhas resiliente: limpeza indexada e protegida no banco sem locks lentos; idempotência total ao remover' },
+      { type: 'fix', text: 'Card não trava na tela: exclusão no painel é refletida imediatamente sem depender de status de erro transitório da rede' },
+      { type: 'fix', text: 'Campanha Pendente / DRAFT inicia no card: clique no Play verde de campanhas pendentes ou com falha aciona envio imediatamente' },
+      { type: 'fix', text: 'Canais online aceitos de imediato: chips com status open são reconhecidos sem exigir phoneNumber no cache inicial' },
+      { type: 'fix', text: 'Chips reconectados liberados: nova sessão aberta após ban limpa quarentena prévia e restaura envios' },
+      { type: 'fix', text: 'Campanhas concluídas liberam o limite: campanhas que atingiram o total não bloqueiam mais novas campanhas' },
+      { type: 'fix', text: 'Retomada com fila vazia: recupera e enfileira contatos pendentes automaticamente se a fila BullMQ estiver zerada' },
+    ],
+  },
+  {
     version: '2.3.199',
     date: '25/09/2026',
     highlights: [
-      { type: 'fix', text: 'Canal offline mas recebendo mensagem: restaura automaticamente para online ao receber webhook MESSAGES_UPSERT — elimina falso "Chip desconectado" no bate-papo' },
+      { type: 'fix', text: 'Lista de campanhas deixou de rodar requeue pesado em todo reload — UI e delete/start voltam a responder' },
+      { type: 'fix', text: 'Exclusão de campanha grande: jobs apagados em lotes; API DELETE com timeout de 90s no painel' },
+      { type: 'fix', text: 'Botão Play em Pendente/Pausada reidrata fila; resume no servidor enfileira de novo se Redis estiver vazio' },
     ],
   },
   {

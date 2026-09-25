@@ -4010,8 +4010,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     try {
       await purgeCampaignForUser(uid, campaignId);
     } catch (err) {
-      deletedCampaignIdsRef.current.delete(campaignId);
-      throw err;
+      console.warn('[deleteCampaign] Aviso ao excluir na API, mantendo remoção local:', err);
     }
     setCampaigns((prev) => prev.filter((c) => c.id !== campaignId));
     void reloadVpsCampaignsRef.current();

@@ -8,6 +8,9 @@ import {
     replyMatchesGate,
     type ReplyMatchMode,
     DEFAULT_GLOBAL_OPT_OUT_KEYWORDS,
+    isGreetingMessage,
+    buildPoliteGreeting,
+    formatPoliteGreetingInvalidReply,
 } from '../shared/replyFlowMatch.js';
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
@@ -44,6 +47,9 @@ export type ReplyFlowDefMeta = {
     globalOptOutKeywords?: string[];
     /** Número máximo de tentativas de resposta inválida antes de encerrar o fluxo (padrão: 3) */
     maxInvalidReplyAttempts?: number;
+    /** Retribui saudações amigavelmente antes de solicitar opção (padrão: true) */
+    politeGreetingEnabled?: boolean;
+    autoGreetingReply?: boolean;
 };
 
 export type ReplyFlowPendingOutbound = {
@@ -63,6 +69,8 @@ export type ReplyFlowSession = {
     registeredConvKey?: string;
     /** Contador de respostas inválidas consecutivas */
     invalidReplyCount?: number;
+    /** Contador de saudações consecutivas para proteção contra loops entre robôs */
+    greetingReplyCount?: number;
     /** Resposta enfileirada aguardando confirmação de envio — sobrevive queda/restart. */
     pendingOutbound?: ReplyFlowPendingOutbound;
 };
@@ -286,9 +294,20 @@ export function sanitizeReplyFlowMeta(raw: unknown): ReplyFlowDefMeta {
     const kw = Array.isArray(rf.globalOptOutKeywords)
         ? rf.globalOptOutKeywords.map((k) => String(k || '').trim()).filter(Boolean)
         : [];
+    const maxAttempts = Number.isFinite(Number(rf.maxInvalidReplyAttempts))
+        ? Number(rf.maxInvalidReplyAttempts)
+        : undefined;
+    const politeGreeting =
+        rf.politeGreetingEnabled !== undefined
+            ? rf.politeGreetingEnabled !== false
+            : rf.autoGreetingReply !== undefined
+            ? rf.autoGreetingReply !== false
+            : true;
     return {
         globalOptOutEnabled: enabled,
         globalOptOutKeywords: kw.length > 0 ? kw : undefined,
+        maxInvalidReplyAttempts: maxAttempts,
+        politeGreetingEnabled: politeGreeting,
     };
 }
 
@@ -366,6 +385,7 @@ export class ReplyFlowEngine {
     private convToCanonical = new Map<string, string>();
     private sessionCountByCampaign = new Map<string, number>();
     private timeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    private processedInboundMessageIds = new Map<string, number>();
 
     constructor(private callbacks: ReplyFlowCallbacks) {}
 
@@ -758,8 +778,30 @@ export class ReplyFlowEngine {
         bodyText: string;
         nonTextReply?: boolean;
         incomingConvId?: string;
+        messageId?: string;
     }): Promise<{ handled: boolean; marketingEffect?: 'none' | 'opt_in' | 'opt_out' }> {
-        const { connectionId, phoneDigits, bodyText, nonTextReply, incomingConvId } = params;
+        const { connectionId, phoneDigits, bodyText, nonTextReply, incomingConvId, messageId } = params;
+
+        // Idempotência por messageId: não reprocessar o mesmo inbound
+        if (messageId) {
+            const cleanMsgId = String(messageId).trim();
+            const now = Date.now();
+            if (this.processedInboundMessageIds.has(cleanMsgId)) {
+                this.callbacks.onLog?.('Inbound já processado anteriormente no ReplyFlowEngine (idempotência ignorada)', {
+                    messageId: cleanMsgId,
+                    connectionId,
+                    phoneDigits,
+                });
+                return { handled: true };
+            }
+            // Limpa mensagens com mais de 10 minutos
+            if (this.processedInboundMessageIds.size > 2000) {
+                for (const [mid, ts] of this.processedInboundMessageIds) {
+                    if (now - ts > 600_000) this.processedInboundMessageIds.delete(mid);
+                }
+            }
+            this.processedInboundMessageIds.set(cleanMsgId, now);
+        }
 
         let found: { key: string; session: ReplyFlowSession } | null = null;
         if (incomingConvId) {
@@ -924,6 +966,7 @@ export class ReplyFlowEngine {
                 });
                 const replyBody = applyMessageVars(matchedOption.reply, phoneDigits, session.vars);
                 session.invalidReplyCount = 0;
+                delete session.greetingReplyCount;
                 session.pendingOutbound = {
                     message: replyBody,
                     disposeAfterSend: true,
@@ -966,6 +1009,45 @@ export class ReplyFlowEngine {
                     matchKind: 'option',
                 });
                 return { handled: true, marketingEffect: optMe };
+            }
+
+            const politeActive = def.meta?.politeGreetingEnabled !== false;
+            const isGreeting = politeActive && isGreetingMessage(tBody);
+
+            if (isGreeting) {
+                session.greetingReplyCount = (session.greetingReplyCount || 0) + 1;
+                if (session.greetingReplyCount > 5) {
+                    this.callbacks.onLog?.('Limite de saudações consecutivas atingido, encerrando fluxo', {
+                        campaignId: session.campaignId,
+                        connectionId,
+                        phoneDigits,
+                        greetingCount: session.greetingReplyCount,
+                    });
+                    this.disposeSession(key, session);
+                    return { handled: true };
+                }
+
+                const greeting = buildPoliteGreeting(tBody);
+                const politeBody = formatPoliteGreetingInvalidReply(gateStep.invalidReplyBody, greeting);
+                const replyText = applyMessageVars(politeBody, phoneDigits, session.vars);
+
+                this.callbacks.onLog?.('Saudação detectada no fluxo por resposta — retribuindo educadamente', {
+                    campaignId: session.campaignId,
+                    connectionId,
+                    phoneDigits,
+                    greetingRetribuida: greeting,
+                    replyPreview: replyText.slice(0, 80),
+                });
+
+                void this.safeEnqueue({
+                    to: session.toRaw,
+                    message: replyText,
+                    connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
+                    campaignId: session.campaignId,
+                    ownerUid: session.ownerUid,
+                });
+                this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
+                return { handled: true };
             }
 
             if (gateStep.invalidReplyBody) {
@@ -1013,33 +1095,74 @@ export class ReplyFlowEngine {
         if (awaiting >= steps.length - 1) {
             const gate = steps[steps.length - 1];
             const gateOk = replyMatchesGate(gate, bodyText, { nonTextReply });
-            if (!gateOk && gate.invalidReplyBody) {
-                // Verifica limite de tentativas de resposta inválida
-                const maxAttempts = def.meta?.maxInvalidReplyAttempts ?? 3;
-                session.invalidReplyCount = (session.invalidReplyCount || 0) + 1;
+            if (!gateOk) {
+                const politeActive = def.meta?.politeGreetingEnabled !== false;
+                const isGreeting = politeActive && isGreetingMessage(tBody);
 
-                if (session.invalidReplyCount >= maxAttempts) {
-                    this.callbacks.onLog?.('Limite de respostas inválidas atingido, encerrando fluxo', {
+                if (isGreeting) {
+                    session.greetingReplyCount = (session.greetingReplyCount || 0) + 1;
+                    if (session.greetingReplyCount > 5) {
+                        this.callbacks.onLog?.('Limite de saudações consecutivas atingido, encerrando fluxo', {
+                            campaignId: session.campaignId,
+                            connectionId,
+                            phoneDigits,
+                            greetingCount: session.greetingReplyCount,
+                        });
+                        this.disposeSession(key, session);
+                        return { handled: true };
+                    }
+
+                    const greeting = buildPoliteGreeting(tBody);
+                    const politeBody = formatPoliteGreetingInvalidReply(gate.invalidReplyBody, greeting);
+                    const replyText = applyMessageVars(politeBody, phoneDigits, session.vars);
+
+                    this.callbacks.onLog?.('Saudação detectada no fluxo por resposta — retribuindo educadamente', {
                         campaignId: session.campaignId,
                         connectionId,
                         phoneDigits,
-                        invalidCount: session.invalidReplyCount,
-                        maxAttempts,
+                        greetingRetribuida: greeting,
+                        replyPreview: replyText.slice(0, 80),
                     });
-                    this.disposeSession(key, session);
+
+                    void this.safeEnqueue({
+                        to: session.toRaw,
+                        message: replyText,
+                        connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
+                        campaignId: session.campaignId,
+                        ownerUid: session.ownerUid,
+                    });
+                    this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
                     return { handled: true };
                 }
 
-                const inv = applyMessageVars(gate.invalidReplyBody, phoneDigits, session.vars);
-                void this.safeEnqueue({
-                    to: session.toRaw,
-                    message: inv,
-                    connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
-                    campaignId: session.campaignId,
-                    ownerUid: session.ownerUid,
-                });
-                this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
-                return { handled: true };
+                if (gate.invalidReplyBody) {
+                    // Verifica limite de tentativas de resposta inválida
+                    const maxAttempts = def.meta?.maxInvalidReplyAttempts ?? 3;
+                    session.invalidReplyCount = (session.invalidReplyCount || 0) + 1;
+
+                    if (session.invalidReplyCount >= maxAttempts) {
+                        this.callbacks.onLog?.('Limite de respostas inválidas atingido, encerrando fluxo', {
+                            campaignId: session.campaignId,
+                            connectionId,
+                            phoneDigits,
+                            invalidCount: session.invalidReplyCount,
+                            maxAttempts,
+                        });
+                        this.disposeSession(key, session);
+                        return { handled: true };
+                    }
+
+                    const inv = applyMessageVars(gate.invalidReplyBody, phoneDigits, session.vars);
+                    void this.safeEnqueue({
+                        to: session.toRaw,
+                        message: inv,
+                        connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
+                        campaignId: session.campaignId,
+                        ownerUid: session.ownerUid,
+                    });
+                    this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
+                    return { handled: true };
+                }
             }
             if (gateOk && gate.marketingEffect === 'opt_in') {
                 this.callbacks.onMarketingConsent?.(
@@ -1076,6 +1199,45 @@ export class ReplyFlowEngine {
         }
 
         if (!replyMatchesGate(gateStep, bodyText, { nonTextReply })) {
+            const politeActive = def.meta?.politeGreetingEnabled !== false;
+            const isGreeting = politeActive && isGreetingMessage(tBody);
+
+            if (isGreeting) {
+                session.greetingReplyCount = (session.greetingReplyCount || 0) + 1;
+                if (session.greetingReplyCount > 5) {
+                    this.callbacks.onLog?.('Limite de saudações consecutivas atingido, encerrando fluxo', {
+                        campaignId: session.campaignId,
+                        connectionId,
+                        phoneDigits,
+                        greetingCount: session.greetingReplyCount,
+                    });
+                    this.disposeSession(key, session);
+                    return { handled: true };
+                }
+
+                const greeting = buildPoliteGreeting(tBody);
+                const politeBody = formatPoliteGreetingInvalidReply(gateStep.invalidReplyBody, greeting);
+                const replyText = applyMessageVars(politeBody, phoneDigits, session.vars);
+
+                this.callbacks.onLog?.('Saudação detectada no fluxo por resposta — retribuindo educadamente', {
+                    campaignId: session.campaignId,
+                    connectionId,
+                    phoneDigits,
+                    greetingRetribuida: greeting,
+                    replyPreview: replyText.slice(0, 80),
+                });
+
+                void this.safeEnqueue({
+                    to: session.toRaw,
+                    message: replyText,
+                    connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
+                    campaignId: session.campaignId,
+                    ownerUid: session.ownerUid,
+                });
+                this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
+                return { handled: true };
+            }
+
             if (gateStep.invalidReplyBody) {
                 const inv = applyMessageVars(gateStep.invalidReplyBody, phoneDigits, session.vars);
                 void this.safeEnqueue({
@@ -1097,6 +1259,9 @@ export class ReplyFlowEngine {
             }
             return { handled: true };
         }
+
+        session.invalidReplyCount = 0;
+        delete session.greetingReplyCount;
 
         if (gateStep.marketingEffect === 'opt_in') {
             this.callbacks.onMarketingConsent?.(

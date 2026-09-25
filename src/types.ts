@@ -234,6 +234,10 @@ export interface CampaignReplyFlow {
   globalOptOutEnabled?: boolean;
   /** Palavras extras além do padrão do sistema. */
   globalOptOutKeywords?: string[];
+  /** Retribui saudações amigavelmente antes de solicitar a opção (padrão: ligado). */
+  politeGreetingEnabled?: boolean;
+  /** Alias para politeGreetingEnabled */
+  autoGreetingReply?: boolean;
 }
 
 /** Passo semanal enviado a quem respondeu à prospecção (vira jornada nurture). */

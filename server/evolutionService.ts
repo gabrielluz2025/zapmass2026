@@ -162,6 +162,7 @@ import {
 } from './antiBanProactiveNotifications.js';
 import {
     computeDailyScheduleDelayMs,
+    computeEffectiveChannelDailyLimit,
     msUntilNextDailyScheduleWindow,
     parseCampaignDailySchedule,
     type DailyScheduleWindow,
@@ -179,6 +180,8 @@ import {
     countSentJobsByConnection,
     requeuePhantomDeadCampaignJobs,
     resetCampaignJobAfterPhantomFailure,
+    countCampaignJobsByStatus,
+    campaignJobsStillActive,
 } from './campaignJobsResilience.js';
 import {
     checkAndResetDailyLimitsWithDeps,
@@ -1561,7 +1564,7 @@ export async function refreshConnectionsForCampaign(connectionIds: string[]): Pr
 export function anySelectedConnectionsOpenInMemory(connectionIds: string[]): boolean {
     for (const id of connectionIds) {
         const c = connections.get(id);
-        if (isEvolutionOpenState(c?.status) && c.phoneNumber?.trim()) return true;
+        if (isEvolutionOpenState(c?.status)) return true;
     }
     return false;
 }
@@ -1591,7 +1594,7 @@ async function isConnectionOpen(instanceName: string): Promise<boolean> {
             .toLowerCase();
     } catch {
         // Erro de rede: se a RAM (webhook) já diz open, o chip está ativo — não bloquear disparo.
-        if (mem?.status === 'open') {
+        if (isEvolutionOpenState(mem?.status)) {
             lastConnectionStateCheck.set(instanceName, { state: true, at: now });
             return true;
         }
@@ -1602,14 +1605,14 @@ async function isConnectionOpen(instanceName: string): Promise<boolean> {
     const isOpen = isEvolutionOpenState(apiState);
     if (isOpen) {
         lastConnectionStateCheck.set(instanceName, { state: true, at: now });
-        if (mem && mem.status !== 'open') {
+        if (mem && !isEvolutionOpenState(mem.status)) {
             applyConnectionStateUpdate(instanceName, 'open', {});
         }
         return true;
     }
     // Probe HTTP não confirmou open. Webhook/RAM ainda pode estar certo (parser Go
     // às vezes devolve envelope "success" ou Connected em PascalCase).
-    if (mem?.status === 'open') {
+    if (isEvolutionOpenState(mem?.status)) {
         lastConnectionStateCheck.set(instanceName, { state: true, at: now });
         return true;
     }
@@ -6110,7 +6113,7 @@ async function filterActiveConnections(connectionIds: string[]): Promise<string[
             continue;
         }
         const ram = connections.get(connId);
-        const ramOpen = isEvolutionOpenState(ram?.status) && Boolean(ram.phoneNumber?.trim());
+        const ramOpen = isEvolutionOpenState(ram?.status);
         // Webhook Connected já marcou o chip na RAM: incluir sem esperar probe HTTP
         // (o parser Go costumava recusar chips visivelmente Online).
         if (ramOpen) {
@@ -7346,17 +7349,34 @@ function isCampaignChannelUsable(connectionId: string): boolean {
     const id = String(connectionId || '').trim();
     if (!id) return false;
     if (isConnectionInActiveWarmup(id)) return false;
-    const conn = connections.get(id);
+    let conn = connections.get(id);
+    if (!conn) {
+        for (const [key, c] of connections.entries()) {
+            if (c.instanceName === id || key === id) {
+                conn = c;
+                break;
+            }
+        }
+    }
     // Aceita o chip se a RAM diz 'open' OU se tivemos prova HTTP positiva recente (últimos 60s).
     // Isso evita que um RAM desatualizado (após restart/debounce do hydrate) cause failover falso.
     const ramOpen = isEvolutionOpenState(conn?.status);
     if (!ramOpen) {
-        const recent = lastConnectionStateCheck.get(id);
+        const recent = lastConnectionStateCheck.get(id) || (conn?.instanceName ? lastConnectionStateCheck.get(conn.instanceName) : undefined);
         const recentlyProvedOpen = recent && recent.state && (Date.now() - recent.at < 60_000);
         if (!recentlyProvedOpen) return false;
     }
     if (isProxyDispatchBlocked(id)) return false;
-    return !getConnectionBanInfo(id).inQuarantine;
+    const banInfo = getConnectionBanInfo(id);
+    if (banInfo.inQuarantine) {
+        const lastOpen = conn?.lastOpenAt || 0;
+        const bannedAt = banInfo.lastBannedAt || 0;
+        if (ramOpen && lastOpen > bannedAt) {
+            return true;
+        }
+        return false;
+    }
+    return true;
 }
 
 async function isCampaignChannelHealthy(connectionId: string): Promise<boolean> {
@@ -9645,11 +9665,23 @@ export async function redispatchCampaign(
         pendingJobs = 0;
     }
     if (pendingJobs > 0 && memState?.isRunning) {
-        return { ok: false, enqueued: 0, error: 'Campanha ainda em execução. Aguarde ou pause antes de reenviar.' };
+        // Se estiver em modo resume, checa se a fila BullMQ realmente ainda tem jobs ativos/esperando
+        const queue = getCampaignQueue();
+        const actualBullJobs = queue ? await countQueueJobsForCampaign(queue, campaignId) : 0;
+        if (actualBullJobs <= 0) {
+            campaignPendingJobs.delete(campaignId);
+            pendingJobs = 0;
+        } else {
+            return { ok: false, enqueued: 0, error: 'Campanha ainda em execução. Aguarde ou pause antes de reenviar.' };
+        }
     }
 
     if (pausedCampaigns.has(campaignId)) {
-        return { ok: false, enqueued: 0, error: 'Campanha pausada. Clique em Retomar para continuar.' };
+        if (mode === 'resume') {
+            pausedCampaigns.delete(campaignId);
+        } else {
+            return { ok: false, enqueued: 0, error: 'Campanha pausada. Clique em Retomar para continuar.' };
+        }
     }
 
     const stepIdx = typeof options.stepIndex === 'number' ? options.stepIndex : 0;
@@ -10307,12 +10339,20 @@ export async function startCampaign(
                     enqueuedIndexPerDayPerChannel[assignedConnectionId] = {};
                 }
 
+                // Limite configurado no próprio canal prevalece como teto máximo sobre a cota da campanha
+                const connObj = connections.get(assignedConnectionId);
+                const connDailyLimit = Math.max(0, Number(connObj?.dailyLimit) || 0);
+
                 let chosenDayIndex = 0;
                 let dayFound = false;
 
                 for (const dConfig of dailySchedule.days) {
+                    const effectiveLimit = computeEffectiveChannelDailyLimit(
+                        dConfig.limitPerChannel,
+                        connDailyLimit
+                    );
                     const currentCount = enqueuedCountPerDayPerChannel[assignedConnectionId][dConfig.dayIndex] || 0;
-                    if (currentCount < dConfig.limitPerChannel) {
+                    if (currentCount < effectiveLimit) {
                         chosenDayIndex = dConfig.dayIndex;
                         dayFound = true;
                         break;
@@ -10334,7 +10374,9 @@ export async function startCampaign(
                         ? Math.round((120_000 + Math.random() * 180_000))
                         : 0);
 
-                const dayLimit = dailySchedule.days.find(d => d.dayIndex === chosenDayIndex)?.limitPerChannel ?? 100;
+                const rawDayLimit = dailySchedule.days.find(d => d.dayIndex === chosenDayIndex)?.limitPerChannel ?? 100;
+                const effectiveDayLimit = computeEffectiveChannelDailyLimit(rawDayLimit, connDailyLimit);
+
                 staggerDelay = computeDailyScheduleDelayMs({
                     nowMs: Date.now(),
                     dayIndex: chosenDayIndex,
@@ -10343,7 +10385,8 @@ export async function startCampaign(
                     allowedWeekdays: dailySchedule.allowedWeekdays,
                     timePeriodEnabled: dailySchedule.timePeriodEnabled,
                     periods: dailySchedule.periods,
-                    dayLimit,
+                    dayLimit: effectiveDayLimit,
+                    channelDailyLimit: connDailyLimit,
                 });
             } else {
                 const jitterFactor = 0.75 + Math.random() * 0.5;
@@ -11232,6 +11275,7 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
         bodyText,
         nonTextReply,
         incomingConvId,
+        messageId: params.messageId,
     });
 
     if (!flowResult.handled && messageOwnerUid && (bodyText?.trim() || nonTextReply)) {
@@ -11602,6 +11646,7 @@ export async function handleWebhook(event: any) {
                         messageOwnerUid,
                         dedupeKey,
                         source: 'webhook',
+                        messageId: messageId ? String(messageId) : undefined,
                         });
                 }
                 break;
@@ -11787,6 +11832,7 @@ export function listActiveBlockingCampaignIdsForOwner(ownerUid: string): string[
     for (const [campaignId, state] of campaignsById.entries()) {
         if (!state.isRunning || state.ownerUid !== ownerUid) continue;
         if (pausedCampaigns.has(campaignId)) continue;
+        if (state.total > 0 && state.processed >= state.total) continue;
         ids.push(campaignId);
     }
     return ids;
@@ -12602,9 +12648,9 @@ function collectCampaignChannelIdsForRuntime(
     return Array.from(new Set(poolIds.map((id) => String(id || '').trim()).filter(Boolean)));
 }
 
-function computeResumeDispatchHeadroom(channelIds: string[]): number {
+function computeResumeDispatchHeadroom(channelIds: string[], campaignDailyLimit?: number): number {
     // Headroom = total de vagas disponíveis em TODOS os chips (não o mínimo)
-    // Se nenhum chip tem limite configurado, retorna valor alto (sem restrição)
+    // Se nenhum chip tem limite configurado e nem campanha tem teto diário, retorna valor alto (sem restrição)
     let total = 0;
     let hasLimit = false;
     for (const id of channelIds) {
@@ -12612,13 +12658,54 @@ function computeResumeDispatchHeadroom(channelIds: string[]): number {
         if (!cid || !isCampaignChannelUsable(cid)) continue;
         const conn = connections.get(cid);
         checkAndResetDailyLimits(conn as Parameters<typeof checkAndResetDailyLimits>[0]);
-        const limit = Math.max(0, Number(conn?.dailyLimit) || 0);
-        if (limit <= 0) return 400; // sem limite → sem restrição
-        hasLimit = true;
-        const sent = getEffectiveMessagesSentToday(cid, connectionDailyQuotaDeps());
-        total += Math.max(0, limit - sent);
+        const connLimit = Math.max(0, Number(conn?.dailyLimit) || 0);
+        const effectiveLimit = computeEffectiveChannelDailyLimit(
+            campaignDailyLimit && campaignDailyLimit > 0 ? campaignDailyLimit : (connLimit || 400),
+            connLimit
+        );
+        if (connLimit > 0 || (campaignDailyLimit && campaignDailyLimit > 0)) {
+            hasLimit = true;
+            const sent = getEffectiveMessagesSentToday(cid, connectionDailyQuotaDeps());
+            total += Math.max(0, effectiveLimit - sent);
+        }
     }
     return hasLimit ? total : 400;
+}
+
+/** BullMQ vazio mas ainda há pendências no PG/runtime — reenfileira após retomar. */
+async function kickCampaignRedispatchIfQueueEmpty(
+    campaignId: string,
+    ownerUid?: string
+): Promise<void> {
+    const cid = String(campaignId || '').trim();
+    const ou = resolveCampaignOwnerUid(campaignId, ownerUid);
+    if (!cid || !ou || pausedCampaigns.has(cid)) return;
+
+    const queue = getCampaignQueue();
+    const bullCount = queue ? await countQueueJobsForCampaign(queue, cid) : 0;
+    if (bullCount > 0) return;
+
+    const pg = await countCampaignJobsByStatus(cid);
+    const pgWork = campaignJobsStillActive(pg);
+    const state = campaignsById.get(cid);
+    const runtimePending =
+        Boolean(state?.isRunning) &&
+        (state?.total ?? 0) > 0 &&
+        (state?.processed ?? 0) < (state?.total ?? 0);
+
+    if (pgWork <= 0 && !runtimePending) return;
+
+    const result = await redispatchCampaign(ou, cid, { mode: 'resume' });
+    if (result.enqueued > 0) {
+        log('info', `[dispatch] Fila reidratada após resume (${result.enqueued} job(s))`, {
+            campaignId: cid,
+        });
+    } else if (!result.ok && result.error) {
+        log('warn', '[dispatch] kick após resume não enfileirou', {
+            campaignId: cid,
+            error: result.error,
+        });
+    }
 }
 
 async function runPostResumeCampaignQueueRepair(
@@ -12759,9 +12846,11 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
     if (ou) notifyCampaignBlocking(ou, countActiveCampaignsForOwner(ou) > 0);
     void saveCampaignRuntimeToRedis(campaignId);
     ensureCampaignWorker();
-    void runPostResumeCampaignQueueRepair(campaignId, ou, wasProtection).catch((e) =>
-        log('warn', 'runPostResumeCampaignQueueRepair falhou', { campaignId, error: (e as Error)?.message })
-    );
+    void runPostResumeCampaignQueueRepair(campaignId, ou, wasProtection)
+        .then(() => kickCampaignRedispatchIfQueueEmpty(campaignId, ou))
+        .catch((e) =>
+            log('warn', 'runPostResumeCampaignQueueRepair falhou', { campaignId, error: (e as Error)?.message })
+        );
 }
 
 /**

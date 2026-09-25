@@ -659,8 +659,33 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         const exists = conv.messages.some((m) => m.id === msg.id);
         if (!exists) {
-            conv.messages = [...conv.messages.slice(-(MAX_MESSAGES - 1)), msg]
-                .sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
+            // Deduplicação de eco: se já existe mensagem de mesmo remetente com texto idêntico
+            // nos últimos 12 segundos, atualiza/mescla metadados em vez de duplicar a bolha.
+            const cleanText = (msg.text || '').trim();
+            const nowMs = msg.timestampMs || Date.now();
+            const recentDuplicateIndex = conv.messages.findIndex((m) => {
+                if (m.sender !== msg.sender) return false;
+                if ((m.text || '').trim() !== cleanText) return false;
+                const ts = m.timestampMs || 0;
+                return Math.abs(nowMs - ts) < 12_000;
+            });
+
+            if (recentDuplicateIndex >= 0) {
+                const existing = conv.messages[recentDuplicateIndex];
+                conv.messages[recentDuplicateIndex] = {
+                    ...existing,
+                    ...msg,
+                    id: existing.id || msg.id,
+                    fromCampaign: existing.fromCampaign || msg.fromCampaign,
+                    campaignId: existing.campaignId || msg.campaignId,
+                    mediaUrl: msg.mediaUrl || existing.mediaUrl,
+                    waMediaPayload: msg.waMediaPayload || existing.waMediaPayload,
+                    status: msg.status || existing.status,
+                };
+            } else {
+                conv.messages = [...conv.messages.slice(-(MAX_MESSAGES - 1)), msg]
+                    .sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
+            }
         }
         conv.lastMessage = msg.text || conv.lastMessage;
         conv.lastMessageTime = msg.timestamp;

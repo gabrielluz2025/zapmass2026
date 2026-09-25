@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDown, ArrowLeft, History, Loader2, Lock, MoreVertical, Phone, ScanSearch, Search, Trash2, Video } from 'lucide-react';
+import { ArrowDown, ArrowLeft, History, Loader2, Lock, MoreVertical, ScanSearch, Search, Trash2, UploadCloud, UserRound } from 'lucide-react';
 import type { ChatMessage, Conversation, WhatsAppConnection } from '../../types';
 import { WaBubble } from '../chat/wa/WaBubble';
 import { WaComposer } from './WaComposer';
@@ -155,11 +155,15 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
   const [menuMsg, setMenuMsg] = useState<ChatMessage | null>(null);
   const [menuRect, setMenuRect] = useState<DOMRect | null>(null);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const dragCounterRef = useRef(0);
 
   useEffect(() => {
     setMenuMsg(null);
     setMenuRect(null);
     setHeaderMenuOpen(false);
+    setIsDraggingOver(false);
+    dragCounterRef.current = 0;
   }, [conversation?.id]);
 
   const messages = conversation?.messages ?? [];
@@ -279,6 +283,50 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
     }
   }, [conversation?.id, loadingHistory, historyExhausted, historyImporting, isGoWebhookInbox, onLoadOlder]);
 
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
+      setIsDraggingOver(true);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDraggingOver(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDraggingOver(false);
+    if (!canSend) return;
+
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      if (file) {
+        if (onPickFileForPreview) {
+          onPickFileForPreview(file);
+        } else if (onAttach) {
+          onAttach(file);
+        }
+      }
+    }
+  }, [canSend, onPickFileForPreview, onAttach]);
+
   if (!conversation) {
     return (
       <section className="wa-empty-pro flex-1 min-w-0" data-hide-mobile={hideOnMobile ? 'true' : undefined}>
@@ -305,32 +353,57 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
 
   return (
     <section
-      className="wa-chat-pane flex flex-col flex-1 min-w-0 min-h-0"
+      className="wa-chat-pane relative flex flex-col flex-1 min-w-0 min-h-0"
       data-hide-mobile={hideOnMobile ? 'true' : undefined}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
+      {isDraggingOver && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-[2px] border-2 border-dashed border-emerald-500/80 m-2 rounded-xl pointer-events-none transition-all">
+          <div className="w-14 h-14 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-2 shadow-lg">
+            <UploadCloud className="w-7 h-7" />
+          </div>
+          <p className="text-sm font-semibold text-white">Solte para enviar</p>
+          <p className="text-xs text-white/70 mt-0.5">Imagens, vídeos, áudios e documentos</p>
+        </div>
+      )}
+
       <header className="wa-chat-header">
         {showBack && (
           <button type="button" className="wa-icon-btn md:hidden" onClick={onBack} aria-label="Voltar">
             <ArrowLeft className="w-5 h-5" />
           </button>
         )}
-        <img
-          src={avatarSrc}
-          alt=""
-          className="wa-conv-avatar wa-chat-header-avatar cursor-pointer"
-          width={40}
-          height={40}
+        <div
+          className="relative flex-shrink-0 cursor-pointer"
           role="button"
           tabIndex={0}
-          title="Dados do contato"
+          title="Ficha do contato"
           onClick={() => onOpenContactInfo?.()}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenContactInfo?.(); } }}
-          onError={(e) => {
-            const el = e.currentTarget;
-            el.onerror = null;
-            el.src = `https://ui-avatars.com/api/?name=${safeEncodeURIComponent(primary)}&background=00a884&color=fff&size=200&bold=true`;
-          }}
-        />
+        >
+          <img
+            src={avatarSrc}
+            alt=""
+            className="wa-conv-avatar wa-chat-header-avatar"
+            width={40}
+            height={40}
+            onError={(e) => {
+              const el = e.currentTarget;
+              el.onerror = null;
+              el.src = `https://ui-avatars.com/api/?name=${safeEncodeURIComponent(primary)}&background=00a884&color=fff&size=200&bold=true`;
+            }}
+          />
+          {headerPresenceKind === 'online' && (
+            <span
+              className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-[var(--wa-header,#202c33)]"
+              title="Online"
+              aria-label="Online"
+            />
+          )}
+        </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
             <p
@@ -345,19 +418,30 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
             )}
           </div>
           <p
-            className="wa-chat-header-sub truncate"
+            className={`wa-chat-header-sub truncate ${
+              headerPresenceKind === 'active'
+                ? 'text-emerald-400 font-medium animate-pulse'
+                : headerPresenceKind === 'online'
+                ? 'text-emerald-400 font-medium'
+                : ''
+            }`}
             data-presence={headerPresenceKind || undefined}
           >
             {headerSub}
           </p>
         </div>
-        {/* Ícones de ação no header — estilo WhatsApp Desktop */}
-        <button type="button" className="wa-icon-btn flex-shrink-0 opacity-40 cursor-not-allowed" aria-label="Chamada de vídeo (em breve)" title="Chamada de vídeo — em breve" disabled>
-          <Video className="w-5 h-5" />
-        </button>
-        <button type="button" className="wa-icon-btn flex-shrink-0 opacity-40 cursor-not-allowed" aria-label="Chamada de voz (em breve)" title="Chamada de voz — em breve" disabled>
-          <Phone className="w-5 h-5" />
-        </button>
+        {/* Ícones de ação funcionais no header */}
+        {onOpenContactInfo && (
+          <button
+            type="button"
+            className="wa-icon-btn flex-shrink-0"
+            onClick={onOpenContactInfo}
+            aria-label="Ficha do contato"
+            title="Ficha do contato (CRM)"
+          >
+            <UserRound className="w-5 h-5" />
+          </button>
+        )}
         {onAnalyzeIntent && (
           <button type="button" className="wa-icon-btn flex-shrink-0 hidden" onClick={onAnalyzeIntent} aria-hidden tabIndex={-1}>
             <ScanSearch className="w-5 h-5" />

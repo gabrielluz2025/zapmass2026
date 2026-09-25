@@ -128,3 +128,17 @@ export async function releaseDailyCampaignQuota(connectionId: string, deps: Dail
     deps.onConsumePersist(id, conn);
   });
 }
+
+/**
+ * Retorna a cota diária efetiva para um canal considerando a cota da campanha
+ * e o limite configurado na própria conexão. Se connDailyLimit > 0, age como teto máximo.
+ */
+export function resolveEffectiveChannelQuota(
+  campaignLimit: number,
+  connDailyLimit?: number | null
+): number {
+  const camp = Math.max(1, Math.floor(Number(campaignLimit) || 1));
+  const conn = Math.max(0, Math.floor(Number(connDailyLimit) || 0));
+  return conn > 0 ? Math.min(camp, conn) : camp;
+}
+

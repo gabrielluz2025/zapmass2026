@@ -243,6 +243,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('single');
   const [replyFlowGlobalOptOutEnabled, setReplyFlowGlobalOptOutEnabled] = useState(true);
   const [replyFlowGlobalOptOutKeywordsText, setReplyFlowGlobalOptOutKeywordsText] = useState('');
+  const [replyFlowPoliteGreetingEnabled, setReplyFlowPoliteGreetingEnabled] = useState(true);
   const [flowModeChosen, setFlowModeChosen] = useState(true);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [selectedListId, setSelectedListId] = useState('');
@@ -915,6 +916,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       if (initialDraft.replyFlowGlobalOptOutKeywordsText != null) {
         setReplyFlowGlobalOptOutKeywordsText(initialDraft.replyFlowGlobalOptOutKeywordsText);
       }
+      if (typeof initialDraft.replyFlowPoliteGreetingEnabled === 'boolean') {
+        setReplyFlowPoliteGreetingEnabled(initialDraft.replyFlowPoliteGreetingEnabled);
+      }
     }
     // Draft/template/clone já traz o modo definido — não força reescolha.
     setFlowModeChosen(true);
@@ -1003,6 +1007,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       campaignFlowMode === 'reply' ? replyFlowGlobalOptOutEnabled : undefined,
     replyFlowGlobalOptOutKeywordsText:
       campaignFlowMode === 'reply' ? replyFlowGlobalOptOutKeywordsText : undefined,
+    replyFlowPoliteGreetingEnabled:
+      campaignFlowMode === 'reply' ? replyFlowPoliteGreetingEnabled : undefined,
     filterCities: Array.from(filterCities),
     filterChurches: Array.from(filterChurches),
     filterRoles: Array.from(filterRoles),
@@ -1063,6 +1069,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     delaySecondsMax,
     humanizedPauses,
     campaignFlowMode,
+    replyFlowGlobalOptOutEnabled,
+    replyFlowGlobalOptOutKeywordsText,
+    replyFlowPoliteGreetingEnabled,
     messageStages,
     filterCities,
     filterChurches,
@@ -1594,6 +1603,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
             enabled: true,
             globalOptOutEnabled: replyFlowGlobalOptOutEnabled,
             globalOptOutKeywords: parseValidTokensText(replyFlowGlobalOptOutKeywordsText),
+            politeGreetingEnabled: replyFlowPoliteGreetingEnabled,
           steps: messageStages.map((s) => {
             const hasMenuOptions = Array.isArray(s.options) && s.options.length > 0;
             return {
@@ -2537,6 +2547,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         if (patch.enabled !== undefined) setReplyFlowGlobalOptOutEnabled(patch.enabled);
                         if (patch.keywordsText !== undefined) setReplyFlowGlobalOptOutKeywordsText(patch.keywordsText);
                       }}
+                      politeGreetingEnabled={replyFlowPoliteGreetingEnabled}
+                      onPoliteGreetingChange={setReplyFlowPoliteGreetingEnabled}
                           />
                         )}
                       </div>
@@ -3419,6 +3431,33 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                             <span className="text-amber-300 font-bold">{limitPerChannelGlobal - Math.round(limitPerChannelGlobal * morningPct / 100)} tarde</span>
                             {' '}({afternoonStartHour}h–{afternoonEndHour}h)
                           </div>
+
+                          {(() => {
+                            const chipsWithLowerLimit = connections
+                              .filter((c) => selectedConnectionIds.includes(c.id) && (c.dailyLimit || 0) > 0)
+                              .filter((c) => (c.dailyLimit || 0) < limitPerChannelGlobal);
+                            if (chipsWithLowerLimit.length === 0) return null;
+                            return (
+                              <div className="mt-2 p-2 rounded-lg text-[11px] leading-relaxed border border-amber-500/20 bg-amber-500/10 text-amber-200">
+                                <div className="font-semibold flex items-center gap-1.5">
+                                  <span>⚠️</span>
+                                  <span>Limite próprio do canal prevalece como teto:</span>
+                                </div>
+                                <div className="mt-1 space-y-1 text-[10.5px] text-amber-300/90">
+                                  {chipsWithLowerLimit.map((c) => {
+                                    const cLimit = c.dailyLimit || 0;
+                                    const mCount = Math.round((cLimit * morningPct) / 100);
+                                    const aCount = cLimit - mCount;
+                                    return (
+                                      <div key={c.id}>
+                                        • <strong>{c.name || c.id}</strong>: limite do canal é <strong>{cLimit} msg/dia</strong> → disparará <strong>{mCount} de manhã</strong> e <strong>{aCount} à tarde</strong>.
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
 
