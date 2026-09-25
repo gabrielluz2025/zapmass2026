@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.199',
+    date: '25/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Canal offline mas recebendo mensagem: restaura automaticamente para online ao receber webhook MESSAGES_UPSERT — elimina falso "Chip desconectado" no bate-papo' },
+    ],
+  },
+  {
     version: '2.3.198',
     date: '24/09/2026',
     highlights: [

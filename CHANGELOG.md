@@ -7,6 +7,10 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.199] - 2026-09-25
+### Corrigido
+- **Canal caiu mas mensagem chegou**: quando um `MESSAGES_UPSERT` chega de um chip marcado como "offline" em RAM, o status é restaurado automaticamente para `online` — a chegada de mensagem via webhook PROVA que a Evolution API ainda está ativa para aquele chip. Elimina o falso "Chip desconectado" no Bate-papo.
+
 ## [2.3.198] - 2026-09-24
 ### Corrigido
 - **campaignStallNotified vazando para sempre**: trocado de `Set<string>` para `Map<string,number>` com TTL de 30 min — o watchdog volta a alertar/agir em campanhas que pararam de novo após longo intervalo.

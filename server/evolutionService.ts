@@ -11504,6 +11504,25 @@ export async function handleWebhook(event: any) {
                     });
                     break;
                 }
+
+                // Se recebemos mensagem via webhook, a Evolution API ESTÁ ativa para este chip.
+                // Corrige o estado em RAM quando o chip aparece offline/reconectando — evita
+                // que o UI mostre "Chip desconectado" enquanto mensagens continuam chegando.
+                {
+                    const connNow = connections.get(instance);
+                    const memStatus = connNow?.status;
+                    const isPaired = Boolean(connNow?.phoneNumber?.trim() || connectionsSettingsCache[instance]?.phoneNumber);
+                    if (
+                        isPaired &&
+                        memStatus !== 'open' &&
+                        !isManualLogoutHoldActive(instance) &&
+                        !deletedConnectionIds.has(instance)
+                    ) {
+                        log('info', `[MESSAGES_UPSERT] Mensagem recebida com chip offline em RAM (${memStatus}) — restaurando para open: ${instance}`);
+                        applyConnectionStateUpdate(instance, 'open', {});
+                    }
+                }
+
                 chatStore.handleWebhookMessage(instance, data);
                 if (data && typeof data === 'object' && (data as Record<string, unknown>).historySync === true) {
                     publishOwnerEvent(messageOwnerUid, 'history-sync-status', {
