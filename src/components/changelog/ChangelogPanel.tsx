@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.209',
+    date: '26/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Conversas de campanha sem texto de preview ("CO ...7976" em branco): agora carregam o texto enviado diretamente do banco ao reconectar o chip' },
+      { type: 'fix', text: 'Threads do histórico também recebem preview: listagem agora busca o último texto arquivado via JOIN no wa_chat_messages' },
+      { type: 'fix', text: 'Conversas já existentes com lastMessage vazio são atualizadas automaticamente quando o chip reconecta' },
+    ],
+  },
+  {
     version: '2.3.208',
     date: '24/09/2026',
     highlights: [

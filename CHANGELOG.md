@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.209] - 2026-09-26
+
+### Corrigido
+- **Conversas de campanha sem texto de preview**: stubs criados ao reconectar o chip agora carregam o texto enviado a partir do campo `payload->>'message'` do banco (`campaign_jobs`), eliminando as conversas "CO ...7976" sem conteúdo.
+- **Threads do arquivo histórico sem preview**: `listInboxThreadStubsPg` agora faz JOIN lateral em `wa_chat_messages` para buscar o último texto arquivado de cada thread.
+- **`ensurePhoneStubs` atualiza preview vazio**: conversas existentes que ficaram sem `lastMessage` também são corrigidas quando o chip reconecta.
+
 ## [2.3.208] - 2026-09-24
 
 ### Adicionado

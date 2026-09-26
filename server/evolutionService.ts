@@ -13236,14 +13236,21 @@ export async function triggerInboundReplayForConnection(connectionId: string): P
                         const pool = getZapmassPool();
                         const tenantId = resolvePostgresTenantId(ownerUid);
                         if (pool && tenantId) {
-                            const r = await pool.query<{ to_number: string; last_sent: Date }>(
-                                `SELECT to_number, MAX(COALESCE(sent_at, updated_at)) AS last_sent
+                            const r = await pool.query<{ to_number: string; last_sent: Date; msg_text: string | null }>(
+                                `SELECT DISTINCT ON (to_number)
+                                    to_number,
+                                    COALESCE(sent_at, updated_at) AS last_sent,
+                                    COALESCE(
+                                        payload->>'message',
+                                        payload->>'text',
+                                        payload->'media'->>'caption'
+                                    ) AS msg_text
                                  FROM zapmass.campaign_jobs
                                  WHERE connection_id = $1
                                    AND tenant_id = $2::uuid
                                    AND status = 'sent'
                                    AND COALESCE(sent_at, updated_at) > NOW() - INTERVAL '72 hours'
-                                 GROUP BY to_number
+                                 ORDER BY to_number, COALESCE(sent_at, updated_at) DESC
                                  LIMIT 400`,
                                 [connectionId, tenantId]
                             );
@@ -13252,6 +13259,7 @@ export async function triggerInboundReplayForConnection(connectionId: string): P
                                 r.rows.map((row) => ({
                                     phone: row.to_number,
                                     timestampMs: row.last_sent ? new Date(row.last_sent).getTime() : Date.now(),
+                                    lastMessage: row.msg_text ?? '',
                                 }))
                             );
                         }

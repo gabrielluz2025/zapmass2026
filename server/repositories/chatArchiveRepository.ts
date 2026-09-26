@@ -208,6 +208,7 @@ type ThreadRow = {
   contact_phone: string;
   last_connection_id: string;
   updated_ms: string;
+  last_msg_text: string | null;
 };
 
 /** Stubs de inbox a partir do Postgres (threads sem conversa na RAM). */
@@ -223,12 +224,19 @@ export async function listInboxThreadStubsPg(
     opts?.cursorMs != null && Number.isFinite(Number(opts.cursorMs)) ? Number(opts.cursorMs) : null;
   try {
     const r = await pool.query<ThreadRow>(
-      `SELECT thread_id, contact_name, contact_phone, last_connection_id,
-              (EXTRACT(EPOCH FROM updated_at) * 1000)::bigint::text AS updated_ms
-       FROM zapmass.wa_chat_threads
-       WHERE tenant_id = $1::uuid
-         AND ($2::bigint IS NULL OR (EXTRACT(EPOCH FROM updated_at) * 1000) < $2)
-       ORDER BY updated_at DESC
+      `SELECT t.thread_id, t.contact_name, t.contact_phone, t.last_connection_id,
+              (EXTRACT(EPOCH FROM t.updated_at) * 1000)::bigint::text AS updated_ms,
+              lm.text AS last_msg_text
+       FROM zapmass.wa_chat_threads t
+       LEFT JOIN LATERAL (
+         SELECT text FROM zapmass.wa_chat_messages
+         WHERE tenant_id = $1::uuid AND thread_id = t.thread_id
+         ORDER BY timestamp_ms DESC
+         LIMIT 1
+       ) lm ON true
+       WHERE t.tenant_id = $1::uuid
+         AND ($2::bigint IS NULL OR (EXTRACT(EPOCH FROM t.updated_at) * 1000) < $2)
+       ORDER BY t.updated_at DESC
        LIMIT $3`,
       [tenantId, cursorMs, limit]
     );
@@ -256,8 +264,8 @@ export async function listInboxThreadStubsPg(
           connectionId: conn,
           connectionOwnerUid: tenantId,
           unreadCount: 0,
-          lastMessage: '',
-          lastMessageTime: '',
+          lastMessage: row.last_msg_text || '',
+          lastMessageTime: ts > 0 ? new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '',
           lastMessageTimestamp: ts,
           messages: [],
           tags: ['Arquivo'],
@@ -276,8 +284,8 @@ export async function listInboxThreadStubsPg(
         connectionId: conn,
         connectionOwnerUid: tenantId,
         unreadCount: 0,
-        lastMessage: '',
-        lastMessageTime: '',
+        lastMessage: row.last_msg_text || '',
+        lastMessageTime: ts > 0 ? new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '',
         lastMessageTimestamp: ts,
         messages: [],
         tags: ['Arquivo'],

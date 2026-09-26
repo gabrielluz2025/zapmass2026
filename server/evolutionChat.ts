@@ -2572,7 +2572,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
     function ensurePhoneStubs(
         connectionId: string,
-        phones: Array<{ phone: string; timestampMs?: number }>
+        phones: Array<{ phone: string; timestampMs?: number; lastMessage?: string }>
     ): number {
         const cid = String(connectionId || '').trim();
         if (!cid || phones.length === 0) return 0;
@@ -2580,11 +2580,23 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         for (const row of phones) {
             const digits = normalizePhoneDigits(row.phone);
             if (!digits || digits.length < 8) continue;
-            const already = conversations.some((c) => {
+            const rowMsg = String(row.lastMessage || '').trim();
+            const tsMs = row.timestampMs && row.timestampMs > 0 ? row.timestampMs : Date.now();
+
+            const existing = conversations.find((c) => {
                 if (c.connectionId !== cid) return false;
                 return normalizePhoneDigits(c.contactPhone) === digits;
             });
-            if (already) continue;
+
+            if (existing) {
+                // Atualiza preview vazio se agora temos texto da campanha
+                if (!existing.lastMessage?.trim() && rowMsg) {
+                    existing.lastMessage = rowMsg;
+                    saveConversationsToCacheDebounced();
+                }
+                continue;
+            }
+
             upsertConversation(
                 {
                     id: `${cid}:${digits}@s.whatsapp.net`,
@@ -2592,9 +2604,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                     contactPhone: digits,
                     connectionId: cid,
                     unreadCount: 0,
-                    lastMessage: '',
-                    lastMessageTime: '',
-                    lastMessageTimestamp: row.timestampMs && row.timestampMs > 0 ? row.timestampMs : Date.now(),
+                    lastMessage: rowMsg,
+                    lastMessageTime: tsMs > 0 ? formatTime(tsMs) : '',
+                    lastMessageTimestamp: tsMs,
                     messages: [],
                     tags: ['Campanha'],
                 },
