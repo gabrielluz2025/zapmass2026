@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.207',
+    date: '26/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Botão editar sumia em campanhas Concluídas: agora sempre aparece como "Editar / Clonar" em todos os modos de visualização e na tela de detalhes' },
+      { type: 'fix', text: 'Campanhas Concluídas exibiam "X Pendentes": corrigido para mostrar 0 pendentes quando status = COMPLETED — a taxa de sucesso agora reflete o total planejado' },
+    ],
+  },
+  {
     version: '2.3.206',
     date: '26/09/2026',
     highlights: [

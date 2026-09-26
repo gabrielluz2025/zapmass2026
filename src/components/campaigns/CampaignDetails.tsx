@@ -1639,15 +1639,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
             </Button>
 
             <div className="flex items-center gap-2 flex-wrap justify-end">
-              {onEdit && !isDone && (
+              {onEdit && (
                 <Button
                   variant="secondary"
                   size="sm"
                   leftIcon={<Pencil className="w-3.5 h-3.5" />}
                   onClick={() => onEdit(campaign)}
-                  title="Ajustar mensagem, chips e cronograma sem reiniciar envios"
+                  title={isDone ? 'Clonar ou reenviar para falhas/pendentes desta campanha' : 'Ajustar mensagem, chips e cronograma sem reiniciar envios'}
                 >
-                  Ajustar
+                  {isDone ? 'Editar / Clonar' : 'Ajustar'}
                 </Button>
               )}
               {showPauseResume && (

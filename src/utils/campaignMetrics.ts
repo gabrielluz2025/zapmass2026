@@ -56,13 +56,13 @@ export function getCampaignProgressMetrics(campaign: Campaign) {
     effectiveProcessed = Math.min(effectiveProcessed, total);
     reported = Math.min(reported, total);
   }
-  if (
-    campaign.status === CampaignStatus.COMPLETED &&
-    plannedSendTotal > 0 &&
-    effectiveProcessed === 0
-  ) {
+  if (campaign.status === CampaignStatus.COMPLETED && plannedSendTotal > 0) {
+    // Campanha concluída: sem pendentes — todo contato foi processado (ou descartado).
+    // Antes só forçava quando effectiveProcessed === 0; agora sempre iguala ao planejado
+    // para evitar exibir "X Pendentes" em campanhas já encerradas.
     effectiveProcessed = plannedSendTotal;
   }
+  // Pendentes = 0 para campanhas COMPLETED (forçado pela igualação acima)
   const pending = Math.max(0, plannedSendTotal - effectiveProcessed);
   ok = Math.min(ok, plannedSendTotal, effectiveProcessed);
   fail = Math.min(fail, Math.max(0, effectiveProcessed - ok));

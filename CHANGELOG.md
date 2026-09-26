@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.207] - 2026-09-26
+### Corrigido
+- **Não consigo editar a campanha**: botão "Ajustar / Editar" agora aparece em campanhas concluídas também — nas três visualizações (cards, compacta e tabela) e na tela de detalhes. Antes era bloqueado pelo `!isDone` e `status !== COMPLETED`.
+- **Pendentes incorretos em campanha Concluída**: `getCampaignProgressMetrics` agora força `effectiveProcessed = plannedSendTotal` para qualquer campanha com status COMPLETED, não só quando `effectiveProcessed === 0`. Elimina a exibição de "X Pendentes" em campanhas já encerradas.
+- **Taxa de sucesso corrigida**: com `effectiveProcessed = plannedSendTotal` para concluídas, a taxa de sucesso passa a refletir entregas vs total planejado (não só vs processados parcialmente).
+
 ## [2.3.206] - 2026-09-26
 ### Corrigido
 - **QR lê mas não conecta**: adicionada janela de proteção de 3 minutos após entregar o QR ao frontend — durante esse período o sistema não reinicia a Evolution, não força `forceReconnect` e ignora `close` transitório no polling, garantindo que a sessão estabelecida após o escaneamento tenha tempo de ser confirmada pelo WhatsApp.
