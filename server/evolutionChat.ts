@@ -29,6 +29,11 @@ import type { GoHistoryConversationStub } from './evolutionProvider/evolutionGoW
 import { isGoWebhookInboxMode } from './evolutionConfig.js';
 import { atomicWriteJsonFile, shouldRefuseEmptyArrayOverwrite, shouldSkipUnresolvedOwnerPrune } from './safeJsonFile.js';
 import {
+    loadPersistedInboxConversations,
+    markInboxConversationsDeleted,
+    persistInboxConversationsBatch,
+} from './repositories/inboxConversationsRepository.js';
+import {
     ensureLatestPreviewInMessages,
     mergeChatMessageLists
 } from '../src/utils/chatMessageMerge.js';
@@ -194,6 +199,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             cacheSaveTimer = null;
             persistConversationsCacheNow();
         }, 3000);
+        // Também persiste no PG (com debounce maior para não inundar)
+        scheduleInboxPgPersist();
     }
     function flushConversationsCache() {
         if (cacheSaveTimer) {
@@ -278,6 +285,52 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         io = socketIO;
         notifyConversationsChanged = opts?.notifyConversationsChanged ?? null;
         if (opts?.ownerUid) ownerUidForScope = opts.ownerUid;
+    }
+
+    // ── Debounce PG persistence ──
+    let pgPersistTimer: ReturnType<typeof setTimeout> | null = null;
+    function scheduleInboxPgPersist() {
+        if (pgPersistTimer) return;
+        pgPersistTimer = setTimeout(() => {
+            pgPersistTimer = null;
+            const tid = ownerUidForScope;
+            if (!tid) return;
+            const snapshot = [...conversations];
+            if (snapshot.length === 0) return;
+            void persistInboxConversationsBatch(tid, snapshot).catch(() => undefined);
+        }, 10_000); // Persiste 10s após a última mudança (evita flood no PG)
+    }
+
+    /**
+     * Restaura conversas do PG caso o arquivo JSON local esteja vazio/ausente.
+     * Chamado após loadConversationsFromCache + init do ownerUid.
+     */
+    async function restoreFromPgIfNeeded(): Promise<void> {
+        const tid = ownerUidForScope;
+        if (!tid || conversations.length > 0) return; // JSON já tinha dados
+        try {
+            const rows = await loadPersistedInboxConversations(tid, 2000);
+            if (rows.length === 0) return;
+            for (const row of rows) {
+                conversations.push({
+                    id: row.conversationId,
+                    connectionId: row.connectionId,
+                    contactName: row.contactName,
+                    contactPhone: row.contactPhone,
+                    lastMessage: row.lastMessage,
+                    lastMessageTime: '',
+                    lastMessageTimestamp: row.lastMsgTs,
+                    unreadCount: row.unreadCount,
+                    messages: [],
+                    tags: row.tags,
+                    profilePicUrl: row.profilePicUrl ?? undefined,
+                });
+            }
+            console.info(`[evolutionChat] ${rows.length} conversa(s) restauradas do PostgreSQL.`);
+            saveConversationsToCacheDebounced();
+        } catch (e) {
+            console.warn('[evolutionChat] Falha ao restaurar inbox do PG:', (e as Error)?.message);
+        }
     }
 
     function collapseStoredConversations(): boolean {
@@ -2478,6 +2531,11 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (removed > 0) {
             emitConversationsRemoved(conversationIds);
             saveConversationsToCacheDebounced();
+            // Marca como deletado no PG (soft delete)
+            const tid = ownerUidForScope;
+            if (tid) {
+                void markInboxConversationsDeleted(tid, conversationIds).catch(() => undefined);
+            }
         }
         return removed;
     }
@@ -2494,24 +2552,22 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     function pruneConversationsWithoutResolvableOwner(
         resolveOwner: (connectionId: string) => string | undefined
     ): number {
+        // Política: conversas NUNCA são removidas automaticamente por falta de ownerUid temporária.
+        // O ownerUid pode demorar a ser resolvido no boot (carga assíncrona do mapa canal→dono).
+        // Só o usuário pode remover conversas explicitamente (deleteLocalConversations).
         const before = conversations.length;
         if (before === 0) return 0;
-        const kept = conversations.filter((c) => {
+        const orphans = conversations.filter((c) => {
             const ou = resolveOwner(c.connectionId);
-            return Boolean(ou && ou !== 'anonymous');
+            return !Boolean(ou && ou !== 'anonymous');
         });
-        if (kept.length === before) return 0;
-        if (shouldSkipUnresolvedOwnerPrune(before, kept.length)) {
+        if (orphans.length > 0) {
             console.warn(
-                '[evolutionChat] prune ignorado: nenhum canal tem dono resolvível — bate-papo preservado',
-                { before }
+                `[evolutionChat] ${orphans.length}/${before} conversa(s) com ownerUid não resolvível — preservadas (só remoção manual).`,
+                { sample: orphans.slice(0, 3).map((c) => c.connectionId) }
             );
-            return 0;
         }
-        conversations.length = 0;
-        conversations.push(...kept);
-        saveConversationsToCacheDebounced();
-        return before - kept.length;
+        return 0; // Nunca remove automaticamente
     }
 
     function ensurePhoneStubs(
@@ -2554,6 +2610,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         getConversations: () => [...conversations],
         isConversationDeleted: (id: string) => deletedConversationIds.has(id),
         pruneConversationsWithoutResolvableOwner,
+        restoreFromPgIfNeeded,
         ensurePhoneStubs,
         flushConversationsCache,
         emitConversationsUpdate,

@@ -1,6 +1,6 @@
-import React, { memo, useCallback, useMemo, useRef } from 'react';
+import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { MessageCircle, MoreVertical, PenSquare, RefreshCw, Search, Wifi, WifiOff } from 'lucide-react';
+import { CheckSquare, MessageCircle, MoreVertical, PenSquare, RefreshCw, Search, Trash2, Wifi, WifiOff, X } from 'lucide-react';
 import type { Conversation, WhatsAppConnection } from '../../types';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import {
@@ -57,6 +57,7 @@ type Props = {
   pinnedIds?: string[];
   slaByConvId?: Map<string, SlaLevel>;
   hotCount?: number;
+  onBulkDelete?: (ids: string[]) => void;
 };
 
 export const WaInbox: React.FC<Props> = memo(function WaInbox({
@@ -100,9 +101,46 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   pinnedIds = [],
   slaByConvId,
   hotCount = 0,
+  onBulkDelete,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadMoreLockRef = useRef(false);
+
+  // ── Seleção múltipla ─────────────────────────────────────
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const toggleSelectMode = useCallback(() => {
+    setSelectMode((prev) => !prev);
+    setSelectedIds(new Set());
+  }, []);
+
+  const toggleSelectOne = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => {
+    setSelectedIds(new Set(conversations.map((c) => c.id)));
+  }, [conversations]);
+
+  const handleBulkDelete = useCallback(() => {
+    if (selectedIds.size === 0 || !onBulkDelete) return;
+    const ids = [...selectedIds];
+    const ok = window.confirm(
+      `Remover ${ids.length} conversa${ids.length > 1 ? 's' : ''} da lista?\n\n` +
+        '• Só remove da lista local (no celular continua igual).\n' +
+        '• Só volta se chegar mensagem nova desse contato.'
+    );
+    if (!ok) return;
+    onBulkDelete(ids);
+    setSelectedIds(new Set());
+    setSelectMode(false);
+  }, [selectedIds, onBulkDelete]);
 
   const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
 
@@ -203,38 +241,92 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
     <aside className="wa-side flex flex-col min-h-0" data-hide-mobile={hideOnMobile ? 'true' : undefined}>
 
       {/* ── Header estilo WhatsApp Desktop ─────────── */}
-      <div className="wa-inbox-header wa-inbox-header--wa">
-        <h2 className="wa-inbox-title wa-inbox-title--main">Conversas</h2>
-        <div className="wa-inbox-header__actions">
+      {selectMode ? (
+        /* Toolbar de seleção múltipla */
+        <div className="wa-inbox-header wa-inbox-header--wa">
           <button
             type="button"
             className="wa-icon-btn"
-            title="Sincronizar conversas"
-            aria-label="Sincronizar"
-            onClick={onRefresh}
+            title="Cancelar seleção"
+            aria-label="Cancelar seleção"
+            onClick={toggleSelectMode}
           >
-            <RefreshCw className={`w-[18px] h-[18px] ${syncing ? 'animate-spin' : ''}`} />
+            <X className="w-[18px] h-[18px]" />
           </button>
-          <button
-            type="button"
-            className="wa-icon-btn"
-            title="Nova conversa"
-            aria-label="Nova conversa"
-            onClick={onNewConversation}
-          >
-            <PenSquare className="w-[18px] h-[18px]" />
-          </button>
-          <button
-            type="button"
-            className="wa-icon-btn"
-            title="Opções"
-            aria-label="Opções"
-            onClick={onOpenOptions}
-          >
-            <MoreVertical className="w-[18px] h-[18px]" />
-          </button>
+          <span className="wa-inbox-title wa-inbox-title--main" style={{ fontSize: '14px' }}>
+            {selectedIds.size > 0
+              ? `${selectedIds.size} selecionada${selectedIds.size > 1 ? 's' : ''}`
+              : 'Selecionar'}
+          </span>
+          <div className="wa-inbox-header__actions">
+            <button
+              type="button"
+              className="wa-icon-btn"
+              title="Selecionar todas"
+              aria-label="Selecionar todas"
+              onClick={selectAll}
+            >
+              <CheckSquare className="w-[18px] h-[18px]" />
+            </button>
+            {selectedIds.size > 0 && (
+              <button
+                type="button"
+                className="wa-icon-btn"
+                title={`Apagar ${selectedIds.size} conversa${selectedIds.size > 1 ? 's' : ''}`}
+                aria-label="Apagar selecionadas"
+                onClick={handleBulkDelete}
+                style={{ color: 'var(--danger, #ef4444)' }}
+              >
+                <Trash2 className="w-[18px] h-[18px]" />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="wa-inbox-header wa-inbox-header--wa">
+          <h2 className="wa-inbox-title wa-inbox-title--main">Conversas</h2>
+          <div className="wa-inbox-header__actions">
+            <button
+              type="button"
+              className="wa-icon-btn"
+              title="Sincronizar conversas"
+              aria-label="Sincronizar"
+              onClick={onRefresh}
+            >
+              <RefreshCw className={`w-[18px] h-[18px] ${syncing ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              type="button"
+              className="wa-icon-btn"
+              title="Nova conversa"
+              aria-label="Nova conversa"
+              onClick={onNewConversation}
+            >
+              <PenSquare className="w-[18px] h-[18px]" />
+            </button>
+            {onBulkDelete && (
+              <button
+                type="button"
+                className="wa-icon-btn"
+                title="Selecionar para apagar"
+                aria-label="Selecionar conversas"
+                onClick={toggleSelectMode}
+              >
+                <CheckSquare className="w-[18px] h-[18px]" />
+              </button>
+            )}
+            <button
+              type="button"
+              className="wa-icon-btn"
+              title="Opções"
+              aria-label="Opções"
+              onClick={onOpenOptions}
+            >
+              <MoreVertical className="w-[18px] h-[18px]" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {historySyncCampaignBlocked && isGoWebhookInbox ? (
         <div
@@ -400,6 +492,67 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
             {virtualizer.getVirtualItems().map((row) => {
               const conv = conversations[row.index];
               if (!conv) return null;
+              if (selectMode) {
+                const isChecked = selectedIds.has(conv.id);
+                return (
+                  <div
+                    key={conv.id}
+                    role="checkbox"
+                    aria-checked={isChecked}
+                    tabIndex={0}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: row.size,
+                      transform: `translateY(${row.start}px)`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '0 12px',
+                      cursor: 'pointer',
+                      background: isChecked ? 'var(--wa-select-bg, rgba(37,211,102,0.1))' : undefined,
+                      borderBottom: '1px solid var(--wa-divider, rgba(0,0,0,0.06))',
+                    }}
+                    onClick={() => toggleSelectOne(conv.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleSelectOne(conv.id); }}
+                  >
+                    {/* Checkbox visual */}
+                    <span
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: '50%',
+                        border: `2px solid ${isChecked ? 'var(--wa-green, #25d366)' : 'var(--wa-text-3, #aaa)'}`,
+                        background: isChecked ? 'var(--wa-green, #25d366)' : 'transparent',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        transition: 'background 0.15s, border-color 0.15s',
+                      }}
+                    >
+                      {isChecked && (
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </span>
+                    {/* Nome + preview */}
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', fontWeight: 500, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--wa-text-1)' }}>
+                        {conv.contactName || conv.contactPhone || conv.id}
+                      </span>
+                      {conv.lastMessage && (
+                        <span style={{ display: 'block', fontSize: 12, color: 'var(--wa-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {conv.lastMessage}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                );
+              }
               return (
                 <WaConvRow
                   key={conv.id}

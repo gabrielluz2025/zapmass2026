@@ -1391,6 +1391,14 @@ export const WaWebChatApp: React.FC<{
         pinnedIds={inboxPrefs.pinnedIds}
         slaByConvId={slaByConvId}
         hotCount={hotCount}
+        onBulkDelete={(ids) => {
+          void deleteLocalConversations(ids).then((n) => {
+            if (n > 0) {
+              if (selectedId && ids.includes(selectedId)) setSelectedId(null);
+              toast.success(`${n} conversa${n > 1 ? 's' : ''} removida${n > 1 ? 's' : ''} da lista.`);
+            }
+          });
+        }}
       />
       )}
 

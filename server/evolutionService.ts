@@ -10776,6 +10776,10 @@ export function init(socketIO: SocketIOServer) {
         if (pruned > 0) {
             log('warn', 'Conversas sem ownerUid removidas do cache local', { pruned });
         }
+        // Restaura conversas do PostgreSQL se o cache local estiver vazio
+        await chatStore.restoreFromPgIfNeeded().catch((e: Error) =>
+            log('warn', 'restoreFromPgIfNeeded falhou', { error: e?.message })
+        );
         const reconciled = await autoReconcileConnectionOwners();
         if (reconciled.applied.length > 0 || reconciled.removed.length > 0) {
             log('warn', 'Isolamento: canais reatribuídos no boot', {

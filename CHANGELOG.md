@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.208] - 2026-09-24
+
+### Adicionado
+- **Persistência de conversas no PostgreSQL**: inbox agora sobrevive a restarts do servidor — migração `020_chat_inbox_persist.sql` cria tabela `wa_inbox_conversations` com upsert em lote a cada mudança; no boot, se o cache JSON estiver vazio, restaura do PG automaticamente.
+- **Seleção múltipla de conversas**: botão de seleção (✓) no header da inbox ativa modo checkbox em cada conversa; selecionar tudo + lixeira para apagar em lote com confirmação.
+- **Soft-delete sincronizado**: ao apagar conversas manualmente (uma ou várias), o PG é atualizado via `markInboxConversationsDeleted` (coluna `deleted=true`).
+- **Auto-exclusão desativada**: `pruneConversationsWithoutResolvableOwner` nunca mais remove conversas automaticamente no boot — apenas loga órfãos.
+
 ## [2.3.207] - 2026-09-26
 ### Corrigido
 - **Não consigo editar a campanha**: botão "Ajustar / Editar" agora aparece em campanhas concluídas também — nas três visualizações (cards, compacta e tabela) e na tela de detalhes. Antes era bloqueado pelo `!isDone` e `status !== COMPLETED`.

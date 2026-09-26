@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.208',
+    date: '24/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Conversas agora persistem no PostgreSQL: inbox sobrevive a restarts do servidor e é restaurada automaticamente no boot se o cache local estiver vazio' },
+      { type: 'feat', text: 'Seleção múltipla de conversas: botão ✓ no header ativa checkboxes; selecionar tudo e apagar várias de uma vez com confirmação' },
+      { type: 'fix', text: 'Conversas nunca mais somem ao reiniciar o servidor ou quando o chip cai temporariamente' },
+      { type: 'fix', text: 'Deleção manual sincronizada no PG (soft-delete) — conversa deletada não volta após reiniciar' },
+    ],
+  },
+  {
     version: '2.3.207',
     date: '26/09/2026',
     highlights: [
