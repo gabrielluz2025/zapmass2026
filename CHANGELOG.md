@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.206] - 2026-09-26
+### Corrigido
+- **QR lê mas não conecta**: adicionada janela de proteção de 3 minutos após entregar o QR ao frontend — durante esse período o sistema não reinicia a Evolution, não força `forceReconnect` e ignora `close` transitório no polling, garantindo que a sessão estabelecida após o escaneamento tenha tempo de ser confirmada pelo WhatsApp.
+- **Conexão piscando (flickering)**: estados transitórios `close`/`connecting` agora são debounced por 4 segundos antes de serem emitidos ao frontend; se o chip voltar a `open` nesse intervalo, o usuário nunca vê a queda. Transições para `online` continuam sendo emitidas imediatamente. O health-reconciler também exclui chips em janela de QR scan do ciclo de probes.
+
 ## [2.3.205] - 2026-09-25
 ### Corrigido
 - **Canal offline mas recebendo mensagem**: ao receber `MESSAGES_UPSERT` de um chip marcado como "offline" em RAM, o status é restaurado automaticamente para `online` — chegada de mensagem via webhook prova que a Evolution API ainda está ativa. Elimina o falso "Chip desconectado" no bate-papo enquanto mensagens continuam chegando.

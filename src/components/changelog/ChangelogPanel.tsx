@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.206',
+    date: '26/09/2026',
+    highlights: [
+      { type: 'fix', text: 'QR lê mas não conecta: proteção de 3 min após entrega do QR — sem restart, sem forceReconnect, sem auto-reconnect que invalide a sessão sendo estabelecida' },
+      { type: 'fix', text: 'Conexão piscando: debounce de 4s em estados transitórios (close/connecting) antes de atualizar o card — quedas < 4s ficam invisíveis; retorno a online é imediato' },
+    ],
+  },
+  {
     version: '2.3.205',
     date: '25/09/2026',
     highlights: [

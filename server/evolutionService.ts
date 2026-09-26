@@ -1805,6 +1805,24 @@ const qrWatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const connectionWatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
 /** Evita tratar close transitório do Baileys durante pairing como desconexão real. */
 const pairingStartedAt = new Map<string, number>();
+/**
+ * Timestamp do último QR entregue ao frontend por chip.
+ * Usado para proteger a sessão de escaneamento contra restarts e auto-reconnects prematuros.
+ * Janela de proteção: 3 minutos (tempo suficiente para o usuário escanear e WA estabelecer sessão).
+ */
+const qrLastDeliveredAt = new Map<string, number>();
+const QR_SCAN_PROTECTION_MS = 3 * 60_000; // 3 min
+function isInQrScanProtectionWindow(connectionId: string): boolean {
+    const ts = qrLastDeliveredAt.get(connectionId);
+    return !!ts && Date.now() - ts < QR_SCAN_PROTECTION_MS;
+}
+/**
+ * Debounce de estados transitórios enviados ao frontend.
+ * Previne "piscada" causada por sequências close→connecting→open vindas da Evolution API.
+ * Não debounce open (vai imediato); debounce close/connecting por 4 segundos.
+ */
+const connectionStateDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const CONNECTION_STATE_DEBOUNCE_MS = 4_000; // 4s
 const autoReconnectState = new Map<
     string,
     {
@@ -1961,7 +1979,13 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
                     if (paired) {
                         // forceReconnect só após várias falhas — nas primeiras tenta reconnect suave
                         // (immediate no Go gera churn e Meta invalida sessão → falso "ban").
-                        const forceReconnect = attempt >= 3 || Boolean(st.longTail);
+                        // NUNCA forceReconnect durante janela de QR scan — o usuário pode ter acabado
+                        // de escanear o QR e forçar reconexão invalidaria a sessão sendo estabelecida.
+                        const inQrWindow = isInQrScanProtectionWindow(connectionId);
+                        const forceReconnect = !inQrWindow && (attempt >= 3 || Boolean(st.longTail));
+                        if (inQrWindow) {
+                            log('info', `Auto-reconnect: janela QR scan ativa — skipping forceReconnect: ${connectionId}`);
+                        }
                         await api.post(`/instance/connect/${evoInst(connectionId)}`, { forceReconnect });
                     } else {
                         await api.post(`/instance/restart/${evoInst(connectionId)}`, {});
@@ -2141,6 +2165,7 @@ function applyConnectionStateUpdate(
             pairingStartedAt.delete(instance);
             clearAutoReconnect(instance);
             clearManualLogoutHold(instance);
+            qrLastDeliveredAt.delete(instance); // Conexão estabelecida — limpa proteção de QR
             conn.qrCode = undefined;
             // Uptime da sessão: lastOpenAt; idade do chip (tier): connectedSince NÃO sobrescreve.
             if (prevStatus !== 'open' || !conn.lastOpenAt) {
@@ -2267,7 +2292,19 @@ function applyConnectionStateUpdate(
         phoneNumber: connAfter?.phoneNumber ?? null,
     };
     const ownerUid = resolveOwnerUid(instance);
-    if (ownerUid) {
+
+    // ── Debounce de estados transitórios para o frontend ──
+    // Sequências como close→connecting→open (comuns em keep-alive e reconnect) causam "piscada"
+    // no card de conexão. Estratégia:
+    //  • ONLINE: emite IMEDIATAMENTE (o usuário precisa ver que conectou sem delay).
+    //  • OFFLINE / CONNECTING: debounce de 4s — se em 4s o chip já voltou a open, o
+    //    frontend nunca vê a queda transitória.
+    // A notificação push chip_offline também respeita o debounce.
+    const emitToFrontend = () => {
+        if (!ownerUid) {
+            warnUnscopedConnectionEvent(instance, 'connection-update');
+            return;
+        }
         publishOwnerEvent(ownerUid, 'connection-update', updatePayload);
         if (prevStatus === 'open' && !open && status === 'OFFLINE') {
             void notifyTenant(
@@ -2281,8 +2318,28 @@ function applyConnectionStateUpdate(
             );
         }
         publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
+    };
+
+    if (open) {
+        // Online: cancela debounce pendente e emite imediatamente
+        const existing = connectionStateDebounceTimers.get(instance);
+        if (existing) {
+            clearTimeout(existing);
+            connectionStateDebounceTimers.delete(instance);
+        }
+        emitToFrontend();
     } else {
-        warnUnscopedConnectionEvent(instance, 'connection-update');
+        // Offline/Connecting: debounce — só emite se o estado não mudar nos próximos 4s
+        const existing = connectionStateDebounceTimers.get(instance);
+        if (existing) clearTimeout(existing);
+        const timer = setTimeout(() => {
+            connectionStateDebounceTimers.delete(instance);
+            // Só emite se o chip continua offline (pode ter voltado a open no intervalo)
+            const currentConn = connections.get(instance);
+            if (!currentConn || currentConn.status === 'open') return;
+            emitToFrontend();
+        }, CONNECTION_STATE_DEBOUNCE_MS);
+        connectionStateDebounceTimers.set(instance, timer);
     }
 
     log('info', `Status atualizado: ${instance} → ${status}`);
@@ -2450,11 +2507,15 @@ function watchConnectionUntilOpen(connectionId: string) {
             applyConnectionStateUpdate(connectionId, state, {});
             return;
         }
+        // Restart da Evolution em connecting prolongado — MAS nunca durante janela de QR scan.
+        // O usuário pode ter acabado de escanear o QR e a sessão está sendo estabelecida;
+        // um restart aqui invalidaria o escaneamento e forçaria um novo QR desnecessariamente.
         if (
             state === 'connecting' &&
             attempts === 18 &&
             isPairedConnection(connectionId) &&
-            !isManualLogoutHoldActive(connectionId)
+            !isManualLogoutHoldActive(connectionId) &&
+            !isInQrScanProtectionWindow(connectionId)
         ) {
             log('info', `Connecting prolongado (~${Math.round((attempts * 4) / 60)} min) — restart Evolution: ${connectionId}`);
             try {
@@ -2475,8 +2536,13 @@ function watchConnectionUntilOpen(connectionId: string) {
                 });
             }
         }
+        // Não agendar auto-reconnect imediato durante janela de QR scan — o close pode ser
+        // transitório durante o handshake do WhatsApp logo após o escaneamento.
         if (state === 'close' && attempts >= 4) {
-            if (isPairedConnection(connectionId) && !isManualLogoutHoldActive(connectionId)) {
+            if (isInQrScanProtectionWindow(connectionId)) {
+                log('info', `Close ignorado em watch (janela QR scan ativa): ${connectionId}`);
+                // Continua polling — o WhatsApp pode completar o handshake
+            } else if (isPairedConnection(connectionId) && !isManualLogoutHoldActive(connectionId)) {
                 stopWatchingConnection(connectionId);
                 clearAutoReconnect(connectionId);
                 scheduleEvolutionAutoReconnect(connectionId, { immediate: true });
@@ -2515,6 +2581,9 @@ function emitQrToFrontend(connectionId: string, extracted: ExtractedEvolutionQr)
         conn.status = conn.status === 'open' ? 'open' : 'connecting';
         connections.set(connectionId, conn);
     }
+    // Marca o momento em que o QR foi entregue — protege a sessão por QR_SCAN_PROTECTION_MS
+    // contra restarts e auto-reconnects prematuros que invalidariam o QR recém-escaneado.
+    qrLastDeliveredAt.set(connectionId, Date.now());
     emitConnectionProgress(connectionId, 'awaiting-scan');
     const payload = { connectionId, qrCode: extracted.displayValue };
     const ownerUid = resolveOwnerUid(connectionId);
@@ -10572,7 +10641,8 @@ async function reconcileConnectionHealth() {
     if (onlineChips === 0) return;
 
     const entries = [...connections.entries()].filter(
-        ([id]) => !connectionWatchTimers.has(id) && !qrWatchTimers.has(id)
+        // Exclui chips com watch ativo (QR ou connection) E chips em janela de QR scan
+        ([id]) => !connectionWatchTimers.has(id) && !qrWatchTimers.has(id) && !isInQrScanProtectionWindow(id)
     );
     // Limita probes paralelos: Promise.all em dezenas de chips derrubava CPU + Evolution Go.
     const probeConcurrency = Math.max(
