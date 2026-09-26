@@ -11625,7 +11625,7 @@ export async function handleWebhook(event: any) {
                 {
                     const connNow = connections.get(instance);
                     const memStatus = connNow?.status;
-                    const isPaired = Boolean(connNow?.phoneNumber?.trim() || connectionsSettingsCache[instance]?.phoneNumber);
+                    const isPaired = isPairedConnection(instance);
                     if (
                         isPaired &&
                         memStatus !== 'open' &&
