@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.215] - 2026-09-28
+
+### Corrigido
+- **Retomar campanha mostrava "Campanha ainda em execução"**: o botão de play pausava a recusa porque a fila BullMQ já tinha os envios pendentes. Agora, ao retomar, essa fila é despausada e segue o disparo, sem duplicar jobs e sem o aviso de erro.
+
 ## [2.3.214] - 2026-09-28
 
 ### Corrigido

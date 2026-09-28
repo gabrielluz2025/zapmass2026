@@ -9795,6 +9795,35 @@ export async function redispatchCampaign(
         if (actualBullJobs <= 0) {
             campaignPendingJobs.delete(campaignId);
             pendingJobs = 0;
+        } else if (mode === 'resume') {
+            // Retomar com fila já montada não é erro: o play da lista chama resume e
+            // em seguida redispatch. Recusar aqui mostrava "ainda em execução" e
+            // o disparo parecia não começar. Despausa e deixa os jobs existentes seguirem.
+            pausedCampaigns.delete(campaignId);
+            memState.manualPaused = false;
+            memState.protectionPaused = false;
+            memState.protectionPauseReason = undefined;
+            memState.protectionPauseUntil = undefined;
+            memState.protectionPauseMessage = undefined;
+            memState.isRunning = true;
+            campaignPendingJobs.set(campaignId, actualBullJobs);
+            ensureCampaignWorker();
+            void saveCampaignRuntimeToRedis(campaignId);
+            void persistCampaignProgressToFirestore(
+                tenantId,
+                campaignId,
+                memState.successCount ?? 0,
+                memState.failCount ?? 0,
+                memState.processed ?? 0,
+                'RUNNING'
+            );
+            publishOwnerEvent(tenantId, 'campaign-resumed', { campaignId });
+            void runPostResumeCampaignQueueRepair(campaignId, tenantId, false).catch(() => undefined);
+            log('info', 'redispatch resume: fila já existia — retomada sem duplicar jobs', {
+                campaignId,
+                actualBullJobs,
+            });
+            return { ok: true, enqueued: actualBullJobs };
         } else {
             return { ok: false, enqueued: 0, error: 'Campanha ainda em execução. Aguarde ou pause antes de reenviar.' };
         }

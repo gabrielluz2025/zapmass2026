@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.215',
+    date: '28/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Retomar campanha não mostra mais "Campanha ainda em execução": se a fila já tem os envios, o play despausa e continua o disparo' },
+    ],
+  },
+  {
     version: '2.3.214',
     date: '28/09/2026',
     highlights: [
