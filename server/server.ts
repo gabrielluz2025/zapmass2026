@@ -2759,10 +2759,13 @@ const handleGracefulShutdown = (signal: string) => {
   console.log(`\n🛑 ${signal} recebido — encerrando com graça...`);
 
   try {
-    evolutionService.flushChatCache();
+    evolutionService.flushChatCache(); // JSON síncrono — sempre roda
   } catch {
     /* cache já pode estar vazio no crash loop */
   }
+  // PG assíncrono — persiste inbox no banco antes de sair (garante que
+  // PG e JSON estejam em sincronia mesmo se o debounce de 10s não tiver disparado)
+  void evolutionService.flushChatCacheToPg?.().catch(() => undefined);
 
   // Fecha o servidor HTTP para nao aceitar novas conexoes
   try {

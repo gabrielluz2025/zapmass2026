@@ -210,6 +210,21 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         persistConversationsCacheNow();
     }
 
+    /** Força persistência síncrona no PG imediatamente (usado no shutdown gracioso). */
+    async function flushInboxToPg(): Promise<void> {
+        if (pgPersistTimer) {
+            clearTimeout(pgPersistTimer);
+            pgPersistTimer = null;
+        }
+        const tid = ownerUidForScope;
+        if (!tid || conversations.length === 0) return;
+        try {
+            await persistInboxConversationsBatch(tid, [...conversations]);
+        } catch (e: any) {
+            console.warn('[evolutionChat] flushInboxToPg: falha ao persistir no PG no shutdown:', e?.message);
+        }
+    }
+
     // Carrega o cache do disco imediatamente
     loadConversationsFromCache();
 
@@ -2625,6 +2640,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         restoreFromPgIfNeeded,
         ensurePhoneStubs,
         flushConversationsCache,
+        flushInboxToPg,
         emitConversationsUpdate,
         emitConversationDelta,
         syncChatsForConnection,

@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.213] - 2026-09-28
+
+### Corrigido
+- **Conversas desaparecem após deploy**: o handler de shutdown gracioso (`SIGTERM`) agora persiste o inbox no PostgreSQL (`wa_inbox_conversations`) além do arquivo JSON. Antes, se o debounce de 10s não tivesse disparado, o PG ficava desatualizado — em caso de JSON corrompido as conversas eram perdidas. Agora JSON + PG sempre estão sincronizados no momento do deploy/restart.
+- **`flushInboxToPg` no shutdown**: nova função exportada que cancela o timer pendente e grava o batch imediatamente, sem esperar os 10s de debounce.
+
 ## [2.3.212] - 2026-09-28
 
 ### Corrigido

@@ -12002,6 +12002,11 @@ export function flushChatCache(): void {
     chatStore.flushConversationsCache();
 }
 
+/** Persiste inbox no PostgreSQL imediatamente (chamado no shutdown gracioso além do JSON). */
+export async function flushChatCacheToPg(): Promise<void> {
+    return chatStore.flushInboxToPg();
+}
+
 export async function syncAllOpenChats(): Promise<void> {
     if (isGoWebhookInboxMode()) return;
     const tasks: Promise<number>[] = [];

@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.213',
+    date: '28/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Conversas desaparecem após deploy: flushInboxToPg no shutdown garante que JSON e PostgreSQL estejam sempre sincronizados antes do container reiniciar' },
+      { type: 'fix', text: 'Caso extremo de perda de dados: se o debounce de 10s do PG não disparasse antes do SIGTERM, conversas recentes podiam não estar no banco de fallback' },
+    ],
+  },
+  {
     version: '2.3.212',
     date: '28/09/2026',
     highlights: [
