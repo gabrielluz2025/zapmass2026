@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.217',
+    date: '28/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Resposta do gatilho sai na frente da fila: não fica mais presa atrás dos milhares de envios da campanha' },
+    ],
+  },
+  {
     version: '2.3.216',
     date: '28/09/2026',
     highlights: [

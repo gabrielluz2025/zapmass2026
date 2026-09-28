@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.217] - 2026-09-28
+
+### Corrigido
+- **Gatilho respondido e a mensagem não saía**: a resposta do fluxo entrava na mesma fila do disparo em massa e ficava atrás de milhares de envios. Agora a resposta do gatilho e o acompanhamento têm prioridade e saem na frente da campanha.
+
 ## [2.3.216] - 2026-09-28
 
 ### Corrigido

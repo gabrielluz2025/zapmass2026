@@ -7337,6 +7337,9 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
         delay: Math.max(0, delayMs),
+        // Gatilho/nurture na frente da fila de disparo. Sem isso a resposta fica
+        // atrás de milhares de envios e o contato responde e não recebe o texto.
+        priority: item.replyFlowResponse || item.nurtureFollowUp ? 1 : undefined,
         removeOnComplete: bullmqRemoveOnComplete(),
         removeOnFail: bullmqRemoveOnFail(),
     });
@@ -7434,6 +7437,7 @@ async function enqueueCampaignItemsBulk(
                     attempts: 3,
                     backoff: { type: 'exponential' as const, delay: 5000 },
                     delay: Math.max(0, delayMs),
+                    priority: item.replyFlowResponse || item.nurtureFollowUp ? 1 : undefined,
                     removeOnComplete: bullmqRemoveOnComplete(),
                     removeOnFail: bullmqRemoveOnFail(),
                 },
