@@ -12668,7 +12668,10 @@ function recordManualOutboundSend(conversationId: string): void {
     }
 
     checkAndResetDailyLimits(conn);
-    conn.messagesSentToday = (conn.messagesSentToday || 0) + 1;
+    // INTENCIONALMENTE não incrementa conn.messagesSentToday aqui.
+    // Respostas manuais via Bate-papo NÃO consomem cota do limite de disparo de campanha.
+    // recordConnectionDispatch registra nas estatísticas do chip (gráfico/histórico),
+    // mas o contador de cota (messagesSentToday) é reservado para os jobs de campanha.
     recordConnectionDispatch(mapKey);
     mergeConnectionSettingsCache(mapKey, {
         dailyLimit: conn.dailyLimit,

@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.214] - 2026-09-28
+
+### Corrigido
+- **Respostas manuais consumindo cota de disparo**: ao responder clientes manualmente pelo Bate-papo, `recordManualOutboundSend` incrementava o mesmo `messagesSentToday` usado pelo limite de disparo de campanha — fazendo o limite estourar rapidamente com alto volume de respostas. Agora mensagens manuais aparecem nas estatísticas do chip (gráfico histórico) mas **não consomem** cota do limite de campanha. Somente jobs de campanha (`consumeDailyCampaignQuota`) contam para o limite.
+
 ## [2.3.213] - 2026-09-28
 
 ### Corrigido

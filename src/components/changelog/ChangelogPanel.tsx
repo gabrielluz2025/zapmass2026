@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.214',
+    date: '28/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Respostas manuais pelo Bate-papo não consomem mais cota do limite de disparo de campanha — somente jobs de campanha contam para o limite diário do chip' },
+    ],
+  },
+  {
     version: '2.3.213',
     date: '28/09/2026',
     highlights: [
