@@ -8,6 +8,8 @@ type QuotaConn = {
   messagesSentToday?: number;
   limitExceededApproved?: boolean;
   lastLimitResetDate?: string;
+  /** Dia (Brasília) em que o usuário alterou a meta na mão — não sobrescrever nesse dia. */
+  dailyLimitManualOn?: string;
   growthRate?: number;
   growthType?: 'percent' | 'fixed';
   instanceName: string;
@@ -78,9 +80,27 @@ export function checkAndResetDailyLimitsWithDeps(conn: QuotaConn, deps: DailyQuo
   if (hadPriorDay) {
     conn.messagesSentToday = 0;
     conn.limitExceededApproved = false;
+    conn.dailyLimitManualOn = undefined;
   }
   conn.lastLimitResetDate = today;
   deps.onResetPersist(conn.instanceName, conn);
+}
+
+/**
+ * O chip já disparou mais do que a meta gravada (contador antigo voltava e a fila
+ * seguia). A meta sobe para a quantidade alcançada hoje, sem abrir vaga extra:
+ * o contador acompanha o mesmo número, então o disparo para nesse teto.
+ * Ajuste manual da meta no mesmo dia não é reescrito.
+ */
+export function alignDailyLimitToAchieved(conn: QuotaConn, achieved: number, today: string): boolean {
+  const sent = Math.max(0, Math.floor(Number(achieved) || 0));
+  const limit = Math.max(0, Math.floor(Number(conn.dailyLimit) || 0));
+  if (limit <= 0 || sent <= limit) return false;
+  if (conn.limitExceededApproved) return false;
+  if (conn.dailyLimitManualOn === today) return false;
+  conn.dailyLimit = sent;
+  if ((conn.messagesSentToday || 0) < sent) conn.messagesSentToday = sent;
+  return true;
 }
 
 export function getEffectiveMessagesSentToday(connectionId: string, deps: DailyQuotaDeps): number {

@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.218] - 2026-09-28
+
+### Corrigido
+- **Meta do chip ficava em 20 com o disparo em 81**: o contador antigo voltava para trás e a fila seguia depois da meta. Agora a meta do dia sobe para a quantidade que o canal já disparou (81/20 vira 81/81), sem abrir vaga extra hoje. No dia seguinte essa meta nova vale. Um limite alterado na mão ou envio extra aprovado no mesmo dia não é reescrito.
+
 ## [2.3.217] - 2026-09-28
 
 ### Corrigido

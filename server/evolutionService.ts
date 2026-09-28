@@ -184,6 +184,7 @@ import {
     campaignJobsStillActive,
 } from './campaignJobsResilience.js';
 import {
+    alignDailyLimitToAchieved,
     checkAndResetDailyLimitsWithDeps,
     consumeDailyCampaignQuota,
     getEffectiveMessagesSentToday,
@@ -236,6 +237,7 @@ import {
     publishOwnerEvent,
     recordConnectionDispatch,
     applyCampaignSentFloors,
+    getConnectionCampaignSentToday,
     getAutoWarmupState,
     isConnectionInActiveWarmup,
 } from './whatsappService.js';
@@ -330,6 +332,8 @@ interface EvolutionInstance {
     qrCode?: string;
     proxy?: ConnectionProxyConfig;
     dailyLimit?: number;
+    /** Dia em que o usuário mudou a meta — o ajuste automático não reescreve nesse dia. */
+    dailyLimitManualOn?: string;
     growthRate?: number;
     growthType?: 'percent' | 'fixed';
     limitAction?: 'ask' | 'redirect';
@@ -3505,6 +3509,7 @@ function rememberConnectionOwner(connectionId: string, ownerUid?: string | null)
 
 interface ConnectionSettingsPayload {
     dailyLimit?: number;
+    dailyLimitManualOn?: string;
     growthRate?: number;
     growthType?: 'percent' | 'fixed';
     limitAction?: 'ask' | 'redirect';
@@ -3888,6 +3893,7 @@ function applySettingsToInstance(conn: EvolutionInstance) {
     const cached = connectionsSettingsCache[conn.instanceName];
     if (cached) {
         conn.dailyLimit = cached.dailyLimit;
+        conn.dailyLimitManualOn = cached.dailyLimitManualOn;
         conn.growthRate = cached.growthRate;
         conn.growthType = cached.growthType || 'fixed';
         conn.limitAction = cached.limitAction || 'ask';
@@ -3919,6 +3925,7 @@ function applySettingsToInstance(conn: EvolutionInstance) {
         healConnectionFriendlyName(conn.instanceName);
     } else {
         conn.dailyLimit = undefined;
+        conn.dailyLimitManualOn = undefined;
         conn.growthRate = undefined;
         conn.growthType = 'fixed';
         conn.limitAction = 'ask';
@@ -3939,6 +3946,7 @@ function brazilTodayKey(ts: number = Date.now()): string {
 function persistConnectionQuotaToCache(id: string, conn: EvolutionInstance): void {
     mergeConnectionSettingsCache(id, {
         dailyLimit: conn.dailyLimit,
+        dailyLimitManualOn: conn.dailyLimitManualOn,
         growthRate: conn.growthRate,
         growthType: conn.growthType,
         limitAction: conn.limitAction,
@@ -3967,32 +3975,71 @@ function connectionDailyQuotaDeps(): DailyQuotaDeps {
 
 let connectionSendHydrateTimer: ReturnType<typeof setInterval> | null = null;
 
+/**
+ * Meta diária acompanha o volume já disparado hoje (ex.: 81/20 vira 81/81).
+ * Não abre vaga: o contador sobe junto, então o chip para nesse teto até o dia virar
+ * ou o usuário aprovar envio extra / mudar a meta na mão.
+ */
+function syncDailyLimitToVolumeReached(id: string, conn: EvolutionInstance): boolean {
+    const today = brazilTodayKey();
+    const achieved = Math.max(
+        getEffectiveMessagesSentToday(id, connectionDailyQuotaDeps()),
+        getConnectionCampaignSentToday(id, today)
+    );
+    const raised = alignDailyLimitToAchieved(conn, achieved, today);
+    if (!raised) return false;
+    persistConnectionQuotaToCache(id, conn);
+    const ownerUid = resolveOwnerUid(id);
+    if (ownerUid) {
+        publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
+    }
+    log(
+        'info',
+        `[Limits] Meta diária de ${conn.friendlyName || id} ajustada para ${conn.dailyLimit} conforme o volume já disparado hoje.`
+    );
+    return true;
+}
+
 /** RAM/arquivo de conexões zeram no deploy; campaign_jobs é a fonte dos envios de disparo. */
 async function hydrateConnectionSendCountersFromJobs(): Promise<void> {
     try {
         const counts = await countSentJobsByConnection();
-        if (counts.size === 0) return;
         const floors = new Map<string, number>();
         let changed = 0;
         const today = brazilTodayKey();
         for (const [id, conn] of connections.entries()) {
             const row = counts.get(id);
-            if (!row) continue;
-            setConnectionPgSentTodayFloor(id, row.sentToday);
+            if (row) {
+                setConnectionPgSentTodayFloor(id, row.sentToday);
+                if (row.sentToday > 0) floors.set(id, row.sentToday);
+            }
             const nextToday = Math.max(
                 getEffectiveMessagesSentToday(id, connectionDailyQuotaDeps()),
-                row.sentToday
+                row?.sentToday || 0,
+                getConnectionCampaignSentToday(id, today)
             );
+            let dirty = false;
             if (nextToday > (conn.messagesSentToday || 0)) {
                 conn.messagesSentToday = nextToday;
                 conn.lastLimitResetDate = today;
+                dirty = true;
+            }
+            if (alignDailyLimitToAchieved(conn, Math.max(nextToday, conn.messagesSentToday || 0), today)) {
+                dirty = true;
+                log(
+                    'info',
+                    `[Limits] Meta diária de ${conn.friendlyName || id} ajustada para ${conn.dailyLimit} conforme o volume já disparado hoje.`
+                );
+            }
+            if (dirty) {
                 mergeConnectionSettingsCache(id, {
-                    messagesSentToday: nextToday,
-                    lastLimitResetDate: today,
+                    messagesSentToday: conn.messagesSentToday,
+                    lastLimitResetDate: conn.lastLimitResetDate,
+                    dailyLimit: conn.dailyLimit,
+                    dailyLimitManualOn: conn.dailyLimitManualOn,
                 });
                 changed += 1;
             }
-            if (row.sentToday > 0) floors.set(id, row.sentToday);
         }
         if (changed > 0) saveConnectionsSettings();
         applyCampaignSentFloors(floors);
@@ -4033,7 +4080,10 @@ export async function updateConnectionSettings(
     const conn = connections.get(id);
     if (!conn) throw new Error('Conexão não encontrada');
 
-    if (settings.dailyLimit !== undefined) conn.dailyLimit = settings.dailyLimit;
+    if (settings.dailyLimit !== undefined) {
+        if (settings.dailyLimit !== conn.dailyLimit) conn.dailyLimitManualOn = brazilTodayKey();
+        conn.dailyLimit = settings.dailyLimit;
+    }
     if (settings.growthRate !== undefined) conn.growthRate = settings.growthRate;
     if (settings.growthType !== undefined) conn.growthType = settings.growthType;
     if (settings.limitAction !== undefined) conn.limitAction = settings.limitAction;
@@ -4042,6 +4092,7 @@ export async function updateConnectionSettings(
 
     mergeConnectionSettingsCache(id, {
         dailyLimit: conn.dailyLimit,
+        dailyLimitManualOn: conn.dailyLimitManualOn,
         growthRate: conn.growthRate,
         growthType: conn.growthType,
         limitAction: conn.limitAction,
@@ -8478,6 +8529,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const conn = connections.get(item.connectionId);
     if (conn && !item.nurtureFollowUp && !item.replyFlowResponse) {
         checkAndResetDailyLimits(conn);
+        syncDailyLimitToVolumeReached(item.connectionId, conn);
 
         const dailyLimit = conn.dailyLimit || 0;
         const sentToday = getEffectiveMessagesSentToday(item.connectionId, connectionDailyQuotaDeps());

@@ -1103,6 +1103,17 @@ export const recordConnectionDispatch = (connectionId: string) => {
     emitWarmupChipStats();
 };
 
+/** Disparos de campanha de hoje no histórico do chip (sem aquecimento). É o número do cartão. */
+export function getConnectionCampaignSentToday(connectionId: string, dayKey: string): number {
+    const id = String(connectionId || '').trim();
+    const key = String(dayKey || '').trim();
+    if (!id || !key) return 0;
+    const entry = warmupChipStats.get(id)?.dailyHistory?.find((d) => d.date === key);
+    if (!entry) return 0;
+    const warmup = Math.max(0, entry.warmupSent || 0);
+    return Math.max(0, (entry.sent || 0) - warmup);
+}
+
 /** Garante que o histórico do chip não fique abaixo dos envios já gravados em campaign_jobs. */
 export const applyCampaignSentFloors = (floors: Map<string, number>): boolean => {
     let changed = false;

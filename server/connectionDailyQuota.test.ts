@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  alignDailyLimitToAchieved,
+  checkAndResetDailyLimitsWithDeps,
   consumeDailyCampaignQuota,
   getEffectiveMessagesSentToday,
   releaseDailyCampaignQuota,
@@ -54,6 +56,44 @@ describe('connectionDailyQuota', () => {
     expect(await consumeDailyCampaignQuota('c3', deps)).toBe('ok');
     await releaseDailyCampaignQuota('c3', deps);
     expect(store.get('c3')!.messagesSentToday).toBe(39);
+  });
+
+  it('sobe a meta para o volume já disparado sem abrir vaga extra', () => {
+    const conn = { dailyLimit: 20, messagesSentToday: 81, instanceName: 'c4' };
+    expect(alignDailyLimitToAchieved(conn, 81, '2026-09-28')).toBe(true);
+    expect(conn.dailyLimit).toBe(81);
+    expect(conn.messagesSentToday).toBe(81);
+    expect(alignDailyLimitToAchieved(conn, 81, '2026-09-28')).toBe(false);
+  });
+
+  it('não reescreve meta alterada na mão nem envio extra aprovado no mesmo dia', () => {
+    const manual = { dailyLimit: 20, messagesSentToday: 81, dailyLimitManualOn: '2026-09-28', instanceName: 'c5' };
+    expect(alignDailyLimitToAchieved(manual, 81, '2026-09-28')).toBe(false);
+    expect(manual.dailyLimit).toBe(20);
+
+    const approved = { dailyLimit: 20, messagesSentToday: 81, limitExceededApproved: true, instanceName: 'c6' };
+    expect(alignDailyLimitToAchieved(approved, 81, '2026-09-28')).toBe(false);
+    expect(approved.dailyLimit).toBe(20);
+  });
+
+  it('no dia seguinte a meta ajustada permanece e o contador zera', () => {
+    const conn = {
+      dailyLimit: 81,
+      messagesSentToday: 81,
+      dailyLimitManualOn: '2026-09-28',
+      lastLimitResetDate: '2026-09-28',
+      growthRate: 0,
+      instanceName: 'c7',
+    };
+    checkAndResetDailyLimitsWithDeps(conn, {
+      getConnection: () => conn,
+      brazilTodayKey: () => '2026-09-29',
+      onResetPersist: () => {},
+      onConsumePersist: () => {},
+    });
+    expect(conn.dailyLimit).toBe(81);
+    expect(conn.messagesSentToday).toBe(0);
+    expect(conn.dailyLimitManualOn).toBeUndefined();
   });
 
   it('resolveEffectiveChannelQuota aplica teto do canal sobre a cota da campanha', () => {

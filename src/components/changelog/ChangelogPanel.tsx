@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.218',
+    date: '28/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Meta do canal acompanha o volume já disparado: 81/20 passa a 81/81, sem liberar envio extra no mesmo dia' },
+    ],
+  },
+  {
     version: '2.3.217',
     date: '28/09/2026',
     highlights: [
