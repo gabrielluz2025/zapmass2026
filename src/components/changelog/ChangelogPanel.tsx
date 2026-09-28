@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.212',
+    date: '28/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Campanha não retomava após restart: resumeCampaign agora restaura o runtime do Redis antes de probar chips, garantindo que o guard não re-pause por falta de IDs dos canais' },
+      { type: 'fix', text: 'Flags de pausa não eram limpos no estado restaurado do Redis ao retomar — corrigido' },
+      { type: 'fix', text: 'Conversas de campanha sem mensagens: exibem agora a mensagem enviada como preview com aviso de que o histórico completo aparece após o disparo terminar' },
+    ],
+  },
+  {
     version: '2.3.211',
     date: '28/09/2026',
     highlights: [

@@ -12937,26 +12937,44 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
     }
     void clearCampaignContentHashHits(campaignId).catch(() => undefined);
 
-    // Invalida cache de estado stale dos chips (evita re-pausa imediata por lastConnectionStateCheck antigo)
-    // e força re-probe HTTP antes dos primeiros jobs processarem.
-    const channelIdsForProbe = state?.connectionIds || [];
-    if (channelIdsForProbe.length > 0) {
-        void probeAllCampaignChannels(channelIdsForProbe).then(({ onlineIds, offlineIds }) => {
-            log('info', `[ResumeProbe] Campanha ${campaignId}: ${onlineIds.length} online, ${offlineIds.length} offline`, {
-                campaignId, onlineIds, offlineIds,
-            });
-            if (onlineIds.length === 0 && offlineIds.length > 0) {
-                emitCampaignLog(
-                    'WARN',
-                    `⚠️ Retomada, mas nenhum chip respondeu ao probe HTTP. IDs verificados: [${offlineIds.join(', ')}]. Verifique se os chips estão realmente conectados no Evolution e aguarde ~30s.`,
-                    { campaignId, offlineIds },
-                    ou
-                );
-            } else if (onlineIds.length > 0) {
-                log('info', `[ResumeProbe] Chips prontos para disparo: [${onlineIds.join(', ')}]`, { campaignId });
+    // Invalida cache stale dos chips e força re-probe HTTP antes dos primeiros jobs.
+    // Se a campanha não estiver em RAM (ex.: após restart), restaura do Redis antes de probar.
+    void (async () => {
+        if (!campaignsById.has(campaignId)) {
+            await ensureCampaignRuntimeInMemory(campaignId, ou);
+            // Garante que os flags de pausa do estado restaurado sejam limpos
+            const restoredState = campaignsById.get(campaignId);
+            if (restoredState) {
+                restoredState.manualPaused = false;
+                restoredState.protectionPaused = false;
+                restoredState.protectionPauseReason = undefined;
+                restoredState.protectionPauseUntil = undefined;
+                restoredState.protectionPauseMessage = undefined;
+                restoredState.autoPauseEmitted = false;
+                restoredState.recentOutcomes = [];
             }
-        }).catch(() => undefined);
-    }
+        }
+        const currentState = campaignsById.get(campaignId);
+        const idsToProbe = currentState?.connectionIds || [];
+        if (idsToProbe.length === 0) {
+            log('info', `[ResumeProbe] Campanha ${campaignId}: sem chips para probar (runtime sem connectionIds)`, { campaignId });
+            return;
+        }
+        const { onlineIds, offlineIds } = await probeAllCampaignChannels(idsToProbe);
+        log('info', `[ResumeProbe] Campanha ${campaignId}: ${onlineIds.length} online, ${offlineIds.length} offline`, {
+            campaignId, onlineIds, offlineIds,
+        });
+        if (onlineIds.length === 0 && offlineIds.length > 0) {
+            emitCampaignLog(
+                'WARN',
+                `⚠️ Retomada, mas nenhum chip respondeu ao probe HTTP. IDs verificados: [${offlineIds.join(', ')}]. Verifique se os chips estão realmente conectados no Evolution e aguarde ~30s.`,
+                { campaignId, offlineIds },
+                ou
+            );
+        } else if (onlineIds.length > 0) {
+            log('info', `[ResumeProbe] Chips prontos para disparo: [${onlineIds.join(', ')}]`, { campaignId });
+        }
+    })().catch(() => undefined);
 
     if (wasProtection) {
         const queue = getCampaignQueue();
@@ -12965,10 +12983,7 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
         }
     }
     log('info', `▶️ Campanha retomada: ${campaignId}`, { ownerUid: ou });
-    // Se o estado não estiver em RAM (ex: após restart), tenta restaurar do Redis.
-    if (!campaignsById.has(campaignId)) {
-        void ensureCampaignRuntimeInMemory(campaignId, ou);
-    }
+    // Nota: restauração do runtime e probe de chips são tratados no bloco async acima.
 
     // Redistribui jobs pendentes se novos chips estão agora disponíveis no pool.
     // Isso corrige o caso em que a campanha foi iniciada quando apenas 1 chip estava ativo,

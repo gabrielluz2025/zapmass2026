@@ -555,17 +555,38 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
             </div>
           )}
 
-          {messages.length === 0 && !loadingHistory && (
-            <p className="text-center text-[13px] py-12" style={{ color: 'var(--wa-text-3)' }}>
-              {isDraft
-                ? 'Nova conversa — envie a primeira mensagem pelo canal escolhido abaixo.'
-                : threadHasActivity
-                  ? isGoWebhookInbox
-                    ? 'Histórico ainda não carregou — toque em “Sincronizar do celular” ou aguarde alguns segundos.'
-                    : 'Histórico ainda não carregou — toque em “Carregar mensagens anteriores” ou aguarde alguns segundos.'
-                  : 'Nenhuma mensagem nesta conversa ainda.'}
-            </p>
-          )}
+          {messages.length === 0 && !loadingHistory && (() => {
+            const isCampaignStub =
+              (conversation?.tags ?? []).some((t) => t === 'Campanha' || t === 'campanha') &&
+              Boolean((conversation?.lastMessage || '').trim());
+            if (isCampaignStub) {
+              return (
+                <div className="flex flex-col items-center gap-3 py-12 px-6" style={{ color: 'var(--wa-text-3)' }}>
+                  <p className="text-center text-[12px] opacity-70">Mensagem enviada pela campanha:</p>
+                  <div
+                    className="rounded-lg px-4 py-3 max-w-xs text-[13px] text-left"
+                    style={{ background: 'var(--wa-bubble-out)', color: 'var(--wa-bubble-out-text, var(--text-1))' }}
+                  >
+                    {conversation!.lastMessage}
+                  </div>
+                  <p className="text-center text-[11px] opacity-60 leading-snug max-w-xs">
+                    Histórico completo será exibido após o disparo terminar ou ao sincronizar o celular.
+                  </p>
+                </div>
+              );
+            }
+            return (
+              <p className="text-center text-[13px] py-12" style={{ color: 'var(--wa-text-3)' }}>
+                {isDraft
+                  ? 'Nova conversa — envie a primeira mensagem pelo canal escolhido abaixo.'
+                  : threadHasActivity
+                    ? isGoWebhookInbox
+                      ? 'Histórico ainda não carregou — toque em “Sincronizar do celular” ou aguarde alguns segundos.'
+                      : 'Histórico ainda não carregou — toque em “Carregar mensagens anteriores” ou aguarde alguns segundos.'
+                    : 'Nenhuma mensagem nesta conversa ainda.'}
+              </p>
+            );
+          })()}
 
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%', paddingBottom: 8 }}>
             {virtualizer.getVirtualItems().map((row) => {

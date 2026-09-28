@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.212] - 2026-09-28
+
+### Corrigido
+- **Campanha não retomava após restart do servidor**: ao clicar Retomar, se o runtime da campanha não estava em RAM (perdido no restart), o probe HTTP dos chips era pulado e o guard re-pausava imediatamente. Agora o `resumeCampaign` restaura o runtime do Redis *antes* de probar os chips, garantindo que os IDs dos canais estejam disponíveis.
+- **Flags de pausa não eram limpos no estado restaurado**: após restauração do Redis, `manualPaused`, `protectionPaused` e campos relacionados agora são explicitamente zerados ao retomar.
+- **Conversas de campanha sem mensagens**: stub conversations no Bate-papo criadas para destinatários de campanha agora exibem a mensagem enviada como preview, com texto explicativo "Histórico completo será exibido após o disparo terminar", em vez de mostrar apenas o spinner "Carregando mensagens…" sem contexto.
+
 ## [2.3.211] - 2026-09-28
 
 ### Corrigido
