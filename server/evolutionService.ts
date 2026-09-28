@@ -3064,6 +3064,18 @@ async function _doHydrateInstancesFromEvolution() {
                 lastOpenAt: existing?.lastOpenAt ?? cachedRow?.connectedSince,
             };
             applySettingsToInstance(instanceObj);
+            const sentFloor = Math.max(
+                instanceObj.messagesSentToday || 0,
+                existing?.messagesSentToday || 0,
+                connectionsSettingsCache[instanceName]?.messagesSentToday || 0
+            );
+            if (sentFloor > (instanceObj.messagesSentToday || 0)) {
+                instanceObj.messagesSentToday = sentFloor;
+                mergeConnectionSettingsCache(instanceName, {
+                    messagesSentToday: sentFloor,
+                    lastLimitResetDate: instanceObj.lastLimitResetDate || brazilTodayKey(),
+                });
+            }
             if (mappedState === 'open' && !instanceObj.lastOpenAt) {
                 instanceObj.lastOpenAt = Date.now();
                 const existingSince = cachedRow?.connectedSince;
@@ -3879,7 +3891,13 @@ function applySettingsToInstance(conn: EvolutionInstance) {
         conn.growthRate = cached.growthRate;
         conn.growthType = cached.growthType || 'fixed';
         conn.limitAction = cached.limitAction || 'ask';
-        conn.messagesSentToday = cached.messagesSentToday || 0;
+        const liveSent =
+            connections.get(conn.instanceName) && connections.get(conn.instanceName) !== conn
+                ? connections.get(conn.instanceName)!.messagesSentToday || 0
+                : 0;
+        // Hidratar a instância não pode voltar o contador: o objeto novo era montado
+        // com o cache antigo e o limite diário estourava (ex.: 54 envios com meta 20).
+        conn.messagesSentToday = Math.max(cached.messagesSentToday || 0, liveSent);
         conn.limitExceededApproved = cached.limitExceededApproved || false;
         conn.lastLimitResetDate = cached.lastLimitResetDate;
         if (typeof cached.connectedSince === 'number' && cached.connectedSince > 0) {
@@ -12697,11 +12715,8 @@ function recordManualOutboundSend(conversationId: string): void {
     }
 
     checkAndResetDailyLimits(conn);
-    // INTENCIONALMENTE não incrementa conn.messagesSentToday aqui.
-    // Respostas manuais via Bate-papo NÃO consomem cota do limite de disparo de campanha.
-    // recordConnectionDispatch registra nas estatísticas do chip (gráfico/histórico),
-    // mas o contador de cota (messagesSentToday) é reservado para os jobs de campanha.
-    recordConnectionDispatch(mapKey);
+    // Resposta manual no Bate-papo não entra na cota nem no "Disparo hoje" do chip.
+    // Esse número é o limite de campanha; somar atendimento fazia o card passar da meta.
     mergeConnectionSettingsCache(mapKey, {
         dailyLimit: conn.dailyLimit,
         growthRate: conn.growthRate,
@@ -12786,6 +12801,7 @@ export function pauseCampaign(campaignId: string, ownerUid?: string) {
     const state = campaignsById.get(campaignId);
     if (state) {
         state.manualPaused = true;
+        state.isRunning = false;
     }
     log('info', `⏸️ Campanha pausada: ${campaignId}`, { ownerUid: ou });
     if (ou) {
@@ -12963,6 +12979,7 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
     const state = campaignsById.get(campaignId);
     if (state) {
         state.manualPaused = false;
+        state.isRunning = true;
         state.protectionPaused = false;
         state.protectionPauseReason = undefined;
         state.protectionPauseUntil = undefined;
@@ -12983,6 +13000,7 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
             const restoredState = campaignsById.get(campaignId);
             if (restoredState) {
                 restoredState.manualPaused = false;
+                restoredState.isRunning = true;
                 restoredState.protectionPaused = false;
                 restoredState.protectionPauseReason = undefined;
                 restoredState.protectionPauseUntil = undefined;

@@ -193,8 +193,14 @@ export async function mergeUpdateCampaign(
   if (!pool) return false;
   const existing = await getCampaignDoc(tenantId, campaignId);
   if (!existing) return false;
+  const statusInPatch =
+    Object.prototype.hasOwnProperty.call(patch, 'status') &&
+    String(patch.status || '').trim().length > 0;
   const merged = { ...existing, ...patch };
-  const nextStatus = String(merged.status || existing.status || '');
+  // Progresso não traz status. Se regravar o status lido no início, uma pausa
+  // que entrou no meio é desfeita e a campanha volta para Executando.
+  if (!statusInPatch) delete merged.status;
+  const nextStatus = String((statusInPatch ? merged.status : existing.status) || '');
   const kept = applyCampaignDocCounterPatch(
     countersFromCampaignDoc(existing),
     countersFromCampaignDoc(merged),
@@ -206,15 +212,23 @@ export async function mergeUpdateCampaign(
   const fields = campaignRowFieldsFromDoc(merged);
   const r = await pool.query(
     `UPDATE zapmass.campaigns
-     SET doc = $3::jsonb, name = $4, status = $5, next_run_at = $6, updated_at = now()
+     SET doc = CASE
+           WHEN $7::boolean THEN $3::jsonb
+           ELSE jsonb_set($3::jsonb, '{status}', to_jsonb(zapmass.campaigns.status), true)
+         END,
+         name = $4,
+         status = CASE WHEN $7::boolean THEN $5 ELSE status END,
+         next_run_at = $6,
+         updated_at = now()
      WHERE tenant_id = $1::uuid AND id = $2::uuid`,
     [
       tenantId,
       campaignId,
       JSON.stringify(merged),
       fields.name,
-      fields.status,
-      fields.next_run_at
+      statusInPatch ? fields.status : String(existing.status || ''),
+      fields.next_run_at,
+      statusInPatch
     ]
   );
   return (r.rowCount ?? 0) > 0;

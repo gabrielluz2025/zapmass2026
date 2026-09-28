@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.216] - 2026-09-28
+
+### Corrigido
+- **Pausar não segurava a campanha**: o progresso do disparo regravava o status «em execução» por cima da pausa. O cartão voltava para Executando e a fila seguia. Agora um salvamento sem status não desfaz pausa.
+- **Limite diário do chip estourava**: ao atualizar os canais, o contador de envios voltava para um valor antigo e a cota liberava mais disparos. O contador passa a ficar com o maior valor já visto.
+- **Respostas do Bate-papo no «Disparo hoje»**: atendimento manual não entra mais nesse número, para não consumir a meta do canal.
+
 ## [2.3.215] - 2026-09-28
 
 ### Corrigido

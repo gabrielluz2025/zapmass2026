@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.216',
+    date: '28/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Pausar a campanha não volta mais para Executando: o progresso do disparo não regrava o status por cima da pausa' },
+      { type: 'fix', text: 'Limite diário do chip não estoura ao atualizar os canais: o contador de envios não volta para trás' },
+      { type: 'fix', text: 'Respostas manuais do Bate-papo não entram mais no número «Disparo hoje» do canal' },
+    ],
+  },
+  {
     version: '2.3.215',
     date: '28/09/2026',
     highlights: [
