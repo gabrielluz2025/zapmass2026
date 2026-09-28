@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.210',
+    date: '28/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Fluxo conversacional multi-etapas: crie abertura → aguarda resposta → pitch → gatilhos condicionais em N etapas — botão "Adicionar etapa" no editor de campanha' },
+      { type: 'feat', text: 'Cada etapa pode ser "qualquer resposta → avança" ou "menu de gatilhos" configurável independentemente' },
+      { type: 'feat', text: 'Simulador de resposta por etapa e configurações globais (opt-out, timeout) em painel recolhível' },
+    ],
+  },
+  {
     version: '2.3.209',
     date: '26/09/2026',
     highlights: [

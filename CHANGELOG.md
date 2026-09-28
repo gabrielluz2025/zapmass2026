@@ -7,6 +7,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.210] - 2026-09-28
+
+### Adicionado
+- **Fluxo conversacional multi-etapas**: editor de campanha "Fluxo por respostas" agora suporta N etapas — crie uma abertura, aguarde resposta, envie o pitch, aguarde novamente e aplique gatilhos condicionais. Use o botão **Adicionar etapa de mensagem** para inserir quantas etapas quiser.
+- **Gatilhos por etapa**: cada etapa pode ser "qualquer resposta → avança" (intermediária) ou "menu de gatilhos por palavra/número" (condicional, terminal) — configurável independentemente por etapa.
+- **Simulador por etapa**: cada etapa condicional tem seu próprio simulador de teste de resposta.
+- **Configurações globais recolhíveis**: saudação educada, opt-out global e timeout agrupados em painel colapsável para não poluir a tela.
+- **Remover etapa**: botão ✕ em cada etapa intermediária permite deletar facilmente uma etapa do fluxo.
+
 ## [2.3.209] - 2026-09-26
 
 ### Corrigido
