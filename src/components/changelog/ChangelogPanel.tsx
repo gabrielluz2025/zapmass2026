@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.211',
+    date: '28/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Campanhas travadas em Pausada: ao clicar Retomar, o sistema agora força re-probe HTTP de todos os chips antes do guard avaliar — elimina re-pausa imediata causada por cache de estado stale' },
+      { type: 'fix', text: 'Busca de chip no guard agora é case-insensitive: IDs como "MeuChip" vs "meuchip" não falham mais silenciosamente' },
+      { type: 'feat', text: 'Diagnóstico detalhado no log da campanha: quando bloqueada por "chips inativos", mostra exatamente quais IDs foram recusados' },
+    ],
+  },
+  {
     version: '2.3.210',
     date: '28/09/2026',
     highlights: [

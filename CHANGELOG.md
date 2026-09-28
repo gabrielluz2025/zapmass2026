@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.211] - 2026-09-28
+
+### Corrigido
+- **Campanhas travadas em Pausada**: ao clicar Retomar, o sistema agora força re-probe HTTP de todos os chips antes do guard avaliar os canais — elimina o ciclo de re-pausa imediata causado por cache de estado stale após restart/deploy.
+- **Busca de chip no guard case-insensitive**: IDs salvos em casing diferente no Firestore vs mapa RAM (ex.: `"MeuChip"` vs `"meuchip"`) não falham mais silenciosamente ao checar usabilidade.
+- **Diagnóstico detalhado no log**: quando campanha é bloqueada por "todos chips inativos", o log agora mostra exatamente quais IDs foram recusados e por quê.
+
 ## [2.3.210] - 2026-09-28
 
 ### Adicionado

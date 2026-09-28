@@ -1560,6 +1560,36 @@ export async function refreshConnectionsForCampaign(connectionIds: string[]): Pr
     await hydrateInstancesFromEvolution();
 }
 
+/**
+ * Força re-probe HTTP de cada canal de uma campanha — invalida cache stale e atualiza RAM.
+ * Usado ao retomar campanha manualmente: garante que o guard de chips não re-pause
+ * imediatamente por ter visto estado 'close' em cache desatualizado (ex.: após restart/deploy).
+ */
+export async function probeAllCampaignChannels(connectionIds: string[]): Promise<{
+    onlineIds: string[];
+    offlineIds: string[];
+}> {
+    const onlineIds: string[] = [];
+    const offlineIds: string[] = [];
+    // Força re-hidrate antes de probar (pode haver chips novos ou renomeados)
+    await hydrateInstancesFromEvolution();
+    for (const id of connectionIds) {
+        if (!id?.trim()) continue;
+        // Invalida cache stale (pode ter marcado 'false' há >15s)
+        lastConnectionStateCheck.delete(id);
+        try {
+            const open = await isConnectionOpen(id);
+            if (open) onlineIds.push(id);
+            else offlineIds.push(id);
+        } catch {
+            offlineIds.push(id);
+        }
+        // Pequeno stagger para não saturar a Evolution API com probes simultâneos
+        if (connectionIds.length > 1) await new Promise(r => setTimeout(r, 100));
+    }
+    return { onlineIds, offlineIds };
+}
+
 /** Verificação instantânea (RAM) — usada antes de probes lentos na Evolution. */
 export function anySelectedConnectionsOpenInMemory(connectionIds: string[]): boolean {
     for (const id of connectionIds) {
@@ -7420,8 +7450,14 @@ function isCampaignChannelUsable(connectionId: string): boolean {
     if (isConnectionInActiveWarmup(id)) return false;
     let conn = connections.get(id);
     if (!conn) {
+        const idLower = id.toLowerCase();
         for (const [key, c] of connections.entries()) {
-            if (c.instanceName === id || key === id) {
+            // Comparação case-insensitive: evita falha quando Firestore salva ID em casing diferente do mapa RAM
+            if (
+                c.instanceName === id || key === id ||
+                c.instanceName?.toLowerCase() === idLower ||
+                key.toLowerCase() === idLower
+            ) {
                 conn = c;
                 break;
             }
@@ -7591,19 +7627,38 @@ async function runCampaignDispatchGuard(
     });
     if (guard.action === 'pause' && guard.reason === 'all_channels_down') {
         await refreshConnectionsForCampaign(ctx.channelIds);
+        const probeResults: Array<{ id: string; usable: boolean }> = [];
         for (const id of ctx.channelIds) {
             const cid = String(id || '').trim();
-            if (!cid || isCampaignChannelUsable(cid)) continue;
-            try {
-                await isConnectionOpen(cid);
-            } catch {
-                /* probe falhou — mantém decisão anterior */
+            if (!cid) continue;
+            const alreadyUsable = isCampaignChannelUsable(cid);
+            if (!alreadyUsable) {
+                try {
+                    await isConnectionOpen(cid);
+                } catch {
+                    /* probe falhou — mantém decisão anterior */
+                }
             }
+            probeResults.push({ id: cid, usable: isCampaignChannelUsable(cid) });
         }
+        log('info', `[Guard] Re-probe após all_channels_down: campanha ${item.campaignId}`, {
+            chips: probeResults,
+            campaignId: item.campaignId,
+        });
         guard = await evaluateCampaignDispatchGuard({
             ...ctx,
             isChannelUsable: isCampaignChannelUsable,
         });
+        if (guard.action === 'pause' && guard.reason === 'all_channels_down') {
+            // Logs diagnóstico para facilitar troubleshoot — exatamente quais chips estão inativos
+            const offlineChips = probeResults.filter(r => !r.usable).map(r => r.id);
+            emitCampaignLog(
+                'WARN',
+                `🔌 Chips inativos bloqueando o disparo: [${offlineChips.join(', ')}]. Verifique a conexão no Evolution. Retomada automática em ~30 min quando qualquer chip voltar.`,
+                { campaignId: item.campaignId, offlineChips },
+                state.ownerUid
+            );
+        }
     }
     if (guard.action === 'pause' && !state.protectionPaused) {
         pauseCampaignForProtection(item.campaignId, {
@@ -12881,6 +12936,28 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
         state.recentOutcomes = [];
     }
     void clearCampaignContentHashHits(campaignId).catch(() => undefined);
+
+    // Invalida cache de estado stale dos chips (evita re-pausa imediata por lastConnectionStateCheck antigo)
+    // e força re-probe HTTP antes dos primeiros jobs processarem.
+    const channelIdsForProbe = state?.connectionIds || [];
+    if (channelIdsForProbe.length > 0) {
+        void probeAllCampaignChannels(channelIdsForProbe).then(({ onlineIds, offlineIds }) => {
+            log('info', `[ResumeProbe] Campanha ${campaignId}: ${onlineIds.length} online, ${offlineIds.length} offline`, {
+                campaignId, onlineIds, offlineIds,
+            });
+            if (onlineIds.length === 0 && offlineIds.length > 0) {
+                emitCampaignLog(
+                    'WARN',
+                    `⚠️ Retomada, mas nenhum chip respondeu ao probe HTTP. IDs verificados: [${offlineIds.join(', ')}]. Verifique se os chips estão realmente conectados no Evolution e aguarde ~30s.`,
+                    { campaignId, offlineIds },
+                    ou
+                );
+            } else if (onlineIds.length > 0) {
+                log('info', `[ResumeProbe] Chips prontos para disparo: [${onlineIds.join(', ')}]`, { campaignId });
+            }
+        }).catch(() => undefined);
+    }
+
     if (wasProtection) {
         const queue = getCampaignQueue();
         if (queue) {
@@ -13372,6 +13449,7 @@ export default {
     renameConnection,
     pauseCampaign,
     resumeCampaign,
+    probeAllCampaignChannels,
     applySettings,
     getConnectionState,
     handleWebhook,
