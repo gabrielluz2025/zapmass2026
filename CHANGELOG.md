@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.219] - 2026-09-28
+
+### Corrigido
+- **Disparo ia de novo para quem estava na lista negra**: marcar o contato (ou a tag de lista negra) só gravava a ficha. A fila olhava outra tabela e a mensagem saía mesmo assim. Agora o disparo para, a jornada é cancelada e o que ainda está na fila desse número é removido.
+
 ## [2.3.218] - 2026-09-28
 
 ### Corrigido

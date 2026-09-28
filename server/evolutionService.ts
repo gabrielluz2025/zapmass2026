@@ -3411,6 +3411,21 @@ export async function getCampaignBullmqQueueMetrics(): Promise<CampaignBullmqQue
     }
 }
 
+/** Tira da fila de disparo o que ainda não saiu para quem entrou na lista negra. */
+export async function cancelQueuedCampaignSendsForPhone(
+    tenantId: string,
+    phoneDigits: string
+): Promise<number> {
+    const queue = getCampaignQueue();
+    if (!queue) return 0;
+    return cancelCampaignJobsForPhone(
+        queue,
+        tenantId,
+        phoneDigits,
+        (campaignId) => campaignsById.get(campaignId)?.ownerUid
+    );
+}
+
 function getCampaignQueue(): Queue<MessageQueueItem> | null {
     const conn = getRedisConnection();
     if (!conn) return null;

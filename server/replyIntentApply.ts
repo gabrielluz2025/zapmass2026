@@ -1,7 +1,7 @@
 import type { Contact } from '../src/types.js';
 import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
 import { normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
-import { reprocessReplyFlowInbound } from './evolutionService.js';
+import { cancelQueuedCampaignSendsForPhone, reprocessReplyFlowInbound } from './evolutionService.js';
 import { processContactOptOut } from './contactOptOutService.js';
 import { findContactByPhoneKey, getContactById, updateContact } from './repositories/contactsRepository.js';
 import { tryAutoEnrollOnOptIn } from './nurture/nurtureEngine.js';
@@ -64,6 +64,7 @@ export async function applyLeadClassificationForTenant(
       reason: `Classificação manual: lista negra${replySnippet ? ` — "${replySnippet}"` : ''}`,
       source: 'manual_chat',
       keyword: replySnippet || 'lista negra',
+      cancelJobs: (tid, phone) => cancelQueuedCampaignSendsForPhone(tid, phone),
     });
     if (contact) {
       const updated =

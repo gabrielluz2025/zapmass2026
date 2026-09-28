@@ -3,6 +3,7 @@ import { getZapmassPool } from '../db/postgres.js';
 import { getClaimerSync } from '../inboxAssignments.js';
 import { insertNotificationPg } from '../repositories/notificationsRepository.js';
 import { applyMessageVars, publishOwnerEvent } from '../whatsappService.js';
+import { processContactOptOut } from '../contactOptOutService.js';
 import { formatNurtureSocialLinks } from './nurtureSocialLinks.js';
 import {
   bumpNurtureMetricPg,
@@ -450,6 +451,19 @@ export async function handleNurtureIncoming(params: NurtureInboundParams): Promi
   if (getClaimerSync(params.tenantId, params.incomingConvId)) return false;
 
   if (wantsOptOut(doc, params.bodyText)) {
+    await processContactOptOut({
+      tenantId: params.tenantId,
+      phoneDigits: phone,
+      reason: 'Opt-out na jornada de nutrição',
+      source: 'nurture',
+      keyword: params.bodyText.slice(0, 60),
+      cancelJobs: async (tid, digits) => {
+        const { cancelQueuedCampaignSendsForPhone } = await import('../evolutionService.js');
+        return cancelQueuedCampaignSendsForPhone(tid, digits);
+      },
+    }).catch((err) => {
+      console.warn('[nurture] falha ao gravar opt-out na lista negra', (err as Error)?.message);
+    });
     await updateEnrollmentStatusPg(params.tenantId, enrollment.id, {
       status: 'cancelled',
       pauseReason: 'opt_out',

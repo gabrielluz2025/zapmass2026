@@ -10,7 +10,8 @@ import { listContacts } from './repositories/contactsRepository.js';
 import { listContactLists } from './repositories/contactListsRepository.js';
 import { getQueueHealthMetrics } from './campaignJobsResilience.js';
 import { WHATSAPP_RISK_VERSION } from '../shared/whatsappLegal.js';
-import { getOwnerGoHistorySyncOps } from './evolutionService.js';
+import { cancelQueuedCampaignSendsForPhone, getOwnerGoHistorySyncOps } from './evolutionService.js';
+import { clearContactOptOut, processContactOptOut } from './contactOptOutService.js';
 import { isGoWebhookInboxMode } from './evolutionConfig.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -173,12 +174,13 @@ export function registerTenantExtrasRoutes(app: Express): void {
     }
     const pool = getZapmassPool();
     if (!pool) return res.status(503).json({ ok: false, error: 'PostgreSQL indisponível.' });
-    await pool.query(
-      `INSERT INTO zapmass.contact_opt_outs (tenant_id, phone_digits, reason, source)
-       VALUES ($1::uuid, $2, $3, $4)
-       ON CONFLICT (tenant_id, phone_digits) DO UPDATE SET reason = EXCLUDED.reason, source = EXCLUDED.source`,
-      [ctx.tenantId, digits, reason, source]
-    );
+    await processContactOptOut({
+      tenantId: ctx.tenantId,
+      phoneDigits: digits,
+      reason: reason || 'Lista negra manual',
+      source: source || 'manual',
+      cancelJobs: (tid, phone) => cancelQueuedCampaignSendsForPhone(tid, phone),
+    });
     res.json({ ok: true });
   });
 
@@ -190,10 +192,7 @@ export function registerTenantExtrasRoutes(app: Express): void {
     if (!isZapmassPostgresConfigured()) return res.json({ ok: true });
     const pool = getZapmassPool();
     if (!pool) return res.json({ ok: true });
-    await pool.query(
-      `DELETE FROM zapmass.contact_opt_outs WHERE tenant_id = $1::uuid AND phone_digits = $2`,
-      [ctx.tenantId, digits]
-    );
+    await clearContactOptOut(ctx.tenantId, digits);
     res.json({ ok: true });
   });
 

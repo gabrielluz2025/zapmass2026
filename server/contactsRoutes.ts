@@ -28,6 +28,8 @@ import {
   fetchAndPersistContactProfilePicturesBatch
 } from './contactProfilePicture.js';
 import { notifyTenantDataChanged } from './tenantDataNotify.js';
+import { contactIsBlacklisted } from '../src/utils/contactTemperature.js';
+import { clearContactOptOut, processContactOptOut } from './contactOptOutService.js';
 import {
   SAVE_TO_CHIP_MAX_BATCH,
   saveContactToChip,
@@ -807,11 +809,32 @@ export function registerContactsDataRoutes(app: Express): void {
     }
     invalidateCrmContactIndexCache(ctx.tenantId);
     invalidateContactsCountCache(ctx.tenantId);
-    if (updates.marketingOptIn === true && updated.phone) {
+    if (updates.marketingOptIn === true && updated.phone && !contactIsBlacklisted(updated)) {
       void tryAutoEnrollOnOptIn({
         tenantId: ctx.tenantId,
         phoneDigits: updated.phone
       });
+    }
+    const blacklistTouched = updates.marketingOptOut !== undefined || updates.tags !== undefined;
+    if (blacklistTouched && updated.phone) {
+      if (contactIsBlacklisted(updated)) {
+        void processContactOptOut({
+          tenantId: ctx.tenantId,
+          phoneDigits: updated.phone,
+          reason: 'Lista negra no cadastro do contato',
+          source: 'contacts_ui',
+          cancelJobs: async (tid, phone) => {
+            const { cancelQueuedCampaignSendsForPhone } = await import('./evolutionService.js');
+            return cancelQueuedCampaignSendsForPhone(tid, phone);
+          },
+        }).catch((err) => {
+          console.warn('[contacts] falha ao gravar lista negra no disparo', (err as Error)?.message);
+        });
+      } else {
+        void clearContactOptOut(ctx.tenantId, updated.phone).catch((err) => {
+          console.warn('[contacts] falha ao tirar contato da lista negra', (err as Error)?.message);
+        });
+      }
     }
     notifyTenantDataChanged(ctx.tenantId, 'contacts');
     return res.json({ ok: true, contact: updated });

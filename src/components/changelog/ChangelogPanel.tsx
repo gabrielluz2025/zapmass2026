@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.219',
+    date: '28/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Quem está na lista negra não recebe disparo de novo: a fila passa a respeitar a ficha do contato e cancela o que ainda não saiu' },
+    ],
+  },
+  {
     version: '2.3.218',
     date: '28/09/2026',
     highlights: [

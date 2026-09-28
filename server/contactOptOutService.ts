@@ -2,6 +2,8 @@ import type { Queue } from 'bullmq';
 import type IORedis from 'ioredis';
 import { canonicalBrazilMobileKey, normPhoneKey } from '../src/utils/brPhoneNormalize.js';
 import { buildPhoneDigitLookupKeys, normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
+import { resolvePostgresTenantIdAsync } from './auth/firebaseUidMap.js';
+import { expandTenantScopeUids, isUuid, tenantScopeUidsMatch } from './auth/tenantUidScopeServer.js';
 import { getZapmassPool, isZapmassPostgresConfigured } from './db/postgres.js';
 import { getSharedRedis } from './redisShared.js';
 import { emitAntiBanAlert } from './antiBanProactiveNotifications.js';
@@ -73,21 +75,58 @@ async function saddOptOutRedis(tenantId: string, phoneSuffix: string): Promise<v
   }
 }
 
-/** Checagem leve via Redis (fallback PG se Redis indisponível). */
+/** UID Firebase e UUID do tenant apontam para a mesma lista negra. */
+export async function optOutTenantIdList(tenantId: string): Promise<string[]> {
+  const raw = String(tenantId || '').trim();
+  if (!raw) return [];
+  const resolved = await resolvePostgresTenantIdAsync(raw).catch(() => raw);
+  const set = new Set<string>();
+  for (const id of [resolved, ...expandTenantScopeUids(raw)]) {
+    if (isUuid(id)) set.add(id);
+  }
+  return [...set];
+}
+
+const BLACKLIST_TAGS = ['lead:lista-negra', 'lead:blacklist', 'lista-negra'];
+
+/**
+ * Lista negra do contato (flag ou tag) além da tabela de opt-out.
+ * Marcar na tela de Contatos só gravava marketingOptOut — o disparo não via e reenviava.
+ */
+const CONTACT_BLACKLIST_SQL = `
+  SELECT 1
+  FROM zapmass.contacts
+  WHERE tenant_id = ANY($1::uuid[])
+    AND (
+      COALESCE(doc->>'marketingOptOut', '') IN ('true', 't', '1')
+      OR EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements_text(
+          CASE WHEN jsonb_typeof(doc->'tags') = 'array' THEN doc->'tags' ELSE '[]'::jsonb END
+        ) AS tag(val)
+        WHERE lower(tag.val) = ANY($4::text[])
+      )
+    )
+    AND phone_key = ANY($2::text[])
+`;
+
+/** Checagem leve via Redis (fallback PG: opt-out e contato na lista negra). */
 export async function isContactOptedOut(
   tenantId: string,
   phoneDigits: string,
   redis?: IORedis | null
 ): Promise<boolean> {
-  const tid = String(tenantId || '').trim();
   const suffix = normalizeOptOutPhoneSuffix(phoneDigits);
-  if (!tid || suffix.length < 8) return false;
+  const tenantIds = await optOutTenantIdList(tenantId);
+  if (tenantIds.length === 0 || suffix.length < 8) return false;
 
   const client = redis ?? getSharedRedis();
   if (client) {
     try {
-      const member = await client.sismember(optOutRedisSetKey(tid), suffix);
-      if (member === 1) return true;
+      for (const id of tenantIds) {
+        const member = await client.sismember(optOutRedisSetKey(id), suffix);
+        if (member === 1) return true;
+      }
     } catch (e) {
       console.warn('[OptOut] Redis SISMEMBER falhou — fallback PG', (e as Error)?.message);
     }
@@ -99,17 +138,23 @@ export async function isContactOptedOut(
   const pool = getZapmassPool();
   if (!pool) return false;
 
-  const r = await pool.query<{ phone_digits: string }>(
-    `SELECT phone_digits FROM zapmass.contact_opt_outs
-     WHERE tenant_id = $1::uuid
+  const r = await pool.query(
+    `SELECT 1 FROM zapmass.contact_opt_outs
+     WHERE tenant_id = ANY($1::uuid[])
        AND (
          phone_digits = ANY($2::text[])
          OR right(regexp_replace(phone_digits, '\\D', '', 'g'), 8) = $3
        )
+     UNION ALL
+     ${CONTACT_BLACKLIST_SQL}
      LIMIT 1`,
-    [tid, keys, suffix]
+    [tenantIds, keys, suffix, BLACKLIST_TAGS]
   );
-  return r.rows.length > 0;
+  if (r.rows.length === 0) return false;
+  for (const id of tenantIds) {
+    await saddOptOutRedis(id, suffix);
+  }
+  return true;
 }
 
 export type ProcessContactOptOutParams = {
@@ -137,7 +182,9 @@ export async function processContactOptOut(
   const tid = String(params.tenantId || '').trim();
   const digits = normPhoneKey(params.phoneDigits) || String(params.phoneDigits || '').replace(/\D/g, '');
   const phoneSuffix = normalizeOptOutPhoneSuffix(digits);
-  if (!tid || phoneSuffix.length < 8) return null;
+  const tenantIds = await optOutTenantIdList(tid);
+  const primary = tenantIds[0];
+  if (!primary || phoneSuffix.length < 8) return null;
 
   const lookupKeys = [...phoneKeysForMatch(digits)];
   const nowIso = new Date().toISOString();
@@ -155,20 +202,25 @@ export async function processContactOptOut(
            VALUES ($1::uuid, $2, $3, $4)
            ON CONFLICT (tenant_id, phone_digits) DO UPDATE
              SET reason = EXCLUDED.reason, source = EXCLUDED.source`,
-          [tid, digits, params.reason.slice(0, 500), params.source.slice(0, 32)]
+          [primary, digits, params.reason.slice(0, 500), params.source.slice(0, 32)]
         );
 
         await client.query(
           `UPDATE zapmass.contacts
            SET doc = COALESCE(doc, '{}'::jsonb)
-             || jsonb_build_object('unsubscribedAt', $3::text, 'marketingConsent', false),
+             || jsonb_build_object(
+                  'unsubscribedAt', $3::text,
+                  'marketingConsent', false,
+                  'marketingOptOut', true,
+                  'marketingOptIn', false
+                ),
                updated_at = now()
-           WHERE tenant_id = $1::uuid
+           WHERE tenant_id = ANY($1::uuid[])
              AND (
                phone_key = ANY($2::text[])
                OR right(regexp_replace(coalesce(doc->>'phone', ''), '\\D', '', 'g'), 8) = $4
              )`,
-          [tid, lookupKeys, nowIso, phoneSuffix]
+          [tenantIds, lookupKeys, nowIso, phoneSuffix]
         );
 
         const nurtureR = await client.query(
@@ -177,13 +229,13 @@ export async function processContactOptOut(
                pause_reason = 'OPT_OUT_REQUESTED',
                next_run_at = NULL,
                completed_at = now()
-           WHERE tenant_id = $1::uuid
+           WHERE tenant_id = ANY($1::uuid[])
              AND status IN ('enrolled', 'active', 'waiting_reply', 'paused')
              AND (
                contact_phone = ANY($2::text[])
                OR right(regexp_replace(contact_phone, '\\D', '', 'g'), 8) = $3
              )`,
-          [tid, lookupKeys, phoneSuffix]
+          [tenantIds, lookupKeys, phoneSuffix]
         );
         nurtureCancelled = nurtureR.rowCount ?? 0;
 
@@ -202,7 +254,9 @@ export async function processContactOptOut(
     }
   }
 
-  await saddOptOutRedis(tid, phoneSuffix);
+  for (const id of tenantIds) {
+    await saddOptOutRedis(id, phoneSuffix);
+  }
 
   let jobsCancelled = 0;
   if (params.cancelJobs) {
@@ -244,6 +298,40 @@ export async function processContactOptOut(
   return { phoneSuffix, phoneDigits: digits, jobsCancelled, nurtureCancelled };
 }
 
+/** Tira o número da lista negra (tabela + Redis) quando o usuário libera o contato. */
+export async function clearContactOptOut(tenantId: string, phoneDigits: string): Promise<void> {
+  const tenantIds = await optOutTenantIdList(tenantId);
+  const digits = normPhoneKey(phoneDigits) || String(phoneDigits || '').replace(/\D/g, '');
+  const suffix = normalizeOptOutPhoneSuffix(digits);
+  const keys = [...phoneKeysForMatch(digits)];
+  if (tenantIds.length === 0 || suffix.length < 8) return;
+
+  if (isZapmassPostgresConfigured()) {
+    const pool = getZapmassPool();
+    if (pool) {
+      await pool.query(
+        `DELETE FROM zapmass.contact_opt_outs
+         WHERE tenant_id = ANY($1::uuid[])
+           AND (
+             phone_digits = ANY($2::text[])
+             OR right(regexp_replace(phone_digits, '\\D', '', 'g'), 8) = $3
+           )`,
+        [tenantIds, keys, suffix]
+      );
+    }
+  }
+
+  const redis = getSharedRedis();
+  if (!redis) return;
+  for (const id of tenantIds) {
+    try {
+      await redis.srem(optOutRedisSetKey(id), suffix);
+    } catch {
+      /* continuar */
+    }
+  }
+}
+
 /** @deprecated Use processContactOptOut */
 export async function registerContactOptOut(
   tenantId: string,
@@ -270,6 +358,7 @@ export async function cancelCampaignJobsForPhone<T extends QueueJobPayload>(
 ): Promise<number> {
   const tid = String(tenantId || '').trim();
   if (!tid) return 0;
+  const tidResolved = await resolvePostgresTenantIdAsync(tid).catch(() => tid);
 
   let removed = 0;
   const states: Array<'waiting' | 'delayed' | 'paused'> = ['waiting', 'delayed', 'paused'];
@@ -285,8 +374,14 @@ export async function cancelCampaignJobsForPhone<T extends QueueJobPayload>(
         const item = job.data || ({} as T);
         const jobOwner =
           String(item.ownerUid || '').trim() ||
-          (item.campaignId && resolveOwnerUid ? resolveOwnerUid(item.campaignId) : '');
-        if (jobOwner !== tid) continue;
+          (item.campaignId && resolveOwnerUid ? resolveOwnerUid(item.campaignId) || '' : '');
+        if (!jobOwner) continue;
+        const jobResolved = await resolvePostgresTenantIdAsync(jobOwner).catch(() => jobOwner);
+        const sameTenant =
+          jobOwner === tid ||
+          jobResolved === tidResolved ||
+          tenantScopeUidsMatch(jobOwner, tid);
+        if (!sameTenant) continue;
         if (!item.to || !phoneMatchesJobTarget(item.to, phoneDigits)) continue;
         try {
           await job.remove();
@@ -369,23 +464,44 @@ export async function warmupOptOutCacheForTenant(tenantId: string): Promise<numb
   const redis = getSharedRedis();
   if (!pool || !redis) return 0;
 
+  const tenantIds = await optOutTenantIdList(tid);
+  if (tenantIds.length === 0) return 0;
+
   const r = await pool.query<{ suffix: string }>(
-    `SELECT DISTINCT right(regexp_replace(phone_digits, '\\D', '', 'g'), 8) AS suffix
-     FROM zapmass.contact_opt_outs
-     WHERE tenant_id = $1::uuid`,
-    [tid]
+    `SELECT DISTINCT suffix FROM (
+       SELECT right(regexp_replace(phone_digits, '\\D', '', 'g'), 8) AS suffix
+       FROM zapmass.contact_opt_outs
+       WHERE tenant_id = ANY($1::uuid[])
+       UNION
+       SELECT right(regexp_replace(coalesce(phone, doc->>'phone', ''), '\\D', '', 'g'), 8) AS suffix
+       FROM zapmass.contacts
+       WHERE tenant_id = ANY($1::uuid[])
+         AND (
+           COALESCE(doc->>'marketingOptOut', '') IN ('true', 't', '1')
+           OR EXISTS (
+             SELECT 1
+             FROM jsonb_array_elements_text(
+               CASE WHEN jsonb_typeof(doc->'tags') = 'array' THEN doc->'tags' ELSE '[]'::jsonb END
+             ) AS tag(val)
+             WHERE lower(tag.val) = ANY($2::text[])
+           )
+         )
+     ) s
+     WHERE length(suffix) >= 8`,
+    [tenantIds, BLACKLIST_TAGS]
   );
 
-  const key = optOutRedisSetKey(tid);
   let added = 0;
   for (const row of r.rows) {
     const suffix = String(row.suffix || '').trim();
     if (suffix.length < 8) continue;
-    try {
-      await redis.sadd(key, suffix);
-      added += 1;
-    } catch {
-      /* continuar */
+    for (const id of tenantIds) {
+      try {
+        await redis.sadd(optOutRedisSetKey(id), suffix);
+        added += 1;
+      } catch {
+        /* continuar */
+      }
     }
   }
   return added;
@@ -397,7 +513,10 @@ export async function warmupOptOutCacheAllTenants(): Promise<{ tenants: number; 
   if (!pool) return { tenants: 0, members: 0 };
 
   const r = await pool.query<{ tenant_id: string }>(
-    `SELECT DISTINCT tenant_id::text FROM zapmass.contact_opt_outs`
+    `SELECT DISTINCT tenant_id::text AS tenant_id FROM zapmass.contact_opt_outs
+     UNION
+     SELECT DISTINCT tenant_id::text FROM zapmass.contacts
+     WHERE COALESCE(doc->>'marketingOptOut', '') IN ('true', 't', '1')`
   );
 
   let members = 0;

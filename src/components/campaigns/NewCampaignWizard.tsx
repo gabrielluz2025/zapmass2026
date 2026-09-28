@@ -53,6 +53,7 @@ import {
 } from '../../utils/campaignSchedule';
 import {
   computeContactTemperatures,
+  contactIsBlacklisted,
   CONTACT_TEMP_LABEL,
   type ContactTemperature,
   type TempStats
@@ -516,12 +517,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   }, [contacts, selectedList]);
 
   const marketingOptOutPhoneKeys = useMemo(
-    () => new Set(contacts.filter((c) => c.marketingOptOut).map((c) => normPhoneKey(c.phone))),
+    () => new Set(contacts.filter((c) => contactIsBlacklisted(c)).map((c) => normPhoneKey(c.phone))),
     [contacts]
   );
 
   const selectedListContactsForSend = useMemo(() => {
-    const withoutOptOut = selectedListContacts.filter((c) => !c.marketingOptOut);
+    const withoutOptOut = selectedListContacts.filter((c) => !contactIsBlacklisted(c));
     if (filterTemps.size === 0) return withoutOptOut;
     return withoutOptOut.filter((c) =>
       filterTemps.has((contactTemps[c.id]?.temp ?? 'new') as ContactTemperature)
@@ -529,7 +530,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   }, [selectedListContacts, filterTemps, contactTemps]);
 
   const listOptOutExcludedCount = useMemo(
-    () => selectedListContacts.filter((c) => c.marketingOptOut).length,
+    () => selectedListContacts.filter((c) => contactIsBlacklisted(c)).length,
     [selectedListContacts]
   );
 
@@ -638,7 +639,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     for (const c of contacts) {
       const phone = (c.phone || '').replace(/\D/g, '');
       if (phone.length < 10 || seen.has(phone)) continue;
-      if (c.marketingOptOut) continue;
+      if (contactIsBlacklisted(c)) continue;
       if (filterCities.size > 0 && !filterCities.has(normalize(c.city))) continue;
       if (filterChurches.size > 0 && !filterChurches.has(normalize(c.church))) continue;
       if (filterRoles.size > 0 && !filterRoles.has(normalize(c.role))) continue;
