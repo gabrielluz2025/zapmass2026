@@ -399,6 +399,15 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       fileName: string;
       sendMediaAsDocument?: boolean;
     };
+    optionMediaAttachments?: Array<{
+      stepIndex: number;
+      optionIndex: number;
+      dataBase64: string;
+      mimeType: string;
+      fileName: string;
+      previousMediaStorageKey?: string;
+    }>;
+    optionMediaRemovals?: string[];
     skipFrequencyCap?: boolean;
     dailySchedule?: import('../types').CampaignDailySchedule;
     prospecting?: import('../types').CampaignProspecting;
@@ -458,6 +467,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 stageConfigs: payload.stageConfigs,
                 mediaAttachment: payload.mediaAttachment,
                 followUpMediaAttachment: payload.followUpMediaAttachment,
+                optionMediaAttachments: payload.optionMediaAttachments,
                 skipFrequencyCap: payload.skipFrequencyCap,
                 dailySchedule: payload.dailySchedule,
                 prospecting: payload.prospecting
@@ -523,6 +533,12 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     if (payload.replyFlow !== undefined) {
       patch.replyFlow = payload.replyFlow;
     }
+    if (payload.optionMediaAttachments?.length) {
+      patch.optionMediaAttachments = payload.optionMediaAttachments;
+    }
+    if (payload.optionMediaRemovals?.length) {
+      patch.optionMediaRemovals = payload.optionMediaRemovals;
+    }
     if (payload.dailySchedule?.enabled) {
       patch.dailySchedule = payload.dailySchedule;
     }
@@ -535,7 +551,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       });
 
       toast.success(
-        `Campanha atualizada — ${result.onlineCount} chip(s) online, ${result.remappedJobs} envio(s) remapeado(s).`
+        `Campanha atualizada. O disparo continua de onde parou — quem já recebeu não entra de novo. ${result.onlineCount} chip(s) online, ${result.remappedJobs} envio(s) remapeado(s).`
       );
       muteWizardAutosaveBriefly();
       setViewState('list');

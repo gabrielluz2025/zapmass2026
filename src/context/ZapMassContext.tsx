@@ -4165,6 +4165,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         fileName: string;
         sendMediaAsDocument?: boolean;
       };
+      optionMediaAttachments?: Array<{
+        stepIndex: number;
+        optionIndex: number;
+        dataBase64: string;
+        mimeType: string;
+        fileName: string;
+        previousMediaStorageKey?: string;
+      }>;
       skipFrequencyCap?: boolean;
       dailySchedule?: CampaignDailySchedule;
       prospecting?: import('../types').CampaignProspecting;
@@ -4337,6 +4345,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             stageConfigs: options?.stageConfigs,
             mediaAttachment: options?.mediaAttachment,
             followUpMediaAttachment: options?.followUpMediaAttachment,
+            optionMediaAttachments: options?.optionMediaAttachments,
             skipFrequencyCap: options?.skipFrequencyCap === true,
             dailySchedule: options?.dailySchedule?.enabled ? options.dailySchedule : undefined,
             prospecting: options?.prospecting?.enabled ? options.prospecting : undefined

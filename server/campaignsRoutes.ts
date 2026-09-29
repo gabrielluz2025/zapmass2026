@@ -97,6 +97,10 @@ export function registerCampaignsDataRoutes(app: Express): void {
     if (!existing) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
 
     const patch: Record<string, unknown> = { ...raw };
+    const optionMediaAttachments = patch.optionMediaAttachments;
+    const optionMediaRemovals = patch.optionMediaRemovals;
+    delete patch.optionMediaAttachments;
+    delete patch.optionMediaRemovals;
     // Edição pelo wizard não deve reiniciar audiência nem contadores.
     delete patch.numbers;
     delete patch.processedCount;
@@ -108,9 +112,35 @@ export function registerCampaignsDataRoutes(app: Express): void {
       delete patch.scheduleStartSnapshot;
     }
 
+    if (patch.replyFlow && typeof patch.replyFlow === 'object') {
+      evolutionService.attachReplyTriggerPhotos(
+        id,
+        Array.isArray(optionMediaAttachments) ? (optionMediaAttachments as never) : [],
+        patch.replyFlow as { steps?: Array<{ options?: Array<Record<string, unknown>> }> }
+      );
+      evolutionService.removeReplyTriggerPhotos(id, optionMediaRemovals);
+      const snap =
+        existing.scheduleStartSnapshot && typeof existing.scheduleStartSnapshot === 'object'
+          ? (existing.scheduleStartSnapshot as Record<string, unknown>)
+          : null;
+      if (snap) {
+        patch.scheduleStartSnapshot = {
+          ...snap,
+          ...(patch.scheduleStartSnapshot && typeof patch.scheduleStartSnapshot === 'object'
+            ? (patch.scheduleStartSnapshot as Record<string, unknown>)
+            : {}),
+          replyFlow: patch.replyFlow,
+        };
+      }
+    } else {
+      evolutionService.removeReplyTriggerPhotos(id, optionMediaRemovals);
+    }
+
     if (patch.dailySchedule && existing.scheduleStartSnapshot && typeof existing.scheduleStartSnapshot === 'object') {
       patch.scheduleStartSnapshot = {
-        ...(existing.scheduleStartSnapshot as Record<string, unknown>),
+        ...((patch.scheduleStartSnapshot && typeof patch.scheduleStartSnapshot === 'object'
+          ? patch.scheduleStartSnapshot
+          : existing.scheduleStartSnapshot) as Record<string, unknown>),
         dailySchedule: patch.dailySchedule,
       };
     }
@@ -120,6 +150,9 @@ export function registerCampaignsDataRoutes(app: Express): void {
 
     if (patch.dailySchedule) {
       evolutionService.syncCampaignDailyScheduleMemory(id, patch.dailySchedule);
+    }
+    if (patch.replyFlow) {
+      evolutionService.refreshReplyFlowDefFromDoc(id, { ...existing, ...patch });
     }
 
     notifyTenantDataChanged(ctx.tenantId, 'campaigns');

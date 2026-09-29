@@ -1641,6 +1641,7 @@ const registerSocketHandlers = () => {
           poolId,
           mediaAttachment,
           followUpMediaAttachment,
+          optionMediaAttachments,
           stageConfigs,
           skipFrequencyCap,
           dailySchedule,
@@ -1677,6 +1678,14 @@ const registerSocketHandlers = () => {
             fileName?: string;
             sendMediaAsDocument?: boolean;
           };
+          optionMediaAttachments?: Array<{
+            stepIndex?: number;
+            optionIndex?: number;
+            dataBase64?: string;
+            mimeType?: string;
+            fileName?: string;
+            previousMediaStorageKey?: string;
+          }>;
           stageConfigs?: Array<{
             body: string;
             trigger_type: string;
@@ -1868,6 +1877,23 @@ const registerSocketHandlers = () => {
               ...(sanitizedFollowUpMedia.sendMediaAsDocument ? { sendMediaAsDocument: true } : {}),
             }
           : undefined;
+
+        if (campaignId && Array.isArray(optionMediaAttachments) && optionMediaAttachments.length > 0 && replyFlow) {
+          evolutionService.attachReplyTriggerPhotos(
+            campaignId,
+            optionMediaAttachments.map((item) => ({
+              stepIndex: Number(item?.stepIndex),
+              optionIndex: Number(item?.optionIndex),
+              dataBase64: String(item?.dataBase64 || ''),
+              mimeType: String(item?.mimeType || ''),
+              fileName: String(item?.fileName || 'gatilho.jpg'),
+              previousMediaStorageKey: item?.previousMediaStorageKey
+                ? String(item.previousMediaStorageKey)
+                : undefined,
+            })),
+            replyFlow as { steps?: Array<{ options?: Array<Record<string, unknown>> }> }
+          );
+        }
 
         // 1. Verificar Redis PRIMEIRO (rápido, 5s) — se estiver fora, não tenta checar chips
         //    porque a Evolution API também usa Redis e ficaria pendurada, causando timeout no cliente.

@@ -7,6 +7,7 @@ import {
   Lightbulb,
   ListOrdered,
   MessageSquare,
+  Image,
   Plus,
   Smartphone,
   Sparkles,
@@ -29,6 +30,7 @@ export type ReplyStageOption = {
   marketingEffect: 'none' | 'opt_in' | 'opt_out';
   priority?: number;
   matchMode?: ReplyMatchMode;
+  mediaStorageKey?: string;
 };
 
 export type ReplyMessageStage = {
@@ -69,6 +71,9 @@ type Props = {
   onGlobalOptOutChange?: (patch: { enabled?: boolean; keywordsText?: string }) => void;
   politeGreetingEnabled?: boolean;
   onPoliteGreetingChange?: (enabled: boolean) => void;
+  optionImagePreviewUrl?: (optionId: string) => string | null;
+  onPickOptionImage?: (optionId: string, file: File) => void;
+  onRemoveOptionImage?: (optionId: string) => void;
 };
 
 const MATCH_MODE_OPTIONS: Array<{ value: ReplyMatchMode; label: string }> = [
@@ -106,6 +111,9 @@ type MenuBuilderProps = {
   onInsertInvalidVariable: (token: string) => void;
   politeGreetingEnabled?: boolean;
   onPatch: (patch: Partial<ReplyMessageStage>) => void;
+  optionImagePreviewUrl?: (optionId: string) => string | null;
+  onPickOptionImage?: (optionId: string, file: File) => void;
+  onRemoveOptionImage?: (optionId: string) => void;
 };
 
 function StageMenuBuilder({
@@ -116,6 +124,9 @@ function StageMenuBuilder({
   onInsertInvalidVariable,
   politeGreetingEnabled,
   onPatch,
+  optionImagePreviewUrl,
+  onPickOptionImage,
+  onRemoveOptionImage,
 }: MenuBuilderProps) {
   const [simulatorInput, setSimulatorInput] = useState('');
   const options = stage.options || [];
@@ -245,6 +256,55 @@ function StageMenuBuilder({
                     rows={4}
                     onChange={(e) => updateOption(opt.id, { reply: e.target.value })}
                   />
+                  {onPickOptionImage ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <input
+                        id={`opt-photo-${opt.id}`}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = '';
+                          if (file) onPickOptionImage(opt.id, file);
+                        }}
+                      />
+                      <label
+                        htmlFor={`opt-photo-${opt.id}`}
+                        className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold cursor-pointer"
+                        style={{ borderColor: 'var(--border-1)', color: 'var(--text-2)' }}
+                      >
+                        <Image className="w-3.5 h-3.5" />
+                        {optionImagePreviewUrl?.(opt.id) || opt.mediaStorageKey ? 'Trocar foto' : 'Foto junto com a mensagem'}
+                      </label>
+                      {(optionImagePreviewUrl?.(opt.id) || opt.mediaStorageKey) && onRemoveOptionImage ? (
+                        <button
+                          type="button"
+                          className="text-[11px] font-semibold"
+                          style={{ color: 'var(--accent-warn, #f59e0b)' }}
+                          onClick={() => onRemoveOptionImage(opt.id)}
+                        >
+                          Remover foto
+                        </button>
+                      ) : null}
+                      {optionImagePreviewUrl?.(opt.id) ? (
+                        <img
+                          src={optionImagePreviewUrl(opt.id) || ''}
+                          alt=""
+                          className="h-14 w-14 rounded-lg object-cover border"
+                          style={{ borderColor: 'var(--border-1)' }}
+                        />
+                      ) : opt.mediaStorageKey ? (
+                        <span className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                          Foto já salva — sai junto com este texto
+                        </span>
+                      ) : (
+                        <span className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                          Opcional. A foto vai na mesma mensagem, com o texto como legenda.
+                        </span>
+                      )}
+                    </div>
+                  ) : null}
                 </label>
               </div>
             </div>
@@ -379,6 +439,9 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
   onGlobalOptOutChange,
   politeGreetingEnabled = true,
   onPoliteGreetingChange,
+  optionImagePreviewUrl,
+  onPickOptionImage,
+  onRemoveOptionImage,
 }) => {
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -687,6 +750,9 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                         onInsertInvalidVariable={onInsertInvalidVariable}
                         politeGreetingEnabled={politeGreetingEnabled}
                         onPatch={(patch) => patchStage(idx, patch)}
+                        optionImagePreviewUrl={optionImagePreviewUrl}
+                        onPickOptionImage={onPickOptionImage}
+                        onRemoveOptionImage={onRemoveOptionImage}
                       />
                     )}
                   </div>

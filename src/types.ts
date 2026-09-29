@@ -223,6 +223,8 @@ export interface CampaignReplyFlowStep {
     /** Maior = vence quando dois gatilhos batem na mesma resposta. */
     priority?: number;
     matchMode?: 'word' | 'phrase' | 'contains' | 'numeric_exact';
+    /** Foto salva no servidor, enviada como legenda junto com `reply`. */
+    mediaStorageKey?: string;
   }>;
 }
 

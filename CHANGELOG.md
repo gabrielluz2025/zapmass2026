@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.221] - 2026-09-29
+
+### Adicionado
+- **Foto no gatilho**: cada rota do menu pode levar uma foto junto com o texto da resposta. A imagem sai na mesma mensagem, com o texto como legenda.
+
+### Corrigido
+- **Editar campanha não recomeça o disparo**: salvar a campanha mantém o progresso, a fila e quem já recebeu. A resposta nova do gatilho (texto ou foto) vale para quem responder daqui pra frente.
+
 ## [2.3.220] - 2026-09-29
 
 ### Corrigido

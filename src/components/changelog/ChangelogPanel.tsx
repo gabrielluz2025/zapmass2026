@@ -10,6 +10,14 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.221',
+    date: '29/09/2026',
+    highlights: [
+      { type: 'feat', text: 'Cada gatilho pode levar uma foto junto com o texto da resposta' },
+      { type: 'fix', text: 'Editar a campanha continua o disparo de onde parou: quem já recebeu não entra de novo' },
+    ],
+  },
+  {
     version: '2.3.220',
     date: '29/09/2026',
     highlights: [

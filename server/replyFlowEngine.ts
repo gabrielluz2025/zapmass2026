@@ -27,6 +27,8 @@ export type ReplyFlowStepOption = {
     /** Maior = vence em empate de gatilhos. */
     priority?: number;
     matchMode?: ReplyMatchMode;
+    /** Chave em `campaignMediaById` — foto enviada com o texto da resposta. */
+    mediaStorageKey?: string;
 };
 
 export type ReplyFlowStepDef = {
@@ -216,6 +218,7 @@ export const sanitizeReplyFlowSteps = (
             marketingEffect?: string;
             priority?: number;
             matchMode?: string;
+            mediaStorageKey?: string;
         }>;
     }>
 ): ReplyFlowStepDef[] => {
@@ -236,6 +239,7 @@ export const sanitizeReplyFlowSteps = (
                           const optMe = String(opt.marketingEffect || 'none').toLowerCase();
                           const optMarketingEffect: 'none' | 'opt_in' | 'opt_out' =
                               optMe === 'opt_in' || optMe === 'opt_out' ? optMe : 'none';
+                          const mediaStorageKey = String(opt.mediaStorageKey || '').trim();
                           return {
                               tokens: Array.isArray(opt.tokens)
                                   ? opt.tokens.map((t) => String(t || '').toLowerCase().trim()).filter(Boolean)
@@ -244,6 +248,12 @@ export const sanitizeReplyFlowSteps = (
                               marketingEffect: optMarketingEffect,
                               priority: Number.isFinite(Number(opt.priority)) ? Number(opt.priority) : 0,
                               matchMode: parseMode(opt.matchMode),
+                              ...(mediaStorageKey &&
+                              mediaStorageKey.length <= 180 &&
+                              !mediaStorageKey.includes('..') &&
+                              mediaStorageKey.includes(':reply-opt:')
+                                  ? { mediaStorageKey }
+                                  : {}),
                           };
                       })
                       .filter((opt) => opt.tokens.length > 0 && opt.reply.length > 0)
@@ -965,10 +975,12 @@ export class ReplyFlowEngine {
                     replyPreview: preview,
                 });
                 const replyBody = applyMessageVars(matchedOption.reply, phoneDigits, session.vars);
+                const optionMediaKey = String(matchedOption.mediaStorageKey || '').trim();
                 session.invalidReplyCount = 0;
                 delete session.greetingReplyCount;
                 session.pendingOutbound = {
                     message: replyBody,
+                    mediaStorageKey: optionMediaKey || undefined,
                     disposeAfterSend: true,
                     enqueuedAt: Date.now(),
                 };
@@ -984,6 +996,7 @@ export class ReplyFlowEngine {
                     connectionId: sendConnectionId,
                     campaignId: session.campaignId,
                     ownerUid: session.ownerUid,
+                    mediaStorageKey: optionMediaKey || undefined,
                     replyFlowDisposeAfterSend: true,
                 });
 

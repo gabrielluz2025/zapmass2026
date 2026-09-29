@@ -85,7 +85,7 @@ import {
     type ReplyFlowSession,
     parseReplyFlowDefFromCampaignDoc,
 } from './replyFlowEngine.js';
-import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
+import { campaignMediaStorageKey, isReplyOptionMediaKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
 import {
     collectCampaignChannelIds,
@@ -4372,6 +4372,109 @@ function purgeCampaignMediaFilesOnDisk(storageKey: string): void {
     }
 }
 
+/** Garante a mídia no mapa (RAM ou ponteiro de disco) antes do envio. */
+function campaignMediaReady(storageKey: string): boolean {
+    const key = String(storageKey || '').trim();
+    if (!key) return false;
+    if (campaignMediaById.has(key)) return true;
+    try {
+        ensureCampaignMediaDir();
+        const files = fs.readdirSync(CAMPAIGN_MEDIA_TEMP_DIR);
+        const dataFile = files.find((f) => f.startsWith(`${key}.`) && !f.endsWith('.meta.json'));
+        if (!dataFile) return false;
+        const diskPath = path.join(CAMPAIGN_MEDIA_TEMP_DIR, dataFile);
+        const metaPath = path.join(CAMPAIGN_MEDIA_TEMP_DIR, `${key}.meta.json`);
+        let mimeType = 'application/octet-stream';
+        let fileName = dataFile.slice(key.length + 1) || 'anexo';
+        if (fs.existsSync(metaPath)) {
+            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as {
+                mimeType?: string;
+                fileName?: string;
+            };
+            mimeType = meta.mimeType || mimeType;
+            fileName = meta.fileName || fileName;
+        }
+        campaignMediaById.set(key, { mimeType, fileName, _diskPath: diskPath });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function persistCampaignMediaPayload(storageKey: string, payload?: CampaignMediaPayload): void {
+    if (!storageKey || !payload) return;
+    if (payload.base64) {
+        const diskPath = saveCampaignMediaToDisk(storageKey, payload);
+        if (diskPath) {
+            campaignMediaById.set(storageKey, {
+                mimeType: payload.mimeType,
+                fileName: payload.fileName,
+                caption: payload.caption,
+                sendMediaAsDocument: payload.sendMediaAsDocument,
+                _diskPath: diskPath,
+            });
+        } else {
+            campaignMediaById.set(storageKey, payload);
+        }
+    } else if (payload.url) {
+        campaignMediaById.set(storageKey, payload);
+    }
+}
+
+export type ReplyTriggerPhotoInput = {
+    stepIndex: number;
+    optionIndex: number;
+    dataBase64: string;
+    mimeType: string;
+    fileName: string;
+    previousMediaStorageKey?: string;
+};
+
+/** Grava a foto do gatilho e carimba `mediaStorageKey` na opção do fluxo. */
+export function attachReplyTriggerPhotos(
+    campaignId: string,
+    items: ReplyTriggerPhotoInput[],
+    replyFlow: { steps?: Array<{ options?: Array<Record<string, unknown>> }> } | null | undefined
+): void {
+    const cid = String(campaignId || '').trim();
+    if (!cid || !replyFlow?.steps || !Array.isArray(items)) return;
+    for (const raw of items.slice(0, 40)) {
+        const stepIndex = Number(raw?.stepIndex);
+        const optionIndex = Number(raw?.optionIndex);
+        if (!Number.isInteger(stepIndex) || stepIndex < 0 || !Number.isInteger(optionIndex) || optionIndex < 0) {
+            continue;
+        }
+        const opt = replyFlow.steps[stepIndex]?.options?.[optionIndex];
+        if (!opt) continue;
+        const dataBase64 = String(raw.dataBase64 || '').trim();
+        const mimeType = String(raw.mimeType || '').trim().toLowerCase();
+        if (!dataBase64 || dataBase64.length > 16_000_000 || !mimeType.startsWith('image/')) continue;
+        const key = `${cid}:reply-opt:${crypto.randomBytes(6).toString('hex')}`;
+        persistCampaignMediaPayload(key, {
+            base64: dataBase64,
+            mimeType,
+            fileName: String(raw.fileName || 'gatilho.jpg').slice(0, 180),
+        });
+        const prev = String(raw.previousMediaStorageKey || opt.mediaStorageKey || '').trim();
+        if (prev && prev !== key && isReplyOptionMediaKey(cid, prev)) {
+            releaseCampaignMediaFromMemory(prev);
+            purgeCampaignMediaFilesOnDisk(prev);
+        }
+        opt.mediaStorageKey = key;
+    }
+}
+
+export function removeReplyTriggerPhotos(campaignId: string, keys: unknown): void {
+    const cid = String(campaignId || '').trim();
+    if (!cid || !Array.isArray(keys)) return;
+    for (const raw of keys.slice(0, 40)) {
+        const key = String(raw || '').trim();
+        if (!isReplyOptionMediaKey(cid, key)) continue;
+        releaseCampaignMediaFromMemory(key);
+        purgeCampaignMediaFilesOnDisk(key);
+    }
+}
+
 function resolveStoredCampaignMedia(storageKey: string): (CampaignMediaPayload & { sendMediaAsDocument?: boolean }) | null {
     if (!storageKey) return null;
     const inMem = campaignMediaById.get(storageKey);
@@ -4444,10 +4547,25 @@ export function getCampaignMediaAttachmentsForRetry(campaignId: string): {
 export function purgeCampaignMediaFiles(campaignId: string): void {
     const cid = String(campaignId || '').trim();
     if (!cid) return;
-    releaseCampaignMediaFromMemory(cid);
-    releaseCampaignMediaFromMemory(campaignMediaStorageKey(cid, 1));
+    for (const key of [...campaignMediaById.keys()]) {
+        if (key === cid || key.startsWith(`${cid}:`)) releaseCampaignMediaFromMemory(key);
+    }
     purgeCampaignMediaFilesOnDisk(cid);
     purgeCampaignMediaFilesOnDisk(campaignMediaStorageKey(cid, 1));
+    try {
+        ensureCampaignMediaDir();
+        for (const fileName of fs.readdirSync(CAMPAIGN_MEDIA_TEMP_DIR)) {
+            if (fileName.startsWith(`${cid}:`)) {
+                try {
+                    fs.unlinkSync(path.join(CAMPAIGN_MEDIA_TEMP_DIR, fileName));
+                } catch {
+                    /* ignora */
+                }
+            }
+        }
+    } catch {
+        /* ignora */
+    }
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -5616,7 +5734,7 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
             void saveReplyFlowSessionToRedis(connectionId, phoneDigits, sess);
 
             const mediaKey = pending.mediaStorageKey || '';
-            const sendAsMedia = Boolean(mediaKey && campaignMediaById.has(mediaKey));
+            const sendAsMedia = Boolean(mediaKey && campaignMediaReady(mediaKey));
             const ownerFromState = campaignsById.get(sess.campaignId)?.ownerUid ?? sess.ownerUid;
 
             void enqueueCampaignItem(
@@ -6095,7 +6213,7 @@ function ensureReplyFlowEngine() {
             const ownerFromState = item.campaignId ? campaignsById.get(item.campaignId)?.ownerUid : undefined;
             const ownerUid = item.ownerUid || ownerFromState || resolveOwnerUid(item.connectionId) || undefined;
             const mediaKey = item.mediaStorageKey || '';
-            const sendAsMedia = Boolean(mediaKey && campaignMediaById.has(mediaKey));
+            const sendAsMedia = Boolean(mediaKey && campaignMediaReady(mediaKey));
             void enqueueCampaignItem({
                 connectionId: item.connectionId,
                 to: item.to,
@@ -6214,6 +6332,15 @@ function ensureReplyFlowEngine() {
         },
     });
     ensureNurtureEnqueue();
+}
+
+export function refreshReplyFlowDefFromDoc(campaignId: string, doc: Record<string, unknown> | null | undefined): void {
+    const cid = String(campaignId || '').trim();
+    if (!cid || !doc) return;
+    ensureReplyFlowEngine();
+    const parsed = parseReplyFlowDefFromCampaignDoc(doc);
+    if (!parsed) return;
+    replyFlowEngine.registerDef(cid, parsed.steps, parsed.meta);
 }
 
 /** Campanha com fluxo por resposta ativo para este contato (se houver). */

@@ -95,7 +95,8 @@ function replyFlowStepToWizardStage(step: CampaignReplyFlowStep): CampaignWizard
           reply: opt.reply,
           marketingEffect: opt.marketingEffect ?? 'none',
           priority: opt.priority,
-          matchMode: opt.matchMode
+          matchMode: opt.matchMode,
+          ...(opt.mediaStorageKey ? { mediaStorageKey: opt.mediaStorageKey } : {})
         }))
       : []
   };

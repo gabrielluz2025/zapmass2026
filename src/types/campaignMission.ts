@@ -17,6 +17,7 @@ export interface CampaignWizardStageDraft {
     marketingEffect?: 'none' | 'opt_in' | 'opt_out';
     priority?: number;
     matchMode?: 'word' | 'phrase' | 'contains' | 'numeric_exact';
+    mediaStorageKey?: string;
   }>;
   matchMode?: 'word' | 'phrase' | 'contains' | 'numeric_exact';
   timeoutHours?: number;

@@ -85,6 +85,7 @@ type MessageStageOptionDraft = {
   marketingEffect: 'none' | 'opt_in' | 'opt_out';
   priority?: number;
   matchMode?: 'word' | 'phrase' | 'contains' | 'numeric_exact';
+  mediaStorageKey?: string;
 };
 
 type MessageStageDraft = {
@@ -202,6 +203,15 @@ interface NewCampaignWizardProps {
       fileName: string;
       sendMediaAsDocument?: boolean;
     };
+    optionMediaAttachments?: Array<{
+      stepIndex: number;
+      optionIndex: number;
+      dataBase64: string;
+      mimeType: string;
+      fileName: string;
+      previousMediaStorageKey?: string;
+    }>;
+    optionMediaRemovals?: string[];
     dailySchedule?: CampaignDailySchedule;
     prospecting?: CampaignProspecting;
   }) => Promise<void>;
@@ -346,6 +356,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     sendAsDocument: boolean;
   } | null>(null);
   const followUpAttachmentInputRef = useRef<HTMLInputElement>(null);
+  const [optionImageById, setOptionImageById] = useState<
+    Record<string, { file: File; previewUrl: string }>
+  >({});
+  const removedOptionMediaKeysRef = useRef<string[]>([]);
 
   useEffect(() => {
     return () => {
@@ -417,6 +431,47 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const removeFollowUpAttachment = () => {
     if (followUpAttachment?.previewUrl) URL.revokeObjectURL(followUpAttachment.previewUrl);
     setFollowUpAttachment(null);
+  };
+
+  const onPickOptionImage = (optionId: string, file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Escolha uma foto (JPG, PNG ou WEBP).');
+      return;
+    }
+    if (file.size > CAMPAIGN_ATTACHMENT_LIMIT_BYTES) {
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      toast.error(`Foto de ${sizeMb} MB excede o limite de ${CAMPAIGN_ATTACHMENT_LIMIT_MB} MB.`);
+      return;
+    }
+    setOptionImageById((prev) => {
+      const current = prev[optionId];
+      if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+      return {
+        ...prev,
+        [optionId]: { file, previewUrl: URL.createObjectURL(file) }
+      };
+    });
+  };
+
+  const onRemoveOptionImage = (optionId: string) => {
+    setMessageStages((prev) =>
+      prev.map((stage) => ({
+        ...stage,
+        options: stage.options?.map((opt) => {
+          if (opt.id !== optionId) return opt;
+          if (opt.mediaStorageKey) removedOptionMediaKeysRef.current.push(opt.mediaStorageKey);
+          return { ...opt, mediaStorageKey: undefined };
+        })
+      }))
+    );
+    setOptionImageById((prev) => {
+      const current = prev[optionId];
+      if (!current) return prev;
+      if (current.previewUrl) URL.revokeObjectURL(current.previewUrl);
+      const next = { ...prev };
+      delete next[optionId];
+      return next;
+    });
   };
 
   /** Le o arquivo do anexo como base64 para enviar pelo socket. */
@@ -992,13 +1047,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       invalidReplyBody: s.invalidReplyBody,
       marketingEffect: s.marketingEffect ?? 'none',
       optionsMode: s.optionsMode,
-      options: s.options?.map((o) => ({
+        options: s.options?.map((o) => ({
         id: o.id,
         tokensText: o.tokensText,
         reply: o.reply,
         marketingEffect: o.marketingEffect ?? 'none',
         priority: o.priority,
-        matchMode: o.matchMode
+        matchMode: o.matchMode,
+        ...(o.mediaStorageKey ? { mediaStorageKey: o.mediaStorageKey } : {})
       })),
       matchMode: s.matchMode,
       timeoutHours: s.timeoutHours,
@@ -1518,7 +1574,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
      * o base64 no Firestore (limite de doc ~1 MB) ou subir para Storage.
      * Vamos avisar o usuario para escolher: ou tira o anexo ou tira o agendamento.
      */
-    if ((campaignAttachment || followUpAttachment) && launchMode === 'schedule') {
+    const hasOptionImage = Object.keys(optionImageById).length > 0;
+    if ((campaignAttachment || followUpAttachment || hasOptionImage) && launchMode === 'schedule') {
       toast.error(
         'Anexos so funcionam em disparo imediato. Remova o anexo ou desative o agendamento.',
         { duration: 7000 }
@@ -1554,9 +1611,39 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     let followUpMediaPayload:
       | { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean }
       | undefined;
+    let optionMediaAttachments:
+      | Array<{
+          stepIndex: number;
+          optionIndex: number;
+          dataBase64: string;
+          mimeType: string;
+          fileName: string;
+          previousMediaStorageKey?: string;
+        }>
+      | undefined;
     try {
       mediaPayload = await buildMediaPayload(campaignAttachment);
       followUpMediaPayload = await buildMediaPayload(followUpAttachment);
+      const optionPayloads: NonNullable<typeof optionMediaAttachments> = [];
+      for (let stepIndex = 0; stepIndex < messageStages.length; stepIndex++) {
+        const stageOptions = messageStages[stepIndex]?.options || [];
+        for (let optionIndex = 0; optionIndex < stageOptions.length; optionIndex++) {
+          const opt = stageOptions[optionIndex];
+          const picked = opt ? optionImageById[opt.id] : undefined;
+          if (!opt || !picked) continue;
+          const prepared = await buildMediaPayload({ file: picked.file, sendAsDocument: false });
+          if (!prepared) continue;
+          optionPayloads.push({
+            stepIndex,
+            optionIndex,
+            dataBase64: prepared.dataBase64,
+            mimeType: prepared.mimeType,
+            fileName: prepared.fileName,
+            ...(opt.mediaStorageKey ? { previousMediaStorageKey: opt.mediaStorageKey } : {})
+          });
+        }
+      }
+      if (optionPayloads.length > 0) optionMediaAttachments = optionPayloads;
     } catch (err) {
         const m = err instanceof Error ? err.message : 'Falha ao ler anexo.';
         toast.error(m);
@@ -1624,6 +1711,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     marketingEffect: opt.marketingEffect ?? 'none',
                     priority: opt.priority ?? 0,
                     matchMode: opt.matchMode,
+                    ...(opt.mediaStorageKey && !optionImageById[opt.id]
+                      ? { mediaStorageKey: opt.mediaStorageKey }
+                      : {}),
                   }))
                 }
               : {})
@@ -1664,6 +1754,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         ...(poolDispatch?.poolId ? { poolId: poolDispatch.poolId } : {}),
         ...(mediaPayload ? { mediaAttachment: mediaPayload } : {}),
         ...(followUpMediaPayload ? { followUpMediaAttachment: followUpMediaPayload } : {}),
+        ...(optionMediaAttachments ? { optionMediaAttachments } : {}),
+        ...(removedOptionMediaKeysRef.current.length > 0
+          ? { optionMediaRemovals: [...removedOptionMediaKeysRef.current] }
+          : {}),
         ...(dailyScheduleEnabled && dailyScheduleDays.length > 0 ? {
           dailySchedule: {
             enabled: true,
@@ -2550,6 +2644,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       }}
                       politeGreetingEnabled={replyFlowPoliteGreetingEnabled}
                       onPoliteGreetingChange={setReplyFlowPoliteGreetingEnabled}
+                      optionImagePreviewUrl={(optionId) => optionImageById[optionId]?.previewUrl || null}
+                      onPickOptionImage={onPickOptionImage}
+                      onRemoveOptionImage={onRemoveOptionImage}
                           />
                         )}
                       </div>

@@ -11,7 +11,7 @@ import {
   formatPoliteGreetingInvalidReply,
   getBrazilHour,
 } from '../shared/replyFlowMatch.js';
-import { applyMessageVars, findConfiguredOptOutReply, ReplyFlowEngine } from './replyFlowEngine.js';
+import { applyMessageVars, findConfiguredOptOutReply, ReplyFlowEngine, sanitizeReplyFlowSteps } from './replyFlowEngine.js';
 
 const matched = (cleanTok: string, body: string, mode?: Parameters<typeof matchReplyTriggerToken>[2]) =>
   matchReplyTriggerToken(cleanTok, body, mode).matched;
@@ -677,6 +677,47 @@ describe('Detecção e retribuição de saudações educadas', () => {
 
       expect(simDisabled.kind).toBe('invalid');
       expect(simDisabled.message).toBe('Não entendi. Responda com uma das opções válidas.');
+    });
+
+    it('envia a foto do gatilho junto com o texto da resposta', async () => {
+      const enqueued: Array<{ message: string; mediaStorageKey?: string }> = [];
+      const engine = new ReplyFlowEngine({
+        enqueue: (item) => {
+          enqueued.push({ message: item.message, mediaStorageKey: item.mediaStorageKey });
+        },
+      });
+      const steps = sanitizeReplyFlowSteps([
+        {
+          body: 'Escolha 1 ou 2',
+          acceptAnyReply: false,
+          validTokens: [],
+          invalidReplyBody: 'Não entendi.',
+          options: [
+            {
+              tokens: ['1'],
+              reply: 'Segue a foto {nome}',
+              mediaStorageKey: 'camp1:reply-opt:abc',
+            },
+          ],
+        },
+      ]);
+      expect(steps[0]?.options?.[0]?.mediaStorageKey).toBe('camp1:reply-opt:abc');
+      engine.registerDef('camp1', steps);
+      engine.openSession({
+        connectionId: 'conn1',
+        phoneDigits: '5548999999999',
+        campaignId: 'camp1',
+        vars: { nome: 'Ana' },
+        toRaw: '5548999999999',
+      });
+      await engine.handleIncoming({
+        connectionId: 'conn1',
+        phoneDigits: '5548999999999',
+        bodyText: '1',
+      });
+      expect(enqueued).toEqual([
+        { message: 'Segue a foto Ana', mediaStorageKey: 'camp1:reply-opt:abc' },
+      ]);
     });
   });
 });
