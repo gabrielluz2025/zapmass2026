@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.226',
+    date: '29/09/2026',
+    highlights: [
+      { type: 'fix', text: 'O disparo não estoura mais na trava de 30s do worker, e a fila só leva o lote que o canal pode enviar agora' },
+    ],
+  },
+  {
     version: '2.3.225',
     date: '29/09/2026',
     highlights: [

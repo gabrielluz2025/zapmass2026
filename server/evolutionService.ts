@@ -146,9 +146,11 @@ import { validateCampaignContentHash, validateCampaignMediaHash, clearCampaignCo
 import { mutateMediaIfRepeated } from './campaignMediaMutator.js';
 import {
     checkAndApplyMicroRest,
-    computeHumanizeGapMs,
+    computeHumanizePresenceDelayMs,
+    getGaussianDelayMs,
     getMicroRestDelayMs,
 } from './campaignHumanizePipeline.js';
+import { CAMPAIGN_CHANNEL_WINDOW, splitCampaignDispatchWindow } from './campaignDispatchWindow.js';
 import {
     cancelCampaignJobsForPhone,
     handleInboundOptOut,
@@ -3203,6 +3205,8 @@ interface MessageQueueItem {
     _tierDelayApplied?: boolean;
     /** Pausa humana já virou atraso do job — não dormir de novo dentro do worker. */
     _humanizeDelayApplied?: boolean;
+    /** Micro-pausa já contada neste envio — o retorno do job não soma de novo. */
+    _microRestApplied?: boolean;
     /** Proteção reconnect_storm: delay extra já aplicado (evita loop infinito de +90s). */
     _stormSlowApplied?: boolean;
     /** Penalidades por content hash lock repetido. */
@@ -3421,14 +3425,14 @@ export async function cancelQueuedCampaignSendsForPhone(
     tenantId: string,
     phoneDigits: string
 ): Promise<number> {
-    const queue = getCampaignQueue();
-    if (!queue) return 0;
-    return cancelCampaignJobsForPhone(
-        queue,
-        tenantId,
-        phoneDigits,
-        (campaignId) => campaignsById.get(campaignId)?.ownerUid
-    );
+    const ownerOf = (campaignId: string) => campaignsById.get(campaignId)?.ownerUid;
+    const queues = [getCampaignQueue(), getReplyQueue()].filter((q): q is Queue<MessageQueueItem> => Boolean(q));
+    if (queues.length === 0) return 0;
+    let removed = 0;
+    for (const queue of queues) {
+        removed += await cancelCampaignJobsForPhone(queue, tenantId, phoneDigits, ownerOf);
+    }
+    return removed;
 }
 
 function getCampaignQueue(): Queue<MessageQueueItem> | null {
@@ -3446,8 +3450,26 @@ function getCampaignQueue(): Queue<MessageQueueItem> | null {
     }
     return campaignQueue;
 }
+
+function getReplyQueue(): Queue<MessageQueueItem> | null {
+    const conn = getRedisConnection();
+    if (!conn) return null;
+    if (!replyQueue) {
+        replyQueue = new Queue<MessageQueueItem>('campaign-replies', {
+            connection: conn,
+            defaultJobOptions: {
+                removeOnComplete: bullmqRemoveOnComplete(),
+                removeOnFail: bullmqRemoveOnFail(),
+            },
+        });
+    }
+    return replyQueue;
+}
+
 const connectionQueueSizes = new Map<string, number>();
 let campaignWorker: Worker<MessageQueueItem> | null = null;
+let replyQueue: Queue<MessageQueueItem> | null = null;
+let replyWorker: Worker<MessageQueueItem> | null = null;
 let replyFlowRecoveryScheduled = false;
 
 function scheduleReplyFlowRecovery(): void {
@@ -4241,6 +4263,7 @@ export async function updateConnectionSettings(
                     error: err instanceof Error ? err.message : String(err),
                 })
             );
+            void drainHeldForConnection(id).catch(() => undefined);
         }
     }
 }
@@ -5498,6 +5521,9 @@ async function closeCampaignJobWithoutRecount(
     item._progressAccounted = true;
     await job.updateData(item).catch(() => {});
     if (!item.campaignId) return;
+    if (!item.replyFlowResponse && !item.nurtureFollowUp) {
+        void promoteHeldCampaignJob(item.campaignId, item.connectionId).catch(() => undefined);
+    }
     const pending = Math.max(0, (campaignPendingJobs.get(item.campaignId) || 0) - 1);
     if (pending <= 0) {
         campaignPendingJobs.delete(item.campaignId);
@@ -5516,6 +5542,9 @@ async function skipCampaignJobOnce(
     item._progressAccounted = true;
     await job.updateData(item).catch(() => {});
     if (!item.campaignId) return;
+    if (!item.replyFlowResponse && !item.nurtureFollowUp) {
+        void promoteHeldCampaignJob(item.campaignId, item.connectionId).catch(() => undefined);
+    }
     bumpCampaignSkip(item.campaignId);
     const pending = Math.max(0, (campaignPendingJobs.get(item.campaignId) || 0) - 1);
     if (pending <= 0) {
@@ -5537,6 +5566,9 @@ async function accountCampaignJobOnce(
     item._progressAccounted = true;
     await job.updateData(item).catch(() => {});
     finishCampaignJob(item.campaignId, success, countTowardAutoPause);
+    if (!item.replyFlowResponse && !item.nurtureFollowUp) {
+        void promoteHeldCampaignJob(item.campaignId, item.connectionId).catch(() => undefined);
+    }
 }
 
 /** Campanha ativa pertence ao tenant; reconcilia ownerUid de membro da equipa. */
@@ -7615,8 +7647,8 @@ export async function sendTextToPhoneDirect(
 
 const ENQUEUE_CAMPAIGN_TIMEOUT_MS = 45_000;
 
-async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
-    const queue = getCampaignQueue();
+async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: { countPending?: boolean }) {
+    const queue = item.replyFlowResponse || item.nurtureFollowUp ? getReplyQueue() : getCampaignQueue();
     if (!queue) {
         // Sem Redis o job sumiria silenciosamente e a campanha nunca enviaria.
         // Lanca para o caller decidir (startCampaign vai falhar e avisar a UI).
@@ -7642,7 +7674,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
     }
 
     bumpQueueSize(item.connectionId, 1);
-    if (item.campaignId) {
+    if (opts?.countPending !== false && item.campaignId) {
         campaignPendingJobs.set(item.campaignId, (campaignPendingJobs.get(item.campaignId) || 0) + 1);
     }
     // jobId estável por campanha+contato+etapa: redispatch/deploy não duplica o mesmo número.
@@ -7778,6 +7810,104 @@ async function enqueueCampaignItemsBulk(
                 continue;
             }
             throw err;
+        }
+    }
+}
+
+function heldListKey(campaignId: string, connectionId: string): string {
+    return `zapmass:camp-hold:${campaignId}:${connectionId}`;
+}
+
+function heldIndexKey(connectionId: string): string {
+    return `zapmass:camp-hold-ids:${connectionId}`;
+}
+
+async function parkHeldCampaignSends(campaignId: string, items: MessageQueueItem[]): Promise<void> {
+    if (items.length === 0) return;
+    const redis = getSharedRedis();
+    if (!redis) {
+        await enqueueCampaignItemsBulk(items.map((item) => ({ item, delayMs: 0 })));
+        return;
+    }
+    const byConn = new Map<string, MessageQueueItem[]>();
+    for (const item of items) {
+        const id = String(item.connectionId || '').trim();
+        if (!id) continue;
+        const list = byConn.get(id) || [];
+        list.push(item);
+        byConn.set(id, list);
+    }
+    let parked = 0;
+    for (const [connectionId, list] of byConn) {
+        const key = heldListKey(campaignId, connectionId);
+        for (let i = 0; i < list.length; i += 40) {
+            const chunk = list.slice(i, i + 40).map((item) => JSON.stringify(item));
+            if (chunk.length > 0) await redis.rpush(key, ...chunk);
+        }
+        await redis.expire(key, 14 * 24 * 3600);
+        await redis.sadd(heldIndexKey(connectionId), campaignId);
+        await redis.expire(heldIndexKey(connectionId), 14 * 24 * 3600);
+        parked += list.length;
+    }
+    if (parked > 0) {
+        campaignPendingJobs.set(campaignId, (campaignPendingJobs.get(campaignId) || 0) + parked);
+        log('info', '[dispatch] Contatos guardados fora da fila quente', { campaignId, parked });
+    }
+}
+
+async function promoteHeldCampaignJob(campaignId?: string, connectionId?: string): Promise<boolean> {
+    const cid = String(campaignId || '').trim();
+    const connId = String(connectionId || '').trim();
+    if (!cid || !connId || pausedCampaigns.has(cid)) return false;
+    const conn = connections.get(connId);
+    if (conn) {
+        checkAndResetDailyLimits(conn);
+        const sent = getEffectiveMessagesSentToday(connId, connectionDailyQuotaDeps());
+        if (!channelHasDailySendRoom({
+            dailyLimit: conn.dailyLimit,
+            messagesSentToday: sent,
+            limitExceededApproved: conn.limitExceededApproved,
+        })) {
+            return false;
+        }
+    }
+    const redis = getSharedRedis();
+    if (!redis) return false;
+    const raw = await redis.lpop(heldListKey(cid, connId));
+    if (!raw) return false;
+    let item: MessageQueueItem;
+    try {
+        item = JSON.parse(raw) as MessageQueueItem;
+    } catch {
+        return false;
+    }
+    const settings = getTenantDispatchSettings(item.ownerUid);
+    const delay = getGaussianDelayMs(settings.minDelayMs, settings.maxDelayMs, 1);
+    await enqueueCampaignItem(item, delay, { countPending: false });
+    return true;
+}
+
+async function drainHeldForConnection(connectionId: string): Promise<void> {
+    const redis = getSharedRedis();
+    const connId = String(connectionId || '').trim();
+    if (!redis || !connId) return;
+    const campaignIds = await redis.smembers(heldIndexKey(connId));
+    for (const campaignId of campaignIds) {
+        if (pausedCampaigns.has(campaignId)) continue;
+        for (let i = 0; i < CAMPAIGN_CHANNEL_WINDOW; i++) {
+            const promoted = await promoteHeldCampaignJob(campaignId, connId);
+            if (!promoted) break;
+        }
+    }
+}
+
+async function drainHeldForCampaign(campaignId: string): Promise<void> {
+    const state = campaignsById.get(campaignId);
+    const ids = state?.connectionIds || [];
+    for (const connectionId of ids) {
+        for (let i = 0; i < CAMPAIGN_CHANNEL_WINDOW; i++) {
+            const promoted = await promoteHeldCampaignJob(campaignId, connectionId);
+            if (!promoted) break;
         }
     }
 }
@@ -9179,12 +9309,14 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     const humanizeSkip = Boolean(item.replyFlowResponse || item.nurtureFollowUp);
 
-    if (!humanizeSkip) {
+    if (!humanizeSkip && !item._microRestApplied) {
         const redis = getSharedRedis();
         if (redis) {
             const needsMicroRest = await checkAndApplyMicroRest(redis, item.connectionId);
             if (needsMicroRest) {
                 const restMs = getMicroRestDelayMs();
+                item._microRestApplied = true;
+                await job.updateData(item).catch(() => {});
                 emitCampaignLog(
                     'INFO',
                     `Micro-pausa anti-ban no chip ${item.connectionId} (~${Math.round(restMs / 60_000)} min).`,
@@ -9193,52 +9325,6 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 );
                 await job.moveToDelayed(Date.now() + restMs, token);
                 throw new DelayedError();
-            }
-        }
-
-        const tierProfile = resolveChipTier(getConnectionConnectedSince(item.connectionId));
-        const ownerUidForHumanize = campaignState?.ownerUid || item.ownerUid;
-        const stormForHumanize = ownerUidForHumanize ? getReconnectStormProgress(ownerUidForHumanize) : null;
-        const humanizeBan = getConnectionBanInfo(item.connectionId);
-        const humanizeConn = connections.get(item.connectionId);
-        const unifiedForHumanize = await getUnifiedHealthForChip(item.connectionId, {
-            connectedSinceMs: getConnectionConnectedSince(item.connectionId) ?? humanizeConn?.lastOpenAt ?? null,
-            proxyStatus: getProxyHealthSnapshot(item.connectionId)?.status ?? null,
-            hasProxy: Boolean(humanizeConn?.proxy?.host),
-            inQuarantine: humanizeBan.inQuarantine,
-            banCount: humanizeBan.banCount,
-            reconnectStormCount: stormForHumanize?.count,
-            reconnectStormThreshold: stormForHumanize?.threshold,
-        });
-        if (unifiedForHumanize.circuitState === 'THROTTLED') {
-            void maybeNotifyCircuitBreakerThrottled(
-                item.connectionId,
-                ownerUidForHumanize
-            );
-        }
-        const contentLen = hasMediaPayload
-            ? String(mediaToSend?.caption || item.message || '').trim().length
-            : textPayload.length;
-        const humanizeCtx = {
-            chipId: item.connectionId,
-            phone: sendTo,
-            messageType: (hasMediaPayload ? 'media' : 'text') as 'text' | 'media',
-            contentLength: contentLen,
-            minDelayMs: dispatchSettings.minDelayMs,
-            maxDelayMs: dispatchSettings.maxDelayMs,
-            tierMultiplier: unifiedForHumanize.delayMultiplier,
-        };
-
-        if (!item._humanizeDelayApplied) {
-            const gap = computeHumanizeGapMs(humanizeCtx);
-            if (gap.waitMs > 0) {
-                item._humanizeDelayApplied = true;
-                const saved = await job.updateData(item).then(() => true).catch(() => false);
-                if (saved) {
-                    void sendPresenceComposing(item.connectionId, sendTo, gap.presenceMs, false).catch(() => undefined);
-                    await job.moveToDelayed(Date.now() + gap.waitMs, token);
-                    throw new DelayedError();
-                }
             }
         }
     }
@@ -9265,6 +9351,14 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 );
             }
         }
+    }
+
+    if (!humanizeSkip) {
+        const presenceLen = hasMediaPayload
+            ? String(mediaToSend?.caption || item.message || '').trim().length
+            : textPayload.length;
+        const presenceMs = computeHumanizePresenceDelayMs(hasMediaPayload ? 'media' : 'text', presenceLen);
+        void sendPresenceComposing(item.connectionId, sendTo, presenceMs, false).catch(() => undefined);
     }
 
     let sendResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
@@ -9754,6 +9848,31 @@ async function failCampaignSend(
     throw new Error(msg);
 }
 
+function ensureReplyWorker(lockDuration: number): void {
+    const conn = getRedisConnection();
+    if (!conn || replyWorker) return;
+    getReplyQueue();
+    replyWorker = new Worker<MessageQueueItem>('campaign-replies', processCampaignJob, {
+        connection: conn.duplicate(),
+        concurrency: Math.max(1, Math.min(8, parseInt(process.env.REPLY_WORKER_CONCURRENCY || '4', 10))),
+        lockDuration,
+        lockRenewTime: Math.round(lockDuration / 4),
+        stalledInterval: 60_000,
+        maxStalledCount: 3,
+    });
+    replyWorker.on('failed', (job, err) => {
+        log('error', 'Job de resposta falhou', {
+            to: job?.data?.to,
+            campaignId: job?.data?.campaignId,
+            error: err.message,
+        });
+        if (job) {
+            const isDead = job.attemptsMade >= (job.opts.attempts || 1);
+            void finalizeCampaignJob(job.id ?? '', { status: isDead ? 'dead' : 'failed', error: err.message }).catch(() => undefined);
+        }
+    });
+}
+
 function ensureCampaignWorker() {
     const conn = getRedisConnection();
     if (!conn || campaignWorker) return;
@@ -9763,11 +9882,19 @@ function ensureCampaignWorker() {
     // a vaga só fica ocupada no envio de verdade.
     // O limiter global limita a 20 jobs/segundo (burst ≤ 40) para evitar rate-limit.
     const concurrency = Math.max(1, Math.min(50, parseInt(process.env.CAMPAIGN_WORKER_CONCURRENCY || '10', 10)));
+    // lockDuration padrão do BullMQ é 30s. A espera humana antiga dormia 15–45s
+    // dentro do job, o lock expirava e o disparo estourava sem enviar.
+    const lockDuration = Math.max(60_000, Number(process.env.CAMPAIGN_WORKER_LOCK_MS ?? 120_000) || 120_000);
     campaignWorker = new Worker<MessageQueueItem>('campaign-messages', processCampaignJob, {
         connection: conn.duplicate(),
         concurrency,
         limiter: { max: 20, duration: 1000 },
+        lockDuration,
+        lockRenewTime: Math.round(lockDuration / 4),
+        stalledInterval: 60_000,
+        maxStalledCount: 3,
     });
+    ensureReplyWorker(lockDuration);
 
     attachWorkerStressGuard(campaignWorker, getCampaignBullmqRecovery());
 
@@ -10491,7 +10618,10 @@ export async function redispatchCampaign(
 
     const finishRedispatchEnqueue = async () => {
         try {
-            await enqueueCampaignItemsBulk(pendingEnqueue);
+            const paceMs = Math.round((dispatchSettings.minDelayMs + dispatchSettings.maxDelayMs) / 2);
+            const windowed = splitCampaignDispatchWindow(pendingEnqueue, CAMPAIGN_CHANNEL_WINDOW, paceMs);
+            await enqueueCampaignItemsBulk(windowed.hot);
+            await parkHeldCampaignSends(campaignId, windowed.held.map((entry) => entry.item));
             emitCampaignLog(
                 'INFO',
                 `Reenvio na mesma campanha: ${pendingEnqueue.length} contato(s) (${mode})`,
@@ -10986,7 +11116,10 @@ export async function startCampaign(
             }
         }
 
-        await enqueueCampaignItemsBulk(pendingEnqueue);
+        const paceMs = Math.round((dispatchSettings.minDelayMs + dispatchSettings.maxDelayMs) / 2);
+        const windowed = splitCampaignDispatchWindow(pendingEnqueue, CAMPAIGN_CHANNEL_WINDOW, paceMs);
+        await enqueueCampaignItemsBulk(windowed.hot);
+        await parkHeldCampaignSends(cid, windowed.held.map((entry) => entry.item));
 
         const channelsWithRoom = activeConnectionIds.filter((id) => {
             const chip = connections.get(id);
@@ -13395,6 +13528,7 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
 
     pausedCampaigns.delete(campaignId);
     void tuneCampaignJobFairness(campaignId).catch(() => undefined);
+    void drainHeldForCampaign(campaignId).catch(() => undefined);
     const ou = resolveCampaignOwnerUid(campaignId, ownerUid) || ownerUid;
     void requeuePhantomDeadCampaignJobs(campaignId).catch(() => undefined);
     const state = campaignsById.get(campaignId);

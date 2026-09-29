@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.226] - 2026-09-29
+
+### Corrigido
+- **Disparo estourava sem enviar**: o worker segurava o job por mais de 30 segundos (trava padrão da fila) enquanto esperava o intervalo humano. A trava passou para 2 minutos e a espera deixou de acontecer duas vezes.
+- **Fila quente só com o lote do canal**: entram 2 envios por canal. O restante espera e entra quando o anterior termina, ou quando a meta do canal aumenta. A resposta do gatilho vai numa fila separada.
+
 ## [2.3.225] - 2026-09-29
 
 ### Corrigido
