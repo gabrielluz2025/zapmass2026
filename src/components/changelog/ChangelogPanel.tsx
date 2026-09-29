@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.225',
+    date: '29/09/2026',
+    highlights: [
+      { type: 'perf', text: 'A pausa entre mensagens não prende mais o worker: o disparo de um canal não espera o temporizador do outro' },
+    ],
+  },
+  {
     version: '2.3.224',
     date: '29/09/2026',
     highlights: [

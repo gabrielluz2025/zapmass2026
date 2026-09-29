@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  computeHumanizeGapMs,
   computeHumanizePresenceDelayMs,
   getGaussianDelayMs,
   getMicroRestDelayMs,
@@ -26,6 +27,21 @@ describe('campaignHumanizePipeline', () => {
     expect(computeHumanizePresenceDelayMs('text', 500)).toBe(12000);
     expect(computeHumanizePresenceDelayMs('media', 0)).toBe(2000);
     expect(computeHumanizePresenceDelayMs('media', 500)).toBe(8000);
+  });
+
+  it('computeHumanizeGapMs soma composing e gaussiana sem dormir', () => {
+    const gap = computeHumanizeGapMs({
+      chipId: 'c1',
+      phone: '5511999999999',
+      messageType: 'text',
+      contentLength: 0,
+      minDelayMs: 15000,
+      maxDelayMs: 45000,
+      tierMultiplier: 1,
+    });
+    expect(gap.presenceMs).toBe(1500);
+    expect(gap.waitMs).toBeGreaterThanOrEqual(1500 + 15000);
+    expect(gap.waitMs).toBeLessThanOrEqual(1500 + 45000);
   });
 
   it('getMicroRestDelayMs fica entre 10 e 20 minutos', () => {

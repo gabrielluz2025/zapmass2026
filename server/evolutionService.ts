@@ -145,9 +145,8 @@ import type { InboundProcessParams } from './inboundMissedReplay.js';
 import { validateCampaignContentHash, validateCampaignMediaHash, clearCampaignContentHashHits } from './campaignContentHashLock.js';
 import { mutateMediaIfRepeated } from './campaignMediaMutator.js';
 import {
-    applyGaussianSendDelay,
     checkAndApplyMicroRest,
-    executePresenceSimulation,
+    computeHumanizeGapMs,
     getMicroRestDelayMs,
 } from './campaignHumanizePipeline.js';
 import {
@@ -3202,6 +3201,8 @@ interface MessageQueueItem {
     _offlineDelayCount?: number;
     /** Trust score: tier delay já aplicado neste job. */
     _tierDelayApplied?: boolean;
+    /** Pausa humana já virou atraso do job — não dormir de novo dentro do worker. */
+    _humanizeDelayApplied?: boolean;
     /** Proteção reconnect_storm: delay extra já aplicado (evita loop infinito de +90s). */
     _stormSlowApplied?: boolean;
     /** Penalidades por content hash lock repetido. */
@@ -7430,7 +7431,8 @@ async function attemptEvolutionSendMedia(
 async function sendPresenceComposing(
     connectionId: string,
     toNumber: string,
-    delayMs: number
+    delayMs: number,
+    waitLocally = false
 ): Promise<void> {
     const ms = Math.floor(Math.max(0, delayMs));
     if (ms <= 0) return;
@@ -7443,7 +7445,7 @@ async function sendPresenceComposing(
             delay: ms,
             options: { delay: ms, presence: 'composing', number },
         });
-        await new Promise((resolve) => setTimeout(resolve, ms));
+        if (waitLocally) await new Promise((resolve) => setTimeout(resolve, ms));
     } catch (err) {
         log('warn', 'sendPresence composing falhou (ignorado)', {
             connectionId,
@@ -9227,8 +9229,18 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             tierMultiplier: unifiedForHumanize.delayMultiplier,
         };
 
-        await executePresenceSimulation(humanizeCtx, sendPresenceComposing);
-        await applyGaussianSendDelay(humanizeCtx);
+        if (!item._humanizeDelayApplied) {
+            const gap = computeHumanizeGapMs(humanizeCtx);
+            if (gap.waitMs > 0) {
+                item._humanizeDelayApplied = true;
+                const saved = await job.updateData(item).then(() => true).catch(() => false);
+                if (saved) {
+                    void sendPresenceComposing(item.connectionId, sendTo, gap.presenceMs, false).catch(() => undefined);
+                    await job.moveToDelayed(Date.now() + gap.waitMs, token);
+                    throw new DelayedError();
+                }
+            }
+        }
     }
 
     if (await deferActiveJobWhileCampaignPaused(job, item, token)) {
@@ -9366,36 +9378,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                           item.media.fileName,
                           item.media.caption || item.message
                       )
-                    : await (async () => {
-                          if (!humanizeSkip) {
-                              const altBan = getConnectionBanInfo(altId);
-                              const altConn = connections.get(altId);
-                              const altOwner = resolveOwnerUid(altId);
-                              const altStorm = altOwner ? getReconnectStormProgress(altOwner) : null;
-                              const altUnified = await getUnifiedHealthForChip(altId, {
-                                  connectedSinceMs:
-                                      getConnectionConnectedSince(altId) ?? altConn?.lastOpenAt ?? null,
-                                  proxyStatus: getProxyHealthSnapshot(altId)?.status ?? null,
-                                  hasProxy: Boolean(altConn?.proxy?.host),
-                                  inQuarantine: altBan.inQuarantine,
-                                  banCount: altBan.banCount,
-                                  reconnectStormCount: altStorm?.count,
-                                  reconnectStormThreshold: altStorm?.threshold,
-                              });
-                              const altCtx = {
-                                  chipId: altId,
-                                  phone: sendTo,
-                                  messageType: 'text' as const,
-                                  contentLength: textPayload.length,
-                                  minDelayMs: dispatchSettings.minDelayMs,
-                                  maxDelayMs: dispatchSettings.maxDelayMs,
-                                  tierMultiplier: altUnified.delayMultiplier,
-                              };
-                              await executePresenceSimulation(altCtx, sendPresenceComposing);
-                              await applyGaussianSendDelay(altCtx);
-                          }
-                          return sendMessageInternal(altId, sendTo, item.message);
-                      })();
+                    : await sendMessageInternal(altId, sendTo, item.message);
                 if (altRetry.ok) {
                     sendResult = altRetry;
                     switched = true;
@@ -9776,8 +9759,8 @@ function ensureCampaignWorker() {
     if (!conn || campaignWorker) return;
 
     // Concorrência configurável via CAMPAIGN_WORKER_CONCURRENCY (default 10).
-    // Cada job aguarda delay humano internamente, portanto aumentar a concorrência
-    // não sobrecarrega a Evolution — apenas aumenta o throughput paralelo.
+    // A pausa humana fica no atraso do job (Redis), não dentro do processador:
+    // a vaga só fica ocupada no envio de verdade.
     // O limiter global limita a 20 jobs/segundo (burst ≤ 40) para evitar rate-limit.
     const concurrency = Math.max(1, Math.min(50, parseInt(process.env.CAMPAIGN_WORKER_CONCURRENCY || '10', 10)));
     campaignWorker = new Worker<MessageQueueItem>('campaign-messages', processCampaignJob, {

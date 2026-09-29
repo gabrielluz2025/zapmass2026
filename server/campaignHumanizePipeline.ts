@@ -85,6 +85,16 @@ export async function checkAndApplyMicroRest(redis: IORedis, chipId: string): Pr
   return false;
 }
 
+/**
+ * Espera anti-ban (composing + gaussiana) sem segurar a vaga do worker.
+ * O chamador grava isso como atraso do job no Redis.
+ */
+export function computeHumanizeGapMs(ctx: HumanizeContext): { presenceMs: number; waitMs: number } {
+  const presenceMs = computeHumanizePresenceDelayMs(ctx.messageType, ctx.contentLength);
+  const gaussianMs = getGaussianDelayMs(ctx.minDelayMs, ctx.maxDelayMs, ctx.tierMultiplier);
+  return { presenceMs, waitMs: Math.max(0, presenceMs) + Math.max(0, gaussianMs) };
+}
+
 /** Simula presença humana (typing/composing) antes do envio. */
 export async function executePresenceSimulation(
   ctx: HumanizeContext,

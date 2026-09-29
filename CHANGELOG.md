@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.225] - 2026-09-29
+
+### Corrigido
+- **Worker não dorme mais com a vaga ocupada**: a pausa humana (digitando + intervalo) virou atraso do job na fila. O ritmo entre mensagens continua o mesmo, mas as 10 vagas ficam livres para enviar em outros canais em vez de esperar 15–45s cada uma.
+
 ## [2.3.224] - 2026-09-29
 
 ### Corrigido
