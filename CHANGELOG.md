@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.220] - 2026-09-29
+
+### Corrigido
+- **Bate-papo virava só número vazio**: a sincronização substituía o histórico já salvo, e a lista cortada jogava fora as conversas de verdade quando entravam muitos disparos. O texto volta do arquivo, a ficha do disparo leva a mensagem, e uma atualização da lista não apaga o que já estava aberto.
+
 ## [2.3.219] - 2026-09-28
 
 ### Corrigido

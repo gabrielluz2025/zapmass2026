@@ -114,6 +114,48 @@ describe('mergeConversationsFromSocketUpdate (escopo conn_*)', () => {
     const out = mergeConversationsFromSocketUpdate(prev, incoming, owns);
     expect(out[0].messages.length).toBe(500);
   });
+
+  it('não apaga conversa que o servidor omitiu no broadcast (lista cortada)', () => {
+    const keptId = `${tenantUid}__chip1:5511888777666@s.whatsapp.net`;
+    const stubId = `${tenantUid}__chip1:5511999999999@s.whatsapp.net`;
+    const prev: Conversation[] = [
+      {
+        ...conv(`${tenantUid}__chip1`),
+        id: keptId,
+        contactName: 'Maria',
+        contactPhone: '5511888777666',
+        lastMessage: 'oi',
+        lastMessageTimestamp: 50,
+        messages: [
+          {
+            id: 'm1',
+            text: 'oi',
+            timestamp: '10:00',
+            timestampMs: 50,
+            sender: 'them',
+            status: 'delivered',
+            type: 'text'
+          }
+        ]
+      }
+    ];
+    const incoming: Conversation[] = [
+      {
+        ...conv(`${tenantUid}__chip1`),
+        id: stubId,
+        contactName: '+5511999999999',
+        messages: [],
+        lastMessage: '',
+        lastMessageTimestamp: 999
+      }
+    ];
+    const owns = (cid: string, ou?: string) => ownsConnectionForUid(tenantUid, cid, ou);
+    const out = mergeConversationsFromSocketUpdate(prev, incoming, owns);
+    expect(out.map((c) => c.id).sort()).toEqual([keptId, stubId].sort());
+    const maria = out.find((c) => c.id === keptId);
+    expect(maria?.contactName).toBe('Maria');
+    expect(maria?.messages).toHaveLength(1);
+  });
 });
 
 describe('mergeConversationDelta (bolha pending)', () => {

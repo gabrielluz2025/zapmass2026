@@ -414,6 +414,60 @@ export async function countArchivedMessagesByPhone(
   }
 }
 
+/** Últimas mensagens de várias threads de uma vez — reabre o bate-papo sem ficar só o número. */
+export async function loadArchiveTailByThreadIds(
+  tenantId: string,
+  threadIds: string[],
+  perThread = 24
+): Promise<Map<string, ChatMessage[]>> {
+  const out = new Map<string, ChatMessage[]>();
+  if (!isUuid(tenantId) || threadIds.length === 0) return out;
+  const pool = getZapmassPool();
+  if (!pool) return out;
+  const cap = Math.max(1, Math.min(perThread, 80));
+  const ids = [...new Set(threadIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  const CHUNK = 200;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const slice = ids.slice(i, i + CHUNK);
+    try {
+      const r = await pool.query<{
+        thread_id: string;
+        message_id: string;
+        text: string;
+        sender: string;
+        status: string;
+        type: string;
+        timestamp_ms: string;
+        media_url: string | null;
+        from_campaign: boolean;
+        campaign_id: string | null;
+      }>(
+        `SELECT thread_id, message_id, text, sender, status, type, timestamp_ms::text,
+                media_url, from_campaign, campaign_id
+         FROM (
+           SELECT thread_id, message_id, text, sender, status, type, timestamp_ms,
+                  media_url, from_campaign, campaign_id,
+                  ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY timestamp_ms DESC) AS rn
+           FROM zapmass.wa_chat_messages
+           WHERE tenant_id = $1::uuid AND thread_id = ANY($2::text[])
+         ) s
+         WHERE rn <= $3
+         ORDER BY thread_id, timestamp_ms ASC`,
+        [tenantId, slice, cap]
+      );
+      for (const row of r.rows) {
+        const msg = rowToChatMessage(row.message_id, row);
+        const list = out.get(row.thread_id) || [];
+        list.push(msg);
+        out.set(row.thread_id, list);
+      }
+    } catch (e) {
+      console.warn('[ChatArchive/PG] tail por thread falhou:', (e as Error)?.message || e);
+    }
+  }
+  return out;
+}
+
 /** Histórico unificado por telefone (todos os chips arquivados). */
 export async function loadChatArchiveMessagesByPhone(
   tenantId: string,

@@ -69,10 +69,21 @@ const SOCKET_MAX_CONVERSATIONS = (() => {
  * Payload final para `conversations-update`: remove base64 pesado e limita mensagens por conversa.
  * Sem isso, 2000+ chats com histórico em RAM viram JSON de dezenas de MB e travam o event loop (latência 90s+).
  */
+/** Conversa com texto fica na frente de ficha vazia (só o número do disparo). */
+function inboxKeepRank(c: Conversation): number {
+  if ((c.messages?.length || 0) > 0) return 2;
+  if ((c.lastMessage || '').trim()) return 1;
+  return 0;
+}
+
 function trimConversationListForSocket(list: Conversation[]): Conversation[] {
   if (list.length <= SOCKET_MAX_CONVERSATIONS) return list;
   return [...list]
-    .sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0))
+    .sort((a, b) => {
+      const rank = inboxKeepRank(b) - inboxKeepRank(a);
+      if (rank !== 0) return rank;
+      return (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0);
+    })
     .slice(0, SOCKET_MAX_CONVERSATIONS);
 }
 

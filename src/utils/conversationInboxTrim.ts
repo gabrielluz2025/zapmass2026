@@ -82,6 +82,10 @@ export function mergeConversationsFromSocketUpdate(
   const trimmedIncoming = scopedIncoming.map((c) => trimConversationMessagesTail(c, maxTail));
   const dedupedIncoming = dedupeConversationsById(trimmedIncoming);
   const prevById = new Map(prev.map((c) => [c.id, c]));
+  const incomingIds = new Set(dedupedIncoming.map((c) => c.id));
+  const keptFromPrev = prev.filter(
+    (c) => !incomingIds.has(c.id) && ownsConnectionId(c.connectionId, c.connectionOwnerUid)
+  );
   const out = dedupedIncoming
     .map((inc) => {
       const p = prevById.get(inc.id);
@@ -139,6 +143,7 @@ export function mergeConversationsFromSocketUpdate(
         )
       );
     })
+    .concat(keptFromPrev)
     .sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
   if (h === lastIncomingHash && lastResult && lastResult.length === out.length && prev === lastResult) {
     return prev;

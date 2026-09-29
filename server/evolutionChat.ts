@@ -348,6 +348,60 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         }
     }
 
+    /**
+     * Conversas que ficaram só com o número: puxa o texto já gravado no arquivo
+     * (wa_chat_messages) de volta para a thread.
+     */
+    async function backfillEmptyThreadsFromArchive(): Promise<number> {
+        if (!archiveCtx) return 0;
+        const empty = conversations.filter(
+            (c) => c.connectionId && (c.messages?.length || 0) === 0
+        );
+        if (empty.length === 0) return 0;
+        const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+        const { loadArchiveTailByThreadIds } = await import('./repositories/chatArchiveRepository.js');
+        const byOwner = new Map<string, Array<{ conv: Conversation; threadId: string }>>();
+        for (const conv of empty) {
+            const owner =
+                archiveCtx.resolveConnectionOwnerUid(conv.connectionId) ||
+                archiveCtx.ownerUidFromConnectionId(conv.connectionId);
+            if (!owner || owner === 'anonymous') continue;
+            const threadId = threadIdFromConversationId(conv.id, conv.contactPhone);
+            if (!threadId) continue;
+            const bucket = byOwner.get(owner) || [];
+            bucket.push({ conv, threadId });
+            byOwner.set(owner, bucket);
+        }
+        let filled = 0;
+        for (const [owner, rows] of byOwner) {
+            const tenantId = resolvePostgresTenantId(owner);
+            const tails = await loadArchiveTailByThreadIds(
+                tenantId,
+                rows.map((r) => r.threadId),
+                24
+            );
+            for (const row of rows) {
+                const msgs = tails.get(row.threadId);
+                if (!msgs?.length) continue;
+                const live = conversations.find((c) => c.id === row.conv.id);
+                if (!live || (live.messages?.length || 0) > 0) continue;
+                live.messages = msgs;
+                const last = msgs[msgs.length - 1];
+                if ((last?.text || '').trim()) live.lastMessage = last.text;
+                if (last?.timestamp) live.lastMessageTime = last.timestamp;
+                if (last?.timestampMs) {
+                    live.lastMessageTimestamp = Math.max(live.lastMessageTimestamp || 0, last.timestampMs);
+                }
+                filled += 1;
+            }
+        }
+        if (filled > 0) {
+            console.info(`[evolutionChat] ${filled} conversa(s) vazia(s) reabertas pelo arquivo.`);
+            saveConversationsToCacheDebounced();
+        }
+        return filled;
+    }
+
     function collapseStoredConversations(): boolean {
         const collapsed = collapseConversationsByPhone(conversations);
         if (collapsed.length >= conversations.length) return false;
@@ -1074,7 +1128,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             scheduleConversationPrefetch(canonicalId, 120);
             touched += 1;
         }
-        if (touched > 0) {
+        const filled = await backfillEmptyThreadsFromArchive();
+        if (touched > 0 || filled > 0) {
             collapseStoredConversations();
             emitConversationsUpdate();
         }
@@ -1645,7 +1700,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                             if (converted.length === 0) return;
                             const target = conversations.find((c) => c.id === conv.id);
                             if (!target) return;
-                            target.messages = converted.slice(-sparseMaxMsgs);
+                            target.messages = mergeChatMessageLists(target.messages || [], converted).slice(
+                                -sparseMaxMsgs
+                            );
                             const last = converted[converted.length - 1];
                             target.lastMessage = last.text || target.lastMessage;
                             target.lastMessageTime = last.timestamp || target.lastMessageTime;
@@ -2600,15 +2657,33 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
             const existing = conversations.find((c) => {
                 if (c.connectionId !== cid) return false;
-                return normalizePhoneDigits(c.contactPhone) === digits;
+                if (normalizePhoneDigits(c.contactPhone) === digits) return true;
+                const jid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : '';
+                const jidDigits = normalizePhoneDigits(jid.split('@')[0] || '');
+                return jidDigits === digits;
             });
 
             if (existing) {
-                // Atualiza preview vazio se agora temos texto da campanha
                 if (!existing.lastMessage?.trim() && rowMsg) {
                     existing.lastMessage = rowMsg;
-                    saveConversationsToCacheDebounced();
+                    existing.lastMessageTimestamp = Math.max(existing.lastMessageTimestamp || 0, tsMs);
+                    existing.lastMessageTime = formatTime(existing.lastMessageTimestamp);
                 }
+                if (rowMsg && (existing.messages?.length || 0) === 0) {
+                    existing.messages = [
+                        {
+                            id: `camp_stub_${digits}_${tsMs}`,
+                            text: rowMsg,
+                            timestamp: formatTime(tsMs),
+                            sender: 'me',
+                            status: 'sent',
+                            type: 'text',
+                            fromCampaign: true,
+                            timestampMs: tsMs,
+                        },
+                    ];
+                }
+                if (rowMsg) saveConversationsToCacheDebounced();
                 continue;
             }
 
@@ -2622,7 +2697,20 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                     lastMessage: rowMsg,
                     lastMessageTime: tsMs > 0 ? formatTime(tsMs) : '',
                     lastMessageTimestamp: tsMs,
-                    messages: [],
+                    messages: rowMsg
+                        ? [
+                              {
+                                  id: `camp_stub_${digits}_${tsMs}`,
+                                  text: rowMsg,
+                                  timestamp: formatTime(tsMs),
+                                  sender: 'me',
+                                  status: 'sent',
+                                  type: 'text',
+                                  fromCampaign: true,
+                                  timestampMs: tsMs,
+                              },
+                          ]
+                        : [],
                     tags: ['Campanha'],
                 },
                 { skipArchive: true }
@@ -2638,6 +2726,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         isConversationDeleted: (id: string) => deletedConversationIds.has(id),
         pruneConversationsWithoutResolvableOwner,
         restoreFromPgIfNeeded,
+        backfillEmptyThreadsFromArchive,
         ensurePhoneStubs,
         flushConversationsCache,
         flushInboxToPg,

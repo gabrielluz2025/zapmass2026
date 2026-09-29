@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.220',
+    date: '29/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Bate-papo não vira mais lista de números vazios: o histórico salvo permanece e a mensagem do disparo entra na conversa' },
+    ],
+  },
+  {
     version: '2.3.219',
     date: '28/09/2026',
     highlights: [

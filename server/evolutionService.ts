@@ -10953,6 +10953,9 @@ export function init(socketIO: SocketIOServer) {
         await chatStore.restoreFromPgIfNeeded().catch((e: Error) =>
             log('warn', 'restoreFromPgIfNeeded falhou', { error: e?.message })
         );
+        await chatStore.backfillEmptyThreadsFromArchive().catch((e: Error) =>
+            log('warn', 'backfillEmptyThreadsFromArchive falhou', { error: e?.message })
+        );
         const reconciled = await autoReconcileConnectionOwners();
         if (reconciled.applied.length > 0 || reconciled.removed.length > 0) {
             log('warn', 'Isolamento: canais reatribuídos no boot', {
@@ -13480,6 +13483,8 @@ export async function triggerInboundReplayForConnection(connectionId: string): P
                                     lastMessage: row.msg_text ?? '',
                                 }))
                             );
+                            await chatStore.backfillEmptyThreadsFromArchive().catch(() => 0);
+                            chatStore.emitConversationsUpdate();
                         }
                     } catch (err) {
                         log('warn', 'seedCampaignRecipientStubs falhou', {
