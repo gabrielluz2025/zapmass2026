@@ -4264,6 +4264,10 @@ function evoInst(instanceName: string): string {
 
 // Controle de pausa por campanha
 const pausedCampaigns = new Set<string>();
+/** Disparo ativo fica na frente da fila. Pausa vai para o fim, senão 20 mil jobs parados impedem a campanha nova de sair. */
+const RUNNING_CAMPAIGN_JOB_PRIORITY = 10;
+const PAUSED_CAMPAIGN_JOB_PRIORITY = 1_000_000;
+const PAUSED_CAMPAIGN_HOLD_MS = 120_000;
 /** Evita repetir o aviso de “segue no único chip online” a cada job. */
 const circuitBypassLoggedCampaigns = new Set<string>();
 
@@ -7649,7 +7653,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
         delay: Math.max(0, delayMs),
         // Gatilho/nurture na frente da fila de disparo. Sem isso a resposta fica
         // atrás de milhares de envios e o contato responde e não recebe o texto.
-        priority: item.replyFlowResponse || item.nurtureFollowUp ? 1 : undefined,
+        priority: item.replyFlowResponse || item.nurtureFollowUp ? 1 : item.campaignId ? RUNNING_CAMPAIGN_JOB_PRIORITY : undefined,
         removeOnComplete: bullmqRemoveOnComplete(),
         removeOnFail: bullmqRemoveOnFail(),
     });
@@ -7747,7 +7751,7 @@ async function enqueueCampaignItemsBulk(
                     attempts: 3,
                     backoff: { type: 'exponential' as const, delay: 5000 },
                     delay: Math.max(0, delayMs),
-                    priority: item.replyFlowResponse || item.nurtureFollowUp ? 1 : undefined,
+                    priority: item.replyFlowResponse || item.nurtureFollowUp ? 1 : item.campaignId ? RUNNING_CAMPAIGN_JOB_PRIORITY : undefined,
                     removeOnComplete: bullmqRemoveOnComplete(),
                     removeOnFail: bullmqRemoveOnFail(),
                 },
@@ -8051,6 +8055,7 @@ function pauseCampaignForProtection(
         );
     }
     void saveCampaignRuntimeToRedis(campaignId);
+    void tuneCampaignJobFairness(campaignId).catch(() => undefined);
 }
 
 function resumeCampaignFromProtection(campaignId: string, ownerUid?: string): void {
@@ -8411,12 +8416,18 @@ async function deferActiveJobWhileCampaignPaused(
 ): Promise<boolean> {
     if (item.replyFlowResponse || !item.campaignId) return false;
     if (!pausedCampaigns.has(item.campaignId)) return false;
-    await job.moveToDelayed(Date.now() + 3000, token);
+    await job.moveToDelayed(Date.now() + PAUSED_CAMPAIGN_HOLD_MS, token);
     return true;
 }
 
 async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const item = job.data;
+
+    // Pausa antes de qualquer consulta ao banco: campanha parada não pode ocupar o worker
+    // (uma fila de dezenas de milhares em ciclo de 3s impedia a campanha nova de enviar).
+    if (await deferActiveJobWhileCampaignPaused(job, item, token)) {
+        throw new DelayedError();
+    }
 
     // Idempotência: envio já confirmado — só fecha contadores do job, sem reenviar nem recontar.
     if (item._sentOk) {
@@ -8448,7 +8459,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     if (!item.replyFlowResponse && item.campaignId && campaignStateEarly?.ownerUid && campaignStateEarly.isRunning) {
         const guard = await runCampaignDispatchGuard(item, campaignStateEarly);
         if (guard?.action === 'pause') {
-            await job.moveToDelayed(Date.now() + 3000, token);
+            await job.moveToDelayed(Date.now() + PAUSED_CAMPAIGN_HOLD_MS, token);
             throw new DelayedError();
         }
         // 'slow' (reconnect_storm): aplica o delay EXTRA uma vez e segue o envio.
@@ -11032,6 +11043,7 @@ export async function startCampaign(
         );
         const runtimeAfterEnqueue = campaignsById.get(cid);
         publishOwnerEvent(ownerUid, 'campaign-started', { total: pendingEnqueue.length, campaignId: cid });
+        void tuneCampaignJobFairness(cid).catch(() => undefined);
         const heldAfterStart =
             pausedCampaigns.has(cid) ||
             Boolean(runtimeAfterEnqueue?.protectionPaused || runtimeAfterEnqueue?.manualPaused);
@@ -11312,6 +11324,11 @@ export function init(socketIO: SocketIOServer) {
         await waitForCampaignResumeGrace();
         await reconcileRunningCampaignsFromPostgres();
         ensureCampaignWorker();
+        void tuneCampaignJobFairness().catch((err) =>
+            log('warn', '[dispatch] falha ao reordenar a fila no boot', {
+                error: err instanceof Error ? err.message : String(err),
+            })
+        );
     })();
 }
 
@@ -13163,6 +13180,52 @@ function resolveCampaignOwnerUid(campaignId: string, explicitOwnerUid?: string):
     return getCampaignGeoOwner(campaignId);
 }
 
+/**
+ * Campanha em execução vai para a frente da fila.
+ * Campanha pausada sai da fila quente: senão dezenas de milhares de jobs
+ * reentram a cada poucos segundos e a campanha nova fica em 0 envios.
+ */
+async function tuneCampaignJobFairness(onlyCampaignId?: string): Promise<void> {
+    const queue = getCampaignQueue();
+    if (!queue) return;
+    const only = String(onlyCampaignId || '').trim();
+    let lifted = 0;
+    let parked = 0;
+    await forEachCampaignQueueJob(queue, async (job, state) => {
+        if (state === 'active') return;
+        const data = job.data as MessageQueueItem;
+        const cid = String(data?.campaignId || '').trim();
+        if (!cid) return;
+        if (only && cid !== only) return;
+        if (data.replyFlowResponse || data.nurtureFollowUp) return;
+        const paused = pausedCampaigns.has(cid);
+        const running = !paused && Boolean(campaignsById.get(cid)?.isRunning);
+        if (!paused && !running) return;
+        try {
+            if (paused) {
+                await job.changePriority({ priority: PAUSED_CAMPAIGN_JOB_PRIORITY });
+                const remain = state === 'delayed' ? estimateJobRunAt(job) - Date.now() : 0;
+                if (state !== 'delayed' || remain < 30_000) {
+                    await job.changeDelay(PAUSED_CAMPAIGN_HOLD_MS);
+                }
+                parked += 1;
+            } else {
+                await job.changePriority({ priority: RUNNING_CAMPAIGN_JOB_PRIORITY });
+                lifted += 1;
+            }
+        } catch {
+            /* job ativo, concluído ou já removido */
+        }
+    });
+    if (lifted > 0 || parked > 0) {
+        log('info', '[dispatch] Fila reordenada: campanha em execução na frente, pausa no fim', {
+            campaignId: only || undefined,
+            lifted,
+            parked,
+        });
+    }
+}
+
 export function pauseCampaign(campaignId: string, ownerUid?: string) {
     pausedCampaigns.add(campaignId);
     const ou = resolveCampaignOwnerUid(campaignId, ownerUid);
@@ -13185,6 +13248,12 @@ export function pauseCampaign(campaignId: string, ownerUid?: string) {
     void saveCampaignRuntimeToRedis(campaignId);
     publishOwnerEvent(ou, 'campaign-paused', { campaignId });
     if (ou) notifyCampaignBlocking(ou, countActiveCampaignsForOwner(ou) > 0);
+    void tuneCampaignJobFairness(campaignId).catch((err) =>
+        log('warn', '[dispatch] falha ao tirar campanha pausada da frente da fila', {
+            campaignId,
+            error: err instanceof Error ? err.message : String(err),
+        })
+    );
 }
 
 function collectCampaignChannelIdsForRuntime(
@@ -13342,6 +13411,7 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
     const wasProtection = Boolean(stateBefore?.protectionPaused);
 
     pausedCampaigns.delete(campaignId);
+    void tuneCampaignJobFairness(campaignId).catch(() => undefined);
     const ou = resolveCampaignOwnerUid(campaignId, ownerUid) || ownerUid;
     void requeuePhantomDeadCampaignJobs(campaignId).catch(() => undefined);
     const state = campaignsById.get(campaignId);

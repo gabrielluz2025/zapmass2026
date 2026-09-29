@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.224',
+    date: '29/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Campanha pausada com milhares de contatos não bloqueia mais o disparo da campanha que está em execução' },
+    ],
+  },
+  {
     version: '2.3.223',
     date: '29/09/2026',
     highlights: [

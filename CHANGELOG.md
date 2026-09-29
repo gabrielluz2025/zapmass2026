@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.224] - 2026-09-29
+
+### Corrigido
+- **Campanha em execução não enviava nenhuma mensagem**: uma campanha pausada com dezenas de milhares de contatos reentrava na fila a cada 3 segundos e ocupava o worker. A campanha nova ficava em 0 envios. A pausa sai da frente da fila e o disparo ativo passa na frente.
+
 ## [2.3.223] - 2026-09-29
 
 ### Corrigido
