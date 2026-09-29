@@ -121,8 +121,11 @@ export function buildChannelDispatchInsights(
   const weekTotal = last7.reduce((n, d) => n + d.sent, 0);
   const warmupWeekTotal = last7.reduce((n, d) => n + d.warmupSent, 0);
   const totalWarmup = (stats?.dailyHistory || []).reduce((n, d) => n + warmupSentFromEntry(d), 0);
+  const historyCampaign = (stats?.dailyHistory || []).reduce((n, d) => n + campaignSentFromEntry(d), 0);
   const mixedTotal = stats?.totalSent ?? connection.totalMessagesSent ?? 0;
-  const totalCampaign = Math.max(0, mixedTotal - totalWarmup);
+  // O total do chip não pode ficar abaixo do que o próprio cartão mostra hoje
+  // (a reserva diária sobe na hora; o histórico do chip às vezes fica para trás).
+  const totalCampaign = Math.max(0, mixedTotal - totalWarmup, historyCampaign, sentToday);
   const temp = computeChannelDispatchTemp(sentToday, last7, connection.dailyLimit);
   return {
     last7,

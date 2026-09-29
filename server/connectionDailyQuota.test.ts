@@ -7,6 +7,8 @@ import {
   getEffectiveMessagesSentToday,
   releaseDailyCampaignQuota,
   resolveEffectiveChannelQuota,
+  reconcileDisplayedSentToday,
+  replaceConnectionPgSentTodayFloor,
   setConnectionPgSentTodayFloor,
   userDailyLimitOverridesTierCap,
 } from './connectionDailyQuota.js';
@@ -31,6 +33,34 @@ describe('connectionDailyQuota', () => {
     expect(results.filter((r) => r === 'ok').length).toBe(2);
     expect(results.filter((r) => r === 'blocked').length).toBe(2);
     expect(store.get('c1')!.messagesSentToday).toBe(40);
+  });
+
+  it('substitui o piso do PG e, com fila vazia, o hoje volta para o que foi confirmado', () => {
+    setConnectionPgSentTodayFloor('c7', 31);
+    replaceConnectionPgSentTodayFloor('c7', 4);
+    const store = new Map<string, { dailyLimit: number; messagesSentToday: number; instanceName: string }>();
+    store.set('c7', { dailyLimit: 300, messagesSentToday: 31, instanceName: 'c7' });
+    const deps = {
+      getConnection: (id: string) => store.get(id),
+      brazilTodayKey: () => '2026-09-29',
+      onResetPersist: () => {},
+      onConsumePersist: () => {},
+    };
+    expect(getEffectiveMessagesSentToday('c7', deps)).toBe(31);
+    expect(
+      reconcileDisplayedSentToday({
+        reserved: getEffectiveMessagesSentToday('c7', deps),
+        confirmed: 4,
+        queued: 0,
+      })
+    ).toBe(4);
+    expect(
+      reconcileDisplayedSentToday({
+        reserved: 31,
+        confirmed: 4,
+        queued: 2,
+      })
+    ).toBe(31);
   });
 
   it('usa piso do PG quando RAM está atrás', () => {

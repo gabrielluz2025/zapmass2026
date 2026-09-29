@@ -190,8 +190,9 @@ import {
     checkAndResetDailyLimitsWithDeps,
     consumeDailyCampaignQuota,
     getEffectiveMessagesSentToday,
+    reconcileDisplayedSentToday,
     releaseDailyCampaignQuota,
-    setConnectionPgSentTodayFloor,
+    replaceConnectionPgSentTodayFloor,
     userDailyLimitOverridesTierCap,
     type DailyQuotaDeps,
 } from './connectionDailyQuota.js';
@@ -4052,17 +4053,21 @@ async function hydrateConnectionSendCountersFromJobs(): Promise<void> {
         const today = brazilTodayKey();
         for (const [id, conn] of connections.entries()) {
             const row = counts.get(id);
-            if (row) {
-                setConnectionPgSentTodayFloor(id, row.sentToday);
-                if (row.sentToday > 0) floors.set(id, row.sentToday);
-            }
-            const nextToday = Math.max(
-                getEffectiveMessagesSentToday(id, connectionDailyQuotaDeps()),
-                row?.sentToday || 0,
-                getConnectionCampaignSentToday(id, today)
-            );
+            const pgToday = row?.sentToday || 0;
+            // O COUNT do dia substitui o piso. Reserva que falhou não pode continuar como "disparo hoje".
+            replaceConnectionPgSentTodayFloor(id, pgToday);
+            if (pgToday > 0) floors.set(id, pgToday);
+            const confirmed = Math.max(pgToday, getConnectionCampaignSentToday(id, today));
+            const nextToday = reconcileDisplayedSentToday({
+                reserved: Math.max(
+                    getEffectiveMessagesSentToday(id, connectionDailyQuotaDeps()),
+                    confirmed
+                ),
+                confirmed,
+                queued: connectionQueueSizes.get(id) || 0,
+            });
             let dirty = false;
-            if (nextToday > (conn.messagesSentToday || 0)) {
+            if (nextToday !== (conn.messagesSentToday || 0)) {
                 conn.messagesSentToday = nextToday;
                 conn.lastLimitResetDate = today;
                 dirty = true;
@@ -9334,7 +9339,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     const connForQuota = connections.get(item.connectionId);
-    if (connForQuota && !item.nurtureFollowUp && !item.replyFlowResponse) {
+    if (connForQuota && !item.nurtureFollowUp && !item.replyFlowResponse && !item._dailyQuotaConsumed) {
         const quota = await consumeDailyCampaignQuota(item.connectionId, connectionDailyQuotaDeps());
         if (quota === 'blocked') {
             return deferCampaignJobForDailyLimit(job, item, token, campaignState, connForQuota);
@@ -9930,6 +9935,11 @@ function ensureCampaignWorker() {
 
         if (item && job && job.attemptsMade >= (job.opts.attempts || 1)) {
             bumpQueueSize(item.connectionId, -1);
+            if (item._dailyQuotaConsumed && !item._sentOk) {
+                item._dailyQuotaConsumed = false;
+                void releaseDailyCampaignQuota(item.connectionId, connectionDailyQuotaDeps()).catch(() => undefined);
+                void job.updateData(item).catch(() => {});
+            }
             if (item.replyFlowResponse && (item.replyFlowDisposeAfterSend || item.replyFlowAfterSend)) {
                 ensureReplyFlowEngine();
                 replyFlowEngine.rollbackPendingOutbound(item.connectionId, normalizePhoneKey(item.to));

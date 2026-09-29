@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.227',
+    date: '29/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Disparo hoje só fica com a mensagem que saiu de verdade: tentativa que falhou não entra, e o total do canal não fica menor que o hoje' },
+    ],
+  },
+  {
     version: '2.3.226',
     date: '29/09/2026',
     highlights: [

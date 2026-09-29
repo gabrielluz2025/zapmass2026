@@ -66,6 +66,22 @@ describe('channelDispatchInsights', () => {
     expect(t.label).toBe('Quente');
   });
 
+  it('o total de disparos não fica abaixo do hoje', () => {
+    const dk = brazilDayKey();
+    const row = buildChannelDispatchInsights(
+      conn({ messagesSentToday: 31 }),
+      {
+        connectionId: 'c1',
+        totalSent: 4,
+        totalReceived: 0,
+        totalFailed: 0,
+        dailyHistory: [{ date: dk, sent: 4, received: 0, failed: 0, warmupSent: 0 }]
+      }
+    );
+    expect(row.sentToday).toBe(31);
+    expect(row.totalCampaign).toBeGreaterThanOrEqual(row.sentToday);
+  });
+
   it('buildChannelDispatchInsights agrega semana', () => {
     const dk = brazilDayKey();
     const row = buildChannelDispatchInsights(

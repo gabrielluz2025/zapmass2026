@@ -36,6 +36,15 @@ export function setConnectionPgSentTodayFloor(connectionId: string, sentToday: n
   pgSentTodayFloor.set(id, Math.max(pgSentTodayFloor.get(id) || 0, n));
 }
 
+/** Substitui o piso pelo COUNT atual de campaign_jobs. Um piso antigo não pode manter o "hoje" alto depois que a reserva falhou. */
+export function replaceConnectionPgSentTodayFloor(connectionId: string, sentToday: number): void {
+  const id = String(connectionId || '').trim();
+  if (!id) return;
+  const n = Math.max(0, Math.floor(Number(sentToday) || 0));
+  if (n <= 0) pgSentTodayFloor.delete(id);
+  else pgSentTodayFloor.set(id, n);
+}
+
 export function getPgSentTodayFloor(connectionId: string): number {
   return pgSentTodayFloor.get(String(connectionId || '').trim()) || 0;
 }
@@ -101,6 +110,23 @@ export function alignDailyLimitToAchieved(conn: QuotaConn, achieved: number, tod
   conn.dailyLimit = sent;
   if ((conn.messagesSentToday || 0) < sent) conn.messagesSentToday = sent;
   return true;
+}
+
+/**
+ * "Disparo hoje" visível: confirmação (jobs sent + histórico) quando a fila do chip está vazia.
+ * Com job em voo, a reserva fica — ela ainda pode virar envio.
+ */
+export function reconcileDisplayedSentToday(opts: {
+  reserved: number;
+  confirmed: number;
+  queued: number;
+}): number {
+  const reserved = Math.max(0, Math.floor(Number(opts.reserved) || 0));
+  const confirmed = Math.max(0, Math.floor(Number(opts.confirmed) || 0));
+  const queued = Math.max(0, Math.floor(Number(opts.queued) || 0));
+  const high = Math.max(reserved, confirmed);
+  if (queued === 0 && high > confirmed) return confirmed;
+  return high;
 }
 
 export function getEffectiveMessagesSentToday(connectionId: string, deps: DailyQuotaDeps): number {

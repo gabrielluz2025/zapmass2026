@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.227] - 2026-09-29
+
+### Corrigido
+- **Disparo hoje não conta tentativa que falhou**: a reserva da cota subia antes do envio e, se o job repetia ou caía, o número do canal ficava maior do que as mensagens que saíram. Com a fila vazia, o hoje volta para o que o banco e o histórico do chip confirmam. O total do canal não fica mais abaixo do hoje.
+
 ## [2.3.226] - 2026-09-29
 
 ### Corrigido
