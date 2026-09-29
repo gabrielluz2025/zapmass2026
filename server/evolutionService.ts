@@ -185,11 +185,13 @@ import {
 } from './campaignJobsResilience.js';
 import {
     alignDailyLimitToAchieved,
+    channelHasDailySendRoom,
     checkAndResetDailyLimitsWithDeps,
     consumeDailyCampaignQuota,
     getEffectiveMessagesSentToday,
     releaseDailyCampaignQuota,
     setConnectionPgSentTodayFloor,
+    userDailyLimitOverridesTierCap,
     type DailyQuotaDeps,
 } from './connectionDailyQuota.js';
 import { loadCampaignProgressSeed, shouldSkipSettledCampaignEnqueue } from './campaignProgressSeed.js';
@@ -3194,6 +3196,8 @@ interface MessageQueueItem {
     _progressAccounted?: boolean;
     /** Conta quantas vezes o job foi adiado por limite diário — falha definitiva após 3 dias. */
     _limitDelayCount?: number;
+    /** Adiado até meia-noite pelo teto sugerido do tier (não pela meta do canal). */
+    _tierCapDeferred?: boolean;
     /** Adiado porque o grupo de chips estava offline. */
     _offlineDelayCount?: number;
     /** Trust score: tier delay já aplicado neste job. */
@@ -3989,6 +3993,7 @@ function connectionDailyQuotaDeps(): DailyQuotaDeps {
 }
 
 let connectionSendHydrateTimer: ReturnType<typeof setInterval> | null = null;
+let dailyLimitHoldsBootReleaseDone = false;
 
 /**
  * Meta diária acompanha o volume já disparado hoje (ex.: 81/20 vira 81/81).
@@ -4069,6 +4074,14 @@ async function hydrateConnectionSendCountersFromJobs(): Promise<void> {
             }
             log('info', 'Contadores de envio hidratados do Postgres', { chips: changed });
         }
+        if (!dailyLimitHoldsBootReleaseDone && getCampaignQueue()) {
+            dailyLimitHoldsBootReleaseDone = true;
+            void releaseOpenChannelDailyLimitHolds().catch((err) =>
+                log('warn', '[Limits] falha ao retomar envios parados no boot', {
+                    error: err instanceof Error ? err.message : String(err),
+                })
+            );
+        }
     } catch (err) {
         log('warn', 'hydrateConnectionSendCountersFromJobs falhou', {
             error: err instanceof Error ? err.message : String(err),
@@ -4079,6 +4092,88 @@ async function hydrateConnectionSendCountersFromJobs(): Promise<void> {
 function checkAndResetDailyLimits(conn: EvolutionInstance | undefined | null) {
     if (!conn) return;
     checkAndResetDailyLimitsWithDeps(conn, connectionDailyQuotaDeps());
+}
+
+/**
+ * Jobs adiados até meia-noite por limite/tier voltam a sair quando a meta do canal abre vaga.
+ * Não mexe em atraso de agenda, sono ou pausa — só no que foi marcado como espera de cota.
+ */
+async function releaseOpenChannelDailyLimitHolds(onlyConnectionId?: string): Promise<number> {
+    const queue = getCampaignQueue();
+    if (!queue) return 0;
+    const only = String(onlyConnectionId || '').trim();
+    const roomLeft = new Map<string, number>();
+
+    const roomFor = (connectionId: string): number => {
+        if (roomLeft.has(connectionId)) return roomLeft.get(connectionId)!;
+        if (only && connectionId !== only) {
+            roomLeft.set(connectionId, 0);
+            return 0;
+        }
+        const conn = connections.get(connectionId);
+        if (!conn) {
+            roomLeft.set(connectionId, 0);
+            return 0;
+        }
+        checkAndResetDailyLimits(conn);
+        const sent = getEffectiveMessagesSentToday(connectionId, connectionDailyQuotaDeps());
+        const limit = Math.max(0, Number(conn.dailyLimit) || 0);
+        let room = 0;
+        if (conn.limitExceededApproved || limit <= 0) room = 1500;
+        else if (sent < limit) room = limit - sent;
+        roomLeft.set(connectionId, room);
+        return room;
+    };
+
+    let released = 0;
+    const staggerByConn = new Map<string, number>();
+    let sampleCampaignId = '';
+    let sampleOwner = '';
+    await forEachCampaignQueueJob(queue, async (job, state) => {
+        if (state !== 'delayed') return;
+        const data = job.data as MessageQueueItem;
+        if (data.replyFlowResponse || data.nurtureFollowUp) return;
+        const heldForQuota = (data._limitDelayCount || 0) > 0 || Boolean(data._tierCapDeferred);
+        if (!heldForQuota) return;
+        if (data.campaignId && pausedCampaigns.has(data.campaignId)) return;
+        const connectionId = String(data.connectionId || '').trim();
+        if (!connectionId) return;
+        const room = roomFor(connectionId);
+        if (room <= 0) return;
+        const remain = estimateJobRunAt(job) - Date.now();
+        if (remain < 15_000) return;
+        const stagger = staggerByConn.get(connectionId) || 0;
+        try {
+            await job.changeDelay(1_200 + stagger);
+            staggerByConn.set(connectionId, Math.min(stagger + 1_800, 90_000));
+            roomLeft.set(connectionId, room - 1);
+            released += 1;
+            if (!sampleCampaignId && data.campaignId) {
+                sampleCampaignId = data.campaignId;
+                sampleOwner = data.ownerUid || resolveOwnerUid(connectionId) || '';
+            }
+        } catch {
+            /* job ativo ou já promovido */
+        }
+    });
+
+    if (released > 0) {
+        const label = only
+            ? connections.get(only)?.friendlyName || only
+            : 'canais com vaga';
+        log('info', `[Limits] ${released} envio(s) que estavam parados pelo limite voltaram para a fila`, {
+            connectionId: only || undefined,
+        });
+        if (sampleOwner) {
+            emitCampaignLog(
+                'INFO',
+                `Meta do canal ${label} abriu vaga. ${released} envio(s) que estavam parados até a meia-noite voltaram para a fila.`,
+                { campaignId: sampleCampaignId || undefined, connectionId: only || undefined },
+                sampleOwner
+            );
+        }
+    }
+    return released;
 }
 
 export async function updateConnectionSettings(
@@ -4094,6 +4189,9 @@ export async function updateConnectionSettings(
 ) {
     const conn = connections.get(id);
     if (!conn) throw new Error('Conexão não encontrada');
+
+    const previousLimit = conn.dailyLimit;
+    const previousApproved = Boolean(conn.limitExceededApproved);
 
     if (settings.dailyLimit !== undefined) {
         if (settings.dailyLimit !== conn.dailyLimit) conn.dailyLimitManualOn = brazilTodayKey();
@@ -4124,6 +4222,25 @@ export async function updateConnectionSettings(
         publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
     } else {
         warnUnscopedConnectionEvent(id, 'connections-update');
+    }
+
+    const limitChanged = settings.dailyLimit !== undefined && settings.dailyLimit !== previousLimit;
+    const approvedNow = Boolean(conn.limitExceededApproved) && !previousApproved;
+    if (limitChanged || approvedNow) {
+        const sent = getEffectiveMessagesSentToday(id, connectionDailyQuotaDeps());
+        const opened = channelHasDailySendRoom({
+            dailyLimit: conn.dailyLimit,
+            messagesSentToday: sent,
+            limitExceededApproved: conn.limitExceededApproved,
+        });
+        if (opened) {
+            void releaseOpenChannelDailyLimitHolds(id).catch((err) =>
+                log('warn', '[Limits] falha ao retomar envios parados pelo limite', {
+                    connectionId: id,
+                    error: err instanceof Error ? err.message : String(err),
+                })
+            );
+        }
     }
 }
 
@@ -8124,6 +8241,98 @@ export async function tickAutoResumeProtectedCampaigns(): Promise<void> {
     }
 }
 
+const lastDailyLimitNoticeAt = new Map<string, number>();
+
+function shouldAnnounceDailyLimitHit(connectionId: string): boolean {
+    const now = Date.now();
+    const prev = lastDailyLimitNoticeAt.get(connectionId) || 0;
+    if (now - prev < 45_000) return false;
+    lastDailyLimitNoticeAt.set(connectionId, now);
+    return true;
+}
+
+/**
+ * Canal já no teto: troca de chip ou adia até meia-noite.
+ * Chamado cedo no job para não gastar o delay de tier/pausa humana em envio que não vai sair.
+ */
+async function holdCampaignJobIfDailyLimitReached(
+    job: Job<MessageQueueItem>,
+    item: MessageQueueItem,
+    token: string | undefined,
+    campaignState: CampaignRuntimeState | undefined
+): Promise<void> {
+    if (item.nurtureFollowUp || item.replyFlowResponse) return;
+    const conn = connections.get(item.connectionId);
+    if (!conn) return;
+    checkAndResetDailyLimits(conn);
+    syncDailyLimitToVolumeReached(item.connectionId, conn);
+
+    const dailyLimit = conn.dailyLimit || 0;
+    const sentToday = getEffectiveMessagesSentToday(item.connectionId, connectionDailyQuotaDeps());
+    if (!(dailyLimit > 0 && sentToday >= dailyLimit && !conn.limitExceededApproved)) return;
+
+    log('info', `[Limits] Conexão ${item.connectionId} atingiu o limite diário de ${dailyLimit} mensagens.`);
+
+    const poolFailoverId = await pickHealthyFailoverChannel(
+        item.connectionId,
+        item.alternateChannelIds,
+        item.campaignId,
+        item.rotationIndex
+    );
+    const poolAlt = poolFailoverId && poolFailoverId !== item.connectionId
+        ? connections.get(poolFailoverId)
+        : null;
+    if (poolAlt) {
+        checkAndResetDailyLimits(poolAlt);
+        const poolAltLimit = poolAlt.dailyLimit || 0;
+        const poolAltSent = getEffectiveMessagesSentToday(poolFailoverId!, connectionDailyQuotaDeps());
+        if (poolAltLimit === 0 || poolAltSent < poolAltLimit) {
+            emitCampaignLog(
+                'WARN',
+                `Limite diário atingido no canal ${conn.friendlyName || item.connectionId}. Redirecionando para ${poolAlt.friendlyName || poolFailoverId} (pool da campanha).`,
+                { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
+                campaignState?.ownerUid
+            );
+            item.connectionId = poolFailoverId!;
+            await job.updateData(item).catch(() => {});
+            await job.moveToDelayed(Date.now() + 2000, token);
+            throw new DelayedError();
+        }
+    }
+
+    if (conn.limitAction === 'redirect') {
+        const owner = resolveOwnerUid(item.connectionId);
+        const altConn = Array.from(connections.values()).find((c) => {
+            if (c.instanceName === item.connectionId) return false;
+            if (c.status !== 'open') return false;
+            if (resolveOwnerUid(c.instanceName) !== owner) return false;
+            checkAndResetDailyLimits(c);
+            const cLimit = c.dailyLimit || 0;
+            const cSent = getEffectiveMessagesSentToday(c.instanceName, connectionDailyQuotaDeps());
+            return cLimit === 0 || cSent < cLimit;
+        });
+
+        if (altConn) {
+            log('info', `[Limits] Redirecionando envio do canal ${item.connectionId} para o canal ${altConn.instanceName} devido ao limite atingido.`);
+            emitCampaignLog(
+                'WARN',
+                `Limite diário atingido no canal ${conn.friendlyName || item.connectionId}. Redirecionando envio para o canal ${altConn.friendlyName || altConn.instanceName}.`,
+                { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
+                campaignState?.ownerUid
+            );
+            item.connectionId = altConn.instanceName;
+            await job.updateData(item).catch(() => {});
+            await job.updateProgress({ redirectedTo: altConn.instanceName });
+            await job.moveToDelayed(Date.now() + 2000, token);
+            throw new DelayedError();
+        } else {
+            log('warn', `[Limits] Canal ${item.connectionId} excedeu o limite e limitAction é 'redirect', mas nenhuma conexão alternativa saudável foi encontrada. Tratando como 'ask'.`);
+        }
+    }
+
+    return deferCampaignJobForDailyLimit(job, item, token, campaignState, conn);
+}
+
 async function deferCampaignJobForDailyLimit(
     job: Job<MessageQueueItem>,
     item: MessageQueueItem,
@@ -8133,20 +8342,22 @@ async function deferCampaignJobForDailyLimit(
 ): Promise<never> {
     const dailyLimit = conn.dailyLimit || 0;
     const sentToday = getEffectiveMessagesSentToday(item.connectionId, connectionDailyQuotaDeps());
-    emitCampaignLog(
-        'ERROR',
-        `Envio suspenso no canal ${conn.friendlyName || item.connectionId}. Limite diário de ${dailyLimit} mensagens foi atingido. Defina uma ação ou aprove a continuação nas configurações da conexão.`,
-        { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
-        campaignState?.ownerUid
-    );
-    const owner = resolveOwnerUid(item.connectionId);
-    if (owner) {
-        publishOwnerEvent(owner, 'connection-limit-exceeded', {
-            connectionId: item.connectionId,
-            dailyLimit,
-            messagesSentToday: sentToday,
-            campaignId: item.campaignId,
-        });
+    if (shouldAnnounceDailyLimitHit(item.connectionId)) {
+        emitCampaignLog(
+            'ERROR',
+            `Envio suspenso no canal ${conn.friendlyName || item.connectionId}. Limite diário de ${dailyLimit} mensagens foi atingido. Aumente a meta do canal para continuar agora — os envios parados voltam sozinhos.`,
+            { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
+            campaignState?.ownerUid
+        );
+        const owner = resolveOwnerUid(item.connectionId);
+        if (owner) {
+            publishOwnerEvent(owner, 'connection-limit-exceeded', {
+                connectionId: item.connectionId,
+                dailyLimit,
+                messagesSentToday: sentToday,
+                campaignId: item.campaignId,
+            });
+        }
     }
     // Tenta redirecionar para qualquer chip online do tenant antes de adiar até meia-noite
     const limitOwner = campaignState?.ownerUid || resolveOwnerUid(item.connectionId);
@@ -8313,6 +8524,10 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         throw new DelayedError();
     }
 
+    // Limite diário antes de hash/tier/pausa humana: senão cada contato espera dezenas de
+    // segundos só para ser empurrado até meia-noite, e a campanha parece travada na largada.
+    await holdCampaignJobIfDailyLimitReached(job, item, token, campaignStateEarly);
+
     // Marca início do processamento no PG (estado 'sending' — protege contra reaper precoce)
     void markJobSending(job.id ?? '', process.env.WORKER_ID || `worker-${process.pid}`).catch(() => undefined);
 
@@ -8446,7 +8661,11 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         const tierConn = connections.get(item.connectionId);
         if (tierConn && isTierDailyCapReached(tierConn.messagesSentToday || 0, tierProfile)) {
             checkAndResetDailyLimits(tierConn);
-            if (isTierDailyCapReached(tierConn.messagesSentToday || 0, tierProfile)) {
+            if (
+                isTierDailyCapReached(tierConn.messagesSentToday || 0, tierProfile) &&
+                !tierConn.limitExceededApproved &&
+                !userDailyLimitOverridesTierCap(tierConn.dailyLimit || 0, tierProfile.suggestedDailyCap)
+            ) {
                 // Tenta redirecionar para outro chip do pool com cota disponível antes de adiar.
                 const tierPoolId = await pickHealthyFailoverChannel(
                     item.connectionId,
@@ -8478,10 +8697,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                     nowBr.getUTCSeconds() * 1000;
                 emitCampaignLog(
                     'WARN',
-                    `Chip ${item.connectionId} atingiu cap diário do tier ${tierProfile.label} (${tierProfile.suggestedDailyCap}/dia). Sem alternativo no pool — reagendado para amanhã.`,
+                    `Chip ${item.connectionId} atingiu cap diário do tier ${tierProfile.label} (${tierProfile.suggestedDailyCap}/dia). Sem alternativo no pool — reagendado para amanhã. Aumente a meta do canal para continuar hoje.`,
                     { campaignId: item.campaignId, connectionId: item.connectionId, tier: tierProfile.tier },
                     campaignState?.ownerUid
                 );
+                item._tierCapDeferred = true;
+                await job.updateData(item).catch(() => {});
                 await job.moveToDelayed(Date.now() + Math.max(msBrMidnight, 60_000), token);
                 throw new DelayedError();
             }
@@ -8668,82 +8889,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         throw new DelayedError();
     }
 
-    const conn = connections.get(item.connectionId);
-    if (conn && !item.nurtureFollowUp && !item.replyFlowResponse) {
-        checkAndResetDailyLimits(conn);
-        syncDailyLimitToVolumeReached(item.connectionId, conn);
-
-        const dailyLimit = conn.dailyLimit || 0;
-        const sentToday = getEffectiveMessagesSentToday(item.connectionId, connectionDailyQuotaDeps());
-
-        if (dailyLimit > 0 && sentToday >= dailyLimit && !conn.limitExceededApproved) {
-            log('info', `[Limits] Conexão ${item.connectionId} atingiu o limite diário de ${dailyLimit} mensagens.`);
-
-            // Tenta redirecionar para outro chip do POOL da campanha primeiro.
-            // Isso garante que o failover respeite os chips escolhidos pelo usuário para a campanha.
-            const poolFailoverId = await pickHealthyFailoverChannel(
-                item.connectionId,
-                item.alternateChannelIds,
-                item.campaignId,
-                item.rotationIndex
-            );
-            const poolAlt = poolFailoverId && poolFailoverId !== item.connectionId
-                ? connections.get(poolFailoverId)
-                : null;
-            if (poolAlt) {
-                checkAndResetDailyLimits(poolAlt);
-                const poolAltLimit = poolAlt.dailyLimit || 0;
-                const poolAltSent = getEffectiveMessagesSentToday(poolFailoverId!, connectionDailyQuotaDeps());
-                if (poolAltLimit === 0 || poolAltSent < poolAltLimit) {
-                    emitCampaignLog(
-                        'WARN',
-                        `Limite diário atingido no canal ${conn.friendlyName || item.connectionId}. Redirecionando para ${poolAlt.friendlyName || poolFailoverId} (pool da campanha).`,
-                        { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
-                        campaignState?.ownerUid
-                    );
-                    item.connectionId = poolFailoverId!;
-                    await job.updateData(item).catch(() => {});
-                    await job.moveToDelayed(Date.now() + 2000, token);
-                    throw new DelayedError();
-                }
-            }
-
-            if (conn.limitAction === 'redirect') {
-                const owner = resolveOwnerUid(item.connectionId);
-                // Fallback: busca qualquer chip do tenant com cota (fora do pool)
-                const altConn = Array.from(connections.values()).find((c) => {
-                    if (c.instanceName === item.connectionId) return false;
-                    if (c.status !== 'open') return false;
-                    if (resolveOwnerUid(c.instanceName) !== owner) return false;
-                    
-                    checkAndResetDailyLimits(c);
-                    const cLimit = c.dailyLimit || 0;
-                    const cSent = getEffectiveMessagesSentToday(c.instanceName, connectionDailyQuotaDeps());
-                    return cLimit === 0 || cSent < cLimit;
-                });
-
-                if (altConn) {
-                    log('info', `[Limits] Redirecionando envio do canal ${item.connectionId} para o canal ${altConn.instanceName} devido ao limite atingido.`);
-                    emitCampaignLog(
-                        'WARN',
-                        `Limite diário atingido no canal ${conn.friendlyName || item.connectionId}. Redirecionando envio para o canal ${altConn.friendlyName || altConn.instanceName}.`,
-                        { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
-                        campaignState?.ownerUid
-                    );
-                    
-                    item.connectionId = altConn.instanceName;
-                    await job.updateData(item).catch(() => {});
-                    await job.updateProgress({ redirectedTo: altConn.instanceName });
-                    await job.moveToDelayed(Date.now() + 2000, token);
-                    throw new DelayedError();
-                } else {
-                    log('warn', `[Limits] Canal ${item.connectionId} excedeu o limite e limitAction é 'redirect', mas nenhuma conexão alternativa saudável foi encontrada. Tratando como 'ask'.`);
-                }
-            }
-
-            return deferCampaignJobForDailyLimit(job, item, token, campaignState, conn);
-        }
-    }
+    await holdCampaignJobIfDailyLimitReached(job, item, token, campaignState);
 
     if (!(await isConnectionOpen(item.connectionId))) {
         const failoverId = await pickHealthyFailoverChannel(
@@ -9279,6 +9425,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         await recordFrequencyCap(campaignState?.ownerUid, item.to);
     }
 
+    const conn = connections.get(item.connectionId);
     if (conn && !item.nurtureFollowUp && !item.replyFlowResponse) {
         recordConnectionDispatch(item.connectionId);
         mergeConnectionSettingsCache(item.connectionId, {
@@ -10846,6 +10993,26 @@ export async function startCampaign(
         }
 
         await enqueueCampaignItemsBulk(pendingEnqueue);
+
+        const channelsWithRoom = activeConnectionIds.filter((id) => {
+            const chip = connections.get(id);
+            if (!chip) return true;
+            checkAndResetDailyLimits(chip);
+            const sent = getEffectiveMessagesSentToday(id, connectionDailyQuotaDeps());
+            return channelHasDailySendRoom({
+                dailyLimit: chip.dailyLimit,
+                messagesSentToday: sent,
+                limitExceededApproved: chip.limitExceededApproved,
+            });
+        });
+        if (channelsWithRoom.length === 0 && activeConnectionIds.length > 0) {
+            emitCampaignLog(
+                'WARN',
+                'Campanha na fila, mas os canais escolhidos já atingiram o limite de hoje. Aumente a meta do canal para o disparo continuar agora.',
+                { campaignId: cid, connections: activeConnectionIds.length },
+                ownerUid
+            );
+        }
 
         emitCampaignLog(
             'INFO',

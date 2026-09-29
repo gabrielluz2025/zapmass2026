@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   alignDailyLimitToAchieved,
+  channelHasDailySendRoom,
   checkAndResetDailyLimitsWithDeps,
   consumeDailyCampaignQuota,
   getEffectiveMessagesSentToday,
   releaseDailyCampaignQuota,
   resolveEffectiveChannelQuota,
   setConnectionPgSentTodayFloor,
+  userDailyLimitOverridesTierCap,
 } from './connectionDailyQuota.js';
 
 describe('connectionDailyQuota', () => {
@@ -94,6 +96,22 @@ describe('connectionDailyQuota', () => {
     expect(conn.dailyLimit).toBe(81);
     expect(conn.messagesSentToday).toBe(0);
     expect(conn.dailyLimitManualOn).toBeUndefined();
+  });
+
+  it('abrir a meta acima do enviado libera vaga; no teto continua fechado', () => {
+    expect(channelHasDailySendRoom({ dailyLimit: 20, messagesSentToday: 20 })).toBe(false);
+    expect(channelHasDailySendRoom({ dailyLimit: 80, messagesSentToday: 20 })).toBe(true);
+    expect(channelHasDailySendRoom({ dailyLimit: 0, messagesSentToday: 80 })).toBe(true);
+    expect(
+      channelHasDailySendRoom({ dailyLimit: 20, messagesSentToday: 80, limitExceededApproved: true })
+    ).toBe(true);
+  });
+
+  it('meta do canal maior que o teto do tier manda no disparo', () => {
+    expect(userDailyLimitOverridesTierCap(300, 250)).toBe(true);
+    expect(userDailyLimitOverridesTierCap(20, 250)).toBe(false);
+    expect(userDailyLimitOverridesTierCap(0, 20)).toBe(false);
+    expect(userDailyLimitOverridesTierCap(100, 0)).toBe(true);
   });
 
   it('resolveEffectiveChannelQuota aplica teto do canal sobre a cota da campanha', () => {

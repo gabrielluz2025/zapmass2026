@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.223',
+    date: '29/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Aumentar a meta do canal depois do limite retoma a campanha na hora, em vez de deixar os envios parados até a meia-noite' },
+    ],
+  },
+  {
     version: '2.3.222',
     date: '29/09/2026',
     highlights: [

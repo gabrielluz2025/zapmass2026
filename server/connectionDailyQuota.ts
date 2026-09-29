@@ -162,3 +162,30 @@ export function resolveEffectiveChannelQuota(
   return conn > 0 ? Math.min(camp, conn) : camp;
 }
 
+/** Há vaga para disparo de campanha neste canal agora. Limite 0 = sem teto. */
+export function channelHasDailySendRoom(opts: {
+  dailyLimit?: number;
+  messagesSentToday?: number;
+  limitExceededApproved?: boolean;
+}): boolean {
+  if (opts.limitExceededApproved) return true;
+  const limit = Math.max(0, Math.floor(Number(opts.dailyLimit) || 0));
+  if (limit <= 0) return true;
+  const sent = Math.max(0, Math.floor(Number(opts.messagesSentToday) || 0));
+  return sent < limit;
+}
+
+/**
+ * A meta digitada no canal vale mais que o teto sugerido do tier.
+ * Sem meta (0), o teto do tier continua protegendo o chip novo.
+ */
+export function userDailyLimitOverridesTierCap(
+  userDailyLimit: number,
+  suggestedDailyCap: number
+): boolean {
+  const user = Math.max(0, Math.floor(Number(userDailyLimit) || 0));
+  const tier = Math.max(0, Math.floor(Number(suggestedDailyCap) || 0));
+  if (tier <= 0) return true;
+  return user > tier;
+}
+

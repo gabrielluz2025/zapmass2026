@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.223] - 2026-09-29
+
+### Corrigido
+- **Campanha parada no limite do canal**: ao bater a meta, os envios iam para a meia-noite e continuar aumentando a quantidade não acordava a fila. Agora, ao subir a meta (ou aprovar envio extra), o que estava parado volta a sair na hora. Se os canais já estão no teto na largada, a campanha avisa em vez de parecer travada.
+
 ## [2.3.222] - 2026-09-29
 
 ### Corrigido
