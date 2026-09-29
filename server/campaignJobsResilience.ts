@@ -329,6 +329,38 @@ export async function getCampaignJobStatus(idempotencyKey: string): Promise<stri
   }
 }
 
+export type ClaimCampaignJobResult = 'claimed' | 'already_sent' | 'busy';
+
+/** Um contato+etapa só envia uma vez: retry/reaper não reenvia se PG já marcou sent. */
+export async function claimCampaignJobForSend(
+  idempotencyKey: string,
+  workerId: string
+): Promise<ClaimCampaignJobResult> {
+  const key = String(idempotencyKey || '').trim();
+  if (!key) return 'claimed';
+  const existing = await getCampaignJobStatus(key);
+  if (existing === 'sent') return 'already_sent';
+  if (!isZapmassPostgresConfigured()) return 'claimed';
+  const pool = getZapmassPool();
+  if (!pool) return 'claimed';
+  try {
+    const r = await pool.query(
+      `UPDATE zapmass.campaign_jobs
+          SET status = 'sending', locked_at = NOW(), locked_by = $2, updated_at = NOW()
+        WHERE idempotency_key = $1
+          AND status IN ('pending', 'failed')
+        RETURNING idempotency_key`,
+      [key, workerId]
+    );
+    if ((r.rowCount ?? 0) > 0) return 'claimed';
+    const after = await getCampaignJobStatus(key);
+    if (after === 'sent') return 'already_sent';
+    return 'busy';
+  } catch {
+    return 'claimed';
+  }
+}
+
 export async function countCampaignJobsByStatus(campaignId: string): Promise<Record<string, number>> {
   const cid = String(campaignId || '').trim();
   if (!cid || !isZapmassPostgresConfigured()) return {};

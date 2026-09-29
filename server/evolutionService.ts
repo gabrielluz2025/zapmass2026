@@ -174,13 +174,13 @@ import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './ca
 import { refreshRedispatchTargetPhones } from './campaignRedispatchPhoneRefresh.js';
 import {
     registerCampaignJob,
-    markJobSending,
     finalizeCampaignJob,
     isBackpressureActive,
     getCampaignJobStatus,
     countSentJobsByConnection,
     requeuePhantomDeadCampaignJobs,
     resetCampaignJobAfterPhantomFailure,
+    claimCampaignJobForSend,
     countCampaignJobsByStatus,
     campaignJobsStillActive,
 } from './campaignJobsResilience.js';
@@ -7653,6 +7653,18 @@ export async function sendTextToPhoneDirect(
 const ENQUEUE_CAMPAIGN_TIMEOUT_MS = 45_000;
 
 async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: { countPending?: boolean }) {
+    if (
+        item.campaignId &&
+        !item.replyFlowResponse &&
+        !item.nurtureFollowUp &&
+        pausedCampaigns.has(item.campaignId)
+    ) {
+        log('info', 'Campanha pausada — job não entra na fila', {
+            campaignId: item.campaignId,
+            to: item.to,
+        });
+        return;
+    }
     const queue = item.replyFlowResponse || item.nurtureFollowUp ? getReplyQueue() : getCampaignQueue();
     if (!queue) {
         // Sem Redis o job sumiria silenciosamente e a campanha nunca enviaria.
@@ -7857,6 +7869,37 @@ async function parkHeldCampaignSends(campaignId: string, items: MessageQueueItem
     if (parked > 0) {
         campaignPendingJobs.set(campaignId, (campaignPendingJobs.get(campaignId) || 0) + parked);
         log('info', '[dispatch] Contatos guardados fora da fila quente', { campaignId, parked });
+    }
+}
+
+async function stallWaitingJobsForPausedCampaign(campaignId: string): Promise<void> {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return;
+    const queue = getCampaignQueue();
+    if (!queue) return;
+    let stalled = 0;
+    await forEachCampaignQueueJob(queue, async (job, state) => {
+        if (state === 'active' || state === 'completed' || state === 'failed') return;
+        const data = job.data as MessageQueueItem;
+        if (String(data?.campaignId || '').trim() !== cid) return;
+        if (data.replyFlowResponse || data.nurtureFollowUp) return;
+        try {
+            await job.changePriority({ priority: PAUSED_CAMPAIGN_JOB_PRIORITY });
+            if (state === 'waiting' || state === 'prioritized' || state === 'waiting-children') {
+                await job.moveToDelayed(Date.now() + PAUSED_CAMPAIGN_HOLD_MS);
+            } else if (state === 'delayed') {
+                const remain = estimateJobRunAt(job) - Date.now();
+                if (remain < PAUSED_CAMPAIGN_HOLD_MS) {
+                    await job.changeDelay(PAUSED_CAMPAIGN_HOLD_MS);
+                }
+            }
+            stalled += 1;
+        } catch {
+            /* lock ou job removido */
+        }
+    });
+    if (stalled > 0) {
+        log('info', '[dispatch] Jobs da campanha pausada adiados', { campaignId: cid, stalled });
     }
 }
 
@@ -8677,7 +8720,18 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     await holdCampaignJobIfDailyLimitReached(job, item, token, campaignStateEarly);
 
     // Marca início do processamento no PG (estado 'sending' — protege contra reaper precoce)
-    void markJobSending(job.id ?? '', process.env.WORKER_ID || `worker-${process.pid}`).catch(() => undefined);
+    const jobKey = String(job.id || '');
+    const workerTag = process.env.WORKER_ID || `worker-${process.pid}`;
+    const claim = await claimCampaignJobForSend(jobKey, workerTag);
+    if (claim === 'already_sent') {
+        bumpQueueSize(item.connectionId, -1);
+        await closeCampaignJobWithoutRecount(job, item);
+        return;
+    }
+    if (claim === 'busy') {
+        await job.moveToDelayed(Date.now() + 8_000, token);
+        throw new DelayedError();
+    }
 
     const campaignState = campaignStateEarly;
     if (item.to) {
@@ -9206,6 +9260,16 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         campaignState?.ownerUid
     );
 
+    if (await deferActiveJobWhileCampaignPaused(job, item, token)) {
+        throw new DelayedError();
+    }
+    const preSendStatus = await getCampaignJobStatus(jobKey).catch(() => null);
+    if (preSendStatus === 'sent') {
+        bumpQueueSize(item.connectionId, -1);
+        await closeCampaignJobWithoutRecount(job, item);
+        return;
+    }
+
     let mediaToSend = item.media;
     const mediaLookup = item.mediaLookupKey || item.campaignId;
     if (item.sendAsMedia && mediaLookup && campaignMediaById.has(mediaLookup)) {
@@ -9507,16 +9571,11 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     // o retry do BullMQ detecta _sentOk=true e não reenvia (idempotência).
     item._sentOk = true;
     await job.updateData(item).catch(() => {});
-    // ACK de entrega real vem do webhook MESSAGES_UPDATE (recordDeliveredAckForMessage).
-
-    // Espelha sucesso no PG (auditoria + recovery)
-    void finalizeCampaignJob(job.id ?? '', { status: 'sent' }).catch(() => undefined);
-
-    // Registra timestamp de envio para o limitador de frequência (24 h).
-    // Respostas de fluxo / nurture não contam: só o disparo da campanha consome a cota.
     if (!item.nurtureFollowUp && !item.replyFlowResponse) {
         await recordFrequencyCap(campaignState?.ownerUid, item.to);
     }
+    await finalizeCampaignJob(job.id ?? '', { status: 'sent' }).catch(() => undefined);
+    // ACK de entrega real vem do webhook MESSAGES_UPDATE (recordDeliveredAckForMessage).
 
     const conn = connections.get(item.connectionId);
     if (conn && !item.nurtureFollowUp && !item.replyFlowResponse) {
@@ -13376,6 +13435,12 @@ export function pauseCampaign(campaignId: string, ownerUid?: string) {
     if (ou) notifyCampaignBlocking(ou, countActiveCampaignsForOwner(ou) > 0);
     void tuneCampaignJobFairness(campaignId).catch((err) =>
         log('warn', '[dispatch] falha ao tirar campanha pausada da frente da fila', {
+            campaignId,
+            error: err instanceof Error ? err.message : String(err),
+        })
+    );
+    void stallWaitingJobsForPausedCampaign(campaignId).catch((err) =>
+        log('warn', '[dispatch] falha ao adiar fila da campanha pausada', {
             campaignId,
             error: err instanceof Error ? err.message : String(err),
         })

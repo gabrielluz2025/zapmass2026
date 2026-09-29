@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.228',
+    date: '29/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Parar a campanha segura a fila de verdade; o mesmo contato não recebe a mesma mensagem em duplicata' },
+    ],
+  },
+  {
     version: '2.3.227',
     date: '29/09/2026',
     highlights: [

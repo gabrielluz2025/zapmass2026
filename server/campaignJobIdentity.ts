@@ -1,7 +1,10 @@
 /** Identidade estável de job de campanha — evita o mesmo contato ser enfileirado duas vezes. */
 
+import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
+
+/** Mesma chave BR (DDI + 9º dígito) para jobId, cap de frequência e skip de reenvio. */
 export function digitsForCampaignJobId(phone: string): string {
-  return String(phone || '').replace(/\D/g, '');
+  return normPhoneKey(phone) || String(phone || '').replace(/\D/g, '');
 }
 
 export function isDuplicateBullmqJobError(err: unknown): boolean {

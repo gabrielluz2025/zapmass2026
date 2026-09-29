@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.228] - 2026-09-29
+
+### Corrigido
+- **Pausar campanha**: jobs prontos na fila são adiados na hora; novos envios não entram enquanto estiver pausada; checagem extra antes do disparo real.
+- **Mesma mensagem várias vezes no mesmo contato**: jobId usa telefone canônico (com/sem 9); o Postgres marca `sent` antes do retry; cap de 24 h grava na hora do envio OK.
+
 ## [2.3.227] - 2026-09-29
 
 ### Corrigido

@@ -9,6 +9,12 @@ describe('buildCampaignSendJobId', () => {
     expect(a).toBe('c1__5547971856371__s0');
   });
 
+  it('unifica celular com e sem 9 após o DDD', () => {
+    const withNine = buildCampaignSendJobId({ campaignId: 'c1', to: '5547999127001', stageIndex: 0 });
+    const withoutNine = buildCampaignSendJobId({ campaignId: 'c1', to: '554799127001', stageIndex: 0 });
+    expect(withNine).toBe(withoutNine);
+  });
+
   it('não inclui chip — redispatch no outro canal não cria segundo job', () => {
     const id = buildCampaignSendJobId({ campaignId: 'c1', to: '5547999999999', stageIndex: 0 });
     expect(id).toBe('c1__5547999999999__s0');
