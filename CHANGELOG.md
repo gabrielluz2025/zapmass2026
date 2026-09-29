@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.222] - 2026-09-29
+
+### Corrigido
+- Compilação da foto no gatilho: o tipo do disparo passa a aceitar a imagem da rota.
+
 ## [2.3.221] - 2026-09-29
 
 ### Adicionado

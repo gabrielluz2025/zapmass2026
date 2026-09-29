@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.222',
+    date: '29/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Foto do gatilho entra no disparo sem erro de compilação' },
+    ],
+  },
+  {
     version: '2.3.221',
     date: '29/09/2026',
     highlights: [

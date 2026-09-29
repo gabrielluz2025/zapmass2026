@@ -825,6 +825,14 @@ export interface ZapMassContextType {
         fileName: string;
         sendMediaAsDocument?: boolean;
       };
+      optionMediaAttachments?: Array<{
+        stepIndex: number;
+        optionIndex: number;
+        dataBase64: string;
+        mimeType: string;
+        fileName: string;
+        previousMediaStorageKey?: string;
+      }>;
       /** Ignora limite de 24 h — só após confirmação explícita na triagem. */
       skipFrequencyCap?: boolean;
       dailySchedule?: CampaignDailySchedule;
