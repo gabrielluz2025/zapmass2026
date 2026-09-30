@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.242] - 2026-09-30
+
+### Corrigido
+- **Imagem da campanha não enviada**: após deploy/restart ou retomada, a mídia volta a ser lida do disco e anexada no disparo (não só texto).
+
 ## [2.3.241] - 2026-09-30
 
 ### Corrigido

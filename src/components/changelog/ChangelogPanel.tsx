@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.242',
+    date: '30/09/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Foto/anexo da campanha: envio com imagem após retomar ou reiniciar o servidor (mídia no disco)',
+      },
+    ],
+  },
+  {
     version: '2.3.241',
     date: '30/09/2026',
     highlights: [

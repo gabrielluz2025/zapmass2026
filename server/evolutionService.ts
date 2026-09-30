@@ -4806,6 +4806,47 @@ function campaignMediaReady(storageKey: string): boolean {
     }
 }
 
+/** Mídia da abertura (etapa 1) — inclui arquivo em disco após restart do app. */
+function campaignOpeningMediaAvailable(campaignId: string): boolean {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return false;
+    return campaignMediaReady(cid);
+}
+
+function resolveMediaForCampaignJob(item: MessageQueueItem): CampaignMediaPayload | null {
+    if (item.media?.base64 || item.media?.url) return item.media;
+
+    let lookup = String(item.mediaLookupKey || '').trim();
+    if (!lookup && item.campaignId) {
+        if (item.sendAsMedia) {
+            lookup = item.campaignId;
+        } else if (
+            !item.replyFlowResponse &&
+            !item.nurtureFollowUp &&
+            (item.replyFlowOpen || (item.stageIndex ?? 0) === 0) &&
+            campaignOpeningMediaAvailable(item.campaignId)
+        ) {
+            lookup = item.campaignId;
+        }
+    }
+    if (!lookup && item.sendAsMedia && item.campaignId) {
+        lookup = item.campaignId;
+    }
+    if (!lookup) return null;
+    if (!campaignMediaReady(lookup)) return null;
+
+    const meta = campaignMediaById.get(lookup);
+    if (!meta) return null;
+    const diskPath = (meta as CampaignMediaPayload & { _diskPath?: string })._diskPath;
+    if (diskPath) {
+        return (
+            loadCampaignMediaFromDisk(diskPath, meta.mimeType, meta.fileName, meta.caption) ?? meta
+        );
+    }
+    if (meta.base64 || meta.url) return meta;
+    return null;
+}
+
 function persistCampaignMediaPayload(storageKey: string, payload?: CampaignMediaPayload): void {
     if (!storageKey || !payload) return;
     if (payload.base64) {
@@ -9144,9 +9185,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         !item.replyFlowResponse
     ) {
         const skipHashForMediaOnly =
-            Boolean(item.sendAsMedia) &&
+            Boolean(item.sendAsMedia || item.mediaLookupKey || item.replyFlowOpen) &&
             Boolean(item.campaignId || item.mediaLookupKey) &&
-            campaignMediaById.has(item.mediaLookupKey || item.campaignId || '');
+            campaignMediaReady(String(item.mediaLookupKey || item.campaignId || ''));
         if (!skipHashForMediaOnly) {
         const hashLock = await validateCampaignContentHash(
             getSharedRedis(),
@@ -9614,21 +9655,13 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         return;
     }
 
-    let mediaToSend = item.media;
-    const mediaLookup = item.mediaLookupKey || item.campaignId;
-    if (item.sendAsMedia && mediaLookup && campaignMediaById.has(mediaLookup)) {
-        const meta = campaignMediaById.get(mediaLookup)!;
-        if ((meta as any)._diskPath) {
-            // Lê do arquivo temporário em disco (não fica base64 em RAM).
-            mediaToSend = loadCampaignMediaFromDisk(
-                (meta as any)._diskPath,
-                meta.mimeType,
-                meta.fileName,
-                meta.caption
-            ) ?? meta;
-        } else {
-            mediaToSend = meta;
-        }
+    let mediaToSend = resolveMediaForCampaignJob(item);
+    if (item.sendAsMedia && !mediaToSend) {
+        log('warn', 'Campanha marcada com mídia mas arquivo não encontrado — enviando só texto', {
+            campaignId: item.campaignId,
+            mediaLookupKey: item.mediaLookupKey,
+            to: item.to,
+        });
     }
 
     const hasMediaPayload = Boolean(mediaToSend?.base64 || mediaToSend?.url);
@@ -10117,7 +10150,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                                 ownerUid: p.ownerUid,
                                 stageIndex: p.stepIndex,
                                 rotationIndex: item.rotationIndex,
-                                sendAsMedia: campaignMediaById.has(p.campaignId),
+                                sendAsMedia: campaignOpeningMediaAvailable(p.campaignId),
                                 multiStepContact: { contactId: p.contactId, stepIndex: p.stepIndex },
                             },
                             p.delayMs
@@ -10934,7 +10967,7 @@ export async function redispatchCampaign(
         .filter((t) => t.length > 0);
 
     const dispatchSettings = resolveCampaignDispatchSettings(tenantId, campaign.delaySeconds);
-    const hasMedia = campaignMediaById.has(campaignId);
+    const hasMedia = campaignOpeningMediaAvailable(campaignId);
     const prev = campaignsById.get(campaignId);
     const recipientVars = prev?._recipientVars || buildRecipientVarsMap(undefined);
     const baseProcessed = prev?.processed ?? campaign.processedCount ?? 0;
@@ -11257,7 +11290,7 @@ export async function startCampaign(
         ? numbers.length
         : numbers.length * (useReplyFlow ? 1 : stageCount);
     const recipientVars = buildRecipientVarsMap(recipients);
-    const hasMedia = campaignMediaById.has(cid);
+    const hasMedia = campaignOpeningMediaAvailable(cid);
 
     const resolvedPoolWeights = poolDispatch?.channelWeights ?? channelWeights ?? {};
     const poolStrategy = resolvePoolStrategy(poolDispatch?.strategy, resolvedPoolWeights);
