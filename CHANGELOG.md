@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.251] - 2026-09-30
+
+### Corrigido
+- **Várias mensagens iguais no fluxo (grave)**: HistorySync do celular não dispara mais automação de resposta; saudação educada com cooldown (45s) e limite 2; sessão do fluxo persiste na chave correta do contato.
+
 ## [2.3.250] - 2026-09-30
 
 ### Corrigido

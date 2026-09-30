@@ -13025,7 +13025,11 @@ export async function handleWebhook(event: any) {
                 }
 
                 chatStore.handleWebhookMessage(instance, data);
-                if (data && typeof data === 'object' && (data as Record<string, unknown>).historySync === true) {
+                const isHistorySyncBatch =
+                    data &&
+                    typeof data === 'object' &&
+                    (data as Record<string, unknown>).historySync === true;
+                if (isHistorySyncBatch) {
                     publishOwnerEvent(messageOwnerUid, 'history-sync-status', {
                         connectionId: instance,
                         importing: true,
@@ -13093,6 +13097,13 @@ export async function handleWebhook(event: any) {
                         timestampMs: Number(msg.messageTimestamp) || Date.now(),
                         bodyText: bodyText || (nonTextReply ? '[non-text]' : ''),
                     });
+
+                    if (isHistorySyncBatch) {
+                        void markInboundAutomationProcessed(dedupeKey);
+                        const bodyKey = buildInboundBodyDedupeKey(instance, phoneDigits, bodyText);
+                        if (bodyKey) void markInboundAutomationProcessed(bodyKey);
+                        continue;
+                    }
 
                     void processInboundAutomationMessage({
                             connectionId: instance,

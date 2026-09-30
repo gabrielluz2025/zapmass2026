@@ -73,9 +73,14 @@ export type ReplyFlowSession = {
     invalidReplyCount?: number;
     /** Contador de saudações consecutivas para proteção contra loops entre robôs */
     greetingReplyCount?: number;
+    /** Evita várias retribuições de saudação seguidas (webhook duplicado / sync). */
+    lastPoliteGreetingAt?: number;
     /** Resposta enfileirada aguardando confirmação de envio — sobrevive queda/restart. */
     pendingOutbound?: ReplyFlowPendingOutbound;
 };
+
+const POLITE_GREETING_COOLDOWN_MS = 45_000;
+const MAX_POLITE_GREETING_REPLIES = 2;
 
 export type ReplyFlowOutboundItem = {
     to: string;
@@ -678,6 +683,86 @@ export class ReplyFlowEngine {
         return false;
     }
 
+    private persistSession(canonicalKey: string, session: ReplyFlowSession): void {
+        const colonIdx = canonicalKey.indexOf(':');
+        if (colonIdx <= 0) return;
+        this.callbacks.onSessionSave?.(
+            canonicalKey.slice(0, colonIdx),
+            canonicalKey.slice(colonIdx + 1),
+            session
+        );
+    }
+
+    private connectionIdFromKey(canonicalKey: string, fallback: string): string {
+        return canonicalKey.includes(':') ? canonicalKey.slice(0, canonicalKey.indexOf(':')) : fallback;
+    }
+
+    /**
+     * Retribui saudação educada (invalidReplyBody) com limite e cooldown — evita spam.
+     * @returns true se enviou ou ignorou (handled); false se não era saudação.
+     */
+    private tryPoliteGreetingInvalidReply(params: {
+        key: string;
+        session: ReplyFlowSession;
+        connectionId: string;
+        phoneDigits: string;
+        bodyText: string;
+        invalidReplyBody?: string;
+    }): boolean {
+        const tBody = String(params.bodyText || '').trim();
+        if (!isGreetingMessage(tBody)) return false;
+
+        const now = Date.now();
+        if (
+            params.session.lastPoliteGreetingAt &&
+            now - params.session.lastPoliteGreetingAt < POLITE_GREETING_COOLDOWN_MS
+        ) {
+            this.callbacks.onLog?.('Saudação ignorada — cooldown ativo', {
+                campaignId: params.session.campaignId,
+                connectionId: params.connectionId,
+                phoneDigits: params.phoneDigits,
+                cooldownSec: Math.round(POLITE_GREETING_COOLDOWN_MS / 1000),
+            });
+            return true;
+        }
+
+        params.session.greetingReplyCount = (params.session.greetingReplyCount || 0) + 1;
+        if (params.session.greetingReplyCount > MAX_POLITE_GREETING_REPLIES) {
+            this.callbacks.onLog?.('Limite de saudações consecutivas atingido, encerrando fluxo', {
+                campaignId: params.session.campaignId,
+                connectionId: params.connectionId,
+                phoneDigits: params.phoneDigits,
+                greetingCount: params.session.greetingReplyCount,
+            });
+            this.disposeSession(params.key, params.session);
+            return true;
+        }
+
+        const greeting = buildPoliteGreeting(tBody);
+        const politeBody = formatPoliteGreetingInvalidReply(params.invalidReplyBody, greeting);
+        const replyText = applyMessageVars(politeBody, params.phoneDigits, params.session.vars);
+
+        this.callbacks.onLog?.('Saudação detectada no fluxo por resposta — retribuindo educadamente', {
+            campaignId: params.session.campaignId,
+            connectionId: params.connectionId,
+            phoneDigits: params.phoneDigits,
+            greetingRetribuida: greeting,
+            replyPreview: replyText.slice(0, 80),
+        });
+
+        params.session.lastPoliteGreetingAt = now;
+
+        void this.safeEnqueue({
+            to: params.session.toRaw,
+            message: replyText,
+            connectionId: this.connectionIdFromKey(params.key, params.connectionId),
+            campaignId: params.session.campaignId,
+            ownerUid: params.session.ownerUid,
+        });
+        this.persistSession(params.key, params.session);
+        return true;
+    }
+
     private findSession(
         connectionId: string,
         phoneDigits: string
@@ -1034,40 +1119,19 @@ export class ReplyFlowEngine {
             const politeActive = def.meta?.politeGreetingEnabled !== false;
             const isGreeting = politeActive && isGreetingMessage(tBody);
 
-            if (isGreeting) {
-                session.greetingReplyCount = (session.greetingReplyCount || 0) + 1;
-                if (session.greetingReplyCount > 5) {
-                    this.callbacks.onLog?.('Limite de saudações consecutivas atingido, encerrando fluxo', {
-                        campaignId: session.campaignId,
+            if (isGreeting && politeActive) {
+                if (
+                    this.tryPoliteGreetingInvalidReply({
+                        key,
+                        session,
                         connectionId,
                         phoneDigits,
-                        greetingCount: session.greetingReplyCount,
-                    });
-                    this.disposeSession(key, session);
+                        bodyText: tBody,
+                        invalidReplyBody: gateStep.invalidReplyBody,
+                    })
+                ) {
                     return { handled: true };
                 }
-
-                const greeting = buildPoliteGreeting(tBody);
-                const politeBody = formatPoliteGreetingInvalidReply(gateStep.invalidReplyBody, greeting);
-                const replyText = applyMessageVars(politeBody, phoneDigits, session.vars);
-
-                this.callbacks.onLog?.('Saudação detectada no fluxo por resposta — retribuindo educadamente', {
-                    campaignId: session.campaignId,
-                    connectionId,
-                    phoneDigits,
-                    greetingRetribuida: greeting,
-                    replyPreview: replyText.slice(0, 80),
-                });
-
-                void this.safeEnqueue({
-                    to: session.toRaw,
-                    message: replyText,
-                    connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
-                    campaignId: session.campaignId,
-                    ownerUid: session.ownerUid,
-                });
-                this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
-                return { handled: true };
             }
 
             if (gateStep.invalidReplyBody) {
@@ -1091,11 +1155,11 @@ export class ReplyFlowEngine {
                 void this.safeEnqueue({
                     to: session.toRaw,
                     message: inv,
-                    connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
+                    connectionId: this.connectionIdFromKey(key, connectionId),
                     campaignId: session.campaignId,
                     ownerUid: session.ownerUid,
                 });
-                this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
+                this.persistSession(key, session);
             } else {
                 this.callbacks.onLog?.('Resposta sem match de gatilho e sem mensagem de inválida', {
                     campaignId: session.campaignId,
@@ -1119,40 +1183,19 @@ export class ReplyFlowEngine {
                 const politeActive = def.meta?.politeGreetingEnabled !== false;
                 const isGreeting = politeActive && isGreetingMessage(tBody);
 
-                if (isGreeting) {
-                    session.greetingReplyCount = (session.greetingReplyCount || 0) + 1;
-                    if (session.greetingReplyCount > 5) {
-                        this.callbacks.onLog?.('Limite de saudações consecutivas atingido, encerrando fluxo', {
-                            campaignId: session.campaignId,
+                if (isGreeting && politeActive) {
+                    if (
+                        this.tryPoliteGreetingInvalidReply({
+                            key,
+                            session,
                             connectionId,
                             phoneDigits,
-                            greetingCount: session.greetingReplyCount,
-                        });
-                        this.disposeSession(key, session);
+                            bodyText: tBody,
+                            invalidReplyBody: gate.invalidReplyBody,
+                        })
+                    ) {
                         return { handled: true };
                     }
-
-                    const greeting = buildPoliteGreeting(tBody);
-                    const politeBody = formatPoliteGreetingInvalidReply(gate.invalidReplyBody, greeting);
-                    const replyText = applyMessageVars(politeBody, phoneDigits, session.vars);
-
-                    this.callbacks.onLog?.('Saudação detectada no fluxo por resposta — retribuindo educadamente', {
-                        campaignId: session.campaignId,
-                        connectionId,
-                        phoneDigits,
-                        greetingRetribuida: greeting,
-                        replyPreview: replyText.slice(0, 80),
-                    });
-
-                    void this.safeEnqueue({
-                        to: session.toRaw,
-                        message: replyText,
-                        connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
-                        campaignId: session.campaignId,
-                        ownerUid: session.ownerUid,
-                    });
-                    this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
-                    return { handled: true };
                 }
 
                 if (gate.invalidReplyBody) {
@@ -1176,11 +1219,11 @@ export class ReplyFlowEngine {
                     void this.safeEnqueue({
                         to: session.toRaw,
                         message: inv,
-                        connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
+                        connectionId: this.connectionIdFromKey(key, connectionId),
                         campaignId: session.campaignId,
                         ownerUid: session.ownerUid,
                     });
-                    this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
+                    this.persistSession(key, session);
                     return { handled: true };
                 }
             }
@@ -1222,40 +1265,19 @@ export class ReplyFlowEngine {
             const politeActive = def.meta?.politeGreetingEnabled !== false;
             const isGreeting = politeActive && isGreetingMessage(tBody);
 
-            if (isGreeting) {
-                session.greetingReplyCount = (session.greetingReplyCount || 0) + 1;
-                if (session.greetingReplyCount > 5) {
-                    this.callbacks.onLog?.('Limite de saudações consecutivas atingido, encerrando fluxo', {
-                        campaignId: session.campaignId,
+            if (isGreeting && politeActive) {
+                if (
+                    this.tryPoliteGreetingInvalidReply({
+                        key,
+                        session,
                         connectionId,
                         phoneDigits,
-                        greetingCount: session.greetingReplyCount,
-                    });
-                    this.disposeSession(key, session);
+                        bodyText: tBody,
+                        invalidReplyBody: gateStep.invalidReplyBody,
+                    })
+                ) {
                     return { handled: true };
                 }
-
-                const greeting = buildPoliteGreeting(tBody);
-                const politeBody = formatPoliteGreetingInvalidReply(gateStep.invalidReplyBody, greeting);
-                const replyText = applyMessageVars(politeBody, phoneDigits, session.vars);
-
-                this.callbacks.onLog?.('Saudação detectada no fluxo por resposta — retribuindo educadamente', {
-                    campaignId: session.campaignId,
-                    connectionId,
-                    phoneDigits,
-                    greetingRetribuida: greeting,
-                    replyPreview: replyText.slice(0, 80),
-                });
-
-                void this.safeEnqueue({
-                    to: session.toRaw,
-                    message: replyText,
-                    connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
-                    campaignId: session.campaignId,
-                    ownerUid: session.ownerUid,
-                });
-                this.callbacks.onSessionSave?.(connectionId, phoneDigits, session);
-                return { handled: true };
             }
 
             if (gateStep.invalidReplyBody) {
@@ -1263,7 +1285,7 @@ export class ReplyFlowEngine {
                 void this.safeEnqueue({
                     to: session.toRaw,
                     message: inv,
-                    connectionId: key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId,
+                    connectionId: this.connectionIdFromKey(key, connectionId),
                     campaignId: session.campaignId,
                     ownerUid: session.ownerUid,
                 });

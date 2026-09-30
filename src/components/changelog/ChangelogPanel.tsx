@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.251',
+    date: '30/09/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Para spam no fluxo: HistorySync não reenvia automação + cooldown de saudação educada',
+      },
+    ],
+  },
+  {
     version: '2.3.250',
     date: '30/09/2026',
     highlights: [

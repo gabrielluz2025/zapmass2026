@@ -499,6 +499,7 @@ describe('Detecção e retribuição de saudações educadas', () => {
 
   describe('ReplyFlowEngine com saudações educadas', () => {
     it('retribui saudação amigavelmente e não penaliza invalidReplyCount quando ativado', async () => {
+      vi.useFakeTimers();
       const enqueued: string[] = [];
       const engine = new ReplyFlowEngine({
         enqueue: (item) => {
@@ -546,6 +547,8 @@ describe('Detecção e retribuição de saudações educadas', () => {
       expect(sess?.invalidReplyCount ?? 0).toBe(0);
       expect(sess?.greetingReplyCount).toBe(1);
 
+      vi.advanceTimersByTime(46_000);
+
       // 2ª saudação do contato
       await engine.handleIncoming({
         connectionId: 'conn1',
@@ -566,6 +569,52 @@ describe('Detecção e retribuição de saudações educadas', () => {
 
       expect(enqueued).toHaveLength(3);
       expect(enqueued[2]).toBe('Você escolheu Vendas!');
+      vi.useRealTimers();
+    });
+
+    it('não envia saudação educada em burst (cooldown)', async () => {
+      const enqueued: string[] = [];
+      const engine = new ReplyFlowEngine({
+        enqueue: (item) => {
+          enqueued.push(item.message);
+        },
+      });
+
+      engine.registerDef(
+        'camp-cooldown',
+        [
+          {
+            body: 'Responda QUERO ou SAIR',
+            invalidReplyBody: 'Escolha QUERO ou SAIR.',
+            options: [
+              { tokens: ['quero'], reply: 'Ok!' },
+              { tokens: ['sair'], reply: 'Tchau' },
+            ],
+          },
+        ],
+        { politeGreetingEnabled: true }
+      );
+
+      engine.openSession({
+        connectionId: 'conn1',
+        phoneDigits: '5548999887766',
+        campaignId: 'camp-cooldown',
+        vars: {},
+        toRaw: '5548999887766',
+      });
+
+      await engine.handleIncoming({
+        connectionId: 'conn1',
+        phoneDigits: '5548999887766',
+        bodyText: 'Oi',
+      });
+      await engine.handleIncoming({
+        connectionId: 'conn1',
+        phoneDigits: '5548999887766',
+        bodyText: 'Olá',
+      });
+
+      expect(enqueued).toHaveLength(1);
     });
 
     it('dispara diretamente a mensagem de inválida e incrementa invalidReplyCount quando desativado', async () => {
