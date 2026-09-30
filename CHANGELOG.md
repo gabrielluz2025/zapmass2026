@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.243] - 2026-09-30
+
+### Corrigido
+- **Foto da campanha sumia após deploy**: anexo passa a ficar em `/app/data/campaign-media` (volume persistente); Evolution Go recebe base64 direto no envio.
+
 ## [2.3.242] - 2026-09-30
 
 ### Corrigido

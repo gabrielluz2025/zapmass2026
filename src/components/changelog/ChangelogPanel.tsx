@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.243',
+    date: '30/09/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Anexo de campanha persiste em /app/data e Evolution Go envia imagem com base64 (legenda + foto)',
+      },
+    ],
+  },
+  {
     version: '2.3.242',
     date: '30/09/2026',
     highlights: [

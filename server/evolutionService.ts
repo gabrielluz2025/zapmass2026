@@ -16,6 +16,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { evolutionConfig, isEvolutionGoEngine, isGoWebhookInboxMode } from './evolutionConfig.js';
+import { PROJECT_ROOT } from './bootstrapEnv.js';
 import { createEvolutionHttpClient } from './evolutionProvider/createEvolutionHttpClient.js';
 import { pickGoInstanceUuid, pickGoInstanceUuidFromRow } from './evolutionProvider/goUuid.js';
 import {
@@ -4708,9 +4709,28 @@ async function recordFrequencyCap(ownerUid: string | undefined, phone: string): 
 const campaignMediaById = new Map<string, CampaignMediaPayload & { _diskPath?: string }>();
 
 const CAMPAIGN_MEDIA_TEMP_DIR = path.join(
-    typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url)),
-    '../data/campaign-media'
+    path.resolve(PROJECT_ROOT, process.env.DATA_DIR || 'data'),
+    'campaign-media'
 );
+
+/** Copia anexos gravados no path antigo (dist/data) para o volume persistente /app/data. */
+function migrateLegacyCampaignMediaDirOnce(): void {
+    try {
+        const legacyDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../data/campaign-media');
+        if (path.resolve(legacyDir) === path.resolve(CAMPAIGN_MEDIA_TEMP_DIR)) return;
+        if (!fs.existsSync(legacyDir)) return;
+        ensureCampaignMediaDir();
+        for (const name of fs.readdirSync(legacyDir)) {
+            const src = path.join(legacyDir, name);
+            const dest = path.join(CAMPAIGN_MEDIA_TEMP_DIR, name);
+            if (fs.existsSync(dest)) continue;
+            fs.copyFileSync(src, dest);
+        }
+    } catch {
+        /* best effort */
+    }
+}
+migrateLegacyCampaignMediaDirOnce();
 
 function ensureCampaignMediaDir(): void {
     try { fs.mkdirSync(CAMPAIGN_MEDIA_TEMP_DIR, { recursive: true }); } catch { /* ignora */ }
@@ -7714,7 +7734,14 @@ async function sendMediaInternal(
             connectionId,
             tryNumber,
             to,
-            { mediatype: type, mimetype: mimeType, caption: caption || '', media: url, fileName }
+            {
+                mediatype: type,
+                mimetype: mimeType,
+                caption: caption || '',
+                media: url,
+                fileName,
+            },
+            isEvolutionGoEngine() ? { base64 } : undefined
         );
         if (lastResult.ok) return lastResult;
         if (i >= variants.length - 1 || !isRetryableOutbound400(lastResult.errorDetail)) break;
@@ -7733,16 +7760,20 @@ async function attemptEvolutionSendMedia(
         caption: string;
         media: string;
         fileName: string;
-    }
+    },
+    opts?: { base64?: string }
 ): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
     try {
+        const directBase64 = String(opts?.base64 || '').trim();
         const response = await api.post(`/message/sendMedia/${evoInst(connectionId)}`, {
             number,
-                delay: 1200,
+            delay: 1200,
             mediatype: payload.mediatype,
             mimetype: payload.mimetype,
             caption: payload.caption,
-            media: payload.media,
+            ...(directBase64.length > 0
+                ? { base64: directBase64, media: directBase64 }
+                : { media: payload.media }),
             fileName: payload.fileName,
         }, {
             timeout: evolutionConfig.mediaUploadTimeout,
@@ -9657,6 +9688,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     let mediaToSend = resolveMediaForCampaignJob(item);
     if (item.sendAsMedia && !mediaToSend) {
+        emitCampaignLog(
+            'WARN',
+            'Anexo não encontrado no servidor — mensagem enviada só como texto. Dispare de novo com a foto anexada.',
+            { campaignId: item.campaignId, to: item.to },
+            campaignState?.ownerUid
+        );
         log('warn', 'Campanha marcada com mídia mas arquivo não encontrado — enviando só texto', {
             campaignId: item.campaignId,
             mediaLookupKey: item.mediaLookupKey,
@@ -9925,14 +9962,19 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 }
                 let altRetry: { ok: boolean; messageId?: string; errorDetail?: string };
                 try {
-                    altRetry = item.media
+                    const foMedia = mediaToSend?.base64
+                        ? mediaToSend
+                        : hasMediaPayload
+                          ? mediaToSend
+                          : null;
+                    altRetry = foMedia?.base64
                         ? await sendMediaInternal(
                               altId,
                               sendTo,
-                              item.media.base64 || '',
-                              item.media.mimeType,
-                              item.media.fileName,
-                              item.media.caption || item.message
+                              foMedia.base64,
+                              foMedia.mimeType,
+                              foMedia.fileName,
+                              foMedia.caption || item.message
                           )
                         : await sendMessageInternal(altId, sendTo, item.message);
                 } finally {
@@ -11221,6 +11263,15 @@ export async function startCampaign(
     };
     persistCampaignMediaPayload(cid, media);
     persistCampaignMediaPayload(campaignMediaStorageKey(cid, 1), followUpMedia);
+    if (media?.base64 && !campaignOpeningMediaAvailable(cid)) {
+        const mediaErr =
+            'Anexo da campanha não foi gravado no servidor (disco). Verifique espaço em /app/data e dispare de novo.';
+        emitCampaignLog('ERROR', mediaErr, { campaignId: cid }, ownerUid);
+        throw new Error(mediaErr);
+    }
+    if (followUpMedia?.base64 && !campaignMediaReady(campaignMediaStorageKey(cid, 1))) {
+        log('warn', 'Follow-up media não gravou no disco — etapa 2 pode ir só com texto', { campaignId: cid });
+    }
 
     const sanitizedReplySteps =
         Boolean(replyFlow?.enabled && Array.isArray(replyFlow?.steps) && replyFlow.steps.length >= 1)
