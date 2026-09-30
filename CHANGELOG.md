@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.241] - 2026-09-30
+
+### Corrigido
+- **Retomada bloqueada com "Redis sob stress"**: aguarda reconexão da fila em vez de falhar na hora; ignora falso positivo após queda de conexão; trim BullMQ antes de enfileirar bases grandes.
+
 ## [2.3.240] - 2026-09-30
 
 ### Corrigido

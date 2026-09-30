@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.241',
+    date: '30/09/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Retomada de campanha: não falha imediato em "Redis sob stress"; espera fila reconectar e limpa jobs antigos no Redis',
+      },
+    ],
+  },
+  {
     version: '2.3.240',
     date: '30/09/2026',
     highlights: [

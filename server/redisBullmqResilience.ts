@@ -7,9 +7,7 @@ import type { Worker } from 'bullmq';
 
 const STRESS_PATTERNS = [
   /OOM command not allowed/i,
-  /maxmemory/i,
   /Stream isn't writeable/i,
-  /enableOfflineQueue/i,
   /READONLY/i,
   /LOADING Redis is loading/i,
 ];
@@ -64,6 +62,40 @@ export function isBullmqRecoveryPending(name: string): boolean {
   return pendingRecovery.has(name);
 }
 
+export function clearBullmqRecoveryPending(name: string): void {
+  const timer = pendingRecovery.get(name);
+  if (timer) {
+    clearTimeout(timer);
+    pendingRecovery.delete(name);
+  }
+}
+
+const RECOVERY_POLL_MS = 400;
+
+/** Aguarda backoff de stress; se Redis já está saudável, libera enfileiramento. */
+export async function waitForBullmqRecoveryOrProceed(
+  name: string,
+  opts?: { maxWaitMs?: number; canProceed?: () => Promise<boolean> }
+): Promise<void> {
+  const maxWaitMs = Math.max(2000, opts?.maxWaitMs ?? 75_000);
+  const deadline = Date.now() + maxWaitMs;
+  while (isBullmqRecoveryPending(name) && Date.now() < deadline) {
+    if (opts?.canProceed && (await opts.canProceed())) {
+      clearBullmqRecoveryPending(name);
+      clearBullmqRecoveryAttempts(name);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, RECOVERY_POLL_MS));
+  }
+  if (!isBullmqRecoveryPending(name)) return;
+  if (opts?.canProceed && (await opts.canProceed())) {
+    clearBullmqRecoveryPending(name);
+    clearBullmqRecoveryAttempts(name);
+    return;
+  }
+  throw new Error('Redis sob stress (memória cheia). Aguarde alguns segundos e tente novamente.');
+}
+
 /** Zera contador de backoff após worker estável (não cancelar recovery em andamento). */
 export function clearBullmqRecoveryAttempts(name: string): void {
   recoveryAttempts.delete(name);
@@ -71,7 +103,8 @@ export function clearBullmqRecoveryAttempts(name: string): void {
 
 /** Agenda reset + recriação do worker com backoff (debounced por fila). */
 export function scheduleBullmqRecovery(handler: BullmqRecoveryHandler, err?: unknown): void {
-  if (err != null && !isRedisStressError(err)) return;
+  if (err == null || !isRedisStressError(err)) return;
+  if (isRedisConnectionClosedError(err)) return;
   if (pendingRecovery.has(handler.name)) return;
 
   const pendingEnsure = ensureDebounce.get(handler.name);
@@ -128,6 +161,7 @@ export function scheduleDebouncedBullmqEnsure(
 
 export function attachRedisStressGuard(redis: IORedis, handler: BullmqRecoveryHandler): void {
   redis.on('error', (err) => {
+    if (isRedisConnectionClosedError(err)) return;
     if (isRedisStressError(err)) {
       scheduleBullmqRecovery(handler, err);
     }
@@ -140,6 +174,7 @@ export function attachRedisStressGuard(redis: IORedis, handler: BullmqRecoveryHa
 
 export function attachWorkerStressGuard(worker: Worker, handler: BullmqRecoveryHandler): void {
   worker.on('error', (err) => {
+    if (isRedisConnectionClosedError(err)) return;
     if (isRedisStressError(err)) {
       scheduleBullmqRecovery(handler, err);
     }

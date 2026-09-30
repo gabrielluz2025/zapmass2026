@@ -38,11 +38,12 @@ import { attachEvolutionAxiosRetry } from './evolutionAxiosRetry.js';
 import { notifyTenant } from './tenantNotifyService.js';
 import { getEffectiveRedisUrl } from './redisConfig.js';
 import { getSharedRedis } from './redisShared.js';
+import { redisMemoryInfo } from './redisMemory.js';
 import {
     attachRedisStressGuard,
     attachWorkerStressGuard,
-    isBullmqRecoveryPending,
     isRedisConnectionClosedError,
+    waitForBullmqRecoveryOrProceed,
     type BullmqRecoveryHandler,
 } from './redisBullmqResilience.js';
 import { bullmqRemoveOnComplete, bullmqRemoveOnFail, trimBullmqQueue } from './bullmqRetention.js';
@@ -3420,6 +3421,37 @@ async function withCampaignBullmqReconnect<T>(fn: () => Promise<T>): Promise<T> 
         });
         await rebuildCampaignBullmqStack();
         return await fn();
+    }
+}
+
+async function isCampaignRedisHealthyForEnqueue(): Promise<boolean> {
+    const url = getRedisUrl();
+    if (!url) return false;
+    if (!(await pingRedisHealthy())) return false;
+    const mem = await redisMemoryInfo(url);
+    if (!mem.ok) return true;
+    if (mem.usedPct != null && mem.usedPct >= 97) return false;
+    return true;
+}
+
+async function assertCampaignEnqueueAllowed(): Promise<void> {
+    await waitForBullmqRecoveryOrProceed('campaign-queue', {
+        maxWaitMs: 75_000,
+        canProceed: isCampaignRedisHealthyForEnqueue,
+    });
+}
+
+async function trimCampaignBullmqQueuesBestEffort(): Promise<void> {
+    try {
+        await forEachAllCampaignMassQueues(async (q) => {
+            await trimBullmqQueue(q, 'campaign-ch');
+        });
+        const rq = getReplyQueue();
+        if (rq) await trimBullmqQueue(rq, 'campaign-replies');
+        const legacy = getCampaignQueue();
+        if (legacy) await trimBullmqQueue(legacy, 'campaign-messages');
+    } catch {
+        /* best effort */
     }
 }
 
@@ -7899,10 +7931,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: {
         return;
     }
     await ensureCampaignBullmqReadyForEnqueue();
-
-    if (isBullmqRecoveryPending('campaign-queue')) {
-        throw new Error('Redis sob stress (memória cheia). Aguarde alguns segundos e tente novamente.');
-    }
+    await assertCampaignEnqueueAllowed();
 
     const isMassCampaign =
         Boolean(item.campaignId) && !item.replyFlowResponse && !item.nurtureFollowUp;
@@ -8023,11 +8052,9 @@ async function enqueueCampaignItemsBulk(
         return;
     }
     await ensureCampaignBullmqReadyForEnqueue();
+    await assertCampaignEnqueueAllowed();
     if (!getRedisConnection()) {
         throw new Error('Fila Redis indisponível. Verifique REDIS_URL/serviço Redis na VPS.');
-    }
-    if (isBullmqRecoveryPending('campaign-queue')) {
-        throw new Error('Redis sob stress (memória cheia). Aguarde alguns segundos e tente novamente.');
     }
     const backpressure = await isBackpressureActive().catch(() => false);
     if (backpressure) {
@@ -11026,6 +11053,9 @@ export async function redispatchCampaign(
 
     const finishRedispatchEnqueue = async () => {
         try {
+            if (pendingEnqueue.length >= 100) {
+                await trimCampaignBullmqQueuesBestEffort();
+            }
             const paceMs = Math.round((dispatchSettings.minDelayMs + dispatchSettings.maxDelayMs) / 2);
             const windowed = splitCampaignDispatchWindow(pendingEnqueue, CAMPAIGN_CHANNEL_WINDOW, paceMs);
             await enqueueCampaignItemsBulk(windowed.hot);
@@ -11532,6 +11562,9 @@ export async function startCampaign(
 
         const paceMs = Math.round((dispatchSettings.minDelayMs + dispatchSettings.maxDelayMs) / 2);
         const windowed = splitCampaignDispatchWindow(pendingEnqueue, CAMPAIGN_CHANNEL_WINDOW, paceMs);
+        if (pendingEnqueue.length >= 100) {
+            await trimCampaignBullmqQueuesBestEffort();
+        }
         await enqueueCampaignItemsBulk(windowed.hot);
         await parkHeldCampaignSends(cid, windowed.held.map((entry) => entry.item));
         for (const connId of activeConnectionIds) {
