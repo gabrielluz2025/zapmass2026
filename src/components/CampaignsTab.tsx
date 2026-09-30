@@ -411,6 +411,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     skipFrequencyCap?: boolean;
     dailySchedule?: import('../types').CampaignDailySchedule;
     prospecting?: import('../types').CampaignProspecting;
+    editMode?: boolean;
+    editCampaignId?: string;
   }) => {
     if (payload.connectedIds.length === 0) {
       toast.error('Selecione pelo menos um chip conectado para disparar.');

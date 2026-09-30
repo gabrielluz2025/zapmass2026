@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.245',
+    date: '30/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Build CI: tipagem editMode no submit de campanha' },
+    ],
+  },
+  {
     version: '2.3.244',
     date: '30/09/2026',
     highlights: [

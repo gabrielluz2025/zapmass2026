@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.245] - 2026-09-30
+
+### Corrigido
+- **CI/build**: tipagem do payload de campanha inclui `editMode` / `editCampaignId` (deploy 2.3.244).
+
 ## [2.3.244] - 2026-09-30
 
 ### Corrigido
