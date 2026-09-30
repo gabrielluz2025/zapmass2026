@@ -518,6 +518,19 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
         const isLast = idx === totalStages - 1;
         const isConditional = !stage.acceptAnyReply && (stage.options?.length ?? 0) > 0;
         const previewBody = applyCampaignMessagePreviewVars(stage.body || '', { nome: previewDisplayName });
+        const stagePhotoEnabled =
+          !isFirst &&
+          idx === 1 &&
+          followUpAttachmentInputRef &&
+          onPickFollowUpAttachment &&
+          onRemoveFollowUpAttachment;
+        const composerAttachment = isFirst ? attachment : stagePhotoEnabled ? followUpAttachment : null;
+        const composerShowAttachment = isFirst
+          ? Boolean(attachmentInputRef && onPickAttachment && onRemoveAttachment)
+          : Boolean(stagePhotoEnabled);
+        const stagePreviewImageUrl =
+          (isFirst ? attachment?.previewUrl : stagePhotoEnabled ? followUpAttachment?.previewUrl : null) ||
+          null;
 
         return (
           <React.Fragment key={stage.id}>
@@ -603,11 +616,17 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                       showGreetingPicker={isFirst}
                       variablesDensity="compact"
                       variablesCollapsible
-                      showAttachment={isFirst}
-                      attachment={isFirst ? attachment : null}
-                      attachmentInputRef={isFirst ? attachmentInputRef : undefined}
-                      onPickAttachment={isFirst ? onPickAttachment : undefined}
-                      onRemoveAttachment={isFirst ? onRemoveAttachment : undefined}
+                      showAttachment={composerShowAttachment}
+                      attachment={composerAttachment ?? null}
+                      attachmentInputRef={
+                        isFirst ? attachmentInputRef : stagePhotoEnabled ? followUpAttachmentInputRef : undefined
+                      }
+                      onPickAttachment={
+                        isFirst ? onPickAttachment : stagePhotoEnabled ? onPickFollowUpAttachment : undefined
+                      }
+                      onRemoveAttachment={
+                        isFirst ? onRemoveAttachment : stagePhotoEnabled ? onRemoveFollowUpAttachment : undefined
+                      }
                       launchMode={launchMode}
                       minHeight={isFirst ? 168 : 130}
                       campaignBrief={campaignBrief}
@@ -619,6 +638,13 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                       <span>Como chega</span>
                     </div>
                     <div className="cw-reply-mini-preview__phone">
+                      {stagePreviewImageUrl ? (
+                        <img
+                          src={stagePreviewImageUrl}
+                          alt=""
+                          className="cw-wa-bubble cw-wa-bubble--out max-w-full rounded-lg mb-1 object-cover max-h-32"
+                        />
+                      ) : null}
                       {previewBody.trim() ? (
                         <div className="cw-wa-bubble cw-wa-bubble--out">{previewBody}</div>
                       ) : (
@@ -694,7 +720,9 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                           variablesCollapsible
                           showIdeas={false}
                           showGreetingPicker={false}
-                          showAttachment={Boolean(followUpAttachmentInputRef && onPickFollowUpAttachment && onRemoveFollowUpAttachment && isFirst)}
+                          showAttachment={Boolean(
+                            followUpAttachmentInputRef && onPickFollowUpAttachment && onRemoveFollowUpAttachment
+                          )}
                           attachment={followUpAttachment ?? null}
                           attachmentInputRef={followUpAttachmentInputRef}
                           onPickAttachment={onPickFollowUpAttachment}

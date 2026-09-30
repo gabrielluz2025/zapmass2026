@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.239',
+    date: '30/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Etapa 2 do fluxo por resposta: anexo de foto/mídia com legenda no composer' },
+    ],
+  },
+  {
     version: '2.3.238',
     date: '30/09/2026',
     highlights: [
