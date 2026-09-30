@@ -6227,6 +6227,11 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
             const pending = sess.pendingOutbound;
             if (!pending?.message?.trim()) continue;
 
+            const pendingAgeMs = Date.now() - (pending.enqueuedAt || 0);
+            if (pendingAgeMs > 0 && pendingAgeMs < 15 * 60_000) {
+                continue;
+            }
+
             pending.enqueuedAt = Date.now();
             void saveReplyFlowSessionToRedis(connectionId, phoneDigits, sess);
 
@@ -8001,6 +8006,23 @@ export async function sendTextToPhoneDirect(
 
 const ENQUEUE_CAMPAIGN_TIMEOUT_MS = 45_000;
 
+/** Respostas automáticas usam o pool da campanha para failover quando o chip da sessão cai. */
+async function attachCampaignPoolToReplyItem(item: MessageQueueItem): Promise<void> {
+    if (!item.replyFlowResponse && !item.nurtureFollowUp) return;
+    if (item.alternateChannelIds && item.alternateChannelIds.length > 0) return;
+    const cid = item.campaignId;
+    if (!cid) return;
+    const runtime = campaignsById.get(cid);
+    if (runtime?.connectionIds?.length) {
+        item.alternateChannelIds = [...runtime.connectionIds];
+        return;
+    }
+    const pool = await loadCampaignPoolConfig(cid).catch(() => null);
+    if (pool?.connectionIds?.length) {
+        item.alternateChannelIds = [...pool.connectionIds];
+    }
+}
+
 async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: { countPending?: boolean; hotSlotReserved?: boolean }) {
     if (
         item.campaignId &&
@@ -8016,6 +8038,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: {
     }
     await ensureCampaignBullmqReadyForEnqueue();
     await assertCampaignEnqueueAllowed();
+    await attachCampaignPoolToReplyItem(item);
 
     const isMassCampaign =
         Boolean(item.campaignId) && !item.replyFlowResponse && !item.nurtureFollowUp;
@@ -9143,6 +9166,27 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         throw new DelayedError();
     }
 
+    if (item.replyFlowResponse && item.connectionId && !isCampaignChannelUsable(item.connectionId)) {
+        const replyFailover = await pickHealthyFailoverChannel(
+            item.connectionId,
+            item.alternateChannelIds,
+            item.campaignId,
+            item.rotationIndex
+        );
+        if (replyFailover && replyFailover !== item.connectionId) {
+            emitCampaignLog(
+                'WARN',
+                `Resposta automática: chip ${item.connectionId} indisponível — alternando para ${replyFailover}`,
+                { campaignId: item.campaignId, de: item.connectionId, para: replyFailover, to: item.to },
+                campaignStateEarly?.ownerUid
+            );
+            item.connectionId = replyFailover;
+            await job.updateData(item).catch(() => {});
+            await job.moveToDelayed(Date.now() + 800, token);
+            throw new DelayedError();
+        }
+    }
+
     // Limite diário antes de hash/tier/pausa humana: senão cada contato espera dezenas de
     // segundos só para ser empurrado até meia-noite, e a campanha parece travada na largada.
     await holdCampaignJobIfDailyLimitReached(job, item, token, campaignStateEarly);
@@ -9849,7 +9893,11 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     const sendLeaseId = jobKey || String(job.id || 'send');
-    if (!(await tryAcquireChannelSendSlot(getSharedRedis(), item.connectionId, sendLeaseId))) {
+    const skipChannelSendSlot = Boolean(item.replyFlowResponse || item.nurtureFollowUp);
+    if (
+        !skipChannelSendSlot &&
+        !(await tryAcquireChannelSendSlot(getSharedRedis(), item.connectionId, sendLeaseId))
+    ) {
         await job.moveToDelayed(Date.now() + 2500 + Math.floor(Math.random() * 5500), token);
         throw new DelayedError();
     }
@@ -9888,7 +9936,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             sendResult = await sendMessageInternal(item.connectionId, sendTo, item.message);
         }
     } finally {
-        await releaseChannelSendSlot(getSharedRedis(), item.connectionId, sendLeaseId);
+        if (!skipChannelSendSlot) {
+            await releaseChannelSendSlot(getSharedRedis(), item.connectionId, sendLeaseId);
+        }
     }
 
     const cb = getChipCircuitBreaker();
@@ -10476,13 +10526,21 @@ function ensureReplyWorker(lockDuration: number): void {
         maxStalledCount: 3,
     });
     replyWorker.on('failed', (job, err) => {
-        log('error', 'Job de resposta falhou', {
-            to: job?.data?.to,
-            campaignId: job?.data?.campaignId,
-            error: err.message,
-        });
+        if (isPhantomCampaignJobFailure(err.message)) {
+            return;
+        }
+        const item = job?.data;
+        const isDead = job ? job.attemptsMade >= (job.opts.attempts || 1) : false;
+        if (isDead) {
+            log('error', 'Job de resposta falhou (definitivo)', {
+                to: item?.to,
+                campaignId: item?.campaignId,
+                connectionId: item?.connectionId,
+                error: err.message,
+                attemptsMade: job?.attemptsMade,
+            });
+        }
         if (job) {
-            const isDead = job.attemptsMade >= (job.opts.attempts || 1);
             void finalizeCampaignJob(job.id ?? '', { status: isDead ? 'dead' : 'failed', error: err.message }).catch(() => undefined);
         }
     });

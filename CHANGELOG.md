@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.247] - 2026-09-30
+
+### Corrigido
+- **Fluxo por resposta não enviava**: respostas automáticas não disputam o slot único de envio do chip com o disparo em massa; failover cedo para o pool; recover pós-deploy não re-enfileira pendências recentes.
+
 ## [2.3.246] - 2026-09-30
 
 ### Corrigido
