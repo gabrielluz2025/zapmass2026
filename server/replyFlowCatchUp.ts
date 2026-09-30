@@ -44,18 +44,28 @@ async function resolveCampaignFromPostgres(
   const phone = normalizePhoneDigits(phoneDigits);
   if (phone.length < 8) return null;
   const suffix = phone.slice(-8);
+  const replyFlowCampaignSql = `
+          (
+            COALESCE(c.doc->'replyFlow'->>'enabled', '') IN ('true', 't')
+            OR COALESCE(c.doc->'scheduleStartSnapshot'->'replyFlow'->>'enabled', '') IN ('true', 't')
+            OR jsonb_typeof(c.doc->'replyFlow') = 'object'
+            OR jsonb_typeof(c.doc->'scheduleStartSnapshot'->'replyFlow') = 'object'
+          )`;
   try {
     const r = await pool.query<{ campaign_id: string; connection_id: string }>(
-      `SELECT campaign_id::text, connection_id
-         FROM zapmass.campaign_jobs
-        WHERE tenant_id = $1::uuid
-          AND status = 'sent'
-          AND connection_id = $2
+      `SELECT j.campaign_id::text, j.connection_id
+         FROM zapmass.campaign_jobs j
+         INNER JOIN zapmass.campaigns c
+           ON c.id = j.campaign_id AND c.tenant_id = j.tenant_id
+        WHERE j.tenant_id = $1::uuid
+          AND j.status = 'sent'
+          AND j.connection_id = $2
           AND (
-            regexp_replace(to_number, '\\D', '', 'g') = $3
-            OR right(regexp_replace(to_number, '\\D', '', 'g'), 8) = $4
+            regexp_replace(j.to_number, '\\D', '', 'g') = $3
+            OR right(regexp_replace(j.to_number, '\\D', '', 'g'), 8) = $4
           )
-        ORDER BY sent_at DESC NULLS LAST
+          AND ${replyFlowCampaignSql}
+        ORDER BY j.sent_at DESC NULLS LAST
         LIMIT 1`,
       [tid, connectionId, phone, suffix]
     );
@@ -74,11 +84,14 @@ export async function resolveCampaignForInboundReply(
 ): Promise<ResolveCampaignForReply | null> {
   const fromRam = resolveLatestCampaignForReply(connectionId, phoneDigits);
   if (fromRam.campaignId) {
-    return {
-      campaignId: fromRam.campaignId,
-      ownerUid: fromRam.ownerUid || tenantId,
-      connectionId,
-    };
+    const gateCtx = await loadGateStep(tenantId, fromRam.campaignId);
+    if (gateCtx) {
+      return {
+        campaignId: fromRam.campaignId,
+        ownerUid: fromRam.ownerUid || tenantId,
+        connectionId,
+      };
+    }
   }
   const fromPg = await resolveCampaignFromPostgres(tenantId, connectionId, phoneDigits);
   return fromPg;

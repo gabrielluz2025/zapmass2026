@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.246',
+    date: '30/09/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Respostas da campanha: associa inbound à campanha com fluxo por respostas (evita duplicata sem menu)',
+      },
+    ],
+  },
+  {
     version: '2.3.245',
     date: '30/09/2026',
     highlights: [
