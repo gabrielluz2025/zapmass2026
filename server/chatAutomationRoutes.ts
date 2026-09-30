@@ -1,11 +1,10 @@
 import type { Express, Request, Response } from 'express';
 import { requireTenant } from './httpTenant.js';
+import { getConversations, broadcastConversationsUpdate } from './whatsappService.js';
 import {
-  getConversations,
-  broadcastConversationsUpdate,
+  pauseContactAutomationsForHumanClaim,
   resolveConnectionOwnerUid,
-} from './whatsappService.js';
-import { pauseContactAutomationsForHumanClaim } from './evolutionService.js';
+} from './evolutionService.js';
 import { rememberClaim } from './inboxAssignments.js';
 import { normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
 

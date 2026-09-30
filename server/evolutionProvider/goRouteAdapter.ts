@@ -237,12 +237,17 @@ export function adaptEvolutionApiRequestToGo(
         const body = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
         const mediaUrl = body.media || body.url || body.mediaUrl;
         const base64 = body.base64 || body.mediaBase64;
+        const mediaKind = String(body.mediatype || body.mediaType || 'image').trim() || 'image';
+        const mime = String(body.mimetype || body.mimeType || 'application/octet-stream').trim() ||
+            'application/octet-stream';
         const goMedia: Record<string, unknown> = {
             number: body.number,
             caption: body.caption ?? '',
-            // Evolution Go aceita mediaType (camelCase) OU mediatype (lowercase)
-            mediaType: body.mediatype || body.mediaType || 'image',
-            mimeType: body.mimetype || body.mimeType || 'application/octet-stream',
+            // Go valida "media type" — enviar ambos os nomes de campo
+            mediatype: mediaKind,
+            mediaType: mediaKind,
+            mimetype: mime,
+            mimeType: mime,
             fileName: body.fileName || body.filename || '',
         };
         if (typeof mediaUrl === 'string' && mediaUrl.startsWith('http')) {

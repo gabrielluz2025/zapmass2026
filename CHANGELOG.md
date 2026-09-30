@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.250] - 2026-09-30
+
+### Corrigido
+- **API fora do ar após 2.3.249**: import de `resolveConnectionOwnerUid` em `chatAutomationRoutes` apontava para módulo errado (crash loop no container).
+- **Mídia do fluxo no Go (`media type is required`)**: adapter envia `mediatype` e `mediaType` (e mime nos dois formatos).
+
 ## [2.3.249] - 2026-09-30
 
 ### Corrigido

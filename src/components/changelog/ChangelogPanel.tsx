@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.250',
+    date: '30/09/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Hotfix deploy: API sobe de novo (import chatAutomation) + mediatype no Evolution Go',
+      },
+    ],
+  },
+  {
     version: '2.3.249',
     date: '30/09/2026',
     highlights: [
