@@ -291,7 +291,7 @@ import {
   tryAutoEnrollOnOptIn
 } from './nurture/nurtureEngine.js';
 import { tryAutoEnrollHotLead } from './nurture/nurtureHotLeads.js';
-import { loadJourneyByIdPg } from './nurture/nurtureRepository.js';
+import { loadJourneyByIdPg, pauseEnrollmentsByConversationPg } from './nurture/nurtureRepository.js';
 import { dispatchEvolutionWebhook, initEvolutionWebhookQueue } from './evolutionWebhookQueue.js';
 import {
   assertProxyEditAllowed,
@@ -3586,6 +3586,20 @@ export async function cancelQueuedCampaignSendsForPhone(
     return removed;
 }
 
+/** Pausa fluxo por resposta, filas BullMQ e nutrição para um contato (atendimento humano). */
+export async function pauseContactAutomationsForHumanClaim(
+    tenantUid: string,
+    conversationId: string,
+    connectionId: string,
+    phoneDigits: string
+): Promise<{ jobsCancelled: number; replySessionClosed: boolean }> {
+    ensureReplyFlowEngine();
+    const replySessionClosed = replyFlowEngine!.disposeSessionForContact(connectionId, phoneDigits);
+    const jobsCancelled = await cancelQueuedCampaignSendsForPhone(tenantUid, phoneDigits);
+    void pauseEnrollmentsByConversationPg(tenantUid, conversationId, 'human_claim');
+    return { jobsCancelled, replySessionClosed };
+}
+
 function campaignQueueDefaultOptions() {
     return {
         removeOnComplete: bullmqRemoveOnComplete(),
@@ -4859,9 +4873,9 @@ function resolveMediaForCampaignJob(item: MessageQueueItem): CampaignMediaPayloa
     if (!meta) return null;
     const diskPath = (meta as CampaignMediaPayload & { _diskPath?: string })._diskPath;
     if (diskPath) {
-        return (
-            loadCampaignMediaFromDisk(diskPath, meta.mimeType, meta.fileName, meta.caption) ?? meta
-        );
+        const loaded = loadCampaignMediaFromDisk(diskPath, meta.mimeType, meta.fileName, meta.caption);
+        if (loaded?.base64) return loaded;
+        return null;
     }
     if (meta.base64 || meta.url) return meta;
     return null;
@@ -7751,12 +7765,23 @@ async function sendMediaInternal(
         return { ok: false, errorDetail: `Número inválido: ${to}` };
     }
 
-        let type = 'document';
-        if (mimeType.startsWith('image/')) type = 'image';
-        else if (mimeType.startsWith('video/')) type = 'video';
-        else if (mimeType.startsWith('audio/')) type = 'audio';
+    const b64 = String(base64 || '').trim();
+    if (!b64) {
+        return { ok: false, errorDetail: 'Mídia sem conteúdo (base64 vazio)' };
+    }
 
-        const { url } = await saveMediaFromBase64(base64, mimeType, fileName);
+    let type = 'document';
+    if (mimeType.startsWith('image/')) type = 'image';
+    else if (mimeType.startsWith('video/')) type = 'video';
+    else if (mimeType.startsWith('audio/')) type = 'audio';
+
+    const useGoBase64 = isEvolutionGoEngine();
+    let publicUrl = '';
+    if (!useGoBase64) {
+        const saved = await saveMediaFromBase64(b64, mimeType, fileName);
+        publicUrl = saved.url;
+    }
+
     const variants = buildOutboundPhoneVariants(number);
     let lastResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
 
@@ -7781,10 +7806,10 @@ async function sendMediaInternal(
                 mediatype: type,
                 mimetype: mimeType,
                 caption: caption || '',
-                media: url,
+                media: useGoBase64 ? b64 : publicUrl,
                 fileName,
             },
-            isEvolutionGoEngine() ? { base64 } : undefined
+            useGoBase64 ? { base64: b64 } : undefined
         );
         if (lastResult.ok) return lastResult;
         if (i >= variants.length - 1 || !isRetryableOutbound400(lastResult.errorDetail)) break;
@@ -10080,19 +10105,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 }
                 let altRetry: { ok: boolean; messageId?: string; errorDetail?: string };
                 try {
-                    const foMedia = mediaToSend?.base64
-                        ? mediaToSend
-                        : hasMediaPayload
-                          ? mediaToSend
-                          : null;
-                    altRetry = foMedia?.base64
-                        ? await sendMediaInternal(
+                    altRetry = hasMediaPayload
+                        ? await sendOutboundMediaPayload(
                               altId,
                               sendTo,
-                              foMedia.base64,
-                              foMedia.mimeType,
-                              foMedia.fileName,
-                              foMedia.caption || item.message
+                              mediaToSend,
+                              mediaToSend?.caption || item.message
                           )
                         : await sendMessageInternal(altId, sendTo, item.message);
                 } finally {
@@ -10368,6 +10386,36 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         Math.random() * (dispatchSettings.maxDelayMs - dispatchSettings.minDelayMs);
     await new Promise((r) => setTimeout(r, delay));
     }
+}
+
+async function sendOutboundMediaPayload(
+    connectionId: string,
+    sendTo: string,
+    media: CampaignMediaPayload | null | undefined,
+    caption: string
+): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
+    if (!media) return { ok: false, errorDetail: 'Sem mídia' };
+    if (media.url) {
+        return sendMediaByUrlInternal(
+            connectionId,
+            sendTo,
+            media.url,
+            media.mimeType,
+            media.fileName,
+            caption
+        );
+    }
+    if (media.base64) {
+        return sendMediaInternal(
+            connectionId,
+            sendTo,
+            media.base64,
+            media.mimeType,
+            media.fileName,
+            caption
+        );
+    }
+    return { ok: false, errorDetail: 'Mídia sem URL ou base64' };
 }
 
 async function sendMediaByUrlInternal(
@@ -12624,6 +12672,13 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
     }
     if (dedupeKey && !(await tryClaimInboundAutomation(dedupeKey))) {
         return;
+    }
+
+    if (messageOwnerUid && incomingConvId) {
+        const { getClaimerSync } = await import('./inboxAssignments.js');
+        if (getClaimerSync(messageOwnerUid, incomingConvId)) {
+            return;
+        }
     }
 
     ensureReplyFlowEngine();

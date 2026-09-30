@@ -474,7 +474,14 @@ export class ReplyFlowEngine {
         this.adjustSessionCount(session.campaignId, 1);
     }
 
-    /** Retorna true se existe sessão em memória para este par connectionId:phone. */
+    /** Encerra fluxo por resposta deste contato (atendimento humano / pausa manual). */
+    disposeSessionForContact(connectionId: string, phoneDigits: string): boolean {
+        const found = this.findSession(connectionId, phoneDigits);
+        if (!found) return false;
+        this.disposeSession(found.key, found.session);
+        return true;
+    }
+
     hasSession(connectionId: string, phoneDigits: string): boolean {
         if (this.sessions.has(`${connectionId}:${phoneDigits}`)) return true;
         const incoming = String(phoneDigits || '').replace(/\D/g, '');

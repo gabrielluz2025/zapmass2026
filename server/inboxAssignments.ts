@@ -10,7 +10,27 @@ import {
   resumeEnrollmentsByConversationPg
 } from './nurture/nurtureRepository.js';
 import { getWorkspaceMemberUidSetVps } from './auth/staffRepository.js';
+import { normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
 import type { Conversation } from './types.js';
+
+function triggerHumanClaimAutomationsPause(
+  tenantUid: string,
+  conversationId: string,
+  conversation: Conversation
+): void {
+  void pauseEnrollmentsByConversationPg(tenantUid, conversationId, 'human_claim');
+  const phoneDigits = normalizePhoneDigits(conversation.contactPhone || '');
+  if (phoneDigits.length >= 8) {
+    void import('./evolutionService.js').then(({ pauseContactAutomationsForHumanClaim }) =>
+      pauseContactAutomationsForHumanClaim(
+        tenantUid,
+        conversationId,
+        conversation.connectionId,
+        phoneDigits
+      )
+    );
+  }
+}
 
 function usePostgresInbox(): boolean {
   return vpsDataEnabled() && !!getZapmassPool();
@@ -133,7 +153,7 @@ export async function inboxClaimConversation(
       conversation.connectionId
     );
     if (r.ok) rememberClaim(tenantUid, conversationId, staffAuthUid);
-    if (r.ok) void pauseEnrollmentsByConversationPg(tenantUid, conversationId, 'human_claim');
+    if (r.ok) triggerHumanClaimAutomationsPause(tenantUid, conversationId, conversation);
     return r;
   }
   const admin = getFirebaseAdmin();
@@ -173,7 +193,7 @@ export async function inboxClaimConversation(
       });
     });
     rememberClaim(tenantUid, conversationId, staffAuthUid);
-    void pauseEnrollmentsByConversationPg(tenantUid, conversationId, 'human_claim');
+    triggerHumanClaimAutomationsPause(tenantUid, conversationId, conversation);
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

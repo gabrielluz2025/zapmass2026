@@ -127,6 +127,7 @@ import { startProspectingSilentBumpJob } from './prospecting/prospectingSilentBu
 import { startNurtureScheduler } from './nurture/nurtureScheduler.js';
 import { registerAiAssistantRoutes } from './aiAssistantRoutes.js';
 import { registerAssistantRoutes } from './assistantRoutes.js';
+import { registerChatAutomationRoutes } from './chatAutomationRoutes.js';
 import { structuredLog } from './structuredLog.js';
 import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
 import { redisPing, redisPingWithFallback } from './redisPing.js';
@@ -422,6 +423,7 @@ registerWarmupDiagnosticsRoutes(app);
 registerReplyIntentRoutes(app);
 registerAiAssistantRoutes(app);
 registerAssistantRoutes(app);
+registerChatAutomationRoutes(app);
 
 // --- API ROUTES ---
 /** /health — liveness probe simples para Uptime Kuma / Docker healthcheck */

@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.249] - 2026-09-30
+
+### Corrigido
+- **Respostas com foto falhavam (`URL is required`)**: Evolution Go envia mídia do fluxo direto em base64, sem depender de URL pública.
+- **Assumir atendimento no Bate-papo v2**: barra “Assumir” reativada; menu “Parar fluxo e disparo neste contato” (VPS); cancela fila, encerra sessão do fluxo e bloqueia automação enquanto assumido.
+
 ## [2.3.248] - 2026-09-30
 
 ### Corrigido

@@ -86,6 +86,7 @@ type Props = {
   onPickFileForPreview?: (file: File) => void;
   focusMode?: boolean;
   onToggleFocus?: () => void;
+  onPauseContactAutomation?: () => void;
   isGoWebhookInbox?: boolean;
 };
 
@@ -146,6 +147,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
   onPickFileForPreview,
   focusMode,
   onToggleFocus,
+  onPauseContactAutomation,
   isGoWebhookInbox = false,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -489,6 +491,18 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
                 {onOpenContactInfo && (
                   <button type="button" className="wa-msg-menu__item" onClick={() => { onOpenContactInfo(); setHeaderMenuOpen(false); }}>
                     Ficha do cliente
+                  </button>
+                )}
+                {onPauseContactAutomation && (
+                  <button
+                    type="button"
+                    className="wa-msg-menu__item"
+                    onClick={() => {
+                      onPauseContactAutomation();
+                      setHeaderMenuOpen(false);
+                    }}
+                  >
+                    Parar fluxo e disparo neste contato
                   </button>
                 )}
                 {onDeleteConversation && (

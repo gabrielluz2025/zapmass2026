@@ -28,6 +28,7 @@ import {
 import type { ChatMessage, Conversation } from '../../types';
 import { WaInbox } from './WaInbox';
 import { WaThread } from './WaThread';
+import { WaInboxTeamBar } from './WaInboxTeamBar';
 import { WaChannelRail } from './WaChannelRail';
 import { WaContextPanel } from './WaContextPanel';
 import { WaForwardModal, WaScheduleModal } from './WaForwardModal';
@@ -70,6 +71,7 @@ import {
   markInboxFullSyncDoneForToday,
 } from '../../utils/tenantDailyCache';
 import { isCampaignBlockingGoHistorySync } from '../../utils/campaignHistorySyncPolicy';
+import { pauseContactAutomation } from '../../services/chatAutomationApi';
 
 export const WaWebChatApp: React.FC<{
   autoSelectedConversationId?: string | null;
@@ -1332,7 +1334,46 @@ export const WaWebChatApp: React.FC<{
     else if (tab === 'all') setUnreadOnly(false);
   }, []);
 
-  const teamBar = null;
+  const teamBar =
+    selected && !isSelectedDraft && workspaceAuthUid ? (
+      <WaInboxTeamBar
+        conversation={selected}
+        isDraft={false}
+        workspaceAuthUid={workspaceAuthUid}
+        isTeamMember={isTeamMember}
+        isWorkspaceOwner={isWorkspaceOwner}
+        patchConversationInboxClaim={patchConversationInboxClaim}
+        socket={socket}
+      />
+    ) : null;
+
+  const handlePauseContactAutomation = useCallback(async () => {
+    if (!selected?.id || isSelectedDraft) return;
+    try {
+      const res = await pauseContactAutomation(selected.id);
+      if (!res.ok) {
+        toast.error(res.error || 'Não foi possível pausar as automações.');
+        return;
+      }
+      patchConversationInboxClaim(selected.id, user?.uid || workspaceAuthUid || undefined);
+      requestSync();
+      const n = res.jobsCancelled ?? 0;
+      toast.success(
+        n > 0
+          ? `Automação pausada (${n} envio(s) cancelado(s) na fila).`
+          : 'Automação pausada neste contato — só atendimento manual.'
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao pausar automação.');
+    }
+  }, [
+    selected?.id,
+    isSelectedDraft,
+    patchConversationInboxClaim,
+    user?.uid,
+    workspaceAuthUid,
+    requestSync,
+  ]);
 
   const selectedDisplay = selected ? displayById.get(selected.id) : null;
   const selectedTitle = selected
@@ -1522,6 +1563,9 @@ export const WaWebChatApp: React.FC<{
         focusMode={focusMode}
         onToggleFocus={() => setFocusMode((v) => !v)}
         isGoWebhookInbox={isGoWebhookInbox}
+        onPauseContactAutomation={
+          selected && !isSelectedDraft ? handlePauseContactAutomation : undefined
+        }
       />
 
       {selected && !focusMode && showContactInfo && (

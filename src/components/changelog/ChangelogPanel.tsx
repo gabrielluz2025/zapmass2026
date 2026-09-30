@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.249',
+    date: '30/09/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Fluxo com mídia no Evolution Go (URL is required) + parar automação ao assumir contato no chat',
+      },
+    ],
+  },
+  {
     version: '2.3.248',
     date: '30/09/2026',
     highlights: [
