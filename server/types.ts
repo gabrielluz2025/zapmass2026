@@ -16,6 +16,7 @@ export interface WhatsAppConnection {
   batteryLevel?: number;
   profilePicUrl?: string;
   queueSize: number;
+  heldDispatchSize?: number;
   messagesSentToday: number;
   totalMessagesSent?: number;
   connectedSince?: number;

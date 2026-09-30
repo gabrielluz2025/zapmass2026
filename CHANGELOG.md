@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.237] - 2026-09-30
+
+### Melhorado
+- **Fila BullMQ por chip**: cada `connectionId` usa fila `campaign-ch-*` com worker próprio (concorrência 1 por padrão); migração automática da fila global `campaign-messages`; admin/purge e métricas agregadas; `heldDispatchSize` na lista de conexões.
+
 ## [2.3.236] - 2026-09-30
 
 ### Melhorado

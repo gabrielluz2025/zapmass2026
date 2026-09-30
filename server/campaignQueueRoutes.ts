@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { assertAdminFromBearer } from './adminAuth.js';
 import {
-  buildCampaignQueueSummary,
+  buildCampaignQueueSummaryFromQueues,
   countCampaignQueueJobsDetailed,
   purgeCampaignQueueJobs,
 } from './campaignQueueAdmin.js';
@@ -14,9 +14,9 @@ function parseConfirmPhrase(campaignId: string, raw: unknown): boolean {
 }
 
 async function handleSummary(req: Request, res: Response): Promise<void> {
-  const queue = evolutionService.getCampaignBullmqQueue();
+  const queues = await evolutionService.getCampaignBullmqQueuesForAdmin();
   const campaignId = String(req.query.campaignId || '').trim() || undefined;
-  const summary = await buildCampaignQueueSummary(queue, {
+  const summary = await buildCampaignQueueSummaryFromQueues(queues, {
     campaignId,
     topLimit: Number(req.query.limit || 30) || 30,
   });
@@ -26,10 +26,10 @@ async function handleSummary(req: Request, res: Response): Promise<void> {
   try {
     const conn = await evolutionService.getRedisConnectionForOps?.();
     if (conn) {
-      const w = await conn.llen('bull:campaign-messages:wait');
-      const d = await conn.zcard('bull:campaign-messages:delayed');
-      redisWait = typeof w === 'number' ? w : Number(w) || 0;
-      redisDelayed = typeof d === 'number' ? d : Number(d) || 0;
+      const { sumRedisMassQueueDepth } = await import('./campaignChannelBullmq.js');
+      const depth = await sumRedisMassQueueDepth(conn);
+      redisWait = depth.waitLen;
+      redisDelayed = depth.delayedLen;
     }
   } catch {
     /* Redis opcional no payload */
@@ -37,6 +37,7 @@ async function handleSummary(req: Request, res: Response): Promise<void> {
 
   res.json({
     ok: true,
+    channelQueues: queues.length,
     redis: { waitLen: redisWait, delayedLen: redisDelayed },
     ...summary,
   });
@@ -65,13 +66,22 @@ async function handlePurge(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  const queue = evolutionService.getCampaignBullmqQueue();
-  if (!queue) {
-    res.status(503).json({ ok: false, error: 'Fila campaign-messages indisponível (Redis).' });
+  const queues = await evolutionService.getCampaignBullmqQueuesForAdmin();
+  if (queues.length === 0) {
+    res.status(503).json({ ok: false, error: 'Filas de campanha indisponíveis (Redis).' });
     return;
   }
 
-  const before = await countCampaignQueueJobsDetailed(queue, campaignId);
+  let beforeTotal = 0;
+  const beforeByState = { active: 0, waiting: 0, delayed: 0, paused: 0 };
+  for (const queue of queues) {
+    const before = await countCampaignQueueJobsDetailed(queue, campaignId);
+    beforeTotal += before.total;
+    for (const k of Object.keys(before.byState) as (keyof typeof beforeByState)[]) {
+      beforeByState[k] += before.byState[k];
+    }
+  }
+  const before = { total: beforeTotal, byState: beforeByState };
 
   let paused = false;
   if (!dryRun && body.pauseFirst !== false) {
@@ -79,9 +89,50 @@ async function handlePurge(req: Request, res: Response): Promise<void> {
     paused = true;
   }
 
-  const purge = await purgeCampaignQueueJobs(queue, campaignId, { dryRun });
-  const after =
-    dryRun ? before : await countCampaignQueueJobsDetailed(queue, campaignId);
+  const purgeResults = [];
+  for (const queue of queues) {
+    purgeResults.push(await purgeCampaignQueueJobs(queue, campaignId, { dryRun }));
+  }
+  const purge = purgeResults.reduce(
+    (acc, p) => ({
+      campaignId: p.campaignId,
+      dryRun: p.dryRun,
+      matched: acc.matched + p.matched,
+      removed: acc.removed + p.removed,
+      wouldRemove: acc.wouldRemove + p.wouldRemove,
+      skippedActive: acc.skippedActive + p.skippedActive,
+      failedRemove: acc.failedRemove + p.failedRemove,
+      byState: {
+        active: acc.byState.active + p.byState.active,
+        waiting: acc.byState.waiting + p.byState.waiting,
+        delayed: acc.byState.delayed + p.byState.delayed,
+        paused: acc.byState.paused + p.byState.paused,
+      },
+    }),
+    {
+      campaignId,
+      dryRun,
+      matched: 0,
+      removed: 0,
+      wouldRemove: 0,
+      skippedActive: 0,
+      failedRemove: 0,
+      byState: { active: 0, waiting: 0, delayed: 0, paused: 0 },
+    }
+  );
+  let after = before;
+  if (!dryRun) {
+    let afterTotal = 0;
+    const afterByState = { active: 0, waiting: 0, delayed: 0, paused: 0 };
+    for (const queue of queues) {
+      const part = await countCampaignQueueJobsDetailed(queue, campaignId);
+      afterTotal += part.total;
+      for (const k of Object.keys(part.byState) as (keyof typeof afterByState)[]) {
+        afterByState[k] += part.byState[k];
+      }
+    }
+    after = { total: afterTotal, byState: afterByState };
+  }
 
   res.json({
     ok: true,

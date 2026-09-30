@@ -5,13 +5,14 @@
 import type { Job, Queue } from 'bullmq';
 import type IORedis from 'ioredis';
 import {
+  campaignJobScanPatterns,
+} from './campaignChannelBullmq.js';
+import {
   collectCampaignJobCountsFromQueue,
   countQueueJobsForCampaign,
   forEachCampaignQueueJob,
   type CampaignQueueScanState,
 } from './campaignQueueScan.js';
-
-const QUEUE_KEY_PREFIX = 'bull:campaign-messages';
 
 /**
  * Purge rápido via Redis SCAN:
@@ -27,57 +28,51 @@ export async function fastPurgeCampaignJobsByRedis(
   const cid = String(campaignId || '').trim();
   if (!cid) return 0;
 
-  const pattern = `${QUEUE_KEY_PREFIX}:${cid}__*`;
-  const jobIds: string[] = [];
+  const patterns = campaignJobScanPatterns(cid);
+  const jobsByPrefix = new Map<string, string[]>();
 
-  // SCAN para encontrar todos os hashes de jobs desta campanha
-  let cursor = '0';
-  do {
-    const [nextCursor, keys] = await redisClient.scan(
-      cursor,
-      'MATCH',
-      pattern,
-      'COUNT',
-      '500'
-    );
-    cursor = nextCursor;
-    for (const key of keys) {
-      const jobId = key.slice(QUEUE_KEY_PREFIX.length + 1);
-      if (jobId) jobIds.push(jobId);
-    }
-  } while (cursor !== '0');
+  for (const pattern of patterns) {
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await redisClient.scan(cursor, 'MATCH', pattern, 'COUNT', '500');
+      cursor = nextCursor;
+      for (const key of keys) {
+        const sep = key.indexOf(':', 5);
+        if (sep < 0) continue;
+        const prefix = key.slice(0, sep);
+        const jobId = key.slice(sep + 1);
+        if (!jobId) continue;
+        const list = jobsByPrefix.get(prefix) || [];
+        list.push(jobId);
+        jobsByPrefix.set(prefix, list);
+      }
+    } while (cursor !== '0');
+  }
 
-  if (jobIds.length === 0) return 0;
+  if (jobsByPrefix.size === 0) return 0;
 
-  // Obter lista de jobs ativos para não remover em voo
-  const activeIds = new Set<string>(
-    await redisClient.lrange(`${QUEUE_KEY_PREFIX}:active`, 0, -1)
-  );
-
-  const toDelete = jobIds.filter((id) => !activeIds.has(id));
-  if (toDelete.length === 0) return 0;
-
-  const BATCH = 500;
   let removed = 0;
+  for (const [prefix, jobIds] of jobsByPrefix) {
+    const unique = [...new Set(jobIds)];
+    const activeIds = new Set<string>(await redisClient.lrange(`${prefix}:active`, 0, -1));
+    const toDelete = unique.filter((id) => !activeIds.has(id));
+    if (toDelete.length === 0) continue;
 
-  for (let i = 0; i < toDelete.length; i += BATCH) {
-    const batch = toDelete.slice(i, i + BATCH);
-    const pipeline = redisClient.pipeline();
-
-    // Remove do sorted set de delayed e prioridade
-    pipeline.zrem(`${QUEUE_KEY_PREFIX}:delayed`, ...batch);
-    pipeline.zrem(`${QUEUE_KEY_PREFIX}:prioritized`, ...batch);
-
-    // Remove das listas wait e paused (LREM = O(N) por chamada, mas com pipeline)
-    for (const jobId of batch) {
-      pipeline.lrem(`${QUEUE_KEY_PREFIX}:wait`, 0, jobId);
-      pipeline.lrem(`${QUEUE_KEY_PREFIX}:paused`, 0, jobId);
-      pipeline.del(`${QUEUE_KEY_PREFIX}:${jobId}`);
-      pipeline.del(`${QUEUE_KEY_PREFIX}:${jobId}:logs`);
+    const BATCH = 500;
+    for (let i = 0; i < toDelete.length; i += BATCH) {
+      const batch = toDelete.slice(i, i + BATCH);
+      const pipeline = redisClient.pipeline();
+      pipeline.zrem(`${prefix}:delayed`, ...batch);
+      pipeline.zrem(`${prefix}:prioritized`, ...batch);
+      for (const jobId of batch) {
+        pipeline.lrem(`${prefix}:wait`, 0, jobId);
+        pipeline.lrem(`${prefix}:paused`, 0, jobId);
+        pipeline.del(`${prefix}:${jobId}`);
+        pipeline.del(`${prefix}:${jobId}:logs`);
+      }
+      await pipeline.exec();
+      removed += batch.length;
     }
-
-    await pipeline.exec();
-    removed += batch.length;
   }
 
   return removed;
@@ -158,6 +153,50 @@ export async function buildCampaignQueueSummary(
     .sort((a, b) => b.jobs - a.jobs)
     .slice(0, filterCid ? byCampaign.size : topLimit);
 
+  return { scannedJobs, campaigns };
+}
+
+/** Agrega resumo de várias filas (massa por chip + legado). */
+export async function buildCampaignQueueSummaryFromQueues(
+  queues: Queue[],
+  opts?: { campaignId?: string; topLimit?: number }
+): Promise<CampaignQueueSummary> {
+  let scannedJobs = 0;
+  const merged = new Map<
+    string,
+    { ownerUid?: string; byState: CampaignQueueStateCounts; total: number }
+  >();
+  for (const queue of queues) {
+    const part = await buildCampaignQueueSummary(queue, opts);
+    scannedJobs += part.scannedJobs;
+    for (const row of part.campaigns) {
+      const cur = merged.get(row.campaignId);
+      if (!cur) {
+        merged.set(row.campaignId, {
+          ownerUid: row.ownerUid,
+          byState: { ...row.byState },
+          total: row.jobs,
+        });
+        continue;
+      }
+      cur.total += row.jobs;
+      for (const k of Object.keys(row.byState) as CampaignQueueScanState[]) {
+        cur.byState[k] += row.byState[k];
+      }
+      if (!cur.ownerUid && row.ownerUid) cur.ownerUid = row.ownerUid;
+    }
+  }
+  const topLimit = Math.max(1, Math.min(100, opts?.topLimit ?? 25));
+  const filterCid = String(opts?.campaignId || '').trim();
+  const campaigns = [...merged.entries()]
+    .map(([campaignId, row]) => ({
+      campaignId,
+      ownerUid: row.ownerUid,
+      jobs: row.total,
+      byState: row.byState,
+    }))
+    .sort((a, b) => b.jobs - a.jobs)
+    .slice(0, filterCid ? merged.size : topLimit);
   return { scannedJobs, campaigns };
 }
 

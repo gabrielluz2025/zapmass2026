@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.237',
+    date: '30/09/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'BullMQ separada por chip (campaign-ch-*), migração da fila global e heldDispatchSize na UI de conexões',
+      },
+    ],
+  },
+  {
     version: '2.3.236',
     date: '30/09/2026',
     highlights: [

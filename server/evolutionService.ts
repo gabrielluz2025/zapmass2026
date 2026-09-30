@@ -161,6 +161,19 @@ import {
     tryReserveChannelHotSlot,
 } from './campaignChannelDispatch.js';
 import {
+    aggregateCampaignMassQueueMetrics,
+    ensureCampaignMassWorker,
+    ensureLegacyCampaignDrainWorker,
+    forEachCampaignMassQueue,
+    getCachedCampaignMassQueues,
+    getOrCreateCampaignMassQueue,
+    listRegisteredCampaignConnectionIds,
+    migrateLegacyGlobalCampaignQueueOnce,
+    resolveAllCampaignMassQueues,
+    sumRedisMassQueueDepth,
+    usePerChannelCampaignQueues,
+} from './campaignChannelBullmq.js';
+import {
     cancelCampaignJobsForPhone,
     handleInboundOptOut,
     isContactOptedOut,
@@ -3369,9 +3382,23 @@ async function pingRedisHealthy(): Promise<boolean> {
     return result.ok;
 }
 
-/** Expõe fila para trim periódico (redisMaintenance) — não usar fora do servidor. */
+/** Expõe fila para trim periódico (redisMaintenance) — preferir filas por chip. */
 export function getCampaignBullmqQueue(): Queue<MessageQueueItem> | null {
+    if (usePerChannelCampaignQueues()) {
+        const cached = getCachedCampaignMassQueues();
+        if (cached.length > 0) return cached[0]!;
+    }
     return getCampaignQueue();
+}
+
+/** Todas as filas BullMQ de massa (por chip + legado) — admin/purge. */
+export async function getCampaignBullmqQueuesForAdmin(): Promise<Queue<MessageQueueItem>[]> {
+    const conn = getRedisConnection();
+    const opts = campaignQueueDefaultOptions();
+    const list = await resolveAllCampaignMassQueues(conn, opts);
+    const legacy = getCampaignQueue();
+    if (legacy && !list.includes(legacy)) list.push(legacy);
+    return list;
 }
 
 /** Redis compartilhado (ops/admin) — somente localhost ou admin autenticado. */
@@ -3422,16 +3449,20 @@ export type CampaignBullmqQueueMetrics = {
 
 export async function getCampaignBullmqQueueMetrics(): Promise<CampaignBullmqQueueMetrics> {
     const empty = { enabled: false, waiting: 0, active: 0, delayed: 0, failed: 0 };
-    const queue = getCampaignQueue();
-    if (!queue) return empty;
+    const conn = getRedisConnection();
+    if (!conn) return empty;
     try {
-        const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed');
+        const agg = await aggregateCampaignMassQueueMetrics(
+            conn,
+            campaignQueueDefaultOptions(),
+            getCampaignQueue()
+        );
         return {
-            enabled: true,
-            waiting: counts.waiting ?? 0,
-            active: counts.active ?? 0,
-            delayed: counts.delayed ?? 0,
-            failed: counts.failed ?? 0,
+            enabled: agg.enabled,
+            waiting: agg.waiting,
+            active: agg.active,
+            delayed: agg.delayed,
+            failed: agg.failed,
         };
     } catch {
         return empty;
@@ -3444,13 +3475,95 @@ export async function cancelQueuedCampaignSendsForPhone(
     phoneDigits: string
 ): Promise<number> {
     const ownerOf = (campaignId: string) => campaignsById.get(campaignId)?.ownerUid;
-    const queues = [getCampaignQueue(), getReplyQueue()].filter((q): q is Queue<MessageQueueItem> => Boolean(q));
-    if (queues.length === 0) return 0;
+    const replyQ = getReplyQueue();
     let removed = 0;
-    for (const queue of queues) {
+    if (replyQ) {
+        removed += await cancelCampaignJobsForPhone(replyQ, tenantId, phoneDigits, ownerOf);
+    }
+    await forEachCampaignMassQueue(getRedisConnection(), campaignQueueDefaultOptions(), async (queue) => {
         removed += await cancelCampaignJobsForPhone(queue, tenantId, phoneDigits, ownerOf);
+    });
+    const legacy = getCampaignQueue();
+    if (legacy && usePerChannelCampaignQueues()) {
+        removed += await cancelCampaignJobsForPhone(legacy, tenantId, phoneDigits, ownerOf);
     }
     return removed;
+}
+
+function campaignQueueDefaultOptions() {
+    return {
+        removeOnComplete: bullmqRemoveOnComplete(),
+        removeOnFail: bullmqRemoveOnFail(),
+    };
+}
+
+function getCampaignWorkerLockDuration(): number {
+    return Math.max(60_000, Number(process.env.CAMPAIGN_WORKER_LOCK_MS ?? 120_000) || 120_000);
+}
+
+function resolveCampaignMassQueue(connectionId: string): Queue<MessageQueueItem> | null {
+    const conn = getRedisConnection();
+    if (!conn) return null;
+    const id = String(connectionId || '').trim();
+    if (!id) return null;
+    if (!usePerChannelCampaignQueues()) {
+        ensureCampaignWorker();
+        return getCampaignQueue();
+    }
+    const q = getOrCreateCampaignMassQueue(conn, id, campaignQueueDefaultOptions());
+    if (q) {
+        ensureCampaignMassWorkerForConnection(id);
+        ensureReplyWorker(getCampaignWorkerLockDuration());
+        void bootstrapPerChannelCampaignQueues();
+    }
+    return q;
+}
+
+let perChannelCampaignBootstrapped = false;
+async function bootstrapPerChannelCampaignQueues(): Promise<void> {
+    if (perChannelCampaignBootstrapped || !usePerChannelCampaignQueues()) return;
+    perChannelCampaignBootstrapped = true;
+    const conn = getRedisConnection();
+    if (!conn) return;
+    const legacy = getCampaignQueue();
+    if (legacy) {
+        const moved = await migrateLegacyGlobalCampaignQueueOnce(conn, legacy, campaignQueueDefaultOptions());
+        if (moved > 0) {
+            log('info', '[dispatch] Jobs migrados da fila global para filas por chip', { moved });
+        }
+        ensureLegacyCampaignDrainWorker(conn, processCampaignJob, {
+            lockDuration: getCampaignWorkerLockDuration(),
+            onFailed: onCampaignMassWorkerFailed,
+        });
+    }
+    const ids = await listRegisteredCampaignConnectionIds(getSharedRedis());
+    for (const cid of ids) ensureCampaignMassWorkerForConnection(cid);
+    scheduleReplyFlowRecovery();
+}
+
+async function forEachAllCampaignMassQueues(
+    fn: (queue: Queue<MessageQueueItem>) => void | Promise<void>
+): Promise<void> {
+    if (!usePerChannelCampaignQueues()) {
+        const q = getCampaignQueue();
+        if (q) await fn(q);
+        return;
+    }
+    await forEachCampaignMassQueue(getRedisConnection(), campaignQueueDefaultOptions(), fn);
+    const legacy = getCampaignQueue();
+    if (legacy) await fn(legacy);
+}
+
+function ensureCampaignMassWorkerForConnection(connectionId: string): void {
+    const conn = getRedisConnection();
+    if (!conn || !usePerChannelCampaignQueues()) return;
+    const id = String(connectionId || '').trim();
+    if (!id) return;
+    const w = ensureCampaignMassWorker(conn, id, processCampaignJob, {
+        lockDuration: getCampaignWorkerLockDuration(),
+        onFailed: onCampaignMassWorkerFailed,
+    });
+    attachWorkerStressGuard(w, getCampaignBullmqRecovery());
 }
 
 function getCampaignQueue(): Queue<MessageQueueItem> | null {
@@ -3485,6 +3598,7 @@ function getReplyQueue(): Queue<MessageQueueItem> | null {
 }
 
 const connectionQueueSizes = new Map<string, number>();
+const heldDispatchSizes = new Map<string, number>();
 let campaignWorker: Worker<MessageQueueItem> | null = null;
 let replyQueue: Queue<MessageQueueItem> | null = null;
 let replyWorker: Worker<MessageQueueItem> | null = null;
@@ -4144,8 +4258,6 @@ function checkAndResetDailyLimits(conn: EvolutionInstance | undefined | null) {
  * Não mexe em atraso de agenda, sono ou pausa — só no que foi marcado como espera de cota.
  */
 async function releaseOpenChannelDailyLimitHolds(onlyConnectionId?: string): Promise<number> {
-    const queue = getCampaignQueue();
-    if (!queue) return 0;
     const only = String(onlyConnectionId || '').trim();
     const roomLeft = new Map<string, number>();
 
@@ -4174,32 +4286,34 @@ async function releaseOpenChannelDailyLimitHolds(onlyConnectionId?: string): Pro
     const staggerByConn = new Map<string, number>();
     let sampleCampaignId = '';
     let sampleOwner = '';
-    await forEachCampaignQueueJob(queue, async (job, state) => {
-        if (state !== 'delayed') return;
-        const data = job.data as MessageQueueItem;
-        if (data.replyFlowResponse || data.nurtureFollowUp) return;
-        const heldForQuota = (data._limitDelayCount || 0) > 0 || Boolean(data._tierCapDeferred);
-        if (!heldForQuota) return;
-        if (data.campaignId && pausedCampaigns.has(data.campaignId)) return;
-        const connectionId = String(data.connectionId || '').trim();
-        if (!connectionId) return;
-        const room = roomFor(connectionId);
-        if (room <= 0) return;
-        const remain = estimateJobRunAt(job) - Date.now();
-        if (remain < 15_000) return;
-        const stagger = staggerByConn.get(connectionId) || 0;
-        try {
-            await job.changeDelay(1_200 + stagger);
-            staggerByConn.set(connectionId, Math.min(stagger + 1_800, 90_000));
-            roomLeft.set(connectionId, room - 1);
-            released += 1;
-            if (!sampleCampaignId && data.campaignId) {
-                sampleCampaignId = data.campaignId;
-                sampleOwner = data.ownerUid || resolveOwnerUid(connectionId) || '';
+    await forEachAllCampaignMassQueues(async (queue) => {
+        await forEachCampaignQueueJob(queue, async (job, state) => {
+            if (state !== 'delayed') return;
+            const data = job.data as MessageQueueItem;
+            if (data.replyFlowResponse || data.nurtureFollowUp) return;
+            const heldForQuota = (data._limitDelayCount || 0) > 0 || Boolean(data._tierCapDeferred);
+            if (!heldForQuota) return;
+            if (data.campaignId && pausedCampaigns.has(data.campaignId)) return;
+            const connectionId = String(data.connectionId || '').trim();
+            if (!connectionId) return;
+            const room = roomFor(connectionId);
+            if (room <= 0) return;
+            const remain = estimateJobRunAt(job) - Date.now();
+            if (remain < 15_000) return;
+            const stagger = staggerByConn.get(connectionId) || 0;
+            try {
+                await job.changeDelay(1_200 + stagger);
+                staggerByConn.set(connectionId, Math.min(stagger + 1_800, 90_000));
+                roomLeft.set(connectionId, room - 1);
+                released += 1;
+                if (!sampleCampaignId && data.campaignId) {
+                    sampleCampaignId = data.campaignId;
+                    sampleOwner = data.ownerUid || resolveOwnerUid(connectionId) || '';
+                }
+            } catch {
+                /* job ativo ou já promovido */
             }
-        } catch {
-            /* job ativo ou já promovido */
-        }
+        });
     });
 
     if (released > 0) {
@@ -7692,7 +7806,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: {
         });
         return;
     }
-    const queue = item.replyFlowResponse || item.nurtureFollowUp ? getReplyQueue() : getCampaignQueue();
+    const queue = item.replyFlowResponse || item.nurtureFollowUp ? getReplyQueue() : resolveCampaignMassQueue(item.connectionId);
     if (!queue) {
         // Sem Redis o job sumiria silenciosamente e a campanha nunca enviaria.
         // Lanca para o caller decidir (startCampaign vai falhar e avisar a UI).
@@ -7811,8 +7925,7 @@ async function enqueueCampaignItemsBulk(
         await enqueueCampaignItem(entries[0].item, entries[0].delayMs);
         return;
     }
-    const queue = getCampaignQueue();
-    if (!queue) {
+    if (!getRedisConnection()) {
         throw new Error('Fila Redis indisponível. Verifique REDIS_URL/serviço Redis na VPS.');
     }
     if (isBullmqRecoveryPending('campaign-queue')) {
@@ -7848,7 +7961,15 @@ async function enqueueCampaignItemsBulk(
         }
         if (ready.length === 0) continue;
 
-        const jobs = ready.map(({ item, delayMs }) => {
+        const jobsByQueue = new Map<
+            Queue<MessageQueueItem>,
+            Array<{ name: 'send'; data: MessageQueueItem; opts: Record<string, unknown> }>
+        >();
+        for (const { item, delayMs } of ready) {
+            const targetQueue = resolveCampaignMassQueue(item.connectionId);
+            if (!targetQueue) {
+                throw new Error('Fila Redis indisponível. Verifique REDIS_URL/serviço Redis na VPS.');
+            }
             bumpQueueSize(item.connectionId, 1);
             if (item.campaignId) {
                 campaignPendingJobs.set(item.campaignId, (campaignPendingJobs.get(item.campaignId) || 0) + 1);
@@ -7865,7 +7986,7 @@ async function enqueueCampaignItemsBulk(
                     payload: item as unknown as Record<string, unknown>,
                 }).catch(() => undefined);
             }
-            return {
+            const jobDef = {
                 name: 'send' as const,
                 data: item,
                 opts: {
@@ -7873,14 +7994,24 @@ async function enqueueCampaignItemsBulk(
                     attempts: 3,
                     backoff: { type: 'exponential' as const, delay: 5000 },
                     delay: Math.max(0, delayMs),
-                    priority: item.replyFlowResponse || item.nurtureFollowUp ? 1 : item.campaignId ? RUNNING_CAMPAIGN_JOB_PRIORITY : undefined,
+                    priority:
+                        item.replyFlowResponse || item.nurtureFollowUp
+                            ? 1
+                            : item.campaignId
+                              ? RUNNING_CAMPAIGN_JOB_PRIORITY
+                              : undefined,
                     removeOnComplete: bullmqRemoveOnComplete(),
                     removeOnFail: bullmqRemoveOnFail(),
                 },
             };
-        });
+            const list = jobsByQueue.get(targetQueue) || [];
+            list.push(jobDef);
+            jobsByQueue.set(targetQueue, list);
+        }
         try {
-            await queue.addBulk(jobs);
+            for (const [targetQueue, jobs] of jobsByQueue) {
+                await targetQueue.addBulk(jobs);
+            }
         } catch (err) {
             for (const { item } of ready) {
                 bumpQueueSize(item.connectionId, -1, item);
@@ -7936,6 +8067,7 @@ async function parkHeldCampaignSends(campaignId: string, items: MessageQueueItem
         await redis.sadd(heldIndexKey(connectionId), campaignId);
         await redis.expire(heldIndexKey(connectionId), 14 * 24 * 3600);
         parked += list.length;
+        heldDispatchSizes.set(connectionId, (heldDispatchSizes.get(connectionId) || 0) + list.length);
     }
     if (parked > 0) {
         campaignPendingJobs.set(campaignId, (campaignPendingJobs.get(campaignId) || 0) + parked);
@@ -7946,28 +8078,28 @@ async function parkHeldCampaignSends(campaignId: string, items: MessageQueueItem
 async function stallWaitingJobsForPausedCampaign(campaignId: string): Promise<void> {
     const cid = String(campaignId || '').trim();
     if (!cid) return;
-    const queue = getCampaignQueue();
-    if (!queue) return;
     let stalled = 0;
-    await forEachCampaignQueueJob(queue, async (job, state) => {
-        if (state === 'active') return;
-        const data = job.data as MessageQueueItem;
-        if (String(data?.campaignId || '').trim() !== cid) return;
-        if (data.replyFlowResponse || data.nurtureFollowUp) return;
-        try {
-            await job.changePriority({ priority: PAUSED_CAMPAIGN_JOB_PRIORITY });
-            if (state === 'waiting' || state === 'paused') {
-                await job.moveToDelayed(Date.now() + PAUSED_CAMPAIGN_HOLD_MS);
-            } else if (state === 'delayed') {
-                const remain = estimateJobRunAt(job) - Date.now();
-                if (remain < PAUSED_CAMPAIGN_HOLD_MS) {
-                    await job.changeDelay(PAUSED_CAMPAIGN_HOLD_MS);
+    await forEachAllCampaignMassQueues(async (queue) => {
+        await forEachCampaignQueueJob(queue, async (job, state) => {
+            if (state === 'active') return;
+            const data = job.data as MessageQueueItem;
+            if (String(data?.campaignId || '').trim() !== cid) return;
+            if (data.replyFlowResponse || data.nurtureFollowUp) return;
+            try {
+                await job.changePriority({ priority: PAUSED_CAMPAIGN_JOB_PRIORITY });
+                if (state === 'waiting' || state === 'paused') {
+                    await job.moveToDelayed(Date.now() + PAUSED_CAMPAIGN_HOLD_MS);
+                } else if (state === 'delayed') {
+                    const remain = estimateJobRunAt(job) - Date.now();
+                    if (remain < PAUSED_CAMPAIGN_HOLD_MS) {
+                        await job.changeDelay(PAUSED_CAMPAIGN_HOLD_MS);
+                    }
                 }
+                stalled += 1;
+            } catch {
+                /* lock ou job removido */
             }
-            stalled += 1;
-        } catch {
-            /* lock ou job removido */
-        }
+        });
     });
     if (stalled > 0) {
         log('info', '[dispatch] Jobs da campanha pausada adiados', { campaignId: cid, stalled });
@@ -8005,6 +8137,7 @@ async function promoteHeldCampaignJob(campaignId?: string, connectionId?: string
         await releaseChannelHotSlot(redis, connId);
         return false;
     }
+    heldDispatchSizes.set(connId, Math.max(0, (heldDispatchSizes.get(connId) || 1) - 1));
     const settings = getTenantDispatchSettings(item.ownerUid);
     const delay = getGaussianDelayMs(settings.minDelayMs, settings.maxDelayMs, 1);
     try {
@@ -8331,8 +8464,7 @@ function resumeCampaignFromProtection(campaignId: string, ownerUid?: string): vo
         if (prevReason === 'PAUSED_BY_HIGH_DUPLICATION') {
             await clearCampaignContentHashHits(campaignId).catch(() => undefined);
         }
-        const queue = getCampaignQueue();
-        if (queue) {
+        await forEachAllCampaignMassQueues(async (queue) => {
             try {
                 const spread = await spreadCampaignJobsOnResume(queue, campaignId, {
                     spreadStepMs: Number(process.env.GRADUAL_RESUME_SPREAD_MS ?? 15_000),
@@ -8346,7 +8478,7 @@ function resumeCampaignFromProtection(campaignId: string, ownerUid?: string): vo
                     error: (e as Error)?.message,
                 });
             }
-        }
+        });
 
         const state = campaignsById.get(campaignId);
         if (state) {
@@ -10018,6 +10150,107 @@ async function failCampaignSend(
     throw new Error(msg);
 }
 
+function onCampaignMassWorkerFailed(job: Job<MessageQueueItem> | undefined, err: Error): void {
+    const item = job?.data;
+    if (isPhantomCampaignJobFailure(err.message)) {
+        if (job?.id) {
+            void resetCampaignJobAfterPhantomFailure(String(job.id)).catch(() => undefined);
+        }
+        log('warn', 'Job de campanha adiado (fantasma) — não conta como falha', {
+            to: item?.to,
+            campaignId: item?.campaignId,
+            error: err.message,
+        });
+        return;
+    }
+    log('error', 'Job de campanha falhou', {
+        to: item?.to,
+        connectionId: item?.connectionId,
+        campaignId: item?.campaignId,
+        error: err.message,
+        attemptsMade: job?.attemptsMade,
+    });
+
+    if (item && job) {
+        const isDead = job.attemptsMade >= (job.opts.attempts || 1);
+        void finalizeCampaignJob(job.id ?? '', { status: isDead ? 'dead' : 'failed', error: err.message }).catch(
+            () => undefined
+        );
+    }
+
+    if (item && job && job.attemptsMade >= (job.opts.attempts || 1)) {
+        bumpQueueSize(item.connectionId, -1, item);
+        if (item._dailyQuotaConsumed && !item._sentOk) {
+            item._dailyQuotaConsumed = false;
+            void releaseDailyCampaignQuota(item.connectionId, connectionDailyQuotaDeps()).catch(() => undefined);
+            void job.updateData(item).catch(() => {});
+        }
+        if (item.replyFlowResponse && (item.replyFlowDisposeAfterSend || item.replyFlowAfterSend)) {
+            ensureReplyFlowEngine();
+            replyFlowEngine.rollbackPendingOutbound(item.connectionId, normalizePhoneKey(item.to));
+        }
+        if (item._sentOk || item._progressAccounted) {
+            return;
+        }
+        void accountCampaignJobOnce(job, item, false);
+        if (item.campaignId && item.to) {
+            void updateContactStateOnFailure(item.campaignId, item.to, err.message);
+        }
+        const campaignState = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
+        publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {
+            campaignId: item.campaignId,
+            to: item.to,
+            success: false,
+            error: err.message,
+        });
+        publishOwnerEvent(campaignState?.ownerUid, 'campaign:job-dead', {
+            campaignId: item.campaignId,
+            to: item.to,
+            connectionId: item.connectionId,
+            error: err.message,
+            stageIndex: item.stageIndex ?? 0,
+            attemptsMade: job.attemptsMade,
+        });
+        if (io && campaignState?.ownerUid) {
+            io.to(`user:${campaignState.ownerUid}`).emit('campaign:job-dead', {
+                campaignId: item.campaignId,
+                to: item.to,
+                connectionId: item.connectionId,
+                error: err.message,
+            });
+        }
+        if (campaignState?.ownerUid) {
+            void notifyTenant(
+                campaignState.ownerUid,
+                'campaign_job_dead',
+                {
+                    campaignId: item.campaignId,
+                    to: item.to,
+                    connectionId: item.connectionId,
+                    error: err.message,
+                },
+                'job_dead'
+            );
+        }
+        emitCampaignLog(
+            'ERROR',
+            'Falha definitiva no envio (todos os retries esgotados)',
+            {
+                campaignId: item.campaignId,
+                to: item.to,
+                connectionId: item.connectionId,
+                error: err.message,
+                attemptsMade: job.attemptsMade,
+                stageIndex: item.stageIndex ?? 0,
+            },
+            campaignState?.ownerUid
+        );
+        if (item.campaignId && item.to) {
+            void updateContactStateOnFailure(item.campaignId, item.to, err.message);
+        }
+    }
+}
+
 function ensureReplyWorker(lockDuration: number): void {
     const conn = getRedisConnection();
     if (!conn || replyWorker) return;
@@ -10045,16 +10278,19 @@ function ensureReplyWorker(lockDuration: number): void {
 
 function ensureCampaignWorker() {
     const conn = getRedisConnection();
-    if (!conn || campaignWorker) return;
+    if (!conn) return;
 
-    // Concorrência configurável via CAMPAIGN_WORKER_CONCURRENCY (default 10).
-    // A pausa humana fica no atraso do job (Redis), não dentro do processador:
-    // a vaga só fica ocupada no envio de verdade.
-    // O limiter global limita a 20 jobs/segundo (burst ≤ 40) para evitar rate-limit.
+    const lockDuration = getCampaignWorkerLockDuration();
+    ensureReplyWorker(lockDuration);
+
+    if (usePerChannelCampaignQueues()) {
+        void bootstrapPerChannelCampaignQueues();
+        return;
+    }
+
+    if (campaignWorker) return;
+
     const concurrency = Math.max(1, Math.min(50, parseInt(process.env.CAMPAIGN_WORKER_CONCURRENCY || '10', 10)));
-    // lockDuration padrão do BullMQ é 30s. A espera humana antiga dormia 15–45s
-    // dentro do job, o lock expirava e o disparo estourava sem enviar.
-    const lockDuration = Math.max(60_000, Number(process.env.CAMPAIGN_WORKER_LOCK_MS ?? 120_000) || 120_000);
     campaignWorker = new Worker<MessageQueueItem>('campaign-messages', processCampaignJob, {
         connection: conn.duplicate(),
         concurrency,
@@ -10064,120 +10300,19 @@ function ensureCampaignWorker() {
         stalledInterval: 60_000,
         maxStalledCount: 3,
     });
-    ensureReplyWorker(lockDuration);
 
     attachWorkerStressGuard(campaignWorker, getCampaignBullmqRecovery());
 
     const q = getCampaignQueue();
     if (q) void trimBullmqQueue(q, 'campaign-messages');
 
-    campaignWorker.on('failed', (job, err) => {
-        const item = job?.data;
-        if (isPhantomCampaignJobFailure(err.message)) {
-            if (job?.id) {
-                void resetCampaignJobAfterPhantomFailure(String(job.id)).catch(() => undefined);
-            }
-            log('warn', 'Job de campanha adiado (fantasma) — não conta como falha', {
-                to: item?.to,
-                campaignId: item?.campaignId,
-                error: err.message,
-            });
-            return;
-        }
-        log('error', 'Job de campanha falhou', {
-            to: item?.to,
-            connectionId: item?.connectionId,
-            campaignId: item?.campaignId,
-            error: err.message,
-            attemptsMade: job?.attemptsMade,
-        });
-
-        // Atualiza espelho PG: failed ou dead dependendo de attempts restantes
-        if (item && job) {
-            const isDead = job.attemptsMade >= (job.opts.attempts || 1);
-            void finalizeCampaignJob(job.id ?? '', { status: isDead ? 'dead' : 'failed', error: err.message }).catch(() => undefined);
-        }
-
-        if (item && job && job.attemptsMade >= (job.opts.attempts || 1)) {
-            bumpQueueSize(item.connectionId, -1, item);
-            if (item._dailyQuotaConsumed && !item._sentOk) {
-                item._dailyQuotaConsumed = false;
-                void releaseDailyCampaignQuota(item.connectionId, connectionDailyQuotaDeps()).catch(() => undefined);
-                void job.updateData(item).catch(() => {});
-            }
-            if (item.replyFlowResponse && (item.replyFlowDisposeAfterSend || item.replyFlowAfterSend)) {
-                ensureReplyFlowEngine();
-                replyFlowEngine.rollbackPendingOutbound(item.connectionId, normalizePhoneKey(item.to));
-            }
-            if (item._sentOk || item._progressAccounted) {
-                return;
-            }
-            void accountCampaignJobOnce(job, item, false);
-            if (item.campaignId && item.to) {
-                void updateContactStateOnFailure(item.campaignId, item.to, err.message);
-            }
-            const campaignState = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
-            publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {
-                campaignId: item.campaignId,
-                to: item.to,
-                success: false,
-                error: err.message,
-            });
-            // Alerta definitivo após esgotar todos os retries — visível na UI em tempo real.
-            publishOwnerEvent(campaignState?.ownerUid, 'campaign:job-dead', {
-                campaignId: item.campaignId,
-                to: item.to,
-                connectionId: item.connectionId,
-                error: err.message,
-                stageIndex: item.stageIndex ?? 0,
-                attemptsMade: job.attemptsMade,
-            });
-            if (io && campaignState?.ownerUid) {
-                io.to(`user:${campaignState.ownerUid}`).emit('campaign:job-dead', {
-                    campaignId: item.campaignId,
-                    to: item.to,
-                    connectionId: item.connectionId,
-                    error: err.message,
-                });
-            }
-            if (campaignState?.ownerUid) {
-                void notifyTenant(
-                    campaignState.ownerUid,
-                    'campaign_job_dead',
-                    {
-                        campaignId: item.campaignId,
-                        to: item.to,
-                        connectionId: item.connectionId,
-                        error: err.message,
-                    },
-                    'job_dead'
-                );
-            }
-            emitCampaignLog(
-                'ERROR',
-                'Falha definitiva no envio (todos os retries esgotados)',
-                {
-                    campaignId: item.campaignId,
-                    to: item.to,
-                    connectionId: item.connectionId,
-                    error: err.message,
-                    attemptsMade: job.attemptsMade,
-                    stageIndex: item.stageIndex ?? 0,
-                },
-                campaignState?.ownerUid
-            );
-            // Atualiza estado do contato no motor persistente (se disponível).
-            if (item.campaignId && item.to) {
-                void updateContactStateOnFailure(item.campaignId, item.to, err.message);
-            }
-        }
-    });
+    campaignWorker.on('failed', (job, err) => onCampaignMassWorkerFailed(job, err));
 
     campaignWorker.on('completed', () => {
         /* contadores já ajustados no processCampaignJob */
     });
 
-    log('info', 'Worker BullMQ de campanhas iniciado');
+    log('info', 'Worker BullMQ de campanhas iniciado (fila global)');
     scheduleReplyFlowRecovery();
 }
 
@@ -10311,46 +10446,46 @@ export async function updateCampaignChannels(
     });
 
     let remappedJobs = 0;
-    const queue = getCampaignQueue();
-    if (queue && options.remigratePendingJobs !== false) {
+    if (options.remigratePendingJobs !== false) {
         try {
-            const jobs = await queue.getJobs(['waiting', 'delayed', 'paused']);
-            for (const job of jobs) {
-                const data = job.data as MessageQueueItem;
-                if (String(data?.campaignId || '') !== cid) continue;
-                const prevConn = String(data.connectionId || '').trim();
-                const newConnId = pickRemapConnectionForCampaign(
-                    data,
-                    filtered,
-                    poolStrategy,
-                    channelWeights,
-                    { forceRedistribute: true }
-                );
-                const alt = filtered.length > 1 ? filtered : undefined;
-                const altChanged =
-                    JSON.stringify(alt ?? []) !== JSON.stringify(data.alternateChannelIds ?? []);
-                const connChanged = newConnId !== prevConn;
-                if (connChanged || altChanged) {
-                    await job.updateData({
-                        ...data,
-                        connectionId: newConnId,
-                        alternateChannelIds: alt,
-                    });
-                    remappedJobs++;
-                    // Jobs com delay longo (quarentena / backoff) ficavam "parados" mesmo após trocar chip.
-                    const movedToUsable =
-                        connChanged &&
-                        !isCampaignChannelUsable(prevConn) &&
-                        isCampaignChannelUsable(newConnId);
-                    if (movedToUsable || (connChanged && isCampaignChannelUsable(newConnId))) {
-                        try {
-                            await job.changeDelay(500 + Math.floor(Math.random() * 4_500));
-                        } catch {
-                            /* job ativo / API — updateData já aponta para o chip novo */
+            await forEachAllCampaignMassQueues(async (queue) => {
+                const jobs = await queue.getJobs(['waiting', 'delayed', 'paused']);
+                for (const job of jobs) {
+                    const data = job.data as MessageQueueItem;
+                    if (String(data?.campaignId || '') !== cid) continue;
+                    const prevConn = String(data.connectionId || '').trim();
+                    const newConnId = pickRemapConnectionForCampaign(
+                        data,
+                        filtered,
+                        poolStrategy,
+                        channelWeights,
+                        { forceRedistribute: true }
+                    );
+                    const alt = filtered.length > 1 ? filtered : undefined;
+                    const altChanged =
+                        JSON.stringify(alt ?? []) !== JSON.stringify(data.alternateChannelIds ?? []);
+                    const connChanged = newConnId !== prevConn;
+                    if (connChanged || altChanged) {
+                        await job.updateData({
+                            ...data,
+                            connectionId: newConnId,
+                            alternateChannelIds: alt,
+                        });
+                        remappedJobs++;
+                        const movedToUsable =
+                            connChanged &&
+                            !isCampaignChannelUsable(prevConn) &&
+                            isCampaignChannelUsable(newConnId);
+                        if (movedToUsable || (connChanged && isCampaignChannelUsable(newConnId))) {
+                            try {
+                                await job.changeDelay(500 + Math.floor(Math.random() * 4_500));
+                            } catch {
+                                /* job ativo / API — updateData já aponta para o chip novo */
+                            }
                         }
                     }
                 }
-            }
+            });
         } catch (e: unknown) {
             log('warn', 'updateCampaignChannels: falha ao remapear jobs', {
                 campaignId: cid,
@@ -12649,6 +12784,7 @@ export function getConnections(): WhatsAppConnection[] {
             status,
             lastActivity: connectionLastActivityLabel(conn, status),
             queueSize: connectionQueueSizes.get(id) || 0,
+            heldDispatchSize: heldDispatchSizes.get(id) || 0,
             messagesSentToday: conn.messagesSentToday || 0,
             signalStrength: 'STRONG',
             profilePicUrl: conn.profilePicUrl,
@@ -13540,36 +13676,36 @@ function resolveCampaignOwnerUid(campaignId: string, explicitOwnerUid?: string):
  * reentram a cada poucos segundos e a campanha nova fica em 0 envios.
  */
 async function tuneCampaignJobFairness(onlyCampaignId?: string): Promise<void> {
-    const queue = getCampaignQueue();
-    if (!queue) return;
     const only = String(onlyCampaignId || '').trim();
     let lifted = 0;
     let parked = 0;
-    await forEachCampaignQueueJob(queue, async (job, state) => {
-        if (state === 'active') return;
-        const data = job.data as MessageQueueItem;
-        const cid = String(data?.campaignId || '').trim();
-        if (!cid) return;
-        if (only && cid !== only) return;
-        if (data.replyFlowResponse || data.nurtureFollowUp) return;
-        const paused = pausedCampaigns.has(cid);
-        const running = !paused && Boolean(campaignsById.get(cid)?.isRunning);
-        if (!paused && !running) return;
-        try {
-            if (paused) {
-                await job.changePriority({ priority: PAUSED_CAMPAIGN_JOB_PRIORITY });
-                const remain = state === 'delayed' ? estimateJobRunAt(job) - Date.now() : 0;
-                if (state !== 'delayed' || remain < 30_000) {
-                    await job.changeDelay(PAUSED_CAMPAIGN_HOLD_MS);
+    await forEachAllCampaignMassQueues(async (queue) => {
+        await forEachCampaignQueueJob(queue, async (job, state) => {
+            if (state === 'active') return;
+            const data = job.data as MessageQueueItem;
+            const cid = String(data?.campaignId || '').trim();
+            if (!cid) return;
+            if (only && cid !== only) return;
+            if (data.replyFlowResponse || data.nurtureFollowUp) return;
+            const paused = pausedCampaigns.has(cid);
+            const running = !paused && Boolean(campaignsById.get(cid)?.isRunning);
+            if (!paused && !running) return;
+            try {
+                if (paused) {
+                    await job.changePriority({ priority: PAUSED_CAMPAIGN_JOB_PRIORITY });
+                    const remain = state === 'delayed' ? estimateJobRunAt(job) - Date.now() : 0;
+                    if (state !== 'delayed' || remain < 30_000) {
+                        await job.changeDelay(PAUSED_CAMPAIGN_HOLD_MS);
+                    }
+                    parked += 1;
+                } else {
+                    await job.changePriority({ priority: RUNNING_CAMPAIGN_JOB_PRIORITY });
+                    lifted += 1;
                 }
-                parked += 1;
-            } else {
-                await job.changePriority({ priority: RUNNING_CAMPAIGN_JOB_PRIORITY });
-                lifted += 1;
+            } catch {
+                /* job ativo, concluído ou já removido */
             }
-        } catch {
-            /* job ativo, concluído ou já removido */
-        }
+        });
     });
     if (lifted > 0 || parked > 0) {
         log('info', '[dispatch] Fila reordenada: campanha em execução na frente, pausa no fim', {

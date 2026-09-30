@@ -18,6 +18,8 @@ export interface WhatsAppConnection {
   profilePicUrl?: string;
   qrCode?: string;
   queueSize: number;
+  /** Contatos guardados (held) aguardando vaga quente neste chip. */
+  heldDispatchSize?: number;
   messagesSentToday: number;
   totalMessagesSent?: number;
   connectedSince?: number;
