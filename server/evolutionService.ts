@@ -7884,13 +7884,13 @@ async function stallWaitingJobsForPausedCampaign(campaignId: string): Promise<vo
     if (!queue) return;
     let stalled = 0;
     await forEachCampaignQueueJob(queue, async (job, state) => {
-        if (state === 'active' || state === 'completed' || state === 'failed') return;
+        if (state === 'active') return;
         const data = job.data as MessageQueueItem;
         if (String(data?.campaignId || '').trim() !== cid) return;
         if (data.replyFlowResponse || data.nurtureFollowUp) return;
         try {
             await job.changePriority({ priority: PAUSED_CAMPAIGN_JOB_PRIORITY });
-            if (state === 'waiting' || state === 'prioritized' || state === 'waiting-children') {
+            if (state === 'waiting' || state === 'paused') {
                 await job.moveToDelayed(Date.now() + PAUSED_CAMPAIGN_HOLD_MS);
             } else if (state === 'delayed') {
                 const remain = estimateJobRunAt(job) - Date.now();

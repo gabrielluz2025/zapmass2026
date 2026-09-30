@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.231',
+    date: '30/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Build/CI: correção de typecheck na pausa de campanha (fila BullMQ)' },
+    ],
+  },
+  {
     version: '2.3.230',
     date: '30/09/2026',
     highlights: [

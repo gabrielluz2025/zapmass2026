@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.231] - 2026-09-30
+
+### Corrigido
+- **CI/build**: typecheck da fila de campanha pausada alinhado aos estados reais do BullMQ.
+
 ## [2.3.230] - 2026-09-30
 
 ### Corrigido
