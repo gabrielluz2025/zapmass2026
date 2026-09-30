@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.230] - 2026-09-30
+
+### Corrigido
+- **Bate-papo preso em “Carregando mensagens…”**: thread vazia não dispara mais paginação infinita no scroll; modo Go prioriza arquivo/histórico no servidor antes de sync pesado do celular; hidratação do arquivo com timeout no socket.
+
 ## [2.3.229] - 2026-09-30
 
 ### Corrigido

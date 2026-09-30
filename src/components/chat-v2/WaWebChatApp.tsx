@@ -743,15 +743,23 @@ export const WaWebChatApp: React.FC<{
         try {
           if (!silent) {
             toast('Sincronizando histórico do celular…', { icon: '📲', duration: 2800 });
+            runResync({ full: true, force: true });
           }
-          runResync({ full: true, force: true });
-          await hydrateFirestoreChatArchive(conversationId, 1500).catch(() => ({ ok: false, total: 0 }));
-          const res = await loadChatHistory(conversationId, 1500, true);
+          let res = await loadChatHistory(conversationId, 1500, true);
+          const msgCountAfterLoad = (res.messages?.length ?? res.total ?? 0) as number;
+          if (res.ok && msgCountAfterLoad === 0 && prevCount === 0) {
+            await hydrateFirestoreChatArchive(conversationId, 1500).catch(() => ({
+              ok: false,
+              total: 0,
+            }));
+            res = await loadChatHistory(conversationId, 1500, true);
+          }
           if (!res.ok) {
             if (res.error && !silent) toast.error(res.error);
             return false;
           }
-          const grew = (res.total || 0) > prevCount;
+          const total = res.total || res.messages?.length || 0;
+          const grew = total > prevCount;
           if (grew) {
             setHistoryExhausted((prev) => {
               const next = { ...prev };
@@ -759,7 +767,7 @@ export const WaWebChatApp: React.FC<{
               return next;
             });
           }
-          return grew || (res.total || 0) > 0;
+          return grew || total > 0 || (res.messages?.length ?? 0) > 0;
         } finally {
           loadingHistoryById.current.delete(conversationId);
           setLoadingHistoryIds((prev) => {

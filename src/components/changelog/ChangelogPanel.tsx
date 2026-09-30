@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.230',
+    date: '30/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Bate-papo: fim do “Carregando mensagens…” infinito — histórico do arquivo antes do sync do celular' },
+    ],
+  },
+  {
     version: '2.3.229',
     date: '30/09/2026',
     highlights: [

@@ -2256,6 +2256,18 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         conv = conversations.find((c) => c.id === conversationId);
 
         if (isGoWebhookInboxMode()) {
+            conv = conversations.find((c) => c.id === conversationId);
+            if ((conv?.messages?.length || 0) === 0) {
+                await backfillEmptyThreadsFromArchive();
+                conv = conversations.find((c) => c.id === conversationId);
+                if ((conv?.messages?.length || 0) === 0 && archiveCtx) {
+                    await mergeChatArchiveIntoConversation(conversationId, requested, evoChatArchiveHooks());
+                    conv = conversations.find((c) => c.id === conversationId);
+                }
+                if ((conv?.messages?.length || 0) > 0) {
+                    emitConversationDelta(conversationId);
+                }
+            }
             const have = conv?.messages?.length || 0;
             let historySyncTriggered = false;
             if (conv && conversationNeedsGoHistorySync(conv)) {

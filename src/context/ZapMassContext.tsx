@@ -3860,11 +3860,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         resolve({ ok: false, total: 0, error: 'Sem conexao com servidor.' });
         return;
       }
+      let settled = false;
+      const finish = (resp: { ok: boolean; total: number; error?: string }) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        resolve(resp);
+      };
+      const timeoutId = setTimeout(() => {
+        finish({ ok: false, total: 0, error: 'Tempo esgotado ao restaurar arquivo.' });
+      }, 45_000);
       socket.emit(
         'hydrate-firestore-chat-archive',
         { conversationId, limit },
         (resp?: { ok: boolean; total: number; error?: string }) => {
-          resolve(resp || { ok: false, total: 0, error: 'Sem resposta.' });
+          finish(resp || { ok: false, total: 0, error: 'Sem resposta.' });
         }
       );
     });

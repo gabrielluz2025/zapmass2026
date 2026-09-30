@@ -268,6 +268,8 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
     if (!el || !conversation?.id) return;
     const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     setShowScrollDown(fromBottom > 160);
+    // Thread vazia: scrollTop fica ~0 e disparava onLoadOlder em loop → spinner infinito.
+    if (messages.length === 0) return;
     if (
       el.scrollTop < 180 &&
       !loadingHistory &&
@@ -281,7 +283,15 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
       };
       onLoadOlder();
     }
-  }, [conversation?.id, loadingHistory, historyExhausted, historyImporting, isGoWebhookInbox, onLoadOlder]);
+  }, [
+    conversation?.id,
+    messages.length,
+    loadingHistory,
+    historyExhausted,
+    historyImporting,
+    isGoWebhookInbox,
+    onLoadOlder,
+  ]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
