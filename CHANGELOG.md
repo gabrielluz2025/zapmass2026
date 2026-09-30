@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.234] - 2026-09-30
+
+### Corrigido
+- **Merge @lid**: cruzamento por sufixo só quando uma das threads é @lid (não colapsa dois telefones distintos).
+
 ## [2.3.233] - 2026-09-30
 
 ### Corrigido

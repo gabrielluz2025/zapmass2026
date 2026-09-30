@@ -84,13 +84,15 @@ function phoneKeysForConversation(conv) {
     }
     if (altRaw.includes('@'))
         addDigits(altRaw.split('@')[0]);
-    const mergeD = normalizePhoneDigits(conv.contactPhone || '') ||
-        normalizePhoneDigits(jid.split('@')[0] || '');
-    const tail = mergeD.length > 13 ? mergeD.slice(-11) : mergeD;
-    if (tail.length >= 8) {
-        for (const len of [11, 10, 9, 8]) {
-            if (tail.length >= len)
-                keys.add(`sfx:${tail.slice(-len)}`);
+    if (isLidJid(jid)) {
+        const mergeD = normalizePhoneDigits(conv.contactPhone || '') ||
+            normalizePhoneDigits(jid.split('@')[0] || '');
+        const tail = mergeD.length > 13 ? mergeD.slice(-11) : mergeD;
+        if (tail.length >= 8) {
+            for (const len of [11, 10, 9, 8]) {
+                if (tail.length >= len)
+                    keys.add(`sfx:${tail.slice(-len)}`);
+            }
         }
     }
     return Array.from(keys);

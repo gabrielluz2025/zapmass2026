@@ -7,6 +7,10 @@ function remoteTail(conv: Conversation): string {
   return id.includes(':') ? id.slice(id.indexOf(':') + 1) : id;
 }
 
+function isLidConvId(convId: string): boolean {
+  return remoteTail({ id: convId } as Conversation).toLowerCase().endsWith('@lid');
+}
+
 /** Dígitos usados para cruzar @lid com stub de telefone da campanha. */
 export function mergeDigitsForConversation(conv: Conversation): string {
   const cp = normalizePhoneDigits(conv.contactPhone || '');
@@ -65,9 +69,9 @@ export function mergeSiblingThreadMessages(
   base: Conversation,
   all: Conversation[]
 ): Conversation {
-  const keys = new Set(suffixMergeKeys(mergeDigitsForConversation(base)));
+  const keys = new Set<string>();
   const baseDigits = mergeDigitsForConversation(base);
-  if (baseDigits.length >= 8) {
+  if (isLidConvId(base.id)) {
     for (const k of suffixMergeKeys(baseDigits)) keys.add(k);
   }
 
@@ -76,10 +80,17 @@ export function mergeSiblingThreadMessages(
     const d = mergeDigitsForConversation(c);
     if (d.length >= 8 && baseDigits.length >= 8) {
       if (d === baseDigits) return true;
-      if (d.length >= 8 && baseDigits.length >= 8 && d.slice(-8) === baseDigits.slice(-8)) return true;
     }
-    const otherKeys = suffixMergeKeys(d);
-    return otherKeys.some((k) => keys.has(k));
+    const baseLid = isLidConvId(base.id);
+    const otherLid = isLidConvId(c.id);
+    if (baseLid || otherLid) {
+      if (d.length >= 8 && baseDigits.length >= 8 && d.slice(-8) === baseDigits.slice(-8)) {
+        return true;
+      }
+      const otherKeys = suffixMergeKeys(d);
+      return otherKeys.some((k) => keys.has(k));
+    }
+    return false;
   });
 
   if (siblings.length === 0) return base;

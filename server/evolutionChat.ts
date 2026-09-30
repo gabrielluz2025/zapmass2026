@@ -973,7 +973,11 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             return out;
         };
         const phone = mergeDigits(conv);
-        const convSuffix = new Set(suffixKeys(phone));
+        const convSuffix = isLidJid(
+            conv.id.includes(':') ? conv.id.slice(conv.id.indexOf(':') + 1) : conv.id
+        )
+            ? new Set(suffixKeys(phone))
+            : new Set<string>();
         const byId = new Map<string, ChatMessage>();
         for (const m of conv.messages || []) {
             if (m?.id) byId.set(m.id, m);
@@ -982,8 +986,15 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         for (const other of conversations) {
             if (other.id === conversationId || other.connectionId !== conv.connectionId) continue;
             const otherPhone = mergeDigits(other);
+            const convIsLid = conv.id.includes(':')
+                ? conv.id.slice(conv.id.indexOf(':') + 1).toLowerCase().endsWith('@lid')
+                : false;
+            const otherIsLid = other.id.includes(':')
+                ? other.id.slice(other.id.indexOf(':') + 1).toLowerCase().endsWith('@lid')
+                : false;
             const samePhone = phone.length >= 8 && otherPhone.length >= 8 && phone === otherPhone;
             const sameSuffix =
+                (convIsLid || otherIsLid) &&
                 phone.length >= 8 &&
                 otherPhone.length >= 8 &&
                 (phone.slice(-8) === otherPhone.slice(-8) ||

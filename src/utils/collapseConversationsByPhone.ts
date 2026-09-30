@@ -81,14 +81,16 @@ function phoneKeysForConversation(conv: Conversation): string[] {
   }
   if (altRaw.includes('@')) addDigits(altRaw.split('@')[0]);
 
-  // Sufixo (últimos dígitos) para unir @lid longo ao stub 5511…@s.whatsapp.net da campanha.
-  const mergeD =
-    normalizePhoneDigits(conv.contactPhone || '') ||
-    normalizePhoneDigits(jid.split('@')[0] || '');
-  const tail = mergeD.length > 13 ? mergeD.slice(-11) : mergeD;
-  if (tail.length >= 8) {
-    for (const len of [11, 10, 9, 8]) {
-      if (tail.length >= len) keys.add(`sfx:${tail.slice(-len)}`);
+  // Sufixo só em @lid (evita colapsar dois telefones BR distintos pelo mesmo 8 dígitos).
+  if (isLidJid(jid)) {
+    const mergeD =
+      normalizePhoneDigits(conv.contactPhone || '') ||
+      normalizePhoneDigits(jid.split('@')[0] || '');
+    const tail = mergeD.length > 13 ? mergeD.slice(-11) : mergeD;
+    if (tail.length >= 8) {
+      for (const len of [11, 10, 9, 8]) {
+        if (tail.length >= len) keys.add(`sfx:${tail.slice(-len)}`);
+      }
     }
   }
 

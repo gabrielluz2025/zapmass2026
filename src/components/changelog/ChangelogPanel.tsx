@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.234',
+    date: '30/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Cruzamento @lid + campanha sem juntar conversas de telefones diferentes' },
+    ],
+  },
+  {
     version: '2.3.233',
     date: '30/09/2026',
     highlights: [
