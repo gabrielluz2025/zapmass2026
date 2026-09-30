@@ -139,6 +139,7 @@ import {
   buildInboundBodyDedupeKey,
   isInboundAutomationProcessed,
   markInboundAutomationProcessed,
+  releaseInboundAutomationClaim,
   tryClaimInboundAutomation,
 } from './inboundAutomationDedupe.js';
 import type { InboundProcessParams } from './inboundMissedReplay.js';
@@ -2488,24 +2489,22 @@ function applyConnectionStateUpdate(
                 );
             }
             if (reconnecting) {
-                void recoverStuckReplyFlowSessions().then((recovered) => {
-                    if (recovered > 0) {
-                        log('info', `[ReplyFlow] ${recovered} sessão(ões) retomada(s) após reconexão`, {
+                void triggerInboundReplayForConnection(instance)
+                    .then((result) => {
+                        if (result.replayed > 0) {
+                            log('info', `[ReplyFlow] ${result.replayed} resposta(s) reprocessada(s) após reconexão`, {
+                                connectionId: instance,
+                                scanned: result.scanned,
+                                skipped: result.skipped,
+                            });
+                        }
+                    })
+                    .catch((err) =>
+                        log('warn', '[InboundReplay] falha após reconexão', {
                             connectionId: instance,
-                            recovered,
-                        });
-                    }
-                });
-                void import('./inboundMissedReplay.js').then(({ replayMissedInboundForConnection }) =>
-                    replayMissedInboundForConnection(instance, ou, {
-                        getConversations: () => chatStore.getConversations(),
-                        loadChatHistory: (conversationId, limit) =>
-                            chatStore.loadChatHistory(conversationId, limit, true),
-                        getLastClosedAt: (id) => connectionsSettingsCache[id]?.lastClosedAt,
-                        processInbound: processInboundAutomationMessage,
-                        log: (message, payload) => log('info', message, payload),
-                    }).then(() => syncHotLeadsAfterInboundReplay(ou, instance))
-                );
+                            error: err instanceof Error ? err.message : String(err),
+                        })
+                    );
             }
         })();
     }
@@ -2520,6 +2519,12 @@ function applyConnectionStateUpdate(
                 importing: false,
             });
             void reemitConversationsForOwner(ou).catch(() => undefined);
+            void triggerInboundReplayForConnection(instance).catch((err) =>
+                log('warn', '[InboundReplay] falha após sync do celular', {
+                    connectionId: instance,
+                    error: err instanceof Error ? err.message : String(err),
+                })
+            );
         }
     }
 }
@@ -11972,6 +11977,39 @@ export async function dispatchWebhook(event: unknown): Promise<{
   return dispatchEvolutionWebhook(normalized);
 }
 
+/** Marca dedupe só quando o fluxo concluiu; senão libera para reprocessar ao reconectar o chip. */
+async function finalizeInboundAutomationDedupe(opts: {
+    settled: boolean;
+    messageOwnerUid?: string;
+    connectionId: string;
+    phoneDigits: string;
+    bodyText: string;
+    nonTextReply?: boolean;
+    dedupeKey: string;
+    bodyDedupeKey: string | null;
+}): Promise<void> {
+    const keys = [opts.dedupeKey, opts.bodyDedupeKey].filter((k): k is string => Boolean(k));
+    if (opts.settled) {
+        for (const k of keys) await markInboundAutomationProcessed(k);
+        return;
+    }
+    if (opts.messageOwnerUid && (String(opts.bodyText || '').trim() || opts.nonTextReply)) {
+        const { inboundReplyFlowDeliveryPending } = await import('./replyFlowCatchUp.js');
+        const pending = await inboundReplyFlowDeliveryPending({
+            tenantId: opts.messageOwnerUid,
+            connectionId: opts.connectionId,
+            phoneDigits: opts.phoneDigits,
+            bodyText: opts.bodyText,
+            nonTextReply: opts.nonTextReply,
+        });
+        if (pending) {
+            for (const k of keys) await releaseInboundAutomationClaim(k);
+            return;
+        }
+    }
+    for (const k of keys) await markInboundAutomationProcessed(k);
+}
+
 /** Pipeline compartilhado: opt-out, fluxo por resposta, nutrição e lead quente. */
 async function processInboundAutomationMessage(params: InboundProcessParams): Promise<void> {
     const {
@@ -12079,6 +12117,8 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
         }
     }
 
+    let automationSettled = Boolean(flowResult.handled);
+
     // Opt-out global só depois do fluxo: o gatilho SAIR da campanha manda o texto
     // configurado. O handler genérico (LGPD) não pode roubar essa resposta.
     if (bodyText && messageOwnerUid && !flowResult.handled) {
@@ -12121,7 +12161,17 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
             },
         });
         if (optedOut) {
-            if (dedupeKey) await markInboundAutomationProcessed(dedupeKey);
+            automationSettled = true;
+            await finalizeInboundAutomationDedupe({
+                settled: true,
+                messageOwnerUid,
+                connectionId: instance,
+                phoneDigits,
+                bodyText,
+                nonTextReply,
+                dedupeKey,
+                bodyDedupeKey,
+            });
             return;
         }
     }
@@ -12136,7 +12186,16 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
                 reason: 'reason' in inboundGuard ? inboundGuard.reason : undefined,
                 source,
             });
-            if (dedupeKey) await markInboundAutomationProcessed(dedupeKey);
+            await finalizeInboundAutomationDedupe({
+                settled: automationSettled,
+                messageOwnerUid,
+                connectionId: instance,
+                phoneDigits,
+                bodyText,
+                nonTextReply,
+                dedupeKey,
+                bodyDedupeKey,
+            });
             return;
         }
 
@@ -12244,7 +12303,16 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
         logCampaignContactReply(instance, phoneDigits, replyPreview, replyCampaignId, replyOwnerUid);
     }
 
-    if (dedupeKey) await markInboundAutomationProcessed(dedupeKey);
+    await finalizeInboundAutomationDedupe({
+        settled: automationSettled,
+        messageOwnerUid,
+        connectionId: instance,
+        phoneDigits,
+        bodyText,
+        nonTextReply,
+        dedupeKey,
+        bodyDedupeKey,
+    });
 }
 
 export async function handleWebhook(event: any) {

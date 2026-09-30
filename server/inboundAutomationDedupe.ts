@@ -61,6 +61,16 @@ export async function tryClaimInboundAutomation(dedupeKey: string): Promise<bool
   }
 }
 
+export async function releaseInboundAutomationClaim(dedupeKey: string): Promise<void> {
+  const redis = getSharedRedis();
+  if (!redis || !dedupeKey) return;
+  try {
+    await redis.del(inboundDoneRedisKey(dedupeKey));
+  } catch {
+    /* best-effort */
+  }
+}
+
 export async function markInboundAutomationProcessed(dedupeKey: string): Promise<void> {
   const redis = getSharedRedis();
   if (!redis || !dedupeKey) return;

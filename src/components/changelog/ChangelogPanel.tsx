@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.229',
+    date: '30/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Chip volta do ban/suspensão: respostas ao gatilho reprocessam sozinhas e o fluxo continua sem ação manual' },
+    ],
+  },
+  {
     version: '2.3.228',
     date: '29/09/2026',
     highlights: [

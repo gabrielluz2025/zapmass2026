@@ -278,39 +278,53 @@ export type ReplyFlowCatchUpEnqueueItem = {
   skipFrequencyCap: true;
 };
 
-/**
- * Quando a sessão em RAM caiu (restart, race, purge) mas o contato responde ao menu/gatilho,
- * enfileira a mesma resposta que o ReplyFlowEngine enviaria — sem depender de opt-in/out.
- */
-export async function tryDeliverReplyFlowCatchUp(params: {
+type CatchUpPlan = {
+  message: string;
+  campaignId: string;
+  ownerUid: string;
+  disposeAfterSend?: boolean;
+  afterSend?: ReplyFlowCatchUpEnqueueItem['replyFlowAfterSend'];
+};
+
+/** Há texto de fluxo a enviar para esta resposta (chip offline não deve marcar como "processado"). */
+export async function inboundReplyFlowDeliveryPending(params: {
   tenantId: string;
   connectionId: string;
   phoneDigits: string;
   bodyText: string;
   nonTextReply?: boolean;
-  enqueue: (item: ReplyFlowCatchUpEnqueueItem) => void | Promise<void>;
-}): Promise<{ handled: boolean }> {
+}): Promise<boolean> {
+  const plan = await computeReplyFlowCatchUpPlan(params);
+  return Boolean(plan?.message?.trim());
+}
+
+async function computeReplyFlowCatchUpPlan(params: {
+  tenantId: string;
+  connectionId: string;
+  phoneDigits: string;
+  bodyText: string;
+  nonTextReply?: boolean;
+}): Promise<CatchUpPlan | null> {
   const bodyText = String(params.bodyText || '').trim();
-  if (!bodyText && !params.nonTextReply) return { handled: false };
+  if (!bodyText && !params.nonTextReply) return null;
 
   const resolved = await resolveCampaignForInboundReply(
     params.tenantId,
     params.connectionId,
     params.phoneDigits
   );
-  if (!resolved?.campaignId) return { handled: false };
+  if (!resolved?.campaignId) return null;
 
   const gateCtx = await loadGateStep(params.tenantId, resolved.campaignId);
-  if (!gateCtx) return { handled: false };
+  if (!gateCtx) return null;
 
   const { gate, steps } = gateCtx;
   const phone = normalizePhoneDigits(params.phoneDigits);
-  const vars: Record<string, string> = {};
   const ownerUid = resolved.ownerUid || params.tenantId;
 
   let outboundMessage = '';
   let disposeAfterSend = false;
-  let afterSend: ReplyFlowCatchUpEnqueueItem['replyFlowAfterSend'];
+  let afterSend: CatchUpPlan['afterSend'];
 
   if (gate.options && gate.options.length > 0) {
     const best = findBestMatchingOption(gate.options, bodyText, gate.matchMode || 'word');
@@ -331,19 +345,43 @@ export async function tryDeliverReplyFlowCatchUp(params: {
     outboundMessage = gate.invalidReplyBody;
   }
 
-  if (!outboundMessage.trim()) return { handled: false };
+  if (!outboundMessage.trim()) return null;
 
-  const message = applyMessageVars(outboundMessage, phone, vars);
+  return {
+    message: applyMessageVars(outboundMessage, phone, {}),
+    campaignId: resolved.campaignId,
+    ownerUid,
+    ...(disposeAfterSend ? { disposeAfterSend: true } : {}),
+    ...(afterSend ? { afterSend } : {}),
+  };
+}
+
+/**
+ * Quando a sessão em RAM caiu (restart, race, purge) mas o contato responde ao menu/gatilho,
+ * enfileira a mesma resposta que o ReplyFlowEngine enviaria — sem depender de opt-in/out.
+ */
+export async function tryDeliverReplyFlowCatchUp(params: {
+  tenantId: string;
+  connectionId: string;
+  phoneDigits: string;
+  bodyText: string;
+  nonTextReply?: boolean;
+  enqueue: (item: ReplyFlowCatchUpEnqueueItem) => void | Promise<void>;
+}): Promise<{ handled: boolean }> {
+  const plan = await computeReplyFlowCatchUpPlan(params);
+  if (!plan) return { handled: false };
+
+  const phone = normalizePhoneDigits(params.phoneDigits);
   await params.enqueue({
     connectionId: params.connectionId,
     to: phone,
-    message,
-    campaignId: resolved.campaignId,
-    ownerUid,
+    message: plan.message,
+    campaignId: plan.campaignId,
+    ownerUid: plan.ownerUid,
     replyFlowResponse: true,
     skipFrequencyCap: true,
-    ...(disposeAfterSend ? { replyFlowDisposeAfterSend: true } : {}),
-    ...(afterSend ? { replyFlowAfterSend: afterSend } : {}),
+    ...(plan.disposeAfterSend ? { replyFlowDisposeAfterSend: true } : {}),
+    ...(plan.afterSend ? { replyFlowAfterSend: plan.afterSend } : {}),
   });
   return { handled: true };
 }

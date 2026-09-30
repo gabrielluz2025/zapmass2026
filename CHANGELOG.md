@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.229] - 2026-09-30
+
+### Corrigido
+- **Gatilho após chip suspenso/banido**: respostas recebidas enquanto o canal estava fora não eram marcadas como "processadas" se o fluxo não saiu; ao reconectar, o replay automático (72h, histórico + destinatários da campanha) reprocessa e solta o restante do fluxo sem clicar em Respostas.
+
 ## [2.3.228] - 2026-09-29
 
 ### Corrigido
