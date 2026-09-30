@@ -164,6 +164,24 @@ export async function releaseChannelHotSlot(
   memHot.set(conn, Math.max(0, (memHot.get(conn) || 0) - 1));
 }
 
+/** Alinha contador Redis com jobs reais na BullMQ (evita deadlock após restart/deploy). */
+export async function reconcileChannelHotSlotCounter(
+  redis: Redis | null | undefined,
+  connectionId: string,
+  queueDepth: number
+): Promise<void> {
+  const conn = normConn(connectionId);
+  if (!conn) return;
+  const limit = getChannelHotSlotLimit();
+  const depth = Math.max(0, Math.round(queueDepth));
+  const normalized = Math.min(limit, depth);
+  if (redis) {
+    await redis.set(hotKey(conn), String(normalized), 'EX', KEY_TTL_SEC);
+    return;
+  }
+  memHot.set(conn, normalized);
+}
+
 /** Round-robin estável entre campanhas no mesmo chip ao promover held. */
 export function pickFairHeldCampaignRoundRobin(
   campaignIds: string[],

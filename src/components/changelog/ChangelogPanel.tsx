@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.238',
+    date: '30/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Disparo parado em 0%: reconcilia fila quente Redis + BullMQ e acorda held ao iniciar campanha' },
+    ],
+  },
+  {
     version: '2.3.237',
     date: '30/09/2026',
     highlights: [

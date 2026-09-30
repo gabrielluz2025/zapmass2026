@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.238] - 2026-09-30
+
+### Corrigido
+- **Campanha em Executando com 0 envios**: contador de fila quente no Redis podia ficar travado após deploy; reconcilia com a BullMQ, promove held ao iniciar e evita enfileirar tudo no guardado sem worker.
+
 ## [2.3.237] - 2026-09-30
 
 ### Melhorado

@@ -155,6 +155,7 @@ import { CAMPAIGN_CHANNEL_WINDOW, splitCampaignDispatchWindow } from './campaign
 import {
     holdRoundRobinKey,
     pickFairHeldCampaignRoundRobin,
+    reconcileChannelHotSlotCounter,
     releaseChannelHotSlot,
     releaseChannelSendSlot,
     tryAcquireChannelSendSlot,
@@ -3537,7 +3538,10 @@ async function bootstrapPerChannelCampaignQueues(): Promise<void> {
         });
     }
     const ids = await listRegisteredCampaignConnectionIds(getSharedRedis());
-    for (const cid of ids) ensureCampaignMassWorkerForConnection(cid);
+    for (const cid of ids) {
+        await reconcileChannelHotSlotsFromQueue(cid);
+        ensureCampaignMassWorkerForConnection(cid);
+    }
     scheduleReplyFlowRecovery();
 }
 
@@ -3552,6 +3556,32 @@ async function forEachAllCampaignMassQueues(
     await forEachCampaignMassQueue(getRedisConnection(), campaignQueueDefaultOptions(), fn);
     const legacy = getCampaignQueue();
     if (legacy) await fn(legacy);
+}
+
+async function getCampaignMassQueueJobDepth(connectionId: string): Promise<number> {
+    const q = resolveCampaignMassQueue(connectionId);
+    if (!q) return 0;
+    try {
+        const c = await q.getJobCounts('waiting', 'active', 'delayed');
+        return (c.waiting ?? 0) + (c.active ?? 0) + (c.delayed ?? 0);
+    } catch {
+        return 0;
+    }
+}
+
+async function reconcileChannelHotSlotsFromQueue(connectionId: string): Promise<void> {
+    const depth = await getCampaignMassQueueJobDepth(connectionId);
+    await reconcileChannelHotSlotCounter(getSharedRedis(), connectionId, depth);
+}
+
+async function tryReserveChannelHotSlotWithReconcile(connectionId: string): Promise<boolean> {
+    const redis = getSharedRedis();
+    const connId = String(connectionId || '').trim();
+    if (!connId) return true;
+    await reconcileChannelHotSlotsFromQueue(connId);
+    if (await tryReserveChannelHotSlot(redis, connId)) return true;
+    await reconcileChannelHotSlotsFromQueue(connId);
+    return tryReserveChannelHotSlot(redis, connId);
 }
 
 function ensureCampaignMassWorkerForConnection(connectionId: string): void {
@@ -7825,7 +7855,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: {
     const isMassCampaign =
         Boolean(item.campaignId) && !item.replyFlowResponse && !item.nurtureFollowUp;
     if (isMassCampaign && !opts?.hotSlotReserved) {
-        const hotOk = await tryReserveChannelHotSlot(getSharedRedis(), item.connectionId);
+        const hotOk = await tryReserveChannelHotSlotWithReconcile(item.connectionId);
         if (!hotOk) {
             if (item.campaignId) {
                 await parkHeldCampaignSends(item.campaignId, [item]);
@@ -7938,28 +7968,7 @@ async function enqueueCampaignItemsBulk(
 
     for (let offset = 0; offset < entries.length; offset += ENQUEUE_BULK_CHUNK) {
         const chunk = entries.slice(offset, offset + ENQUEUE_BULK_CHUNK);
-        const redis = getSharedRedis();
-        const ready: Array<{ item: MessageQueueItem; delayMs: number }> = [];
-        const parkByCampaign = new Map<string, MessageQueueItem[]>();
-        for (const entry of chunk) {
-            const { item } = entry;
-            const isMass =
-                Boolean(item.campaignId) && !item.replyFlowResponse && !item.nurtureFollowUp;
-            if (isMass) {
-                const hotOk = await tryReserveChannelHotSlot(redis, item.connectionId);
-                if (!hotOk && item.campaignId) {
-                    const list = parkByCampaign.get(item.campaignId) || [];
-                    list.push(item);
-                    parkByCampaign.set(item.campaignId, list);
-                    continue;
-                }
-            }
-            ready.push(entry);
-        }
-        for (const [cid, items] of parkByCampaign) {
-            await parkHeldCampaignSends(cid, items);
-        }
-        if (ready.length === 0) continue;
+        const ready = chunk;
 
         const jobsByQueue = new Map<
             Queue<MessageQueueItem>,
@@ -7969,6 +7978,15 @@ async function enqueueCampaignItemsBulk(
             const targetQueue = resolveCampaignMassQueue(item.connectionId);
             if (!targetQueue) {
                 throw new Error('Fila Redis indisponível. Verifique REDIS_URL/serviço Redis na VPS.');
+            }
+            if (
+                item.campaignId &&
+                !item.replyFlowResponse &&
+                !item.nurtureFollowUp &&
+                !(await tryReserveChannelHotSlotWithReconcile(item.connectionId))
+            ) {
+                await parkHeldCampaignSends(item.campaignId, [item]);
+                continue;
             }
             bumpQueueSize(item.connectionId, 1);
             if (item.campaignId) {
@@ -8010,7 +8028,7 @@ async function enqueueCampaignItemsBulk(
         }
         try {
             for (const [targetQueue, jobs] of jobsByQueue) {
-                await targetQueue.addBulk(jobs);
+                if (jobs.length > 0) await targetQueue.addBulk(jobs);
             }
         } catch (err) {
             for (const { item } of ready) {
@@ -8124,7 +8142,7 @@ async function promoteHeldCampaignJob(campaignId?: string, connectionId?: string
     }
     const redis = getSharedRedis();
     if (!redis) return false;
-    if (!(await tryReserveChannelHotSlot(redis, connId))) return false;
+    if (!(await tryReserveChannelHotSlotWithReconcile(connId))) return false;
     const raw = await redis.lpop(heldListKey(cid, connId));
     if (!raw) {
         await releaseChannelHotSlot(redis, connId);
@@ -10932,6 +10950,12 @@ export async function redispatchCampaign(
             const windowed = splitCampaignDispatchWindow(pendingEnqueue, CAMPAIGN_CHANNEL_WINDOW, paceMs);
             await enqueueCampaignItemsBulk(windowed.hot);
             await parkHeldCampaignSends(campaignId, windowed.held.map((entry) => entry.item));
+            const state = campaignsById.get(campaignId);
+            const connIds = state?.connectionIds || [];
+            for (const connId of connIds) {
+                await reconcileChannelHotSlotsFromQueue(connId);
+            }
+            await drainHeldForCampaign(campaignId);
             emitCampaignLog(
                 'INFO',
                 `Reenvio na mesma campanha: ${pendingEnqueue.length} contato(s) (${mode})`,
@@ -11430,6 +11454,10 @@ export async function startCampaign(
         const windowed = splitCampaignDispatchWindow(pendingEnqueue, CAMPAIGN_CHANNEL_WINDOW, paceMs);
         await enqueueCampaignItemsBulk(windowed.hot);
         await parkHeldCampaignSends(cid, windowed.held.map((entry) => entry.item));
+        for (const connId of activeConnectionIds) {
+            await reconcileChannelHotSlotsFromQueue(connId);
+        }
+        await drainHeldForCampaign(cid);
 
         const channelsWithRoom = activeConnectionIds.filter((id) => {
             const chip = connections.get(id);

@@ -43,4 +43,10 @@ describe('campaignChannelDispatch', () => {
     expect(getChannelActiveSendLimit()).toBeGreaterThanOrEqual(1);
     expect(getChannelHotSlotLimit()).toBeGreaterThanOrEqual(1);
   });
+
+  it('reconcilia contador quente com profundidade real', async () => {
+    const { reconcileChannelHotSlotCounter } = await import('./campaignChannelDispatch.js');
+    await reconcileChannelHotSlotCounter(null, 'chip-x', 0);
+    expect(await tryReserveChannelHotSlot(null, 'chip-x')).toBe(true);
+  });
 });
