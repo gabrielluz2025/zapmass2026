@@ -12659,7 +12659,7 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
                             ownerUid: p.ownerUid,
                             stageIndex: p.stepIndex,
                             rotationIndex: campaignRotationIndexFromPhone(phoneDigits),
-                            sendAsMedia: campaignMediaById.has(p.campaignId),
+                            sendAsMedia: campaignOpeningMediaAvailable(p.campaignId),
                             multiStepContact: { contactId: p.contactId, stepIndex: p.stepIndex },
                         },
                         p.delayMs
