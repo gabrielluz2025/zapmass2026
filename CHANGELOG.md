@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.233] - 2026-09-30
+
+### Corrigido
+- **Bate-papo vazio após disparo**: une thread @lid com stub de telefone da campanha; ao abrir conversa busca última mensagem enviada no Postgres; thread materializa preview e bolhas mesmo sem sync do celular.
+
 ## [2.3.232] - 2026-09-30
 
 ### Corrigido

@@ -566,21 +566,33 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
           )}
 
           {messages.length === 0 && !loadingHistory && (() => {
-            const isCampaignStub =
-              (conversation?.tags ?? []).some((t) => t === 'Campanha' || t === 'campanha') &&
-              Boolean((conversation?.lastMessage || '').trim());
-            if (isCampaignStub) {
+            const previewText = (conversation?.lastMessage || '').trim();
+            const campaignish = (conversation?.tags ?? []).some((t) =>
+              /campanha|disparo/i.test(String(t))
+            );
+            if (previewText) {
               return (
                 <div className="flex flex-col items-center gap-3 py-12 px-6" style={{ color: 'var(--wa-text-3)' }}>
-                  <p className="text-center text-[12px] opacity-70">Mensagem enviada pela campanha:</p>
+                  {campaignish ? (
+                    <p className="text-center text-[12px] opacity-70">Última mensagem do disparo:</p>
+                  ) : (
+                    <p className="text-center text-[12px] opacity-70">Última mensagem:</p>
+                  )}
                   <div
                     className="rounded-lg px-4 py-3 max-w-xs text-[13px] text-left"
-                    style={{ background: 'var(--wa-bubble-out)', color: 'var(--wa-bubble-out-text, var(--text-1))' }}
+                    style={{
+                      background: campaignish ? 'var(--wa-bubble-out)' : 'var(--wa-bubble-in, var(--wa-panel))',
+                      color: campaignish
+                        ? 'var(--wa-bubble-out-text, var(--text-1))'
+                        : 'var(--wa-bubble-in-text, var(--text-1))',
+                    }}
                   >
-                    {conversation!.lastMessage}
+                    {previewText}
                   </div>
                   <p className="text-center text-[11px] opacity-60 leading-snug max-w-xs">
-                    Histórico completo será exibido após o disparo terminar ou ao sincronizar o celular.
+                    {isGoWebhookInbox
+                      ? 'Histórico completo: toque em “Sincronizar do celular” ou aguarde o arquivo carregar.'
+                      : 'Toque em “Carregar mensagens anteriores” para ver o histórico completo.'}
                   </p>
                 </div>
               );

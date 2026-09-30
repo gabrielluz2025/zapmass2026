@@ -954,7 +954,26 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     function absorbSiblingThreadMessages(conversationId: string): number {
         const conv = conversations.find((c) => c.id === conversationId);
         if (!conv) return 0;
-        const phone = normalizePhoneDigits(conv.contactPhone || '');
+        const mergeDigits = (c: Conversation): string => {
+            const cp = normalizePhoneDigits(c.contactPhone || '');
+            if (cp.length >= 10 && cp.length <= 13) return cp;
+            const jid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
+            const local = normalizePhoneDigits(jid.split('@')[0] || '');
+            if (local.length >= 10 && local.length <= 13) return local;
+            if (local.length > 13) return local.slice(-11);
+            return cp || local;
+        };
+        const suffixKeys = (digits: string): string[] => {
+            const d = normalizePhoneDigits(digits);
+            if (d.length < 8) return [];
+            const out: string[] = [];
+            for (const len of [11, 10, 9, 8]) {
+                if (d.length >= len) out.push(`sfx:${d.slice(-len)}`);
+            }
+            return out;
+        };
+        const phone = mergeDigits(conv);
+        const convSuffix = new Set(suffixKeys(phone));
         const byId = new Map<string, ChatMessage>();
         for (const m of conv.messages || []) {
             if (m?.id) byId.set(m.id, m);
@@ -962,10 +981,23 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         let absorbed = 0;
         for (const other of conversations) {
             if (other.id === conversationId || other.connectionId !== conv.connectionId) continue;
-            const otherPhone = normalizePhoneDigits(other.contactPhone || '');
-            const samePhone = phone.length >= 10 && otherPhone === phone;
+            const otherPhone = mergeDigits(other);
+            const samePhone = phone.length >= 8 && otherPhone.length >= 8 && phone === otherPhone;
+            const sameSuffix =
+                phone.length >= 8 &&
+                otherPhone.length >= 8 &&
+                (phone.slice(-8) === otherPhone.slice(-8) ||
+                    suffixKeys(otherPhone).some((k) => convSuffix.has(k)));
             const sameAlt = Boolean(conv.waJidAlt && other.waJidAlt === conv.waJidAlt);
-            if (!samePhone && !sameAlt) continue;
+            if (!samePhone && !sameSuffix && !sameAlt) continue;
+            if (!(conv.lastMessage || '').trim() && (other.lastMessage || '').trim()) {
+                conv.lastMessage = other.lastMessage;
+                conv.lastMessageTime = other.lastMessageTime || conv.lastMessageTime;
+                conv.lastMessageTimestamp = Math.max(
+                    conv.lastMessageTimestamp || 0,
+                    other.lastMessageTimestamp || 0
+                );
+            }
             for (const m of other.messages || []) {
                 if (!m?.id || byId.has(m.id)) continue;
                 byId.set(m.id, m);
@@ -2235,6 +2267,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (archiveCtx) {
             await mergeChatArchiveIntoConversation(conversationId, limit, evoChatArchiveHooks());
         }
+        await enrichConvFromCampaignJobs(conversationId);
 
         const requested = Math.max(50, Math.min(limit, MAX_MESSAGES));
 
@@ -2652,6 +2685,62 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             );
         }
         return 0; // Nunca remove automaticamente
+    }
+
+    async function enrichConvFromCampaignJobs(conversationId: string): Promise<void> {
+        const conv = conversations.find((c) => c.id === conversationId);
+        if (!conv || (conv.messages?.length ?? 0) > 0) return;
+        const cp = normalizePhoneDigits(conv.contactPhone || '');
+        const jid = conv.id.includes(':') ? conv.id.slice(conv.id.indexOf(':') + 1) : conv.id;
+        const local = normalizePhoneDigits(jid.split('@')[0] || '');
+        let digits =
+            cp.length >= 10 && cp.length <= 13
+                ? cp
+                : local.length >= 10 && local.length <= 13
+                  ? local
+                  : local.length > 13
+                    ? local.slice(-11)
+                    : cp || local;
+        if (digits.length < 8) return;
+        const owner =
+            archiveCtx?.resolveConnectionOwnerUid(conv.connectionId) ||
+            archiveCtx?.ownerUidFromConnectionId(conv.connectionId);
+        if (!owner || owner === 'anonymous') return;
+        try {
+            const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+            const { getZapmassPool } = await import('./db/postgres.js');
+            const pool = getZapmassPool();
+            const tenantId = resolvePostgresTenantId(owner);
+            if (!pool || !tenantId) return;
+            const r = await pool.query<{
+                msg_text: string | null;
+                last_sent: Date | null;
+            }>(
+                `SELECT
+                    COALESCE(
+                        payload->>'message',
+                        payload->>'text',
+                        payload->'media'->>'caption'
+                    ) AS msg_text,
+                    COALESCE(sent_at, updated_at) AS last_sent
+                 FROM zapmass.campaign_jobs
+                 WHERE connection_id = $1
+                   AND tenant_id = $2::uuid
+                   AND status = 'sent'
+                   AND regexp_replace(to_number, '\\D', '', 'g') LIKE '%' || $3
+                 ORDER BY COALESCE(sent_at, updated_at) DESC
+                 LIMIT 1`,
+                [conv.connectionId, tenantId, digits.slice(-11)]
+            );
+            const row = r.rows[0];
+            const text = String(row?.msg_text || '').trim();
+            if (!text) return;
+            const tsMs = row?.last_sent ? new Date(row.last_sent).getTime() : Date.now();
+            ensurePhoneStubs(conv.connectionId, [{ phone: digits, lastMessage: text, timestampMs: tsMs }]);
+            absorbSiblingThreadMessages(conversationId);
+        } catch {
+            /* PG indisponível */
+        }
     }
 
     function ensurePhoneStubs(

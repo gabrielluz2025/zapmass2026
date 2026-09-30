@@ -75,9 +75,24 @@ function phoneKeysForConversation(conv) {
     const jid = remoteJidFromConversationId(conv.id);
     if (jid && !isLidJid(jid))
         addDigits(jid.split('@')[0]);
-    // @lid sem contactPhone: ainda tenta cruzar pelo alt embutido no id de outra thread (raro)
-    if (jid && isLidJid(jid) && altRaw.includes('@'))
+    if (jid && isLidJid(jid)) {
+        const local = normalizePhoneDigits(jid.split('@')[0] || '');
+        if (local.length >= 10 && local.length <= 13)
+            addDigits(local);
+        else if (local.length > 13)
+            addDigits(local.slice(-11));
+    }
+    if (altRaw.includes('@'))
         addDigits(altRaw.split('@')[0]);
+    const mergeD = normalizePhoneDigits(conv.contactPhone || '') ||
+        normalizePhoneDigits(jid.split('@')[0] || '');
+    const tail = mergeD.length > 13 ? mergeD.slice(-11) : mergeD;
+    if (tail.length >= 8) {
+        for (const len of [11, 10, 9, 8]) {
+            if (tail.length >= len)
+                keys.add(`sfx:${tail.slice(-len)}`);
+        }
+    }
     return Array.from(keys);
 }
 /** Une duas threads do mesmo contato (usado no servidor ao redirecionar @lid → JID com telefone). */

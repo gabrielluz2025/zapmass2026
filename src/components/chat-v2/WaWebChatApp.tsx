@@ -14,7 +14,6 @@ import { useClientCrm } from '../chat/useClientCrm';
 import { useSendChatMedia } from './hooks/useSendChatMedia';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
 import { collapseConversationsByPhone } from '../../utils/collapseConversationsByPhone';
-import { ensureLatestPreviewInMessages, mergeChatMessageLists } from '../../utils/chatMessageMerge';
 import { buildCanonicalConversationId } from '../../utils/conversationId';
 import { OPEN_CHAT_BY_CONVERSATION_ID_KEY } from '../../utils/openChatByConversationIdNav';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
@@ -22,6 +21,10 @@ import {
   buildPhoneDigitLookupKeys,
   normalizePhoneDigits
 } from '../../utils/contactPhoneLookup';
+import {
+  materializeThreadMessages,
+  mergeSiblingThreadMessages,
+} from '../../utils/threadMessageMaterialize';
 import type { ChatMessage, Conversation } from '../../types';
 import { WaInbox } from './WaInbox';
 import { WaThread } from './WaThread';
@@ -428,31 +431,9 @@ export const WaWebChatApp: React.FC<{
         }
       }
       if (!base) return null;
-      const phone = normalizePhoneDigits(base.contactPhone || '');
-      const alt = base.waJidAlt || '';
-      const siblings = sortedConversations.filter((c) => {
-        if (c.connectionId !== base!.connectionId || c.id === base!.id) return false;
-        const cp = normalizePhoneDigits(c.contactPhone || '');
-        if (phone.length >= 10 && cp === phone) return true;
-        if (alt && c.waJidAlt === alt) return true;
-        return false;
-      });
-      if (siblings.length === 0) return ensureLatestPreviewInMessages(base);
-      const mergedMsgs = siblings.reduce(
-        (acc, s) => mergeChatMessageLists(acc, s.messages || []),
-        base.messages || []
-      );
-      const bestTs = Math.max(
-        base.lastMessageTimestamp ?? 0,
-        ...siblings.map((s) => s.lastMessageTimestamp ?? 0)
-      );
-      const withSiblingMeta: Conversation = {
-        ...base,
-        messages: mergedMsgs,
-        lastMessageTimestamp: bestTs,
-        unreadCount: siblings.reduce((n, s) => n + (s.unreadCount || 0), base.unreadCount || 0),
-      };
-      return ensureLatestPreviewInMessages(withSiblingMeta);
+      const merged = mergeSiblingThreadMessages(base, sortedConversations);
+      const msgs = materializeThreadMessages(merged);
+      return msgs.length > 0 ? { ...merged, messages: msgs } : merged;
     },
     [sortedConversations]
   );

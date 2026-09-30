@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.233',
+    date: '30/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Disparo + @lid: bate-papo mostra mensagem da campanha e une threads duplicadas' },
+    ],
+  },
+  {
     version: '2.3.232',
     date: '30/09/2026',
     highlights: [
