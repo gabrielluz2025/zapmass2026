@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.252',
+    date: '30/09/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Disparo: pula quem já recebeu em 24 h por padrão; reenvio só se marcar checkbox',
+      },
+    ],
+  },
+  {
     version: '2.3.251',
     date: '30/09/2026',
     highlights: [

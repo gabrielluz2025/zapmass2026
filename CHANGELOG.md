@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.252] - 2026-09-30
+
+### Corrigido
+- **Preview antes do disparo**: dá para disparar sem reenviar quem já recebeu em 24 h; checkbox passa a ser opcional (incluir reenvio).
+
 ## [2.3.251] - 2026-09-30
 
 ### Corrigido

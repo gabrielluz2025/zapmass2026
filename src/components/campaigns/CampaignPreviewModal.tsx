@@ -275,7 +275,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
 
   const triageComplete = freqCapStatus === 'ok' || freqCapStatus === 'error';
   const needsRepeatConfirm = cappedCount > 0 && freqCapStatus === 'ok';
-  const repeatConfirmed = !needsRepeatConfirm || confirmRepeatSend;
+  const dispatchableCount = Math.max(0, contactCount - (needsRepeatConfirm && !confirmRepeatSend ? cappedCount : 0));
 
   const overallHealth: HealthStatus =
     chipStatus === 'error'
@@ -294,9 +294,9 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   const largeBaseSkipClientCap = contactCount > LARGE_FREQ_CAP_CLIENT;
   const canDispatch =
     !hasUnresolved &&
-    repeatConfirmed &&
     !chipsConfirmedOffline &&
-    motorStatus !== 'error';
+    motorStatus !== 'error' &&
+    dispatchableCount > 0;
 
   const palette = {
     ok: { bg: '#10b98115', border: '#10b98135', text: '#10b981', icon: <CheckCircle2 className="w-4 h-4" /> },
@@ -319,10 +319,10 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
             {isAdmin ? 'Corrija os problemas acima' : 'Aguarde a sincronização ou clique em Reverificar'}
           </span>
         )}
-        {overallHealth === 'ok' && needsRepeatConfirm && !confirmRepeatSend && (
+        {overallHealth === 'ok' && needsRepeatConfirm && dispatchableCount === 0 && !confirmRepeatSend && (
           <span className="text-[11px] text-amber-500 flex items-center gap-1">
             <AlertTriangle className="w-3.5 h-3.5" />
-            Marque a confirmação acima
+            Todos os contatos estão no limite 24 h — marque reenvio ou mude a lista
           </span>
         )}
         <Button
@@ -337,7 +337,11 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
           leftIcon={isLoading ? undefined : <Rocket className="w-4 h-4" />}
           disabled={!canDispatch}
         >
-          {launchMode === 'schedule' ? 'Confirmar agendamento' : 'Confirmar e disparar'}
+          {launchMode === 'schedule'
+            ? 'Confirmar agendamento'
+            : needsRepeatConfirm && confirmRepeatSend
+              ? `Confirmar e disparar (${contactCount.toLocaleString('pt-BR')})`
+              : `Confirmar e disparar (${dispatchableCount.toLocaleString('pt-BR')})`}
         </Button>
       </div>
     </>
@@ -563,7 +567,9 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
                   : largeBaseSkipClientCap
                   ? `Base grande (${contactCount.toLocaleString('pt-BR')}): limite 24 h aplicado no envio`
                   : cappedCount > 0
-                  ? `${cappedCount} contato${cappedCount !== 1 ? 's' : ''} já recebeu mensagem hoje`
+                  ? confirmRepeatSend
+                    ? `${cappedCount} no limite 24 h — reenvio incluído (${contactCount.toLocaleString('pt-BR')} total)`
+                    : `${cappedCount} pulado${cappedCount !== 1 ? 's' : ''} (24 h) · ${dispatchableCount.toLocaleString('pt-BR')} liberado${dispatchableCount !== 1 ? 's' : ''}`
                   : `Todos os ${contactCount} contatos liberados`}
               </span>
             </div>
@@ -628,24 +634,33 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
           </div>
 
           {needsRepeatConfirm && (
-            <div
-              className="mx-4 mb-3 rounded-xl px-3 py-2.5 flex items-start gap-2"
-              style={{ background: '#f59e0b12', border: '1px solid #f59e0b35' }}
-            >
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={confirmRepeatSend}
-                  onChange={(e) => setConfirmRepeatSend(e.target.checked)}
-                />
-                <span className="text-[12px] leading-snug" style={{ color: 'var(--text-2)' }}>
-                  Confirmo que desejo enviar mesmo assim para{' '}
-                  <strong>{cappedCount} contato{cappedCount !== 1 ? 's' : ''}</strong> que já
-                  recebeu mensagem nas últimas 24 horas.
-                </span>
-              </label>
+            <div className="mx-4 mb-3 space-y-2">
+              {!confirmRepeatSend && (
+                <p className="text-[11px] leading-snug px-1" style={{ color: 'var(--text-3)' }}>
+                  Por padrão, quem já recebeu mensagem nas últimas 24 horas{' '}
+                  <strong>não</strong> entra neste disparo. Você pode confirmar abaixo só se quiser
+                  reenviar para esses contatos.
+                </p>
+              )}
+              <div
+                className="rounded-xl px-3 py-2.5 flex items-start gap-2"
+                style={{ background: '#f59e0b12', border: '1px solid #f59e0b35' }}
+              >
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={confirmRepeatSend}
+                    onChange={(e) => setConfirmRepeatSend(e.target.checked)}
+                  />
+                  <span className="text-[12px] leading-snug" style={{ color: 'var(--text-2)' }}>
+                    Incluir também{' '}
+                    <strong>{cappedCount} contato{cappedCount !== 1 ? 's' : ''}</strong> que já
+                    recebeu mensagem nas últimas 24 horas (reenviar mesmo assim).
+                  </span>
+                </label>
+              </div>
             </div>
           )}
         </div>
