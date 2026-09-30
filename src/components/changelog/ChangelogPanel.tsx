@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.248',
+    date: '30/09/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Fluxo por respostas: menos falhas definitivas (LID, circuit breaker, freq-cap legado, texto vazio)',
+      },
+    ],
+  },
+  {
     version: '2.3.247',
     date: '30/09/2026',
     highlights: [

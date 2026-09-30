@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.248] - 2026-09-30
+
+### Corrigido
+- **Respostas automáticas falhavam em lote**: fluxo ignora circuit breaker do disparo; validação LID não bloqueia quem já respondeu; jobs antigos sem `skipFrequencyCap`; mensagem vazia vira skip (não falha definitiva). Worker de respostas padrão 8. Log traz o erro na mesma linha.
+
 ## [2.3.247] - 2026-09-30
 
 ### Corrigido

@@ -5899,6 +5899,32 @@ async function skipCampaignJobOnce(
     }
 }
 
+/** Resposta automática impossível (sem texto/mídia) — não conta como falha de campanha. */
+async function skipReplyFlowJobGracefully(
+    job: Job<MessageQueueItem>,
+    item: MessageQueueItem,
+    reason: string,
+    campaignState?: CampaignRuntimeState
+): Promise<void> {
+    if (item.replyFlowResponse && (item.replyFlowDisposeAfterSend || item.replyFlowAfterSend)) {
+        ensureReplyFlowEngine();
+        replyFlowEngine.rollbackPendingOutbound(item.connectionId, normalizePhoneKey(item.to));
+    }
+    bumpQueueSize(item.connectionId, -1, item);
+    log('warn', `[ReplyFlow] Envio ignorado — ${reason}`, {
+        campaignId: item.campaignId,
+        to: item.to,
+        connectionId: item.connectionId,
+    });
+    emitCampaignLog(
+        'WARN',
+        `Resposta automática não enviada: ${reason}`,
+        { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
+        campaignState?.ownerUid
+    );
+    await skipCampaignJobOnce(job, item);
+}
+
 async function accountCampaignJobOnce(
     job: Job<MessageQueueItem>,
     item: MessageQueueItem,
@@ -9460,6 +9486,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     if (!(await isCampaignChannelHealthy(item.connectionId))) {
+        if (item.replyFlowResponse || item.nurtureFollowUp) {
+            // Contato já respondeu — não segurar atrás do circuit breaker do disparo em massa.
+        } else {
         void maybeNotifyCircuitBreakerOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
         void maybeNotifyCircuitBreakerHalfOpen(item.connectionId, campaignState?.ownerUid || item.ownerUid);
         void maybeNotifyCircuitBreakerThrottled(item.connectionId, campaignState?.ownerUid || item.ownerUid);
@@ -9519,6 +9548,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             );
             await job.moveToDelayed(Date.now() + 5 * 60_000, token);
             throw new DelayedError();
+        }
         }
     }
 
@@ -9678,14 +9708,31 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     const resolvedOutbound = await resolveOutboundNumberForSend(item.connectionId, item.to);
+    let sendTo: string;
     if ('error' in resolvedOutbound) {
-        return await failCampaignSend(job, item, normalizedDest, resolvedOutbound.error, campaignState);
+        const resolveErr = resolvedOutbound.error;
+        if (
+            item.replyFlowResponse &&
+            (resolveErr === LID_SEND_BLOCKED_MSG || /não foi possível obter o número/i.test(resolveErr))
+        ) {
+            log('warn', 'Fluxo por resposta: validação LID falhou — tentando envio direto', {
+                connectionId: item.connectionId,
+                to: normalizedDest,
+                campaignId: item.campaignId,
+            });
+            sendTo = normalizedDest;
+        } else {
+            return await failCampaignSend(job, item, normalizedDest, resolveErr, campaignState);
+        }
+    } else {
+        sendTo = resolvedOutbound.number;
     }
-    const sendTo = resolvedOutbound.number;
 
     // ── Limite de frequência: não reenviar para o mesmo contato em 24 h ───────
     if (
         item.campaignId &&
+        !item.replyFlowResponse &&
+        !item.nurtureFollowUp &&
         !item.skipFrequencyCap &&
         !isCampaignFlowContinuation(item) &&
         (await checkFrequencyCap(campaignState?.ownerUid, item.to))
@@ -9760,6 +9807,15 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const hasMediaPayload = Boolean(mediaToSend?.base64 || mediaToSend?.url);
     const textPayload = String(item.message || '').trim();
     if (!hasMediaPayload && !textPayload) {
+        if (item.replyFlowResponse) {
+            await skipReplyFlowJobGracefully(
+                job,
+                item,
+                'mensagem vazia e anexo ausente no servidor',
+                campaignState
+            );
+            return;
+        }
         throw new Error('Mensagem vazia após personalização — verifique variáveis e spintax');
     }
 
@@ -10519,7 +10575,7 @@ function ensureReplyWorker(lockDuration: number): void {
     getReplyQueue();
     replyWorker = new Worker<MessageQueueItem>('campaign-replies', processCampaignJob, {
         connection: conn.duplicate(),
-        concurrency: Math.max(1, Math.min(8, parseInt(process.env.REPLY_WORKER_CONCURRENCY || '4', 10))),
+        concurrency: Math.max(1, Math.min(12, parseInt(process.env.REPLY_WORKER_CONCURRENCY || '8', 10))),
         lockDuration,
         lockRenewTime: Math.round(lockDuration / 4),
         stalledInterval: 60_000,
@@ -10532,7 +10588,8 @@ function ensureReplyWorker(lockDuration: number): void {
         const item = job?.data;
         const isDead = job ? job.attemptsMade >= (job.opts.attempts || 1) : false;
         if (isDead) {
-            log('error', 'Job de resposta falhou (definitivo)', {
+            const errText = String(err.message || '').slice(0, 600);
+            log('error', `Job de resposta falhou (definitivo): ${errText}`, {
                 to: item?.to,
                 campaignId: item?.campaignId,
                 connectionId: item?.connectionId,
