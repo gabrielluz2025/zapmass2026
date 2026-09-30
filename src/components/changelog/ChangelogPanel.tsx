@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.232',
+    date: '30/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Thread vazia: mostra o último recado da lista e para loop de “Carregando mensagens…”' },
+    ],
+  },
+  {
     version: '2.3.231',
     date: '30/09/2026',
     highlights: [

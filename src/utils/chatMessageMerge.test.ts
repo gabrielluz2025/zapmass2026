@@ -33,6 +33,25 @@ describe('ensureLatestPreviewInMessages', () => {
     expect(out.messages[1].sender).toBe('me');
     expect(out.lastMessageTimestamp).toBe(1_000_000 + 60_000);
   });
+
+  it('injeta preview quando a thread está vazia mas a lista tem lastMessage', () => {
+    const conv: Conversation = {
+      id: 'c1:5511999997464@s.whatsapp.net',
+      contactName: 'Contato',
+      contactPhone: '',
+      connectionId: 'c1',
+      unreadCount: 0,
+      lastMessage: 'Olá, sua vaga foi reservada',
+      lastMessageTime: '09:10',
+      lastMessageTimestamp: 0,
+      messages: [],
+      tags: ['Campanha']
+    };
+    const out = ensureLatestPreviewInMessages(conv);
+    expect(out.messages).toHaveLength(1);
+    expect(out.messages[0].text).toBe('Olá, sua vaga foi reservada');
+    expect(out.messages[0].sender).toBe('me');
+  });
 });
 
 describe('mergeChatMessageLists', () => {

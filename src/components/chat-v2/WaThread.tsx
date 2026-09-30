@@ -558,7 +558,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
             </div>
           )}
 
-          {messages.length === 0 && loadingHistory && (
+          {messages.length === 0 && loadingHistory && !threadHasActivity && (
             <div className="flex flex-col items-center gap-2 py-12" style={{ color: 'var(--wa-text-3)' }}>
               <Loader2 className="w-6 h-6 animate-spin opacity-70" aria-hidden />
               <p className="text-center text-[13px]">Carregando mensagens…</p>

@@ -167,6 +167,25 @@ function mergeChatMessageFields(existing: ChatMessage, incoming: ChatMessage): C
   return merged;
 }
 
+/** Localiza conversa para merge de `load-chat-history` (id canônico vs @lid / colapso por telefone). */
+function indexForHistoryMerge(prev: Conversation[], conversationId: string): number {
+  const direct = prev.findIndex((c) => c.id === conversationId);
+  if (direct >= 0) return direct;
+  const conn = conversationId.includes(':') ? conversationId.slice(0, conversationId.indexOf(':')) : '';
+  const tail = conversationId.includes(':') ? conversationId.slice(conversationId.indexOf(':') + 1) : conversationId;
+  const digits = tail.split('@')[0]?.replace(/\D/g, '') || '';
+  if (!conn) return -1;
+  return prev.findIndex((c) => {
+    if (c.connectionId !== conn) return false;
+    const cp = (c.contactPhone || '').replace(/\D/g, '');
+    const cid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
+    const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
+    if (digits.length >= 8 && (cp === digits || jidD === digits)) return true;
+    if (digits.length >= 4 && (cp.endsWith(digits) || jidD.endsWith(digits))) return true;
+    return c.id.endsWith(`:${tail}`) || c.id === conversationId;
+  });
+}
+
 /** Aplica lote de histórico retornado pelo callback `load-chat-history` (evita depender do tail de 25 do socket). */
 export function mergeHistoryMessagesIntoConversation(
   prev: Conversation[],
@@ -174,7 +193,7 @@ export function mergeHistoryMessagesIntoConversation(
   incoming: ChatMessage[]
 ): Conversation[] {
   if (!conversationId || incoming.length === 0) return prev;
-  const idx = prev.findIndex((c) => c.id === conversationId);
+  const idx = indexForHistoryMerge(prev, conversationId);
   if (idx < 0) return prev;
 
   const conv = prev[idx]!;

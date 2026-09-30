@@ -83,6 +83,19 @@ export function ensureLatestPreviewInMessages(conv) {
     const msgs = Array.isArray(conv.messages) ? [...conv.messages] : [];
     const last = newestMsg(msgs);
     const lastTs = last?.timestampMs || 0;
+    if (previewText && msgs.length === 0) {
+        const campaignish = (conv.tags ?? []).some((t) => /campanha/i.test(String(t)));
+        msgs.push({
+            id: `preview:${conv.id}:${previewText.slice(0, 40)}`,
+            text: previewText,
+            timestamp: conv.lastMessageTime || '',
+            sender: campaignish ? 'me' : 'them',
+            status: campaignish ? 'sent' : 'delivered',
+            type: 'text',
+            timestampMs: previewTs > 0 ? previewTs : Date.now()
+        });
+        return applyLatestMessagePreview({ ...conv, messages: msgs });
+    }
     if (previewText && previewTs > lastTs + 800) {
         const dup = msgs.some((m) => (m.text || '').trim() === previewText && Math.abs((m.timestampMs || 0) - previewTs) < 800);
         if (!dup) {

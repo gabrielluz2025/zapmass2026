@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.232] - 2026-09-30
+
+### Corrigido
+- **Bate-papo em branco com preview na lista**: último recado aparece na thread mesmo sem histórico no servidor; auto-load para de loopar a cada sync; merge de histórico encontra conversa @lid/telefone; hidratação puxa mensagens para a UI.
+
 ## [2.3.231] - 2026-09-30
 
 ### Corrigido

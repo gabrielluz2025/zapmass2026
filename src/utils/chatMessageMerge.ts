@@ -87,6 +87,21 @@ export function ensureLatestPreviewInMessages(conv: Conversation): Conversation 
   const last = newestMsg(msgs);
   const lastTs = last?.timestampMs || 0;
 
+  /** Lista com preview mas thread vazia (disparo/campanha) — mostrar ao menos o último recado. */
+  if (previewText && msgs.length === 0) {
+    const campaignish = (conv.tags ?? []).some((t) => /campanha/i.test(String(t)));
+    msgs.push({
+      id: `preview:${conv.id}:${previewText.slice(0, 40)}`,
+      text: previewText,
+      timestamp: conv.lastMessageTime || '',
+      sender: campaignish ? 'me' : 'them',
+      status: campaignish ? 'sent' : 'delivered',
+      type: 'text',
+      timestampMs: previewTs > 0 ? previewTs : Date.now()
+    });
+    return applyLatestMessagePreview({ ...conv, messages: msgs });
+  }
+
   if (previewText && previewTs > lastTs + 800) {
     const dup = msgs.some(
       (m) =>

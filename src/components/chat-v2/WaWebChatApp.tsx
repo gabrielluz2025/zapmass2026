@@ -141,6 +141,8 @@ export const WaWebChatApp: React.FC<{
   const pictureAttemptedRef = useRef<Set<string>>(new Set());
   const historyRequestedRef = useRef<Map<string, number>>(new Map());
   const historyInitializedRef = useRef<Set<string>>(new Set());
+  /** Evita re-disparar auto-load a cada `conversations-update` com thread ainda vazia. */
+  const historyAutoLoadRef = useRef<Map<string, 'done' | 'giveup'>>(new Map());
   /** Níveis sob demanda (scroll-up); não carregar tudo ao abrir conversa. */
   const HISTORY_LEVELS = [200, 500, 1500, 3500];
 
@@ -725,8 +727,12 @@ export const WaWebChatApp: React.FC<{
       if (loadingHistoryById.current.has(conversationId)) return false;
 
       const prevCount =
-        sortedConversations.find((c) => c.id === conversationId)?.messages.length || 0;
-      const convHint = sortedConversations.find((c) => c.id === conversationId);
+        resolveConversationById(conversationId)?.messages?.length ||
+        sortedConversations.find((c) => c.id === conversationId)?.messages.length ||
+        0;
+      const convHint =
+        resolveConversationById(conversationId) ||
+        sortedConversations.find((c) => c.id === conversationId);
       const activityHint =
         Boolean((convHint?.lastMessage || '').trim()) ||
         (convHint?.unreadCount || 0) > 0 ||
@@ -842,6 +848,7 @@ export const WaWebChatApp: React.FC<{
       isGoWebhookInbox,
       loadChatHistory,
       runResync,
+      resolveConversationById,
       sortedConversations,
     ]
   );
@@ -856,29 +863,29 @@ export const WaWebChatApp: React.FC<{
       (selected.lastMessageTimestamp || 0) > 0;
     if (msgCount > 0) {
       historyInitializedRef.current.add(id);
+      historyAutoLoadRef.current.set(id, 'done');
       return;
     }
     if (!hasActivity) return;
+    const autoStatus = historyAutoLoadRef.current.get(id);
+    if (autoStatus === 'done' || autoStatus === 'giveup') return;
 
     let cancelled = false;
-    const run = async (attempt: number) => {
-      if (cancelled) return;
-      const ok = await loadMoreHistory(id, true);
-      const loaded =
-        ok &&
-        (sortedConversations.find((c) => c.id === id)?.messages?.length ||
-          resolveConversationById(id)?.messages?.length ||
-          0) > 0;
-      if (loaded) {
-        historyInitializedRef.current.add(id);
-        return;
+    void (async () => {
+      for (let attempt = 1; attempt <= 3 && !cancelled; attempt++) {
+        await loadMoreHistory(id, true);
+        const loaded = (resolveConversationById(id)?.messages?.length ?? 0) > 0;
+        if (loaded) {
+          historyAutoLoadRef.current.set(id, 'done');
+          historyInitializedRef.current.add(id);
+          return;
+        }
+        if (attempt < 3) {
+          await new Promise((r) => window.setTimeout(r, 1500 * attempt));
+        }
       }
-      if (attempt < 5 && !cancelled) {
-        await new Promise((r) => window.setTimeout(r, 1200 * attempt));
-        return run(attempt + 1);
-      }
-    };
-    void run(1);
+      if (!cancelled) historyAutoLoadRef.current.set(id, 'giveup');
+    })();
     return () => {
       cancelled = true;
     };
@@ -890,7 +897,6 @@ export const WaWebChatApp: React.FC<{
     selected?.lastMessageTimestamp,
     socket?.connected,
     loadMoreHistory,
-    sortedConversations,
     resolveConversationById,
   ]);
 
@@ -906,11 +912,16 @@ export const WaWebChatApp: React.FC<{
 
   useEffect(() => {
     if (!selected?.id || isSelectedDraft) return;
+    const convId = selected.id;
     const t = window.setTimeout(() => {
-      void hydrateFirestoreChatArchive(selected.id, isGoWebhookInbox ? 1500 : 500);
+      void hydrateFirestoreChatArchive(convId, isGoWebhookInbox ? 1500 : 500).then((r) => {
+        if (r.ok && (r.total ?? 0) > 0) {
+          void loadChatHistory(convId, isGoWebhookInbox ? 1500 : 500, true);
+        }
+      });
     }, 70);
     return () => window.clearTimeout(t);
-  }, [selected?.id, isSelectedDraft, hydrateFirestoreChatArchive, isGoWebhookInbox]);
+  }, [selected?.id, isSelectedDraft, hydrateFirestoreChatArchive, loadChatHistory, isGoWebhookInbox]);
 
   const handleLoadMedia = useCallback(
     async (messageId: string, silent = false): Promise<string | null> => {
@@ -1170,7 +1181,10 @@ export const WaWebChatApp: React.FC<{
   }, [selected, deferredContacts]);
 
   const loadOlder = useCallback(() => {
-    if (selected?.id) void loadMoreHistory(selected.id);
+    if (selected?.id) {
+      historyAutoLoadRef.current.delete(selected.id);
+      void loadMoreHistory(selected.id);
+    }
   }, [selected?.id, loadMoreHistory]);
 
   const handleSendMedia = useCallback(
