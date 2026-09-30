@@ -893,12 +893,11 @@ export const WaWebChatApp: React.FC<{
 
   useEffect(() => {
     if (!selected?.id || isSelectedDraft) return;
+    historyAutoLoadRef.current.delete(selected.id);
     const convId = selected.id;
     const t = window.setTimeout(() => {
-      void hydrateFirestoreChatArchive(convId, isGoWebhookInbox ? 1500 : 500).then((r) => {
-        if (r.ok && (r.total ?? 0) > 0) {
-          void loadChatHistory(convId, isGoWebhookInbox ? 1500 : 500, true);
-        }
+      void hydrateFirestoreChatArchive(convId, isGoWebhookInbox ? 1500 : 500).finally(() => {
+        void loadChatHistory(convId, isGoWebhookInbox ? 1500 : 500, true);
       });
     }, 70);
     return () => window.clearTimeout(t);

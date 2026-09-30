@@ -11,6 +11,36 @@ function isLidConvId(convId: string): boolean {
   return remoteTail({ id: convId } as Conversation).toLowerCase().endsWith('@lid');
 }
 
+/** Sufixo exibido no inbox (ex.: "Contato - …7976" → "7976"). */
+export function extractDisplayDigitSuffix(conv: Conversation): string {
+  const name = String(conv.contactName || '').trim();
+  const dotted =
+    name.match(/(?:\.{2,}|…+|·)\s*(\d{4,11})\s*$/i) ||
+    name.match(/[-–]\s*\.{0,3}(\d{4,11})\s*$/i) ||
+    name.match(/(\d{4,11})\s*$/);
+  if (dotted?.[1]) return normalizePhoneDigits(dotted[1]);
+  return '';
+}
+
+/** Sufixos para buscar envio de campanha no Postgres (telefone parcial ok). */
+export function campaignLookupSuffixes(conv: Conversation): string[] {
+  const out = new Set<string>();
+  const add = (raw: string) => {
+    const d = normalizePhoneDigits(raw);
+    if (d.length >= 4) {
+      out.add(d.slice(-Math.min(11, d.length)));
+      if (d.length >= 8) out.add(d.slice(-8));
+    }
+  };
+  add(conv.contactPhone || '');
+  add(extractDisplayDigitSuffix(conv));
+  const jid = remoteTail(conv);
+  const local = normalizePhoneDigits(jid.split('@')[0] || '');
+  if (local.length >= 10 && local.length <= 13) add(local);
+  else if (local.length > 13) add(local.slice(-11));
+  return Array.from(out).filter((s) => s.length >= 4);
+}
+
 /** Dígitos usados para cruzar @lid com stub de telefone da campanha. */
 export function mergeDigitsForConversation(conv: Conversation): string {
   const cp = normalizePhoneDigits(conv.contactPhone || '');
@@ -20,6 +50,8 @@ export function mergeDigitsForConversation(conv: Conversation): string {
   if (local.length >= 10 && local.length <= 13) return local;
   if (local.length > 13) return local.slice(-11);
   const name = String(conv.contactName || '');
+  const display = extractDisplayDigitSuffix(conv);
+  if (display.length >= 4 && display.length < 8) return display;
   const m = name.match(/(\d{4,})\s*$/);
   if (m?.[1]) {
     const tail = normalizePhoneDigits(m[1]);
@@ -69,20 +101,32 @@ export function mergeSiblingThreadMessages(
   base: Conversation,
   all: Conversation[]
 ): Conversation {
-  const keys = new Set<string>();
+  const baseSuffix = extractDisplayDigitSuffix(base);
   const baseDigits = mergeDigitsForConversation(base);
+  const keys = new Set<string>();
   if (isLidConvId(base.id)) {
     for (const k of suffixMergeKeys(baseDigits)) keys.add(k);
+    if (baseSuffix.length >= 4) keys.add(`sfx:${baseSuffix}`);
   }
 
   const siblings = all.filter((c) => {
     if (c.id === base.id || c.connectionId !== base.connectionId) return false;
     const d = mergeDigitsForConversation(c);
-    if (d.length >= 8 && baseDigits.length >= 8) {
-      if (d === baseDigits) return true;
-    }
+    if (d.length >= 8 && baseDigits.length >= 8 && d === baseDigits) return true;
     const baseLid = isLidConvId(base.id);
     const otherLid = isLidConvId(c.id);
+    if (baseSuffix.length >= 4) {
+      const otherSuffix = extractDisplayDigitSuffix(c);
+      if (otherSuffix && baseSuffix === otherSuffix) return true;
+      const phone = normalizePhoneDigits(c.contactPhone || '');
+      const jidD = normalizePhoneDigits(
+        (c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id).split('@')[0] || ''
+      );
+      const hay = phone || jidD;
+      if (hay.endsWith(baseSuffix) || baseSuffix.endsWith(hay.slice(-baseSuffix.length))) {
+        return true;
+      }
+    }
     if (baseLid || otherLid) {
       if (d.length >= 8 && baseDigits.length >= 8 && d.slice(-8) === baseDigits.slice(-8)) {
         return true;

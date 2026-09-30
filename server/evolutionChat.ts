@@ -37,6 +37,7 @@ import {
     ensureLatestPreviewInMessages,
     mergeChatMessageLists
 } from '../src/utils/chatMessageMerge.js';
+import { campaignLookupSuffixes, extractDisplayDigitSuffix } from '../src/utils/threadMessageMaterialize.js';
 import {
     parseEvolutionPresenceWebhook,
     type WaContactPresence,
@@ -973,6 +974,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             return out;
         };
         const phone = mergeDigits(conv);
+        const displaySuf = extractDisplayDigitSuffix(conv);
         const convSuffix = isLidJid(
             conv.id.includes(':') ? conv.id.slice(conv.id.indexOf(':') + 1) : conv.id
         )
@@ -1000,7 +1002,21 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 (phone.slice(-8) === otherPhone.slice(-8) ||
                     suffixKeys(otherPhone).some((k) => convSuffix.has(k)));
             const sameAlt = Boolean(conv.waJidAlt && other.waJidAlt === conv.waJidAlt);
-            if (!samePhone && !sameSuffix && !sameAlt) continue;
+            let displayMatch = false;
+            if (displaySuf.length >= 4) {
+                const oSuf = extractDisplayDigitSuffix(other);
+                if (oSuf && oSuf === displaySuf) displayMatch = true;
+                else {
+                    const oPhone = normalizePhoneDigits(other.contactPhone || '');
+                    const oJid = other.id.includes(':')
+                        ? other.id.slice(other.id.indexOf(':') + 1)
+                        : other.id;
+                    const oJidD = normalizePhoneDigits(oJid.split('@')[0] || '');
+                    const hay = oPhone || oJidD;
+                    if (hay.endsWith(displaySuf)) displayMatch = true;
+                }
+            }
+            if (!samePhone && !sameSuffix && !sameAlt && !displayMatch) continue;
             if (!(conv.lastMessage || '').trim() && (other.lastMessage || '').trim()) {
                 conv.lastMessage = other.lastMessage;
                 conv.lastMessageTime = other.lastMessageTime || conv.lastMessageTime;
@@ -2312,7 +2328,6 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                     emitConversationDelta(conversationId);
                 }
             }
-            const have = conv?.messages?.length || 0;
             let historySyncTriggered = false;
             if (conv && conversationNeedsGoHistorySync(conv)) {
                 const connKey = String(parsed.connectionId || '').trim();
@@ -2327,7 +2342,14 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 }
             }
             const msgs = conv ? prepareConversationHistoryForClient(conv, requested) : [];
-            return { ok: true, total: have, messages: msgs, historySyncTriggered };
+            if ((conv?.messages?.length || 0) === 0) {
+                await enrichConvFromCampaignJobs(conversationId);
+                absorbSiblingThreadMessages(conversationId);
+                conv = conversations.find((c) => c.id === conversationId);
+            }
+            const total = conv?.messages?.length || 0;
+            const outMsgs = conv ? prepareConversationHistoryForClient(conv, requested) : msgs;
+            return { ok: true, total, messages: outMsgs, historySyncTriggered };
         }
 
         const oldestLocalMs =
@@ -2700,55 +2722,89 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
     async function enrichConvFromCampaignJobs(conversationId: string): Promise<void> {
         const conv = conversations.find((c) => c.id === conversationId);
-        if (!conv || (conv.messages?.length ?? 0) > 0) return;
-        const cp = normalizePhoneDigits(conv.contactPhone || '');
-        const jid = conv.id.includes(':') ? conv.id.slice(conv.id.indexOf(':') + 1) : conv.id;
-        const local = normalizePhoneDigits(jid.split('@')[0] || '');
-        let digits =
-            cp.length >= 10 && cp.length <= 13
-                ? cp
-                : local.length >= 10 && local.length <= 13
-                  ? local
-                  : local.length > 13
-                    ? local.slice(-11)
-                    : cp || local;
-        if (digits.length < 8) return;
+        if (!conv) return;
         const owner =
             archiveCtx?.resolveConnectionOwnerUid(conv.connectionId) ||
             archiveCtx?.ownerUidFromConnectionId(conv.connectionId);
         if (!owner || owner === 'anonymous') return;
+
+        const suffixes = campaignLookupSuffixes(conv);
+        if (suffixes.length === 0) return;
+
         try {
             const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
             const { getZapmassPool } = await import('./db/postgres.js');
             const pool = getZapmassPool();
             const tenantId = resolvePostgresTenantId(owner);
             if (!pool || !tenantId) return;
-            const r = await pool.query<{
-                msg_text: string | null;
-                last_sent: Date | null;
-            }>(
-                `SELECT
-                    COALESCE(
-                        payload->>'message',
-                        payload->>'text',
-                        payload->'media'->>'caption'
-                    ) AS msg_text,
-                    COALESCE(sent_at, updated_at) AS last_sent
-                 FROM zapmass.campaign_jobs
-                 WHERE connection_id = $1
-                   AND tenant_id = $2::uuid
-                   AND status = 'sent'
-                   AND regexp_replace(to_number, '\\D', '', 'g') LIKE '%' || $3
-                 ORDER BY COALESCE(sent_at, updated_at) DESC
-                 LIMIT 1`,
-                [conv.connectionId, tenantId, digits.slice(-11)]
-            );
-            const row = r.rows[0];
-            const text = String(row?.msg_text || '').trim();
+
+            let text = '';
+            let tsMs = Date.now();
+            let phoneDigits = '';
+
+            for (const suffix of suffixes) {
+                const r = await pool.query<{
+                    msg_text: string | null;
+                    last_sent: Date | null;
+                    to_number: string | null;
+                }>(
+                    `SELECT
+                        COALESCE(
+                            payload->>'message',
+                            payload->>'text',
+                            payload->'media'->>'caption'
+                        ) AS msg_text,
+                        COALESCE(sent_at, updated_at) AS last_sent,
+                        to_number
+                     FROM zapmass.campaign_jobs
+                     WHERE connection_id = $1
+                       AND tenant_id = $2::uuid
+                       AND status = 'sent'
+                       AND regexp_replace(to_number, '\\D', '', 'g') LIKE '%' || $3
+                     ORDER BY COALESCE(sent_at, updated_at) DESC
+                     LIMIT 1`,
+                    [conv.connectionId, tenantId, suffix]
+                );
+                const row = r.rows[0];
+                const hit = String(row?.msg_text || '').trim();
+                if (!hit) continue;
+                text = hit;
+                tsMs = row?.last_sent ? new Date(row.last_sent).getTime() : Date.now();
+                phoneDigits = normalizePhoneDigits(String(row?.to_number || '')) || suffix;
+                break;
+            }
             if (!text) return;
-            const tsMs = row?.last_sent ? new Date(row.last_sent).getTime() : Date.now();
-            ensurePhoneStubs(conv.connectionId, [{ phone: digits, lastMessage: text, timestampMs: tsMs }]);
+
+            if (phoneDigits.length >= 8) {
+                ensurePhoneStubs(conv.connectionId, [
+                    { phone: phoneDigits, lastMessage: text, timestampMs: tsMs },
+                ]);
+            }
+
             absorbSiblingThreadMessages(conversationId);
+            const live = conversations.find((c) => c.id === conversationId);
+            if (live && (live.messages?.length || 0) === 0) {
+                live.messages = [
+                    {
+                        id: `camp_open_${conversationId}_${tsMs}`,
+                        text,
+                        timestamp: formatTime(tsMs),
+                        sender: 'me',
+                        status: 'sent',
+                        type: 'text',
+                        fromCampaign: true,
+                        timestampMs: tsMs,
+                    },
+                ];
+                live.lastMessage = text;
+                live.lastMessageTimestamp = Math.max(live.lastMessageTimestamp || 0, tsMs);
+                live.lastMessageTime = formatTime(live.lastMessageTimestamp);
+                if (!live.tags?.includes('Campanha')) {
+                    live.tags = [...(live.tags || []), 'Campanha'];
+                }
+            }
+            emitConversationDelta(conversationId);
+            saveConversationsToCacheDebounced();
         } catch {
             /* PG indisponível */
         }
