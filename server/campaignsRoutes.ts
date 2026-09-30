@@ -99,8 +99,12 @@ export function registerCampaignsDataRoutes(app: Express): void {
     const patch: Record<string, unknown> = { ...raw };
     const optionMediaAttachments = patch.optionMediaAttachments;
     const optionMediaRemovals = patch.optionMediaRemovals;
+    const mediaAttachmentRaw = patch.mediaAttachment;
+    const followUpMediaAttachmentRaw = patch.followUpMediaAttachment;
     delete patch.optionMediaAttachments;
     delete patch.optionMediaRemovals;
+    delete patch.mediaAttachment;
+    delete patch.followUpMediaAttachment;
     // Edição pelo wizard não deve reiniciar audiência nem contadores.
     delete patch.numbers;
     delete patch.processedCount;
@@ -147,6 +151,25 @@ export function registerCampaignsDataRoutes(app: Express): void {
 
     const ok = await mergeUpdateCampaign(ctx.tenantId, id, patch);
     if (!ok) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
+
+    const toMediaPayload = (raw: unknown): { base64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean } | undefined => {
+      if (!raw || typeof raw !== 'object') return undefined;
+      const m = raw as Record<string, unknown>;
+      const dataBase64 = String(m.dataBase64 || '').trim();
+      const mimeType = String(m.mimeType || '').trim();
+      if (!dataBase64 || !mimeType) return undefined;
+      return {
+        base64: dataBase64,
+        mimeType,
+        fileName: String(m.fileName || 'anexo'),
+        ...(m.sendMediaAsDocument === true ? { sendMediaAsDocument: true } : {}),
+      };
+    };
+    const openingMedia = toMediaPayload(mediaAttachmentRaw);
+    const followMedia = toMediaPayload(followUpMediaAttachmentRaw);
+    if (openingMedia || followMedia) {
+      evolutionService.storeCampaignMediaForDispatch(id, openingMedia, followMedia);
+    }
 
     if (patch.dailySchedule) {
       evolutionService.syncCampaignDailyScheduleMemory(id, patch.dailySchedule);

@@ -4887,6 +4887,18 @@ function persistCampaignMediaPayload(storageKey: string, payload?: CampaignMedia
     }
 }
 
+/** Grava anexo de abertura / etapa 2 ao editar campanha ou reiniciar disparo. */
+export function storeCampaignMediaForDispatch(
+    campaignId: string,
+    media?: CampaignMediaPayload,
+    followUpMedia?: CampaignMediaPayload
+): void {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return;
+    if (media) persistCampaignMediaPayload(cid, media);
+    if (followUpMedia) persistCampaignMediaPayload(campaignMediaStorageKey(cid, 1), followUpMedia);
+}
+
 export type ReplyTriggerPhotoInput = {
     stepIndex: number;
     optionIndex: number;

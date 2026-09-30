@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.244',
+    date: '30/09/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Editar campanha: não cria disparo duplicado; anexo salvo na campanha existente',
+      },
+    ],
+  },
+  {
     version: '2.3.243',
     date: '30/09/2026',
     highlights: [

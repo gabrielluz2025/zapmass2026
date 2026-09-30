@@ -508,8 +508,11 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   };
 
   /** Salva alterações de uma campanha existente (modo edição legado do wizard). */
-  const handleEditCampaignSubmit = async (payload: Parameters<typeof executeSubmitCampaign>[0]) => {
-    const editId = wizardDraft?.editCampaignId;
+  const handleEditCampaignSubmit = async (
+    payload: Parameters<typeof executeSubmitCampaign>[0],
+    editIdOverride?: string
+  ) => {
+    const editId = editIdOverride || wizardDraft?.editCampaignId;
     if (!editId) return;
 
     const channelIds =
@@ -542,6 +545,12 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     if (payload.dailySchedule?.enabled) {
       patch.dailySchedule = payload.dailySchedule;
     }
+    if (payload.mediaAttachment) {
+      patch.mediaAttachment = payload.mediaAttachment;
+    }
+    if (payload.followUpMediaAttachment) {
+      patch.followUpMediaAttachment = payload.followUpMediaAttachment;
+    }
 
     try {
       const result = await saveCampaignEdit(editId, patch, channelIds, {
@@ -565,8 +574,12 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
 
   /** Intercepta o disparo — mostra preview antes de executar (ou salva edição direto). */
   const handleSubmitCampaign = async (payload: Parameters<typeof executeSubmitCampaign>[0]) => {
-    if (wizardDraft?.editMode) {
-      await handleEditCampaignSubmit(payload);
+    if (payload.editMode && payload.editCampaignId) {
+      await handleEditCampaignSubmit(payload, payload.editCampaignId);
+      return;
+    }
+    if (wizardDraft?.editMode && wizardDraft.editCampaignId) {
+      await handleEditCampaignSubmit(payload, wizardDraft.editCampaignId);
       return;
     }
     setPreviewPayload(payload);

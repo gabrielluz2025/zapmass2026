@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.244] - 2026-09-30
+
+### Corrigido
+- **Editar campanha duplicava disparo**: autosave apagava `editMode` e o botão virava “Iniciar disparo”, criando segunda campanha; edição agora persiste modo editar e grava anexo na mesma campanha.
+
 ## [2.3.243] - 2026-09-30
 
 ### Corrigido

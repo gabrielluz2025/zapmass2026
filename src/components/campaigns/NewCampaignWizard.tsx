@@ -214,6 +214,8 @@ interface NewCampaignWizardProps {
     optionMediaRemovals?: string[];
     dailySchedule?: CampaignDailySchedule;
     prospecting?: CampaignProspecting;
+    editMode?: boolean;
+    editCampaignId?: string;
   }) => Promise<void>;
   /** Reidrata o assistente (clone / modelo). */
   initialDraft?: CampaignWizardDraft | null;
@@ -269,7 +271,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [afternoonStartHour, setAfternoonStartHour] = useState(13);
   const [afternoonEndHour, setAfternoonEndHour] = useState(18);
   const [limitPerChannelGlobal, setLimitPerChannelGlobal] = useState<number>(100);
-  const isEditMode = Boolean(initialDraft?.editMode);
+  const editMetaRef = useRef({
+    editMode: Boolean(initialDraft?.editMode),
+    editCampaignId: initialDraft?.editCampaignId,
+  });
+  if (initialDraft?.editMode && initialDraft.editCampaignId) {
+    editMetaRef.current = { editMode: true, editCampaignId: initialDraft.editCampaignId };
+  }
+  const isEditMode = editMetaRef.current.editMode;
   const [duplicatedContacts, setDuplicatedContacts] = useState<Array<{ phone: string; campaignName: string; campaignId: string }>>([]);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
   const [campaignKind, setCampaignKind] = useState<'standard' | 'prospecting'>('standard');
@@ -956,7 +965,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         duration: 6000
       });
       setCampaignFlowMode('single');
-      setMessageStages(
+    setMessageStages(
         initialDraft.messageStages.length > 0
           ? [draftStageToMessageStage(initialDraft.messageStages[0])]
           : [newMessageStage()]
@@ -1028,6 +1037,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   }, [initialDraft, onDraftConsumed]);
 
   const buildCurrentDraft = (): CampaignWizardDraft => ({
+    ...(editMetaRef.current.editMode && editMetaRef.current.editCampaignId
+      ? { editMode: true, editCampaignId: editMetaRef.current.editCampaignId }
+      : {}),
     name: name.trim(),
     sendMode,
     selectedListId,
@@ -1757,6 +1769,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         ...(optionMediaAttachments ? { optionMediaAttachments } : {}),
         ...(removedOptionMediaKeysRef.current.length > 0
           ? { optionMediaRemovals: [...removedOptionMediaKeysRef.current] }
+          : {}),
+        ...(editMetaRef.current.editMode && editMetaRef.current.editCampaignId
+          ? { editMode: true, editCampaignId: editMetaRef.current.editCampaignId }
           : {}),
         ...(dailyScheduleEnabled && dailyScheduleDays.length > 0 ? {
           dailySchedule: {
@@ -2590,7 +2605,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   style={{ background: 'var(--surface-2)', color: 'var(--text-3)' }}
                 >
                   Modo <strong>disparo único</strong> — mensagem de abertura enviada para toda a base.
-                </div>
+                    </div>
               )}
 
               {flowModeChosen && (
@@ -3022,7 +3037,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         </p>
                       </div>
                     </div>
-                  </Card>
+              </Card>
                 );
               })()}
 
@@ -3333,7 +3348,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                           <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
                             Mensagens por canal / dia
                           </p>
-                          <input
+                  <input
                             type="number" min="1" max="9999"
                             value={limitPerChannelGlobal}
                             onChange={(e) => {
@@ -3359,7 +3374,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                             <span className="font-bold text-emerald-400 font-mono">{dailyScheduleDays.length}</span>
                             <span className="text-zinc-400 text-[11px]">
                               {hasWeekdayRestriction ? 'dias selecionados' : 'dias'} · {numChips} {numChips === 1 ? 'canal' : 'canais'}
-                            </span>
+                  </span>
                           </div>
                         </div>
                       </div>
@@ -3437,10 +3452,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                             <p className="mt-2 text-[10px]" style={{ color: 'var(--text-3)' }}>
                               Disparos apenas em: <span style={{ color: 'var(--text-2)' }}>
                                 {WEEKDAY_CHIPS.filter(c => allowedWeekdays.includes(c.dow)).map(c => c.label).join(', ')}
-                              </span>
-                            </p>
-                          )}
-                        </div>
+                  </span>
+                  </p>
+                )}
+              </div>
 
                         {/* Time period split */}
                         <div className="flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer select-none"
@@ -3608,14 +3623,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                                     }}
                                     className="w-16 px-1.5 py-1 rounded bg-black/60 border text-white text-center font-bold font-mono text-[11px]"
                                     style={{ borderColor: 'var(--border-subtle)' }}
-                                  />
-                                </div>
+                    />
+                  </div>
                                 <div className="text-right w-20">
                                   <span className="text-[9px] text-zinc-600 block">Total dia</span>
                                   <span className="font-bold text-emerald-400 font-mono text-[12px]">
                                     {totalForDay}
                                   </span>
-                                </div>
+                </div>
                               </div>
                             </div>
                           );
@@ -3656,9 +3671,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         {pctCovered < 100 && (
                           <p className="text-amber-400/80 text-[10.5px] pt-1">
                             ⚠️ O cronograma não cobre todos os contatos. Aumente o limite/canal ou adicione mais dias.
-                          </p>
-                        )}
-                      </div>
+                  </p>
+                )}
+              </div>
                     </div>
                   );
                 })()}
