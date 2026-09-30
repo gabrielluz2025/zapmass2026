@@ -10,6 +10,23 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.236',
+    date: '30/09/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Disparo isolado por chip: 1 envio ativo por canal, fila quente cap por número e rodízio entre campanhas',
+      },
+    ],
+  },
+  {
+    version: '2.3.235',
+    date: '30/09/2026',
+    highlights: [
+      { type: 'fix', text: 'Thread @lid: última mensagem do disparo pelo sufixo …7976 + histórico ao abrir conversa' },
+    ],
+  },
+  {
     version: '2.3.234',
     date: '30/09/2026',
     highlights: [

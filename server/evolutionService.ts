@@ -153,6 +153,14 @@ import {
 } from './campaignHumanizePipeline.js';
 import { CAMPAIGN_CHANNEL_WINDOW, splitCampaignDispatchWindow } from './campaignDispatchWindow.js';
 import {
+    holdRoundRobinKey,
+    pickFairHeldCampaignRoundRobin,
+    releaseChannelHotSlot,
+    releaseChannelSendSlot,
+    tryAcquireChannelSendSlot,
+    tryReserveChannelHotSlot,
+} from './campaignChannelDispatch.js';
+import {
     cancelCampaignJobsForPhone,
     handleInboundOptOut,
     isContactOptedOut,
@@ -3213,6 +3221,10 @@ interface MessageQueueItem {
     _humanizeDelayApplied?: boolean;
     /** Micro-pausa já contada neste envio — o retorno do job não soma de novo. */
     _microRestApplied?: boolean;
+    /** Vaga quente global por chip já liberada (evita DECR duplo no Redis). */
+    _channelHotReleased?: boolean;
+    /** Retentativas quando a vaga quente global do chip está cheia. */
+    _hotEnqueueDeferCount?: number;
     /** Proteção reconnect_storm: delay extra já aplicado (evita loop infinito de +90s). */
     _stormSlowApplied?: boolean;
     /** Penalidades por content hash lock repetido. */
@@ -5249,10 +5261,20 @@ async function applyProxyToInstance(instanceName: string, proxy?: ConnectionProx
     }
 }
 
-function bumpQueueSize(connectionId: string, delta: number) {
+function bumpQueueSize(connectionId: string, delta: number, item?: MessageQueueItem) {
     const next = Math.max(0, (connectionQueueSizes.get(connectionId) || 0) + delta);
     if (next === 0) connectionQueueSizes.delete(connectionId);
     else connectionQueueSizes.set(connectionId, next);
+    if (
+        delta < 0 &&
+        item &&
+        !item.replyFlowResponse &&
+        !item.nurtureFollowUp &&
+        !item._channelHotReleased
+    ) {
+        item._channelHotReleased = true;
+        void releaseChannelHotSlot(getSharedRedis(), connectionId);
+    }
 }
 
 function emitCampaignLog(
@@ -7657,7 +7679,7 @@ export async function sendTextToPhoneDirect(
 
 const ENQUEUE_CAMPAIGN_TIMEOUT_MS = 45_000;
 
-async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: { countPending?: boolean }) {
+async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: { countPending?: boolean; hotSlotReserved?: boolean }) {
     if (
         item.campaignId &&
         !item.replyFlowResponse &&
@@ -7684,6 +7706,27 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: {
 
     if (isBullmqRecoveryPending('campaign-queue')) {
         throw new Error('Redis sob stress (memória cheia). Aguarde alguns segundos e tente novamente.');
+    }
+
+    const isMassCampaign =
+        Boolean(item.campaignId) && !item.replyFlowResponse && !item.nurtureFollowUp;
+    if (isMassCampaign && !opts?.hotSlotReserved) {
+        const hotOk = await tryReserveChannelHotSlot(getSharedRedis(), item.connectionId);
+        if (!hotOk) {
+            if (item.campaignId) {
+                await parkHeldCampaignSends(item.campaignId, [item]);
+                return;
+            }
+            item._hotEnqueueDeferCount = (item._hotEnqueueDeferCount || 0) + 1;
+            if (item._hotEnqueueDeferCount > 24) {
+                throw new Error('Chip com fila cheia — aguarde a conclusão dos envios ativos.');
+            }
+            await enqueueCampaignItem(item, Math.max(delayMs, 12_000) + Math.floor(Math.random() * 8000), {
+                ...opts,
+                hotSlotReserved: false,
+            });
+            return;
+        }
     }
 
     // Backpressure: bloqueia enfileiramento se PG tiver > 50k jobs pending
@@ -7738,7 +7781,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: {
             }).catch(() => undefined); // não bloqueia — é registro de auditoria
         }
     } catch (err) {
-        bumpQueueSize(item.connectionId, -1);
+        bumpQueueSize(item.connectionId, -1, item);
         if (item.campaignId) {
             const pending = (campaignPendingJobs.get(item.campaignId) || 1) - 1;
             if (pending <= 0) campaignPendingJobs.delete(item.campaignId);
@@ -7782,7 +7825,30 @@ async function enqueueCampaignItemsBulk(
 
     for (let offset = 0; offset < entries.length; offset += ENQUEUE_BULK_CHUNK) {
         const chunk = entries.slice(offset, offset + ENQUEUE_BULK_CHUNK);
-        const jobs = chunk.map(({ item, delayMs }) => {
+        const redis = getSharedRedis();
+        const ready: Array<{ item: MessageQueueItem; delayMs: number }> = [];
+        const parkByCampaign = new Map<string, MessageQueueItem[]>();
+        for (const entry of chunk) {
+            const { item } = entry;
+            const isMass =
+                Boolean(item.campaignId) && !item.replyFlowResponse && !item.nurtureFollowUp;
+            if (isMass) {
+                const hotOk = await tryReserveChannelHotSlot(redis, item.connectionId);
+                if (!hotOk && item.campaignId) {
+                    const list = parkByCampaign.get(item.campaignId) || [];
+                    list.push(item);
+                    parkByCampaign.set(item.campaignId, list);
+                    continue;
+                }
+            }
+            ready.push(entry);
+        }
+        for (const [cid, items] of parkByCampaign) {
+            await parkHeldCampaignSends(cid, items);
+        }
+        if (ready.length === 0) continue;
+
+        const jobs = ready.map(({ item, delayMs }) => {
             bumpQueueSize(item.connectionId, 1);
             if (item.campaignId) {
                 campaignPendingJobs.set(item.campaignId, (campaignPendingJobs.get(item.campaignId) || 0) + 1);
@@ -7816,8 +7882,8 @@ async function enqueueCampaignItemsBulk(
         try {
             await queue.addBulk(jobs);
         } catch (err) {
-            for (const { item } of chunk) {
-                bumpQueueSize(item.connectionId, -1);
+            for (const { item } of ready) {
+                bumpQueueSize(item.connectionId, -1, item);
                 if (item.campaignId) {
                     const pending = (campaignPendingJobs.get(item.campaignId) || 1) - 1;
                     if (pending <= 0) campaignPendingJobs.delete(item.campaignId);
@@ -7926,17 +7992,28 @@ async function promoteHeldCampaignJob(campaignId?: string, connectionId?: string
     }
     const redis = getSharedRedis();
     if (!redis) return false;
+    if (!(await tryReserveChannelHotSlot(redis, connId))) return false;
     const raw = await redis.lpop(heldListKey(cid, connId));
-    if (!raw) return false;
+    if (!raw) {
+        await releaseChannelHotSlot(redis, connId);
+        return false;
+    }
     let item: MessageQueueItem;
     try {
         item = JSON.parse(raw) as MessageQueueItem;
     } catch {
+        await releaseChannelHotSlot(redis, connId);
         return false;
     }
     const settings = getTenantDispatchSettings(item.ownerUid);
     const delay = getGaussianDelayMs(settings.minDelayMs, settings.maxDelayMs, 1);
-    await enqueueCampaignItem(item, delay, { countPending: false });
+    try {
+        await enqueueCampaignItem(item, delay, { countPending: false, hotSlotReserved: true });
+    } catch {
+        await redis.lpush(heldListKey(cid, connId), raw);
+        await releaseChannelHotSlot(redis, connId);
+        return false;
+    }
     return true;
 }
 
@@ -7945,13 +8022,18 @@ async function drainHeldForConnection(connectionId: string): Promise<void> {
     const connId = String(connectionId || '').trim();
     if (!redis || !connId) return;
     const campaignIds = await redis.smembers(heldIndexKey(connId));
-    for (const campaignId of campaignIds) {
+    if (campaignIds.length === 0) return;
+    const rrKey = holdRoundRobinKey(connId);
+    const prevIdx = parseInt((await redis.get(rrKey)) || '0', 10) || 0;
+    const { order, nextIndex } = pickFairHeldCampaignRoundRobin(campaignIds, prevIdx);
+    let promoted = 0;
+    for (let round = 0; round < order.length && promoted < CAMPAIGN_CHANNEL_WINDOW; round++) {
+        const campaignId = order[round];
         if (pausedCampaigns.has(campaignId)) continue;
-        for (let i = 0; i < CAMPAIGN_CHANNEL_WINDOW; i++) {
-            const promoted = await promoteHeldCampaignJob(campaignId, connId);
-            if (!promoted) break;
-        }
+        const ok = await promoteHeldCampaignJob(campaignId, connId);
+        if (ok) promoted += 1;
     }
+    await redis.set(rrKey, String(nextIndex), 'EX', 14 * 24 * 3600);
 }
 
 async function drainHeldForCampaign(campaignId: string): Promise<void> {
@@ -8616,14 +8698,14 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     // Idempotência: envio já confirmado — só fecha contadores do job, sem reenviar nem recontar.
     if (item._sentOk) {
-        bumpQueueSize(item.connectionId, -1);
+        bumpQueueSize(item.connectionId, -1, item);
         await accountCampaignJobOnce(job, item, true);
         return;
     }
 
     const existingJobStatus = await getCampaignJobStatus(String(job.id || '')).catch(() => null);
     if (existingJobStatus === 'sent' || existingJobStatus === 'dead') {
-        bumpQueueSize(item.connectionId, -1);
+        bumpQueueSize(item.connectionId, -1, item);
         if (item.campaignId) {
             await applyProgressSeedToRuntime(item.campaignId, item.ownerUid);
         }
@@ -8729,7 +8811,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const workerTag = process.env.WORKER_ID || `worker-${process.pid}`;
     const claim = await claimCampaignJobForSend(jobKey, workerTag);
     if (claim === 'already_sent') {
-        bumpQueueSize(item.connectionId, -1);
+        bumpQueueSize(item.connectionId, -1, item);
         await closeCampaignJobWithoutRecount(job, item);
         return;
     }
@@ -9232,7 +9314,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             { campaignId: item.campaignId, to: normalizedDest, skipReason: 'frequency_cap' },
             campaignState?.ownerUid
         );
-        bumpQueueSize(item.connectionId, -1);
+        bumpQueueSize(item.connectionId, -1, item);
         await skipCampaignJobOnce(job, item);
         return;
     }
@@ -9246,7 +9328,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 { campaignId: item.campaignId, to: item.to, skipReason: 'opt_out' },
                 campaignState?.ownerUid
             );
-            bumpQueueSize(item.connectionId, -1);
+            bumpQueueSize(item.connectionId, -1, item);
             await skipCampaignJobOnce(job, item);
             return;
         }
@@ -9270,7 +9352,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
     const preSendStatus = await getCampaignJobStatus(jobKey).catch(() => null);
     if (preSendStatus === 'sent') {
-        bumpQueueSize(item.connectionId, -1);
+        bumpQueueSize(item.connectionId, -1, item);
         await closeCampaignJobWithoutRecount(job, item);
         return;
     }
@@ -9427,6 +9509,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
     }
 
+    const sendLeaseId = jobKey || String(job.id || 'send');
+    if (!(await tryAcquireChannelSendSlot(getSharedRedis(), item.connectionId, sendLeaseId))) {
+        await job.moveToDelayed(Date.now() + 2500 + Math.floor(Math.random() * 5500), token);
+        throw new DelayedError();
+    }
+
     if (!humanizeSkip) {
         const presenceLen = hasMediaPayload
             ? String(mediaToSend?.caption || item.message || '').trim().length
@@ -9436,28 +9524,32 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     let sendResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
-    if (hasMediaPayload) {
-        if (mediaToSend.url) {
-            sendResult = await sendMediaByUrlInternal(
-                item.connectionId,
-                sendTo,
-                mediaToSend.url,
-                mediaToSend.mimeType,
-                mediaToSend.fileName,
-                mediaToSend.caption || item.message
-            );
-        } else if (mediaToSend.base64) {
-            sendResult = await sendMediaInternal(
-                item.connectionId,
-                sendTo,
-                mediaToSend.base64,
-                mediaToSend.mimeType,
-                mediaToSend.fileName,
-                mediaToSend.caption || item.message
-            );
+    try {
+        if (hasMediaPayload) {
+            if (mediaToSend.url) {
+                sendResult = await sendMediaByUrlInternal(
+                    item.connectionId,
+                    sendTo,
+                    mediaToSend.url,
+                    mediaToSend.mimeType,
+                    mediaToSend.fileName,
+                    mediaToSend.caption || item.message
+                );
+            } else if (mediaToSend.base64) {
+                sendResult = await sendMediaInternal(
+                    item.connectionId,
+                    sendTo,
+                    mediaToSend.base64,
+                    mediaToSend.mimeType,
+                    mediaToSend.fileName,
+                    mediaToSend.caption || item.message
+                );
+            }
+        } else {
+            sendResult = await sendMessageInternal(item.connectionId, sendTo, item.message);
         }
-    } else {
-        sendResult = await sendMessageInternal(item.connectionId, sendTo, item.message);
+    } finally {
+        await releaseChannelSendSlot(getSharedRedis(), item.connectionId, sendLeaseId);
     }
 
     const cb = getChipCircuitBreaker();
@@ -9537,16 +9629,25 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                     );
                 }
                 await job.updateData(item).catch(() => {});
-                const altRetry = item.media
-                    ? await sendMediaInternal(
-                          altId,
-                          sendTo,
-                          item.media.base64 || '',
-                          item.media.mimeType,
-                          item.media.fileName,
-                          item.media.caption || item.message
-                      )
-                    : await sendMessageInternal(altId, sendTo, item.message);
+                const foLease = `${sendLeaseId}:fo-${altId}`;
+                if (!(await tryAcquireChannelSendSlot(getSharedRedis(), altId, foLease))) {
+                    continue;
+                }
+                let altRetry: { ok: boolean; messageId?: string; errorDetail?: string };
+                try {
+                    altRetry = item.media
+                        ? await sendMediaInternal(
+                              altId,
+                              sendTo,
+                              item.media.base64 || '',
+                              item.media.mimeType,
+                              item.media.fileName,
+                              item.media.caption || item.message
+                          )
+                        : await sendMessageInternal(altId, sendTo, item.message);
+                } finally {
+                    await releaseChannelSendSlot(getSharedRedis(), altId, foLease);
+                }
                 if (altRetry.ok) {
                     sendResult = altRetry;
                     switched = true;
@@ -9733,7 +9834,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         );
     }
 
-    bumpQueueSize(item.connectionId, -1);
+    bumpQueueSize(item.connectionId, -1, item);
 
     // Motor multi-etapas lazy: agenda próxima etapa se houver stageConfigs.
     if (item.multiStepContact && item.campaignId) {
@@ -9893,7 +9994,7 @@ async function failCampaignSend(
     }
 
     if (unrecoverable) {
-        bumpQueueSize(item.connectionId, -1);
+        bumpQueueSize(item.connectionId, -1, item);
         await accountCampaignJobOnce(
             job,
             item,
@@ -9998,7 +10099,7 @@ function ensureCampaignWorker() {
         }
 
         if (item && job && job.attemptsMade >= (job.opts.attempts || 1)) {
-            bumpQueueSize(item.connectionId, -1);
+            bumpQueueSize(item.connectionId, -1, item);
             if (item._dailyQuotaConsumed && !item._sentOk) {
                 item._dailyQuotaConsumed = false;
                 void releaseDailyCampaignQuota(item.connectionId, connectionDailyQuotaDeps()).catch(() => undefined);

@@ -7,6 +7,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.236] - 2026-09-30
+
+### Melhorado
+- **Fila de disparo por chip**: no máximo 1 envio ativo por canal (Redis); vagas quentes na BullMQ limitadas por chip entre campanhas; promoção do held em rodízio justo entre campanhas no mesmo número.
+
+## [2.3.235] - 2026-09-30
+
+### Corrigido
+- **Bate-papo vazio (Contato …7976)**: busca campanha no Postgres pelo sufixo do nome/telefone; grava mensagem na thread @lid aberta; cliente sempre chama `load-chat-history` ao selecionar.
+
 ## [2.3.234] - 2026-09-30
 
 ### Corrigido
