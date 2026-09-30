@@ -42,6 +42,7 @@ import {
     attachRedisStressGuard,
     attachWorkerStressGuard,
     isBullmqRecoveryPending,
+    isRedisConnectionClosedError,
     type BullmqRecoveryHandler,
 } from './redisBullmqResilience.js';
 import { bullmqRemoveOnComplete, bullmqRemoveOnFail, trimBullmqQueue } from './bullmqRetention.js';
@@ -170,6 +171,7 @@ import {
     getOrCreateCampaignMassQueue,
     listRegisteredCampaignConnectionIds,
     migrateLegacyGlobalCampaignQueueOnce,
+    resetCampaignChannelBullmqState,
     resolveAllCampaignMassQueues,
     sumRedisMassQueueDepth,
     usePerChannelCampaignQueues,
@@ -3293,11 +3295,17 @@ function getRedisConnection(): IORedis | null {
             from: redisConnectionUrl,
             to: url,
         });
-        resetCampaignRedisConnection();
+        try {
+            redisConnection.disconnect();
+        } catch {
+            /* ignore */
+        }
+        redisConnection = null;
+        campaignQueue = null;
+        void rebuildCampaignBullmqStack();
     }
 
     // Se a conexão anterior morreu permanentemente, recria tudo do zero.
-    // IORedis status 'end'/'close' — conexão fechada (ex.: após restart do Redis na VPS).
     if (redisConnection && (redisConnection.status === 'end' || redisConnection.status === 'close')) {
         console.warn('[campaign-queue] Conexão Redis fechada — recriando…');
         try {
@@ -3307,11 +3315,7 @@ function getRedisConnection(): IORedis | null {
         }
         redisConnection = null;
         campaignQueue = null;
-        // Worker também precisa ser recriado (ele tem um duplicate da conexão morta).
-        if (campaignWorker) {
-            campaignWorker.close().catch(() => {});
-            campaignWorker = null;
-        }
+        void rebuildCampaignBullmqStack();
     }
 
     if (!redisConnection) {
@@ -3348,22 +3352,80 @@ async function waitForRedisCommandReady(conn: IORedis, timeoutMs = 15_000): Prom
     return false;
 }
 
+let rebuildCampaignBullmqStackPromise: Promise<void> | null = null;
+
+/** Fecha filas/workers BullMQ e recria conexão + workers (após Redis restart ou "Connection is closed"). */
+export async function rebuildCampaignBullmqStack(): Promise<void> {
+    if (rebuildCampaignBullmqStackPromise) return rebuildCampaignBullmqStackPromise;
+    rebuildCampaignBullmqStackPromise = (async () => {
+        try {
+            if (redisConnection) {
+                try {
+                    redisConnection.disconnect();
+                } catch {
+                    /* ignore */
+                }
+            }
+            redisConnection = null;
+            redisConnectionUrl = null;
+            campaignQueue = null;
+            if (campaignWorker) {
+                await campaignWorker.close().catch(() => undefined);
+                campaignWorker = null;
+            }
+            if (replyWorker) {
+                await replyWorker.close().catch(() => undefined);
+                replyWorker = null;
+            }
+            if (replyQueue) {
+                await replyQueue.close().catch(() => undefined);
+                replyQueue = null;
+            }
+            await resetCampaignChannelBullmqState();
+            perChannelCampaignBootstrapped = false;
+
+            const conn = getRedisConnection();
+            if (conn) {
+                await waitForRedisCommandReady(conn);
+                ensureCampaignWorker();
+            }
+            console.info('[campaign-queue] Stack BullMQ recriado após conexão fechada');
+        } finally {
+            rebuildCampaignBullmqStackPromise = null;
+        }
+    })();
+    return rebuildCampaignBullmqStackPromise;
+}
+
+async function ensureCampaignBullmqReadyForEnqueue(): Promise<void> {
+    const conn = getRedisConnection();
+    if (!conn) return;
+    if (conn.status === 'end' || conn.status === 'close') {
+        await rebuildCampaignBullmqStack();
+        return;
+    }
+    const ok = await waitForRedisCommandReady(conn, 8_000);
+    if (!ok) {
+        await rebuildCampaignBullmqStack();
+    }
+}
+
+async function withCampaignBullmqReconnect<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+        return await fn();
+    } catch (err) {
+        if (!isRedisConnectionClosedError(err)) throw err;
+        log('warn', '[campaign-queue] Connection is closed no enqueue — reconectando BullMQ…', {
+            error: err instanceof Error ? err.message : String(err),
+        });
+        await rebuildCampaignBullmqStack();
+        return await fn();
+    }
+}
+
 /** Força recriação da conexão BullMQ (útil após restart do Redis ou URL corrigida). */
 export function resetCampaignRedisConnection(): void {
-    if (redisConnection) {
-        try {
-            redisConnection.disconnect();
-        } catch {
-            /* ignore */
-        }
-    }
-    redisConnection = null;
-    redisConnectionUrl = null;
-    campaignQueue = null;
-    if (campaignWorker) {
-        campaignWorker.close().catch(() => {});
-        campaignWorker = null;
-    }
+    void rebuildCampaignBullmqStack();
     console.info('[campaign-queue] Conexão Redis resetada manualmente');
 }
 
@@ -7836,17 +7898,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: {
         });
         return;
     }
-    const queue = item.replyFlowResponse || item.nurtureFollowUp ? getReplyQueue() : resolveCampaignMassQueue(item.connectionId);
-    if (!queue) {
-        // Sem Redis o job sumiria silenciosamente e a campanha nunca enviaria.
-        // Lanca para o caller decidir (startCampaign vai falhar e avisar a UI).
-        log('error', 'Redis indisponível — campanha não pode enfileirar (defina REDIS_URL)', {
-            connectionId: item.connectionId,
-            to: item.to,
-            campaignId: item.campaignId,
-        });
-        throw new Error('Fila Redis indisponível. Verifique REDIS_URL/serviço Redis na VPS.');
-    }
+    await ensureCampaignBullmqReadyForEnqueue();
 
     if (isBullmqRecoveryPending('campaign-queue')) {
         throw new Error('Redis sob stress (memória cheia). Aguarde alguns segundos e tente novamente.');
@@ -7889,28 +7941,43 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: {
     // jobId estável por campanha+contato+etapa: redispatch/deploy não duplica o mesmo número.
     const jobId = buildCampaignSendJobId(item);
 
-    const addPromise = queue.add('send', item, {
-        jobId,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5000 },
-        delay: Math.max(0, delayMs),
-        // Gatilho/nurture na frente da fila de disparo. Sem isso a resposta fica
-        // atrás de milhares de envios e o contato responde e não recebe o texto.
-        priority: item.replyFlowResponse || item.nurtureFollowUp ? 1 : item.campaignId ? RUNNING_CAMPAIGN_JOB_PRIORITY : undefined,
-        removeOnComplete: bullmqRemoveOnComplete(),
-        removeOnFail: bullmqRemoveOnFail(),
-    });
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
-        await Promise.race([
-            addPromise,
-            new Promise<never>((_, reject) => {
-                timeoutId = setTimeout(
-                    () => reject(new Error('Tempo esgotado ao enfileirar mensagem (Redis lento ou indisponível).')),
-                    ENQUEUE_CAMPAIGN_TIMEOUT_MS
-                );
-            }),
-        ]);
+        await withCampaignBullmqReconnect(async () => {
+            const targetQueue =
+                item.replyFlowResponse || item.nurtureFollowUp
+                    ? getReplyQueue()
+                    : resolveCampaignMassQueue(item.connectionId);
+            if (!targetQueue) {
+                throw new Error('Fila Redis indisponível. Verifique REDIS_URL/serviço Redis na VPS.');
+            }
+            const addPromise = targetQueue.add('send', item, {
+                jobId,
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5000 },
+                delay: Math.max(0, delayMs),
+                priority:
+                    item.replyFlowResponse || item.nurtureFollowUp
+                        ? 1
+                        : item.campaignId
+                          ? RUNNING_CAMPAIGN_JOB_PRIORITY
+                          : undefined,
+                removeOnComplete: bullmqRemoveOnComplete(),
+                removeOnFail: bullmqRemoveOnFail(),
+            });
+            await Promise.race([
+                addPromise,
+                new Promise<never>((_, reject) => {
+                    timeoutId = setTimeout(
+                        () =>
+                            reject(
+                                new Error('Tempo esgotado ao enfileirar mensagem (Redis lento ou indisponível).')
+                            ),
+                        ENQUEUE_CAMPAIGN_TIMEOUT_MS
+                    );
+                }),
+            ]);
+        });
 
         // Espelha o job no PostgreSQL como fonte de verdade (idempotente via ON CONFLICT)
         if (item.campaignId && item.ownerUid) {
@@ -7955,6 +8022,7 @@ async function enqueueCampaignItemsBulk(
         await enqueueCampaignItem(entries[0].item, entries[0].delayMs);
         return;
     }
+    await ensureCampaignBullmqReadyForEnqueue();
     if (!getRedisConnection()) {
         throw new Error('Fila Redis indisponível. Verifique REDIS_URL/serviço Redis na VPS.');
     }
@@ -7970,13 +8038,12 @@ async function enqueueCampaignItemsBulk(
         const chunk = entries.slice(offset, offset + ENQUEUE_BULK_CHUNK);
         const ready = chunk;
 
-        const jobsByQueue = new Map<
-            Queue<MessageQueueItem>,
-            Array<{ name: 'send'; data: MessageQueueItem; opts: Record<string, unknown> }>
-        >();
+        const bulkJobDefs: Array<{
+            item: MessageQueueItem;
+            jobDef: { name: 'send'; data: MessageQueueItem; opts: Record<string, unknown> };
+        }> = [];
         for (const { item, delayMs } of ready) {
-            const targetQueue = resolveCampaignMassQueue(item.connectionId);
-            if (!targetQueue) {
+            if (!resolveCampaignMassQueue(item.connectionId)) {
                 throw new Error('Fila Redis indisponível. Verifique REDIS_URL/serviço Redis na VPS.');
             }
             if (
@@ -8022,14 +8089,27 @@ async function enqueueCampaignItemsBulk(
                     removeOnFail: bullmqRemoveOnFail(),
                 },
             };
-            const list = jobsByQueue.get(targetQueue) || [];
-            list.push(jobDef);
-            jobsByQueue.set(targetQueue, list);
+            bulkJobDefs.push({ item, jobDef });
         }
         try {
-            for (const [targetQueue, jobs] of jobsByQueue) {
-                if (jobs.length > 0) await targetQueue.addBulk(jobs);
-            }
+            await withCampaignBullmqReconnect(async () => {
+                const freshByQueue = new Map<
+                    Queue<MessageQueueItem>,
+                    Array<{ name: 'send'; data: MessageQueueItem; opts: Record<string, unknown> }>
+                >();
+                for (const { item, jobDef } of bulkJobDefs) {
+                    const q = resolveCampaignMassQueue(item.connectionId);
+                    if (!q) {
+                        throw new Error('Fila Redis indisponível. Verifique REDIS_URL/serviço Redis na VPS.');
+                    }
+                    const list = freshByQueue.get(q) || [];
+                    list.push(jobDef);
+                    freshByQueue.set(q, list);
+                }
+                for (const [targetQueue, jobs] of freshByQueue) {
+                    if (jobs.length > 0) await targetQueue.addBulk(jobs);
+                }
+            });
         } catch (err) {
             for (const { item } of ready) {
                 bumpQueueSize(item.connectionId, -1, item);

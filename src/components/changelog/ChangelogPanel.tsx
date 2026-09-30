@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.240',
+    date: '30/09/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Erro "Connection is closed" ao confirmar disparo ou retomar: reconexão completa BullMQ + retry no enqueue',
+      },
+    ],
+  },
+  {
     version: '2.3.239',
     date: '30/09/2026',
     highlights: [

@@ -19,6 +19,17 @@ export function isRedisStressError(err: unknown): boolean {
   return STRESS_PATTERNS.some((p) => p.test(msg));
 }
 
+/** Conexão ioredis/BullMQ morta (comum após restart do Redis ou deploy). */
+export function isRedisConnectionClosedError(err: unknown): boolean {
+  const msg = String((err as Error)?.message ?? err ?? '').toLowerCase();
+  return (
+    msg.includes('connection is closed') ||
+    msg.includes('connection closed') ||
+    msg.includes('the connection is already closed') ||
+    msg.includes('stream isn\'t writeable')
+  );
+}
+
 export type BullmqRecoveryHandler = {
   name: string;
   reset: () => void;

@@ -87,6 +87,22 @@ export async function resolveAllCampaignMassQueues(
   return out.length > 0 ? out : getCachedCampaignMassQueues();
 }
 
+/** Fecha workers/filas por chip — obrigatório após reset da conexão Redis do BullMQ. */
+export async function resetCampaignChannelBullmqState(): Promise<void> {
+  for (const w of workerByConnectionId.values()) {
+    await w.close().catch(() => undefined);
+  }
+  workerByConnectionId.clear();
+  if (legacyDrainWorker) {
+    await legacyDrainWorker.close().catch(() => undefined);
+    legacyDrainWorker = null;
+  }
+  for (const q of queueByConnectionId.values()) {
+    await q.close().catch(() => undefined);
+  }
+  queueByConnectionId.clear();
+}
+
 export async function forEachCampaignMassQueue(
   redisConn: IORedis | null,
   defaultJobOptions: CampaignMassQueueJobOptions,

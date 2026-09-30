@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.240] - 2026-09-30
+
+### Corrigido
+- **"Connection is closed" ao disparar/retomar**: recria filas e workers BullMQ (global, por chip e replies) após queda do Redis ou deploy; retry automático no enfileiramento.
+
 ## [2.3.239] - 2026-09-30
 
 ### Corrigido
