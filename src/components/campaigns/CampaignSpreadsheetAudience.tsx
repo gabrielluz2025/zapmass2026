@@ -8,7 +8,7 @@ import {
   Upload,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import type { ConnectionStatus, WhatsAppConnection } from '../../types';
+import { ConnectionStatus, type WhatsAppConnection } from '../../types';
 import { Button } from '../ui';
 import {
   CAMPAIGN_SPREADSHEET_TEMPLATE_HEADERS,
@@ -42,24 +42,24 @@ type Props = {
 
 function downloadCampaignTemplateXlsx(): void {
   const wb = XLSX.utils.book_new();
-  const sample = [
-    CAMPAIGN_SPREADSHEET_TEMPLATE_HEADERS,
+  const sample: string[][] = [
+    [...CAMPAIGN_SPREADSHEET_TEMPLATE_HEADERS],
     [
       '5511999887766',
       'Maria Silva',
-      'São Paulo',
+      'Sao Paulo',
       'Igreja Exemplo',
-      'Líder',
+      'Lider',
       'Engenheira',
       'maria@email.com',
       '1990-03-15',
-      'João Silva',
+      'Joao Silva',
       '2018-06-12',
       '8',
     ],
   ];
   const ws = XLSX.utils.aoa_to_sheet(sample);
-  ws['!cols'] = CAMPAIGN_SPREADSHEET_TEMPLATE_HEADERS.map(() => ({ wch: 18 }));
+  ws['!cols'] = CAMPAIGN_SPREADSHEET_TEMPLATE_HEADERS.map((): { wch: number } => ({ wch: 18 }));
   XLSX.utils.book_append_sheet(wb, ws, 'Destinatarios');
   const instr = [
     ['Instrucoes'],
@@ -161,7 +161,7 @@ export const CampaignSpreadsheetAudience: React.FC<Props> = ({
           defval: '',
         });
         const parsed = parseCampaignSpreadsheetRows(sheetRows);
-        if (!parsed.ok) {
+        if (parsed.ok === false) {
           toast.error(parsed.error, { duration: 7000 });
           return;
         }

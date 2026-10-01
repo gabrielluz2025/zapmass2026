@@ -2,7 +2,7 @@
  * Importação de público de campanha via planilha (.xlsx).
  * Colunas alinhadas ao modelo de contatos (Telefone + Nome) e variáveis de mensagem.
  */
-import { isPlausibleBrazilWhatsAppPhone, normalizeBRPhone } from './brPhoneNormalize.ts';
+import { isPlausibleBrazilWhatsAppPhone, normalizeBRPhone } from './brPhoneNormalize';
 import { campaignRecipientNameVars } from './contactNameNormalize';
 
 export const CAMPAIGN_IMPORT_SHEET_END_MARKER = 'ZAPMASS_FIM_DADOS';

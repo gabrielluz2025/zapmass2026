@@ -78,3 +78,15 @@ export function normalizeBRPhone(raw) {
         return canonicalBrazilMobileKey(d);
     return d;
 }
+/** E.164 BR plausível para WhatsApp (12 fixo ou 13 celular). */
+export function isPlausibleBrazilWhatsAppPhone(digits) {
+    const d = phoneDigitsOnly(digits);
+    if (!d.startsWith('55') || (d.length !== 12 && d.length !== 13))
+        return false;
+    const ddd = d.slice(2, 4);
+    if (!/^[1-9]\d$/.test(ddd))
+        return false;
+    if (d.length === 13)
+        return d[4] === '9';
+    return /^[2-5]/.test(d.slice(4));
+}
