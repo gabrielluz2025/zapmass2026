@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.264] - 2026-10-01
+
+### Corrigido
+- **Bate-papo — Assumir (VPS)**: rotas `/api/workspace/inbox-claim`, transfer, finish e equipa autenticam via JWT VPS sem exigir Firebase Admin; persistência continua em Postgres.
+
 ## [2.3.263] - 2026-10-01
 
 ### Corrigido

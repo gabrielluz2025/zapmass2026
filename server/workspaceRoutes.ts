@@ -25,6 +25,8 @@ import { getSurveyLinksBaseOrigin } from './publicSurveyAppOrigin.js';
 import { vpsAuthEnabled, vpsAuthRequired } from './auth/authMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { resolveAuthPrincipal } from './resolveAuth.js';
+import { resolveInboxRouteParticipant } from './inboxRouteAuth.js';
+import { findUserById } from './auth/userRepository.js';
 
 function parseBearer(req: Request): string | null {
   const h = req.headers.authorization || '';
@@ -340,41 +342,79 @@ export function registerWorkspaceRoutes(app: Express): void {
 
   /** Dono ou equipa na mesma workspace: lista UID + nomes para transferência de inbox. */
   app.get('/api/workspace/teammates', async (req: Request, res: Response) => {
-    const adminApp = getFirebaseAdmin();
-    if (!adminApp) {
-      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
-    }
     const token = parseBearer(req);
     if (!token) {
       return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
     }
+    const participant = await resolveInboxRouteParticipant(token);
+    if (!participant.ok) {
+      return res.status(participant.status).json({ ok: false, error: participant.error });
+    }
+    const { tenantUid, provider } = participant;
+    const pool = provider === 'vps' ? getZapmassPool() : null;
+    if (pool) {
+      try {
+        type Row = { uid: string; displayName: string | null; email: string | null; role: 'owner' | 'staff' };
+        const items: Row[] = [];
+        const ownerUser = await findUserById(tenantUid);
+        items.push({
+          uid: tenantUid,
+          displayName: ownerUser?.display_name?.trim() || 'Responsável',
+          email: ownerUser?.email ?? null,
+          role: 'owner'
+        });
+        const staff = await pool.query<{ id: string; display_name: string }>(
+          `SELECT id::text, display_name FROM zapmass.workspace_members
+           WHERE owner_user_id = $1::uuid AND revoked_at IS NULL
+           ORDER BY created_at ASC`,
+          [tenantUid]
+        );
+        for (const row of staff.rows) {
+          items.push({
+            uid: row.id,
+            displayName: row.display_name?.trim() || null,
+            email: null,
+            role: 'staff'
+          });
+        }
+        return res.json({ ok: true, items });
+      } catch (e) {
+        console.error('[workspace/teammates vps]', e);
+        return res.status(503).json({ ok: false, error: 'Postgres indisponível.' });
+      }
+    }
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) {
+      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
+    }
     try {
-      const { tenantUid } = await resolveWorkspaceParticipant(adminApp, token);
+      const { tenantUid: tenantUidFb } = await resolveWorkspaceParticipant(adminApp, token);
+      const tenantUidResolved = tenantUidFb;
       type Row = { uid: string; displayName: string | null; email: string | null; role: 'owner' | 'staff' };
       const items: Row[] = [];
       const auth = getAuth(adminApp);
       try {
-        const ou = await auth.getUser(tenantUid);
+        const ou = await auth.getUser(tenantUidResolved);
         items.push({
-          uid: tenantUid,
+          uid: tenantUidResolved,
           displayName: ou.displayName ?? 'Responsável',
           email: ou.email ?? null,
           role: 'owner'
         });
       } catch {
-        items.push({ uid: tenantUid, displayName: 'Responsável', email: null, role: 'owner' });
+        items.push({ uid: tenantUidResolved, displayName: 'Responsável', email: null, role: 'owner' });
       }
 
       const snap = await adminApp
         .firestore()
         .collection('userWorkspaceLinks')
-        .where('ownerUid', '==', tenantUid)
+        .where('ownerUid', '==', tenantUidResolved)
         .get();
 
       const staffDraft: Array<{ uid: string; linkedAtIso: string }> = [];
       snap.forEach((docSnap) => {
         const id = docSnap.id;
-        if (id === tenantUid) return;
+        if (id === tenantUidResolved) return;
         const d = docSnap.data();
         const linkedAtIso =
           d.linkedAt instanceof Timestamp ? d.linkedAt.toDate().toISOString() : typeof d.linkedAt === 'string' ? d.linkedAt : '';
@@ -412,16 +452,16 @@ export function registerWorkspaceRoutes(app: Express): void {
 
   /** Mapa conversa → UID de quem assumiu (para o dono na UI). Membro da equipa pode ler o próprio snapshot filtrado já vem no socket. */
   app.get('/api/workspace/inbox-assignments', async (req: Request, res: Response) => {
-    const adminApp = getFirebaseAdmin();
-    if (!adminApp) {
-      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
-    }
     const token = parseBearer(req);
     if (!token) {
       return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
     }
+    const participant = await resolveInboxRouteParticipant(token);
+    if (!participant.ok) {
+      return res.status(participant.status).json({ ok: false, error: participant.error });
+    }
+    const { tenantUid, authUid } = participant;
     try {
-      const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
       if (authUid !== tenantUid) {
         return res.status(403).json({ ok: false, error: 'Apenas o responsável pode ver todas as atribuições.' });
       }
@@ -520,12 +560,8 @@ export function registerWorkspaceRoutes(app: Express): void {
     }
   });
 
-  /** Funcionário (ou dono) assume uma conversa; persiste em Firestore e reemite lista. */
+  /** Funcionário (ou dono) assume uma conversa; persiste (Postgres ou Firestore) e reemite lista. */
   app.post('/api/workspace/inbox-claim', async (req: Request, res: Response) => {
-    const adminApp = getFirebaseAdmin();
-    if (!adminApp) {
-      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
-    }
     const token = parseBearer(req);
     if (!token) {
       return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
@@ -537,8 +573,12 @@ export function registerWorkspaceRoutes(app: Express): void {
     if (!conversationId) {
       return res.status(400).json({ ok: false, error: 'conversationId é obrigatório.' });
     }
+    const participant = await resolveInboxRouteParticipant(token);
+    if (!participant.ok) {
+      return res.status(participant.status).json({ ok: false, error: participant.error });
+    }
+    const { tenantUid, authUid } = participant;
     try {
-      const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
       const conv = getConversations().find((c) => c.id === conversationId);
       if (
         !conv ||
@@ -563,10 +603,6 @@ export function registerWorkspaceRoutes(app: Express): void {
 
   /** Direcionar atendimento a outro membro (responsável ou quem já tem a conversa assumida). */
   app.post('/api/workspace/inbox-transfer', async (req: Request, res: Response) => {
-    const adminApp = getFirebaseAdmin();
-    if (!adminApp) {
-      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
-    }
     const token = parseBearer(req);
     if (!token) {
       return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
@@ -582,8 +618,12 @@ export function registerWorkspaceRoutes(app: Express): void {
     if (!conversationId || !targetAuthUid) {
       return res.status(400).json({ ok: false, error: 'conversationId e targetAuthUid são obrigatórios.' });
     }
+    const participant = await resolveInboxRouteParticipant(token);
+    if (!participant.ok) {
+      return res.status(participant.status).json({ ok: false, error: participant.error });
+    }
+    const { tenantUid, authUid } = participant;
     try {
-      const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
       const conv = getConversations().find((c) => c.id === conversationId);
       if (
         !conv ||
@@ -624,10 +664,6 @@ export function registerWorkspaceRoutes(app: Express): void {
 
   /** Libertação + pesquisa interna opcional + envio opcional ao cliente (WhatsApp com link público). */
   app.post('/api/workspace/inbox-finish', async (req: Request, res: Response) => {
-    const adminApp = getFirebaseAdmin();
-    if (!adminApp) {
-      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
-    }
     const token = parseBearer(req);
     if (!token) {
       return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
@@ -656,8 +692,12 @@ export function registerWorkspaceRoutes(app: Express): void {
     if (!conversationId) {
       return res.status(400).json({ ok: false, error: 'conversationId é obrigatório.' });
     }
+    const participant = await resolveInboxRouteParticipant(token);
+    if (!participant.ok) {
+      return res.status(participant.status).json({ ok: false, error: participant.error });
+    }
+    const { tenantUid, authUid } = participant;
     try {
-      const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
       const conv = getConversations().find((c) => c.id === conversationId);
       if (
         !conv ||
@@ -686,9 +726,13 @@ export function registerWorkspaceRoutes(app: Express): void {
       let clientSurveyError: string | undefined;
       if (sendClientSurvey) {
         const origin = getSurveyLinksBaseOrigin();
+        const adminApp = getFirebaseAdmin();
         if (!origin) {
           clientSurveyError =
             'Link ao cliente não enviado: defina PUBLIC_APP_URL na API ou inclua a URL pública do site em ALLOWED_ORIGINS (ex.: https://app.seudominio.com); no Docker Swarm reponha o stack após editar .env.';
+        } else if (!adminApp) {
+          clientSurveyError =
+            'Link ao cliente não enviado: pesquisa pública requer Firebase Admin (modo legado). A conversa foi libertada.';
         } else {
           try {
             const db = adminApp.firestore();
@@ -714,10 +758,6 @@ export function registerWorkspaceRoutes(app: Express): void {
 
   /** Libertar conversa para a equipa (sem fluxo da pesquisa). Dono pode libertar qualquer uma. */
   app.delete('/api/workspace/inbox-claim/:conversationId', async (req: Request, res: Response) => {
-    const adminApp = getFirebaseAdmin();
-    if (!adminApp) {
-      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
-    }
     const token = parseBearer(req);
     if (!token) {
       return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
@@ -726,8 +766,12 @@ export function registerWorkspaceRoutes(app: Express): void {
     if (!conversationId) {
       return res.status(400).json({ ok: false, error: 'conversationId inválido.' });
     }
+    const participant = await resolveInboxRouteParticipant(token);
+    if (!participant.ok) {
+      return res.status(participant.status).json({ ok: false, error: participant.error });
+    }
+    const { tenantUid, authUid } = participant;
     try {
-      const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
       const conv = getConversations().find((c) => c.id === conversationId);
       if (
         !conv ||

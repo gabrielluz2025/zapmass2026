@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.264',
+    date: '01/10/2026',
+    highlights: [
+      { type: 'fix', text: 'Bate-papo: «Assumir» no inbox funciona em produção VPS (JWT + Postgres, sem Firebase Admin)' },
+    ],
+  },
+  {
+    version: '2.3.263',
+    date: '01/10/2026',
+    highlights: [
+      { type: 'fix', text: 'Build: importação XLSX de campanha compila no Vite (ConnectionStatus + brPhoneNormalize.js)' },
+    ],
+  },
+  {
     version: '2.3.262',
     date: '01/10/2026',
     highlights: [
