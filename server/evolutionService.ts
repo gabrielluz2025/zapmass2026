@@ -65,6 +65,11 @@ import {
     isPhantomCampaignJobFailure,
 } from '../shared/campaignOutboundErrorKind.js';
 import {
+    isRecoverableMediaDeliveryError,
+    shouldSkipChipFailoverForMediaError,
+} from '../shared/outboundMediaRecovery.js';
+import { pushTenantDiagnosticEvent } from './tenantDiagnosticBuffer.js';
+import {
     createPhonebookNameIndex,
     evolutionContactDisplayName,
     filterEvolutionContactLabel,
@@ -3572,6 +3577,43 @@ export async function getCampaignBullmqQueueMetrics(): Promise<CampaignBullmqQue
     }
 }
 
+export function getTenantCampaignRuntimeSnapshots(tenantId: string): Array<{
+    campaignId: string;
+    isRunning: boolean;
+    processed: number;
+    successCount: number;
+    failCount: number;
+    pendingJobs: number;
+    paused: boolean;
+}> {
+    const tid = String(tenantId || '').trim();
+    if (!tid) return [];
+    const out: Array<{
+        campaignId: string;
+        isRunning: boolean;
+        processed: number;
+        successCount: number;
+        failCount: number;
+        pendingJobs: number;
+        paused: boolean;
+    }> = [];
+    for (const [campaignId, state] of campaignsById) {
+        if (state.ownerUid !== tid) continue;
+        out.push({
+            campaignId,
+            isRunning: Boolean(state.isRunning),
+            processed: state.processed ?? 0,
+            successCount: state.successCount ?? 0,
+            failCount: state.failCount ?? 0,
+            pendingJobs: campaignPendingJobs.get(campaignId) || 0,
+            paused:
+                pausedCampaigns.has(campaignId) ||
+                Boolean(state.manualPaused || state.protectionPaused),
+        });
+    }
+    return out;
+}
+
 /** Tira da fila de disparo o que ainda não saiu para quem entrou na lista negra. */
 export async function cancelQueuedCampaignSendsForPhone(
     tenantId: string,
@@ -5636,6 +5678,31 @@ function emitCampaignLog(
     };
     publishOwnerEvent(uid, 'campaign-log', entry);
     log(level === 'ERROR' ? 'error' : level === 'WARN' ? 'warn' : 'info', message, payload);
+
+    if (uid && (level === 'ERROR' || level === 'WARN')) {
+        const errText =
+            payload?.error != null
+                ? String(payload.error)
+                : level === 'ERROR'
+                  ? message
+                  : message;
+        pushTenantDiagnosticEvent({
+            tenantId: uid,
+            at: entry.timestamp,
+            source: 'campaign',
+            level: level === 'ERROR' ? 'error' : 'warn',
+            message: errText,
+            campaignId,
+            connectionId:
+                typeof payload?.connectionId === 'string' ? payload.connectionId : undefined,
+            phone:
+                typeof payload?.to === 'string'
+                    ? payload.to
+                    : typeof payload?.phoneDigits === 'string'
+                      ? payload.phoneDigits
+                      : undefined,
+        });
+    }
 
     if (uid && campaignId) {
         const persistInfo =
@@ -10084,7 +10151,54 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     await cb.recordSent(item.connectionId);
 
     if (!sendResult.ok) {
-        const detail = String(sendResult.errorDetail || '');
+        let detail = String(sendResult.errorDetail || '');
+        if (hasMediaPayload && isRecoverableMediaDeliveryError(detail)) {
+            const lookupKey = String(item.mediaLookupKey || '').trim();
+            const reloaded = lookupKey ? resolveStoredCampaignMedia(lookupKey) : mediaToSend;
+            if (reloaded?.base64) {
+                sendResult = await sendMediaInternal(
+                    item.connectionId,
+                    sendTo,
+                    reloaded.base64,
+                    reloaded.mimeType,
+                    reloaded.fileName,
+                    reloaded.caption || item.message,
+                    reloaded.sendMediaAsDocument ? { sendMediaAsDocument: true } : undefined
+                );
+                detail = String(sendResult.errorDetail || '');
+            } else if (reloaded?.url && isEvolutionGoEngine()) {
+                const fetchedB64 = await downloadHttpMediaToBase64(reloaded.url);
+                if (fetchedB64) {
+                    sendResult = await sendMediaInternal(
+                        item.connectionId,
+                        sendTo,
+                        fetchedB64,
+                        reloaded.mimeType,
+                        reloaded.fileName,
+                        reloaded.caption || item.message,
+                        reloaded.sendMediaAsDocument ? { sendMediaAsDocument: true } : undefined
+                    );
+                    detail = String(sendResult.errorDetail || '');
+                }
+            }
+            if (!sendResult.ok && textPayload && isRecoverableMediaDeliveryError(detail)) {
+                emitCampaignLog(
+                    'WARN',
+                    'Mídia indisponível no Evolution Go — enviando só o texto da resposta.',
+                    {
+                        campaignId: item.campaignId,
+                        to: item.to,
+                        connectionId: item.connectionId,
+                        mediaLookupKey: item.mediaLookupKey,
+                        previousError: detail.slice(0, 180),
+                    },
+                    campaignState?.ownerUid
+                );
+                sendResult = await sendMessageInternal(item.connectionId, sendTo, item.message);
+                detail = String(sendResult.errorDetail || '');
+            }
+        }
+        if (!sendResult.ok) {
         // 463 / not registered: política Meta ou número inválido — não pune o chip nem gira o pool.
         if (isChipHealthOutbound4xx(detail)) {
             await cb.recordFail4xx(item.connectionId);
@@ -10119,7 +10233,11 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         const canTryFailover =
             failoverCandidates.length > 1 ||
             (failoverCandidates.length === 1 && failoverCandidates[0] !== item.connectionId);
-        if (canTryFailover) {
+        const skipFailoverForMedia = shouldSkipChipFailoverForMediaError(detail, {
+            replyFlowResponse: Boolean(item.replyFlowResponse),
+            hasTextFallback: Boolean(textPayload),
+        });
+        if (canTryFailover && !skipFailoverForMedia) {
             const originalId = item.connectionId;
             const tried = new Set<string>([originalId]);
             let switched = false;
@@ -10196,6 +10314,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         } else {
             const errDetail = sendResult.errorDetail || 'Evolution API não confirmou entrega';
             return await failCampaignSend(job, item, sendTo, errDetail, campaignState);
+        }
         }
     }
 
@@ -10477,6 +10596,25 @@ async function sendOutboundMediaPayload(
     return { ok: false, errorDetail: 'Mídia sem URL ou base64' };
 }
 
+const MEDIA_URL_FETCH_MAX_BYTES = 12 * 1024 * 1024;
+
+async function downloadHttpMediaToBase64(mediaUrl: string): Promise<string | null> {
+    const url = String(mediaUrl || '').trim();
+    if (!/^https?:\/\//i.test(url)) return null;
+    try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 20_000);
+        const res = await fetch(url, { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (!res.ok) return null;
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length === 0 || buf.length > MEDIA_URL_FETCH_MAX_BYTES) return null;
+        return buf.toString('base64');
+    } catch {
+        return null;
+    }
+}
+
 async function sendMediaByUrlInternal(
     connectionId: string,
     to: string,
@@ -10488,6 +10626,14 @@ async function sendMediaByUrlInternal(
     const number = normalizeOutboundNumber(to);
     if (!number) {
         return { ok: false, errorDetail: `Número inválido: ${to}` };
+    }
+
+    if (isEvolutionGoEngine()) {
+        const b64 = await downloadHttpMediaToBase64(mediaUrl);
+        if (b64) {
+            return sendMediaInternal(connectionId, to, b64, mimeType, fileName, caption);
+        }
+        return { ok: false, errorDetail: 'URL is required' };
     }
 
         let type = 'document';

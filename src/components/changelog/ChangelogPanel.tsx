@@ -10,6 +10,15 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.265',
+    date: '01/10/2026',
+    highlights: [
+      { type: 'feat', text: 'Aba Diagnóstico: erros recentes + pacote JSON (/api/diagnostics/export) para suporte ou IA' },
+      { type: 'fix', text: 'Evolution Go: fallback base64/texto quando URL is required; reply flow sem failover em todos os chips' },
+      { type: 'fix', text: 'Relatório: REPLIED mantém status ao registrar falha do fluxo automático (ex.: anexo)' },
+    ],
+  },
+  {
     version: '2.3.264',
     date: '01/10/2026',
     highlights: [

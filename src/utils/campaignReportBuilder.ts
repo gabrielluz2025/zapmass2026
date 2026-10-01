@@ -158,8 +158,13 @@ export function buildPrimaryReportRowsFromLogs(
     }
 
     if (log && String((log as { event?: string }).event || '').includes('error')) {
-      acc.status = 'FAILED';
-      acc.errorMessage = p.error || msg || 'Erro desconhecido';
+      const errText = String(p.error || msg || 'Erro desconhecido');
+      if (acc.status === 'REPLIED') {
+        acc.errorMessage = errText;
+      } else {
+        acc.status = 'FAILED';
+        acc.errorMessage = errText;
+      }
     }
   }
 

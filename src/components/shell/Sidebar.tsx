@@ -25,7 +25,8 @@ import {
   Globe2,
   Sparkles,
   MapPin,
-  Bot
+  Bot,
+  Stethoscope
 } from 'lucide-react';
 import { useZapMassUiSnapshot } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
@@ -103,6 +104,12 @@ const navGroups: NavGroup[] = [
     label: 'Operações',
     items: [
       { id: 'warmup', label: 'Aquecimento', icon: Flame, description: 'Warmup seguro' },
+      {
+        id: 'diagnostics',
+        label: 'Diagnóstico',
+        icon: Stethoscope,
+        description: 'Erros recentes e pacote para suporte'
+      },
       { id: 'support-bot', label: 'Atendimento', icon: Bot, description: 'Bot automático e handoff humano' },
       { id: 'nurture-journey', label: 'Jornada', icon: BookOpen, description: 'Nutrição de leads quentes' }
     ]

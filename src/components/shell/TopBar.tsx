@@ -27,6 +27,7 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'ai-assistant': { title: 'Assistente IA', subtitle: 'Pergunte com dados ao vivo da sua conta' },
   reports: { title: 'Relatórios', subtitle: 'Análise de performance' },
   warmup: { title: 'Aquecimento', subtitle: 'Warmup dos números' },
+  diagnostics: { title: 'Diagnóstico', subtitle: 'Erros recentes e pacote para suporte' },
   subscription: { title: 'Minha assinatura', subtitle: 'Plano, pagamento e renovação' },
   settings: { title: 'Configurações', subtitle: 'Ajustes do sistema' },
   team: { title: 'Funcionários', subtitle: 'Convites, código de equipa e acesso partilhado' },

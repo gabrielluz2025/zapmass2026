@@ -4,6 +4,7 @@ import { Crown, Loader2, Search, Zap } from 'lucide-react';
 import { AppShell } from './components/shell';
 import { ConnectionsTab } from './components/ConnectionsTab';
 import { ReportsTab } from './components/ReportsTab';
+import { DiagnosticsTab } from './components/DiagnosticsTab';
 import { SettingsTab } from './components/SettingsTab';
 import { SupportBotSettingsPanel } from './components/settings/SupportBotSettingsPanel';
 import { NurtureJourneyPanel } from './components/nurture/NurtureJourneyPanel';
@@ -389,6 +390,8 @@ const MainLayout: React.FC = () => {
         return <AiAssistantTab />;
       case 'reports':
         return <ReportsTab />;
+      case 'diagnostics':
+        return <DiagnosticsTab />;
       case 'settings':
         return <SettingsTab />;
       case 'support-bot':

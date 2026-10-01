@@ -7,6 +7,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.265] - 2026-10-01
+
+### Adicionado
+- **Diagnóstico (Operações)**: aba com erros recentes, status de chips/campanhas e **Baixar pacote de diagnóstico** (`GET/POST /api/diagnostics/export`) — JSON sanitizado para suporte/IA.
+
+### Corrigido
+- **Evolution Go — mídia**: fallback base64/ texto quando `URL is required`; reply flow não gira todos os chips à toa.
+- **Relatório de campanha**: contato **Respondeu** mantém status ao registrar falha do fluxo automático (ex.: anexo).
+
 ## [2.3.264] - 2026-10-01
 
 ### Corrigido
