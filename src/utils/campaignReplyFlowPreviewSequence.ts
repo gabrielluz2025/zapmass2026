@@ -55,6 +55,40 @@ function menuOptionsFromStep(step: CampaignReplyFlowStep): LooseOption[] {
   return raw;
 }
 
+function normalizeFlowTextForCompare(text: string): string {
+  return String(text || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+export const REPLY_FLOW_PREVIEW_EMPTY_REPLY = '(sem texto)';
+
+/**
+ * Texto exibido na bolha de saída após escolha de menu (alinha com resolveReplyFlowOptionOutbound no servidor).
+ */
+export function resolveMenuOptionPreviewReply(
+  gateStep: CampaignReplyFlowStep,
+  option: LooseOption,
+  stepIndex: number,
+  steps: CampaignReplyFlowStep[]
+): string {
+  const openingComparable = normalizeFlowTextForCompare(gateStep.body);
+  let replyBody = String(option.reply ?? '').trim();
+  const nextIdx = stepIndex + 1;
+  const nextStep = nextIdx < steps.length ? steps[nextIdx] : undefined;
+  const nextBody = nextStep ? String(nextStep.body ?? '').trim() : '';
+
+  const replyLooksLikeOpening =
+    !replyBody || normalizeFlowTextForCompare(replyBody) === openingComparable;
+
+  if (nextBody && replyLooksLikeOpening) {
+    return nextBody;
+  }
+
+  return replyBody;
+}
+
 /**
  * Sequência de prévia do fluxo por resposta (detalhes da campanha / aba Fluxo).
  */
@@ -78,15 +112,13 @@ export function buildReplyFlowPreviewSequence(steps: CampaignReplyFlowStep[]): R
           kind: 'in',
           meta: `Opção ${oIdx + 1}`
         });
-        const reply = (opt.reply || '').trim();
-        if (reply) {
-          out.push({
-            text: reply,
-            kind: 'out',
-            stepLabel: `Resposta ${oIdx + 1}`,
-            meta: 'Enviada após escolha'
-          });
-        }
+        const reply = resolveMenuOptionPreviewReply(step, opt, idx, steps);
+        out.push({
+          text: reply.trim() ? reply : REPLY_FLOW_PREVIEW_EMPTY_REPLY,
+          kind: 'out',
+          stepLabel: `Resposta ${oIdx + 1}`,
+          meta: 'Enviada após escolha'
+        });
       });
       if (idx < steps.length - 1) {
         out.push({ text: '', kind: 'gate', meta: 'Continua após próxima resposta' });

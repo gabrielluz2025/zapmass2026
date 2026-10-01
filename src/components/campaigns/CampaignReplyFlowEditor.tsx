@@ -22,7 +22,11 @@ import { Button, Textarea } from '../ui';
 import type { ReplyMatchMode } from '../../../shared/replyFlowMatch';
 import { DEFAULT_GLOBAL_OPT_OUT_KEYWORDS, simulateReplyFlowMatch } from '../../../shared/replyFlowMatch';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
-import { formatReplyFlowOptionTrigger } from '../../utils/campaignReplyFlowPreviewSequence';
+import {
+  formatReplyFlowOptionTrigger,
+  REPLY_FLOW_PREVIEW_EMPTY_REPLY,
+  resolveMenuOptionPreviewReply
+} from '../../utils/campaignReplyFlowPreviewSequence';
 
 export type ReplyStageOption = {
   id: string;
@@ -112,6 +116,8 @@ type MenuBuilderProps = {
   onInsertInvalidVariable: (token: string) => void;
   politeGreetingEnabled?: boolean;
   onPatch: (patch: Partial<ReplyMessageStage>) => void;
+  /** Corpo da próxima etapa (quando resposta vazia/repete abertura). */
+  nextStageBody?: string;
   optionImagePreviewUrl?: (optionId: string) => string | null;
   onPickOptionImage?: (optionId: string, file: File) => void;
   onRemoveOptionImage?: (optionId: string) => void;
@@ -125,6 +131,7 @@ function StageMenuBuilder({
   onInsertInvalidVariable,
   politeGreetingEnabled,
   onPatch,
+  nextStageBody,
   optionImagePreviewUrl,
   onPickOptionImage,
   onRemoveOptionImage,
@@ -388,8 +395,15 @@ function StageMenuBuilder({
             <div className="cw-wa-bubble cw-wa-bubble--out cw-wa-bubble--sm">{previewBody}</div>
             {options.map((o, i) => {
               const trigger = formatReplyFlowOptionTrigger({ tokensText: o.tokensText }, i);
-              const replyPreview = o.reply.trim() ? applyCampaignMessagePreviewVars(o.reply.trim()) : '';
-              if (!replyPreview.trim()) return null;
+              const rawReply = resolveMenuOptionPreviewReply(
+                { body: stage.body },
+                { tokensText: o.tokensText, reply: o.reply },
+                stageIdx,
+                nextStageBody != null ? [{ body: stage.body }, { body: nextStageBody }] : [{ body: stage.body }]
+              );
+              const replyPreview = rawReply.trim()
+                ? applyCampaignMessagePreviewVars(rawReply.trim())
+                : REPLY_FLOW_PREVIEW_EMPTY_REPLY;
               return (
                 <React.Fragment key={o.id}>
                   <div className="cw-wa-bubble cw-wa-bubble--in cw-wa-bubble--sm">{trigger}</div>
@@ -765,6 +779,7 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                         stageIdx={idx}
                         stage={stage}
                         previewBody={previewBody}
+                        nextStageBody={stages[idx + 1]?.body}
                         newStageOption={newStageOption}
                         onInsertInvalidVariable={onInsertInvalidVariable}
                         politeGreetingEnabled={politeGreetingEnabled}

@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.272',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Prévia fluxo por resposta: bolha de saída em todas as opções do menu (texto vazio ou próxima etapa)',
+      },
+    ],
+  },
+  {
     version: '2.3.271',
     date: '01/10/2026',
     highlights: [

@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.272] - 2026-10-01
+
+### Corrigido
+- **Prévia fluxo por resposta**: cada opção do menu exibe bolha de saída (Resposta N); texto vazio mostra *(sem texto)* ou o corpo da próxima etapa, como no envio real.
+
 ## [2.3.271] - 2026-10-01
 
 ### Corrigido
