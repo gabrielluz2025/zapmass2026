@@ -27,7 +27,14 @@ export type CampaignQueueRemoveConfirmScope =
   | 'channel'
   | 'jobs'
   | 'all'
-  | 'dead-channels';
+  | 'dead-channels'
+  | 'runtime-orphans'
+  | 'runtime-campaign';
+
+/** Prefixo curto do UUID para confirmação de purge runtime órfão. */
+export function runtimeCampaignConfirmShortId(campaignId: string): string {
+  return String(campaignId || '').trim().slice(0, 8);
+}
 
 export function buildQueueRemoveConfirmPhrase(scope: CampaignQueueRemoveConfirmScope, id?: string): string {
   const key = String(id || '').trim();
@@ -44,6 +51,10 @@ export function buildQueueRemoveConfirmPhrase(scope: CampaignQueueRemoveConfirmS
       return 'LIMPAR MINHA FILA';
     case 'dead-channels':
       return 'LIMPAR CHIPS MORTOS';
+    case 'runtime-orphans':
+      return 'PARAR CAMPANHAS RUNTIME ÓRFÃS';
+    case 'runtime-campaign':
+      return `LIMPAR RUNTIME ${runtimeCampaignConfirmShortId(key)}`;
     default:
       return 'LIMPAR';
   }

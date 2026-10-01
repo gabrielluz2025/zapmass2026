@@ -217,6 +217,51 @@ export async function countCampaignQueueJobsDetailed(
   return { total, byState };
 }
 
+/** Purge Redis SCAN + varredura Bull em todas as filas de massa (global + por chip). */
+export async function purgeCampaignJobsAllMassQueues(
+  campaignId: string,
+  queues: Queue[],
+  redisClient: IORedis | null,
+  opts: { dryRun: boolean }
+): Promise<CampaignQueuePurgeResult & { fastRemoved: number }> {
+  const cid = String(campaignId || '').trim();
+  const byState = emptyStateCounts();
+  let fastRemoved = 0;
+  if (!opts.dryRun && redisClient && cid) {
+    fastRemoved = await fastPurgeCampaignJobsByRedis(cid, redisClient);
+  }
+
+  let matched = 0;
+  let removed = 0;
+  let wouldRemove = 0;
+  let skippedActive = 0;
+  let failedRemove = 0;
+
+  for (const queue of queues) {
+    const r = await purgeCampaignQueueJobs(queue, cid, opts);
+    matched += r.matched;
+    removed += r.removed;
+    wouldRemove += r.wouldRemove;
+    skippedActive += r.skippedActive;
+    failedRemove += r.failedRemove;
+    for (const k of Object.keys(byState) as CampaignQueueScanState[]) {
+      byState[k] += r.byState[k] || 0;
+    }
+  }
+
+  return {
+    campaignId: cid,
+    dryRun: opts.dryRun,
+    matched,
+    removed: opts.dryRun ? removed : removed + fastRemoved,
+    wouldRemove: opts.dryRun ? wouldRemove : wouldRemove,
+    skippedActive,
+    failedRemove,
+    byState,
+    fastRemoved,
+  };
+}
+
 /** Remove jobs waiting/delayed/paused da campanha. Active em voo não é removido (evita corrida). */
 export async function purgeCampaignQueueJobs(
   queue: Queue,

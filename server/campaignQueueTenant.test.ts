@@ -27,6 +27,13 @@ describe('campaignQueueTenantHelpers', () => {
     expect(parseQueueRemoveConfirm({ confirm: phrase }, 'campaign', 'abc')).toBe(true);
     expect(parseQueueRemoveConfirm({ confirm: 'errado' }, 'campaign', 'abc')).toBe(false);
   });
+
+  it('confirmação runtime órfão usa prefixo curto do UUID', () => {
+    const cid = '47a44a3c-aaaa-bbbb-cccc-ddddeeeeffff';
+    const phrase = buildQueueRemoveConfirmPhrase('runtime-campaign', cid);
+    expect(phrase).toBe('LIMPAR RUNTIME 47a44a3c');
+    expect(parseQueueRemoveConfirm({ confirm: phrase }, 'runtime-campaign', cid)).toBe(true);
+  });
 });
 
 describe('inferRemoveConfirmScope', () => {

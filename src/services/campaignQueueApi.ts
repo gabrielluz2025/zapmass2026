@@ -29,6 +29,7 @@ export type QueueRuntimeCampaign = {
   pendingJobs: number;
   queueJobs: number;
   paused: boolean;
+  runtimeOnly?: boolean;
 };
 
 export type QueueInspectResult = {
@@ -109,6 +110,48 @@ export async function apiPurgeDeadChannelQueue(body: {
   confirm?: string;
 }): Promise<QueueRemoveResult> {
   return apiFetchJson<QueueRemoveResult>('/api/campaigns/queue/purge-dead-channels', {
+    method: 'POST',
+    body: JSON.stringify({ dryRun: true, ...body }),
+  });
+}
+
+export type PurgeRuntimeOrphansResult = {
+  ok: boolean;
+  dryRun?: boolean;
+  orphanCampaignIds?: string[];
+  wouldStop?: number;
+  wouldRemoveJobs?: number;
+  results?: Array<{ campaignId: string; halted: boolean; purgeRemoved?: number }>;
+  error?: string;
+};
+
+export async function apiPurgeRuntimeOrphans(body: {
+  dryRun?: boolean;
+  confirm?: string;
+}): Promise<PurgeRuntimeOrphansResult> {
+  return apiFetchJson<PurgeRuntimeOrphansResult>('/api/campaigns/queue/purge-runtime-orphans', {
+    method: 'POST',
+    body: JSON.stringify({ dryRun: true, ...body }),
+  });
+}
+
+export type PurgeRuntimeCampaignResult = {
+  ok: boolean;
+  dryRun?: boolean;
+  campaignId?: string;
+  wouldRemoveJobs?: number;
+  pendingMem?: number;
+  halted?: boolean;
+  purgeRemoved?: number;
+  error?: string;
+};
+
+export async function apiPurgeRuntimeCampaign(body: {
+  campaignId: string;
+  dryRun?: boolean;
+  confirm?: string;
+}): Promise<PurgeRuntimeCampaignResult> {
+  return apiFetchJson<PurgeRuntimeCampaignResult>('/api/campaigns/queue/purge-runtime', {
     method: 'POST',
     body: JSON.stringify({ dryRun: true, ...body }),
   });

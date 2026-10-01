@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.271',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Excluir campanha limpa filas em todos os chips; parar runtime órfão na Fila de disparo; watchdog ~90s sem doc no DB',
+      },
+    ],
+  },
+  {
     version: '2.3.270',
     date: '01/10/2026',
     highlights: [

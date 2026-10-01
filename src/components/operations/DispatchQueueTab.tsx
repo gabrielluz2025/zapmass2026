@@ -9,12 +9,17 @@ import {
   FastForward,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { buildQueueRemoveConfirmPhrase } from '../../../shared/campaignQueueTenantHelpers';
+import {
+  buildQueueRemoveConfirmPhrase,
+  runtimeCampaignConfirmShortId,
+} from '../../../shared/campaignQueueTenantHelpers';
 import { useZapMassCore } from '../../context/ZapMassContext';
 import {
   apiInspectDispatchQueue,
   apiPromoteDelayedQueue,
   apiPurgeDeadChannelQueue,
+  apiPurgeRuntimeCampaign,
+  apiPurgeRuntimeOrphans,
   apiRemoveDispatchQueue,
   apiSetCampaignQueuePriority,
   type QueueChannelSummary,
@@ -174,6 +179,86 @@ export const DispatchQueueTab: React.FC = () => {
     }
   };
 
+  const runtimeOrphans = useMemo(
+    () => runtimeCampaigns.filter((r) => r.runtimeOnly),
+    [runtimeCampaigns]
+  );
+
+  const runPurgeRuntimeOrphans = async () => {
+    const confirmPhrase = buildQueueRemoveConfirmPhrase('runtime-orphans');
+    const preview = await apiPurgeRuntimeOrphans({ dryRun: true });
+    const n = preview.wouldStop ?? preview.orphanCampaignIds?.length ?? 0;
+    const jobs = preview.wouldRemoveJobs ?? 0;
+    if (
+      !window.confirm(
+        `Parar ${n} campanha(s) runtime órfã(s) (sem cadastro) e limpar filas?\n` +
+          `Jobs Bull estimados: ${jobs.toLocaleString('pt-BR')}.\n` +
+          `Pend. mem. pode incluir chips mortos — não confundir com fila dos Disparo atuais.\n\n` +
+          `Confirmação: "${confirmPhrase}"`
+      )
+    ) {
+      return;
+    }
+    const typed = window.prompt(`Digite:\n${confirmPhrase}`);
+    if (typed?.trim() !== confirmPhrase) {
+      toast.error('Confirmação incorreta.');
+      return;
+    }
+    setBusyKey('runtime-orphans');
+    try {
+      const res = await apiPurgeRuntimeOrphans({ dryRun: false, confirm: confirmPhrase });
+      if (!res.ok) throw new Error(res.error || 'Falha ao parar órfãs.');
+      const removed = (res.results || []).reduce((s, x) => s + (x.purgeRemoved || 0), 0);
+      toast.success(
+        `Paradas ${(res.results || []).length} campanha(s) runtime; ~${removed.toLocaleString('pt-BR')} job(s) removidos da fila.`
+      );
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const runPurgeSingleRuntime = async (campaignId: string) => {
+    const shortId = runtimeCampaignConfirmShortId(campaignId);
+    const confirmPhrase = buildQueueRemoveConfirmPhrase('runtime-campaign', campaignId);
+    const preview = await apiPurgeRuntimeCampaign({ campaignId, dryRun: true });
+    const jobs = preview.wouldRemoveJobs ?? 0;
+    const pending = preview.pendingMem ?? 0;
+    if (
+      !window.confirm(
+        `Parar runtime órfão ${shortId} e limpar fila?\n` +
+          `Jobs Bull: ~${jobs.toLocaleString('pt-BR')} · pend. mem. ${pending.toLocaleString('pt-BR')}.\n\n` +
+          `Confirmação: "${confirmPhrase}"`
+      )
+    ) {
+      return;
+    }
+    const typed = window.prompt(`Digite:\n${confirmPhrase}`);
+    if (typed?.trim() !== confirmPhrase) {
+      toast.error('Confirmação incorreta.');
+      return;
+    }
+    setBusyKey(`runtime-${shortId}`);
+    try {
+      const res = await apiPurgeRuntimeCampaign({
+        campaignId,
+        dryRun: false,
+        confirm: confirmPhrase,
+      });
+      if (!res.ok) throw new Error(res.error || 'Falha.');
+      toast.success(
+        `Runtime ${shortId} parado; ${(res.purgeRemoved ?? 0).toLocaleString('pt-BR')} job(s) removidos.`
+      );
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
   const runPurgeDeadChannels = async () => {
     const confirmPhrase = buildQueueRemoveConfirmPhrase('dead-channels');
     const preview = await apiPurgeDeadChannelQueue({ dryRun: true });
@@ -228,8 +313,8 @@ export const DispatchQueueTab: React.FC = () => {
             Fila de disparo
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-xl">
-            Veja o que está aguardando no Redis/BullMQ por chip, campanha e etapa. Limpe filas
-            travadas ou priorize uma campanha — envios já em andamento não são cancelados.
+            Inspeção lista só jobs em chips da sua conta (online). Campanhas runtime órfãs podem
+            ter pend. mem. e fila em chips mortos — use parar runtime ou limpar chips mortos.
           </p>
         </div>
         <Button variant="secondary" onClick={() => void load()} disabled={loading}>
@@ -322,15 +407,61 @@ export const DispatchQueueTab: React.FC = () => {
         </div>
       )}
 
+      {!loading && runtimeOrphans.length > 0 && (
+        <div className="rounded-2xl border border-red-200/70 bg-red-50/50 dark:bg-red-950/20 dark:border-red-800/50 p-4 flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
+          <div className="text-sm text-red-900 dark:text-red-100">
+            <p className="font-bold flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              {runtimeOrphans.length} campanha(s) runtime sem cadastro
+            </p>
+            <p className="mt-1 text-red-800/90 dark:text-red-200/90">
+              Motor ainda ativo na memória; jobs podem estar em filas de chips antigos. Pend. mem. ≠
+              fila nos Disparo atuais.
+            </p>
+          </div>
+          <Button
+            variant="danger"
+            disabled={busyKey != null}
+            onClick={() => void runPurgeRuntimeOrphans()}
+          >
+            <Trash2 className="w-4 h-4" />
+            Parar runtime órfãs
+          </Button>
+        </div>
+      )}
+
       {!loading && runtimeCampaigns.length > 0 && (
         <div className="rounded-2xl border border-amber-200/60 dark:border-amber-800/40 p-4 text-sm space-y-2">
           <p className="font-bold text-amber-900 dark:text-amber-100">Campanhas em execução (runtime)</p>
-          <ul className="space-y-1 text-slate-600 dark:text-slate-300">
+          <ul className="space-y-2 text-slate-600 dark:text-slate-300">
             {runtimeCampaigns.map((r) => (
-              <li key={r.campaignId}>
-                {campaignNameById.get(r.campaignId) || r.campaignId.slice(0, 8)} — fila{' '}
-                {r.queueJobs.toLocaleString('pt-BR')} · pend. mem. {r.pendingJobs.toLocaleString('pt-BR')}
-                {r.paused ? ' · pausada' : ''}
+              <li
+                key={r.campaignId}
+                className="flex flex-wrap items-center justify-between gap-2"
+              >
+                <span>
+                  {campaignNameById.get(r.campaignId) || r.campaignId.slice(0, 8)}
+                  {r.runtimeOnly ? (
+                    <span className="ml-2 text-[10px] font-bold uppercase text-red-600">
+                      órfã (sem cadastro)
+                    </span>
+                  ) : null}
+                  {' — '}
+                  fila {r.queueJobs.toLocaleString('pt-BR')} · pend. mem.{' '}
+                  {r.pendingJobs.toLocaleString('pt-BR')}
+                  {r.paused ? ' · pausada' : ''}
+                </span>
+                {r.runtimeOnly ? (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-200"
+                    disabled={busyKey != null}
+                    onClick={() => void runPurgeSingleRuntime(r.campaignId)}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Parar e limpar
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>

@@ -1,8 +1,13 @@
 import type { Express, Request, Response } from 'express';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
+import { tenantScopeUidsMatch } from './auth/tenantUidScopeServer.js';
 import { requireTenant } from './httpTenant.js';
-import { getCampaignDoc } from './repositories/campaignsRepository.js';
+import {
+  getCampaignDoc,
+  listCampaigns,
+  resolveCampaignTenantId,
+} from './repositories/campaignsRepository.js';
 import {
   buildQueueRemoveConfirmPhrase,
   parseQueueRemoveConfirm,
@@ -113,6 +118,9 @@ export function registerCampaignQueueTenantRoutes(app: Express): void {
       });
       const queueCounts = await evolutionService.collectTenantCampaignQueueJobCounts(ctx.tenantId);
       const runtimeSnapshots = evolutionService.getTenantCampaignRuntimeSnapshots(ctx.tenantId);
+      const dbCampaignIds = new Set(
+        (await listCampaigns(ctx.tenantId).catch(() => [])).map((c) => c.id)
+      );
       const runtimeCampaigns = runtimeSnapshots
         .filter((r) => r.isRunning && (r.pendingJobs > 0 || (queueCounts.get(r.campaignId) || 0) > 0))
         .map((r) => ({
@@ -121,6 +129,7 @@ export function registerCampaignQueueTenantRoutes(app: Express): void {
           pendingJobs: r.pendingJobs,
           queueJobs: queueCounts.get(r.campaignId) || 0,
           paused: r.paused,
+          runtimeOnly: !dbCampaignIds.has(r.campaignId),
         }));
       return res.json({
         ok: true,
@@ -217,6 +226,118 @@ export function registerCampaignQueueTenantRoutes(app: Express): void {
         logQueueAction(ctx.tenantId, 'clear-delayed', { ...filters, ...result });
       }
       return res.json({ ok: true, result });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return res.status(500).json({ ok: false, error: message });
+    }
+  });
+
+  app.post('/api/campaigns/queue/purge-runtime-orphans', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+    const dryRun = body.dryRun !== false;
+    if (!dryRun && !parseQueueRemoveConfirm(body, 'runtime-orphans')) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Confirmação inválida.',
+        expectedScope: 'runtime-orphans',
+        expectedConfirm: buildQueueRemoveConfirmPhrase('runtime-orphans'),
+      });
+    }
+    try {
+      const dbIds = new Set(
+        (await listCampaigns(ctx.tenantId).catch(() => [])).map((c) => c.id)
+      );
+      const runtime = evolutionService.getTenantCampaignRuntimeSnapshots(ctx.tenantId);
+      const orphans = runtime.filter((r) => !dbIds.has(r.campaignId));
+      if (dryRun) {
+        const queueCounts = await evolutionService.collectTenantCampaignQueueJobCounts(ctx.tenantId);
+        const wouldStop = orphans.length;
+        const wouldRemoveJobs = orphans.reduce(
+          (sum, r) => sum + (queueCounts.get(r.campaignId) || 0),
+          0
+        );
+        return res.json({
+          ok: true,
+          dryRun: true,
+          orphanCampaignIds: orphans.map((r) => r.campaignId),
+          wouldStop,
+          wouldRemoveJobs,
+        });
+      }
+      const results: Array<{ campaignId: string; halted: boolean; purgeRemoved?: number }> = [];
+      for (const row of orphans) {
+        const r = await evolutionService.haltRuntimeOrphanCampaign(ctx.tenantId, row.campaignId, {
+          reason: 'api-purge-runtime-orphans',
+        });
+        results.push({ campaignId: row.campaignId, ...r });
+      }
+      logQueueAction(ctx.tenantId, 'purge-runtime-orphans', {
+        count: results.length,
+        removed: results.reduce((s, x) => s + (x.purgeRemoved || 0), 0),
+      });
+      await evolutionService.syncConnectionQueueSizesFromRedis().catch(() => undefined);
+      return res.json({ ok: true, dryRun: false, results });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return res.status(500).json({ ok: false, error: message });
+    }
+  });
+
+  app.post('/api/campaigns/queue/purge-runtime', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+    const campaignId = String(body.campaignId || '').trim();
+    if (!campaignId) {
+      return res.status(400).json({ ok: false, error: 'campaignId obrigatório.' });
+    }
+    const dryRun = body.dryRun !== false;
+    const doc = await getCampaignDoc(ctx.tenantId, campaignId);
+    if (doc) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Campanha ainda existe no cadastro — use limpar fila da campanha ou exclua a campanha.',
+      });
+    }
+    const resolvedTenant = await resolveCampaignTenantId(campaignId);
+    if (resolvedTenant && !tenantScopeUidsMatch(ctx.tenantId, resolvedTenant)) {
+      return res.status(404).json({ ok: false, error: 'Campanha não pertence a esta conta.' });
+    }
+    const confirmPhrase = buildQueueRemoveConfirmPhrase('runtime-campaign', campaignId);
+    if (!dryRun && !parseQueueRemoveConfirm(body, 'runtime-campaign', campaignId)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Confirmação inválida.',
+        expectedScope: 'runtime-campaign',
+        expectedConfirm: confirmPhrase,
+      });
+    }
+    try {
+      if (dryRun) {
+        const purge = await evolutionService.purgeCampaignBullQueuesForId(campaignId, true);
+        const pending =
+          evolutionService
+            .getTenantCampaignRuntimeSnapshots(ctx.tenantId)
+            .find((r) => r.campaignId === campaignId)?.pendingJobs ?? 0;
+        return res.json({
+          ok: true,
+          dryRun: true,
+          campaignId,
+          wouldRemoveJobs: purge.wouldRemove + purge.skippedActive,
+          pendingMem: pending,
+        });
+      }
+      const halted = await evolutionService.haltRuntimeOrphanCampaign(ctx.tenantId, campaignId, {
+        reason: 'api-purge-runtime',
+      });
+      if (!halted.halted) {
+        return res.status(404).json({ ok: false, error: 'Runtime não encontrado para esta conta.' });
+      }
+      logQueueAction(ctx.tenantId, 'purge-runtime', { campaignId, ...halted });
+      await evolutionService.syncConnectionQueueSizesFromRedis().catch(() => undefined);
+      return res.json({ ok: true, dryRun: false, campaignId, ...halted });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       return res.status(500).json({ ok: false, error: message });

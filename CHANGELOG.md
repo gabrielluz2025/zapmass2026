@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.271] - 2026-10-01
+
+### Corrigido
+- **Excluir campanha**: purge Bull em todas as filas (SCAN + por chip), tombstone evita recriar runtime; jobs em voo são descartados; timeout 25s no DELETE.
+- **Operações → Fila de disparo**: parar campanhas **runtime órfãs** (sem cadastro) — em lote ou por linha; confirmação `LIMPAR RUNTIME <8 chars>`; APIs `POST /api/campaigns/queue/purge-runtime-orphans` e `purge-runtime`.
+- **Watchdog**: runtime sem documento no Postgres → auto-stop e limpeza após ~90s (não esperar 20 min só offline).
+
 ## [2.3.270] - 2026-10-01
 
 ### Corrigido

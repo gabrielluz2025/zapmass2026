@@ -5239,6 +5239,37 @@ interface CampaignRuntimeState {
 
 const campaignsById = new Map<string, CampaignRuntimeState>();
 const campaignPendingJobs = new Map<string, number>();
+/** Campanhas removidas pelo usuário — não recriar runtime nem reenfileirar jobs. */
+const campaignDeletedByUserTombstones = new Set<string>();
+/** Primeira vez que o watchdog viu runtime RUNNING sem documento no Postgres. */
+const runtimeOrphanWithoutDocSeenAt = new Map<string, number>();
+const RUNTIME_ORPHAN_AUTO_STOP_MS = 90_000;
+const DELETE_CAMPAIGN_PURGE_TIMEOUT_MS = 25_000;
+
+export function isCampaignDeletedByUser(campaignId: string): boolean {
+    return campaignDeletedByUserTombstones.has(String(campaignId || '').trim());
+}
+
+function markCampaignDeletedByUser(campaignId: string): void {
+    const cid = String(campaignId || '').trim();
+    if (cid) campaignDeletedByUserTombstones.add(cid);
+}
+
+function clearCampaignRuntimeMemory(campaignId: string): void {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return;
+    pausedCampaigns.delete(cid);
+    campaignsById.delete(cid);
+    campaignPendingJobs.delete(cid);
+    campaignStageConfigsById.delete(cid);
+    campaignDailyScheduleById.delete(cid);
+    campaignEnqueueInFlight.delete(cid);
+    runtimeOrphanWithoutDocSeenAt.delete(cid);
+    for (const key of [...campaignStallNotified.keys()]) {
+        if (key === cid || key.startsWith(`${cid}:`)) campaignStallNotified.delete(key);
+    }
+    campaignStallRemapAt.delete(cid);
+}
 /** Enfileiramento em background (bases grandes) — o stall watchdog não pode retomar no meio. */
 const campaignEnqueueInFlight = new Set<string>();
 /** Motor lazy: armazena stageConfigs por campaignId para lookups durante processamento. */
@@ -6767,44 +6798,99 @@ async function deleteCampaignRuntimeFromRedis(campaignId: string): Promise<void>
     } catch { /* ignora */ }
 }
 
-/** Tira a campanha da RAM/fila para o DELETE no Postgres não voltar no próximo reload. */
-export async function releaseCampaignAfterUserDelete(campaignId: string): Promise<void> {
+export async function purgeCampaignBullQueuesForId(
+    campaignId: string,
+    dryRun = false
+): Promise<Awaited<ReturnType<typeof import('./campaignQueueAdmin.js').purgeCampaignJobsAllMassQueues>>> {
     const cid = String(campaignId || '').trim();
-    if (!cid) return;
-    // Remove imediatamente da RAM — jobs em voo não encontram runtime e são descartados
-    pausedCampaigns.delete(cid);
-    campaignsById.delete(cid);
-    campaignPendingJobs.delete(cid);
-    campaignStageConfigsById.delete(cid);
-    campaignStallNotified.delete(`${cid}:reenqueue`);
-    campaignStallNotified.delete(`${cid}:offline`);
-    campaignStallNotified.delete(`${cid}:wake`);
-    campaignStallRemapAt.delete(cid);
-    void deleteCampaignRuntimeFromRedis(cid);
-    // Purge da fila BullMQ em background — retorna imediatamente para o route handler
-    void (async () => {
-        const queue = getCampaignQueue();
-        if (!queue) return;
+    if (!cid) {
+        return {
+            campaignId: '',
+            dryRun,
+            matched: 0,
+            removed: 0,
+            wouldRemove: 0,
+            skippedActive: 0,
+            failedRemove: 0,
+            byState: { active: 0, waiting: 0, delayed: 0, paused: 0 },
+            fastRemoved: 0,
+        };
+    }
+    const queues = await getCampaignBullmqQueuesForAdmin();
+    const redisConn = getRedisConnectionForOps();
+    const { purgeCampaignJobsAllMassQueues } = await import('./campaignQueueAdmin.js');
+    return purgeCampaignJobsAllMassQueues(cid, queues, redisConn, { dryRun });
+}
+
+/** Para motor runtime órfão (sem campanha no store) e limpa filas Bull + pending. */
+export async function haltRuntimeOrphanCampaign(
+    tenantId: string,
+    campaignId: string,
+    opts?: { purgeQueues?: boolean; reason?: string }
+): Promise<{ halted: boolean; purgeRemoved?: number }> {
+    const cid = String(campaignId || '').trim();
+    const tid = String(tenantId || '').trim();
+    if (!cid || !tid) return { halted: false };
+    const state = campaignsById.get(cid);
+    let owner = state?.ownerUid || getCampaignOwnerUidForQueue(cid);
+    if (!owner) {
+        const { resolveCampaignTenantId } = await import('./repositories/campaignsRepository.js');
+        const resolved = await resolveCampaignTenantId(cid);
+        if (resolved) owner = resolved;
+    }
+    if (owner && !tenantScopeUidsMatch(tid, owner)) return { halted: false };
+
+    markCampaignDeletedByUser(cid);
+    clearCampaignRuntimeMemory(cid);
+    await deleteCampaignRuntimeFromRedis(cid);
+
+    let purgeRemoved = 0;
+    if (opts?.purgeQueues !== false) {
         try {
-            const { fastPurgeCampaignJobsByRedis, purgeCampaignQueueJobs } = await import('./campaignQueueAdmin.js');
-            const redisConn = getRedisConnectionForOps();
-            let removed = 0;
-            if (redisConn) {
-                removed = await fastPurgeCampaignJobsByRedis(cid, redisConn);
-                if (removed > 0) {
-                    log('info', `[delete] Purge rápido Redis SCAN: ${removed} job(s) removidos`, { campaignId: cid });
-                }
-            }
-            if (removed === 0) {
-                await purgeCampaignQueueJobs(queue, cid, { dryRun: false });
-            }
+            const purge = await purgeCampaignBullQueuesForId(cid, false);
+            purgeRemoved = purge.removed;
+            log('info', '[runtime-orphan] Fila Bull limpa', {
+                campaignId: cid,
+                tenantId: tid,
+                removed: purgeRemoved,
+                reason: opts?.reason,
+            });
         } catch (e) {
-            log('warn', 'releaseCampaignAfterUserDelete: falha ao limpar fila BullMQ (background)', {
+            log('warn', '[runtime-orphan] Falha ao limpar fila Bull', {
                 campaignId: cid,
                 error: (e as Error)?.message,
             });
         }
-    })();
+    }
+    return { halted: true, purgeRemoved };
+}
+
+/** Tira a campanha da RAM/fila para o DELETE no Postgres não voltar no próximo reload. */
+export async function releaseCampaignAfterUserDelete(campaignId: string): Promise<void> {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return;
+    markCampaignDeletedByUser(cid);
+    clearCampaignRuntimeMemory(cid);
+    await deleteCampaignRuntimeFromRedis(cid);
+
+    const purgeWork = purgeCampaignBullQueuesForId(cid, false)
+        .then((purge) => {
+            log('info', `[delete] Purge filas campanha: ${purge.removed} job(s)`, {
+                campaignId: cid,
+                fastRemoved: purge.fastRemoved,
+            });
+        })
+        .catch((e) => {
+            log('warn', 'releaseCampaignAfterUserDelete: falha ao limpar fila BullMQ', {
+                campaignId: cid,
+                error: (e as Error)?.message,
+            });
+        });
+
+    await Promise.race([
+        purgeWork,
+        new Promise<void>((resolve) => setTimeout(resolve, DELETE_CAMPAIGN_PURGE_TIMEOUT_MS)),
+    ]);
 }
 
 async function applyProgressSeedToRuntime(campaignId: string, ownerUid?: string): Promise<void> {
@@ -6830,6 +6916,7 @@ async function applyProgressSeedToRuntime(campaignId: string, ownerUid?: string)
  * Usado em processCampaignJob quando o servidor reiniciou durante um disparo ativo.
  */
 async function ensureCampaignRuntimeInMemory(campaignId: string, fallbackOwnerUid?: string): Promise<void> {
+    if (isCampaignDeletedByUser(campaignId)) return;
     if (!campaignId || campaignsById.has(campaignId)) {
         if (campaignId && campaignsById.has(campaignId)) {
             const st = campaignsById.get(campaignId);
@@ -9376,6 +9463,11 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     // BullMQ v5: para readiar um job ATIVO é obrigatório passar o `token` e lançar
     // DelayedError — caso contrário o moveToDelayed falha (lock) e o job vai para "failed".
+    if (item.campaignId && isCampaignDeletedByUser(item.campaignId)) {
+        bumpQueueSize(item.connectionId, -1, item);
+        await closeCampaignJobWithoutRecount(job, item);
+        return;
+    }
     if (item.campaignId && !campaignsById.has(item.campaignId)) {
         const fallback = item.ownerUid || item.replyFlowOpen?.ownerUid;
         await ensureCampaignRuntimeInMemory(item.campaignId, fallback);
@@ -12959,6 +13051,27 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
         if (!state.isRunning) continue;
         if (pausedCampaigns.has(campaignId) || state.protectionPaused || state.manualPaused) continue;
         if (campaignEnqueueInFlight.has(campaignId)) continue;
+
+        if (state.ownerUid) {
+            const { getCampaignDoc } = await import('./repositories/campaignsRepository.js');
+            const doc = await getCampaignDoc(state.ownerUid, campaignId).catch(() => null);
+            if (!doc) {
+                const seenAt = runtimeOrphanWithoutDocSeenAt.get(campaignId) ?? now;
+                if (!runtimeOrphanWithoutDocSeenAt.has(campaignId)) {
+                    runtimeOrphanWithoutDocSeenAt.set(campaignId, now);
+                }
+                if (now - seenAt >= RUNTIME_ORPHAN_AUTO_STOP_MS) {
+                    if (!isCampaignStallNotified(`${campaignId}:orphan-stop`)) {
+                        campaignStallNotified.set(`${campaignId}:orphan-stop`, now);
+                        await haltRuntimeOrphanCampaign(state.ownerUid, campaignId, {
+                            reason: 'watchdog-no-doc',
+                        });
+                    }
+                }
+                continue;
+            }
+            runtimeOrphanWithoutDocSeenAt.delete(campaignId);
+        }
 
         const startedAt = state.startedAt ?? 0;
         if (startedAt > 0 && now - startedAt < CAMPAIGN_STALL_MS) continue;
