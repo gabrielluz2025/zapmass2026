@@ -92,6 +92,7 @@ import {
     type CampaignRecipient,
     type ReplyFlowSession,
     parseReplyFlowDefFromCampaignDoc,
+    parseReplyFlowSessionKey,
 } from './replyFlowEngine.js';
 import { campaignMediaStorageKey, isReplyOptionMediaKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
@@ -6015,7 +6016,11 @@ async function skipReplyFlowJobGracefully(
 ): Promise<void> {
     if (item.replyFlowResponse && (item.replyFlowDisposeAfterSend || item.replyFlowAfterSend)) {
         ensureReplyFlowEngine();
-        replyFlowEngine.rollbackPendingOutbound(item.connectionId, normalizePhoneKey(item.to));
+        replyFlowEngine.rollbackPendingOutbound(
+            item.connectionId,
+            normalizePhoneKey(item.to),
+            item.campaignId
+        );
     }
     bumpQueueSize(item.connectionId, -1, item);
     log('warn', `[ReplyFlow] Envio ignorado — ${reason}`, {
@@ -6111,6 +6116,25 @@ export async function canControlCampaign(
 // ── Redis reply-flow session persistence ──────────────────────────────────────
 const REPLYFLOW_SESSION_TTL_SECS = 7 * 24 * 3600; // 7 dias
 
+function replyFlowSessionRedisKeys(
+    connectionId: string,
+    phoneDigits: string,
+    campaignId: string,
+    tenantId?: string
+): string[] {
+    const cid = String(campaignId || '').trim();
+    const keys = [
+        `zapmass:rf:sess:${connectionId}:${cid}:${phoneDigits}`,
+        // Legado (pré-isolamento por campanha) — removido no dispose
+        `zapmass:rf:sess:${connectionId}:${phoneDigits}`,
+    ];
+    if (tenantId && cid) {
+        keys.push(`zapmass:rf:sess:t:${tenantId}:${cid}:${phoneDigits}`);
+        keys.push(`zapmass:rf:sess:t:${tenantId}:${phoneDigits}`);
+    }
+    return keys;
+}
+
 async function saveReplyFlowSessionToRedis(
     connectionId: string,
     phoneDigits: string,
@@ -6120,16 +6144,17 @@ async function saveReplyFlowSessionToRedis(
     if (!conn) return;
     const payload = JSON.stringify(session);
     const tenantId = session.ownerUid || resolveOwnerUid(connectionId);
+    const campaignId = String(session.campaignId || '').trim();
     try {
-        if (tenantId) {
+        const primaryKey = `zapmass:rf:sess:${connectionId}:${campaignId}:${phoneDigits}`;
+        await conn.setex(primaryKey, REPLYFLOW_SESSION_TTL_SECS, payload);
+        if (tenantId && campaignId) {
             await conn.setex(
-                `zapmass:rf:sess:t:${tenantId}:${phoneDigits}`,
+                `zapmass:rf:sess:t:${tenantId}:${campaignId}:${phoneDigits}`,
                 REPLYFLOW_SESSION_TTL_SECS,
                 payload
             );
         }
-        const key = `zapmass:rf:sess:${connectionId}:${phoneDigits}`;
-        await conn.setex(key, REPLYFLOW_SESSION_TTL_SECS, payload);
     } catch (e: any) {
         log('warn', 'saveReplyFlowSessionToRedis falhou', { error: e?.message });
     }
@@ -6142,12 +6167,23 @@ async function saveReplyFlowSessionToRedis(
 
 async function loadReplyFlowSessionFromRedis(
     connectionId: string,
-    phoneDigits: string
+    phoneDigits: string,
+    campaignId?: string
 ): Promise<ReplyFlowSession | null> {
     const conn = getRedisConnection();
     if (!conn) return null;
     const tenantId = resolveOwnerUid(connectionId);
+    const cid = String(campaignId || '').trim();
     try {
+        if (cid) {
+            const keys = replyFlowSessionRedisKeys(connectionId, phoneDigits, cid, tenantId);
+            for (const key of keys) {
+                const raw = await conn.get(key);
+                if (!raw) continue;
+                const sess = JSON.parse(raw) as ReplyFlowSession;
+                if (sess?.campaignId && sess.awaitingAfterStep != null) return sess;
+            }
+        }
         if (tenantId) {
             const tKey = `zapmass:rf:sess:t:${tenantId}:${phoneDigits}`;
             const rawTenant = await conn.get(tKey);
@@ -6167,15 +6203,23 @@ async function loadReplyFlowSessionFromRedis(
     }
 }
 
-async function deleteReplyFlowSessionFromRedis(connectionId: string, phoneDigits: string): Promise<void> {
+async function deleteReplyFlowSessionFromRedis(
+    connectionId: string,
+    phoneDigits: string,
+    campaignId?: string
+): Promise<void> {
     const conn = getRedisConnection();
     if (!conn) return;
     const tenantId = resolveOwnerUid(connectionId);
+    const cid = String(campaignId || '').trim();
     try {
-        if (tenantId) {
-            await conn.del(`zapmass:rf:sess:t:${tenantId}:${phoneDigits}`);
-        }
-        await conn.del(`zapmass:rf:sess:${connectionId}:${phoneDigits}`);
+        const keys = cid
+            ? replyFlowSessionRedisKeys(connectionId, phoneDigits, cid, tenantId)
+            : [
+                  `zapmass:rf:sess:${connectionId}:${phoneDigits}`,
+                  ...(tenantId ? [`zapmass:rf:sess:t:${tenantId}:${phoneDigits}`] : []),
+              ];
+        if (keys.length > 0) await conn.del(...keys);
     } catch { /* ignora */ }
 }
 
@@ -6194,9 +6238,12 @@ async function saveReplyFlowContextToRedis(
 ): Promise<void> {
     const conn = getRedisConnection();
     if (!conn) return;
+    const campaignId = String(ctx.campaignId || '').trim();
+    if (!campaignId) return;
     try {
-        const key = `zapmass:rf:ctx:${connectionId}:${phoneDigits}`;
+        const key = `zapmass:rf:ctx:${connectionId}:${campaignId}:${phoneDigits}`;
         await conn.setex(key, REPLYFLOW_SESSION_TTL_SECS, JSON.stringify(ctx));
+        await conn.del(`zapmass:rf:ctx:${connectionId}:${phoneDigits}`);
     } catch (e: any) {
         log('warn', 'saveReplyFlowContextToRedis falhou', { error: e?.message });
     }
@@ -6204,33 +6251,52 @@ async function saveReplyFlowContextToRedis(
 
 async function loadReplyFlowContextFromRedis(
     connectionId: string,
-    phoneDigits: string
+    phoneDigits: string,
+    campaignId?: string
 ): Promise<ReplyFlowContextSnapshot | null> {
     const conn = getRedisConnection();
     if (!conn) return null;
+    const cid = String(campaignId || '').trim();
     try {
-        const key = `zapmass:rf:ctx:${connectionId}:${phoneDigits}`;
-        const raw = await conn.get(key);
-        if (!raw) return null;
-        const ctx = JSON.parse(raw) as ReplyFlowContextSnapshot;
-        if (!ctx?.campaignId) return null;
-        return ctx;
+        if (cid) {
+            const raw = await conn.get(`zapmass:rf:ctx:${connectionId}:${cid}:${phoneDigits}`);
+            if (raw) {
+                const ctx = JSON.parse(raw) as ReplyFlowContextSnapshot;
+                if (ctx?.campaignId) return ctx;
+            }
+        }
+        const legacyKey = `zapmass:rf:ctx:${connectionId}:${phoneDigits}`;
+        const rawLegacy = await conn.get(legacyKey);
+        if (rawLegacy) {
+            const ctx = JSON.parse(rawLegacy) as ReplyFlowContextSnapshot;
+            if (ctx?.campaignId) return ctx;
+        }
+        return null;
     } catch {
         return null;
     }
 }
 
-async function deleteReplyFlowContextFromRedis(connectionId: string, phoneDigits: string): Promise<void> {
+async function deleteReplyFlowContextFromRedis(
+    connectionId: string,
+    phoneDigits: string,
+    campaignId?: string
+): Promise<void> {
     const conn = getRedisConnection();
     if (!conn) return;
+    const cid = String(campaignId || '').trim();
     try {
-        await conn.del(`zapmass:rf:ctx:${connectionId}:${phoneDigits}`);
+        const keys = [
+            `zapmass:rf:ctx:${connectionId}:${phoneDigits}`,
+            ...(cid ? [`zapmass:rf:ctx:${connectionId}:${cid}:${phoneDigits}`] : []),
+        ];
+        await conn.del(...keys);
     } catch { /* ignora */ }
 }
 
 /** Reabre sessão perdida quando há contexto recente da campanha (resposta sem sessão ativa). */
 async function tryReopenReplyFlowFromContext(connectionId: string, phoneDigits: string): Promise<boolean> {
-    if (!replyFlowEngine || replyFlowEngine.hasSession(connectionId, phoneDigits)) return false;
+    if (!replyFlowEngine) return false;
 
     const variants = new Set([phoneDigits]);
     if (phoneDigits.length === 13 && phoneDigits.startsWith('55') && phoneDigits.charAt(4) === '9') {
@@ -6242,6 +6308,7 @@ async function tryReopenReplyFlowFromContext(connectionId: string, phoneDigits: 
     for (const variant of variants) {
         const ctx = await loadReplyFlowContextFromRedis(connectionId, variant);
         if (!ctx?.campaignId) continue;
+        if (replyFlowEngine.hasSession(connectionId, variant, ctx.campaignId)) continue;
         const ageMs = Date.now() - (ctx.openedAt || 0);
         const maxReopenMs = 72 * 3600 * 1000;
         if (ageMs > maxReopenMs) continue;
@@ -6333,11 +6400,10 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
             let connectionId = '';
             let phoneDigits = '';
             if (keyBody.startsWith('t:')) {
-                const rest = keyBody.slice(2);
-                const colonIdx = rest.indexOf(':');
-                if (colonIdx <= 0) continue;
-                const tenantKey = rest.slice(0, colonIdx);
-                phoneDigits = rest.slice(colonIdx + 1);
+                const segments = keyBody.slice(2).split(':');
+                if (segments.length < 2) continue;
+                const tenantKey = segments[0];
+                phoneDigits = segments[segments.length - 1];
                 connectionId =
                     getConnections().find(
                         (c) =>
@@ -6346,10 +6412,10 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
                     )?.id || '';
                 if (!connectionId) continue;
             } else {
-                const colonIdx = keyBody.indexOf(':');
-                if (colonIdx <= 0) continue;
-                connectionId = keyBody.slice(0, colonIdx);
-                phoneDigits = keyBody.slice(colonIdx + 1);
+                const parsed = parseReplyFlowSessionKey(keyBody);
+                if (!parsed?.connectionId || !parsed.phoneDigits) continue;
+                connectionId = parsed.connectionId;
+                phoneDigits = parsed.phoneDigits;
             }
 
             replyFlowEngine.restoreSession(connectionId, phoneDigits, sess);
@@ -6758,11 +6824,10 @@ async function tryRestoreReplyFlowSession(connectionId: string, phoneDigits: str
                 for (const key of keys) {
                     const body = key.slice(REPLYFLOW_SESSION_KEY_PREFIX.length);
                     if (body.startsWith('t:')) {
-                        const rest = body.slice(2);
-                        const colon = rest.indexOf(':');
-                        if (colon <= 0) continue;
-                        const tenantKey = rest.slice(0, colon);
-                        const sessPhone = rest.slice(colon + 1).replace(/\D/g, '');
+                        const segments = body.slice(2).split(':');
+                        if (segments.length < 2) continue;
+                        const tenantKey = segments[0];
+                        const sessPhone = segments[segments.length - 1].replace(/\D/g, '');
                         const owner = resolveOwnerUid(connectionId);
                         if (!owner || owner !== tenantKey) continue;
                         let phoneHit = false;
@@ -6791,10 +6856,10 @@ async function tryRestoreReplyFlowSession(connectionId: string, phoneDigits: str
                         await replyFlowEngine.ensureDefLoaded(sess.campaignId, sess.ownerUid);
                         return;
                     }
-                    const colon = body.indexOf(':');
-                    if (colon <= 0) continue;
-                    const sessConn = body.slice(0, colon);
-                    const sessPhone = body.slice(colon + 1).replace(/\D/g, '');
+                    const parsedKey = parseReplyFlowSessionKey(body);
+                    if (!parsedKey?.connectionId || !parsedKey.phoneDigits) continue;
+                    const sessConn = parsedKey.connectionId;
+                    const sessPhone = parsedKey.phoneDigits.replace(/\D/g, '');
                     let phoneHit = false;
                     for (const variant of variants) {
                         if (
@@ -6954,9 +7019,9 @@ function ensureReplyFlowEngine() {
                 openedAt: Date.now(),
             });
         },
-        onSessionDisposed: (connectionId, phoneDigits) => {
-            void deleteReplyFlowSessionFromRedis(connectionId, phoneDigits);
-            void deleteReplyFlowContextFromRedis(connectionId, phoneDigits);
+        onSessionDisposed: (connectionId, phoneDigits, campaignId) => {
+            void deleteReplyFlowSessionFromRedis(connectionId, phoneDigits, campaignId);
+            void deleteReplyFlowContextFromRedis(connectionId, phoneDigits, campaignId);
         },
         // Quando todas as sessões de reply flow de uma campanha fecham, tenta finalizar.
         // Não deletamos campaignPendingJobs aqui porque respostas de menu podem ter sido
@@ -10469,13 +10534,15 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         replyFlowEngine.updateSessionAfterSend(
             item.connectionId,
             item.replyFlowAfterSend.phoneDigits,
-            item.replyFlowAfterSend.newAwaitingAfterStep
+            item.replyFlowAfterSend.newAwaitingAfterStep,
+            item.campaignId
         );
     } else if (item.replyFlowDisposeAfterSend) {
         replyFlowEngine.confirmReplyFlowOutboundDelivered(
             item.connectionId,
             phoneDigits,
-            true
+            true,
+            item.campaignId
         );
     }
 
@@ -10693,7 +10760,11 @@ async function failCampaignSend(
         (item.replyFlowDisposeAfterSend || item.replyFlowAfterSend)
     ) {
         ensureReplyFlowEngine();
-        replyFlowEngine.rollbackPendingOutbound(item.connectionId, normalizePhoneKey(item.to));
+        replyFlowEngine.rollbackPendingOutbound(
+            item.connectionId,
+            normalizePhoneKey(item.to),
+            item.campaignId
+        );
     }
 
     if (unrecoverable) {
@@ -10758,7 +10829,11 @@ function onCampaignMassWorkerFailed(job: Job<MessageQueueItem> | undefined, err:
         }
         if (item.replyFlowResponse && (item.replyFlowDisposeAfterSend || item.replyFlowAfterSend)) {
             ensureReplyFlowEngine();
-            replyFlowEngine.rollbackPendingOutbound(item.connectionId, normalizePhoneKey(item.to));
+            replyFlowEngine.rollbackPendingOutbound(
+                item.connectionId,
+                normalizePhoneKey(item.to),
+                item.campaignId
+            );
         }
         if (item._sentOk || item._progressAccounted) {
             return;

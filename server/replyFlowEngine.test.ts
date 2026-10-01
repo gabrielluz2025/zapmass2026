@@ -11,7 +11,14 @@ import {
   formatPoliteGreetingInvalidReply,
   getBrazilHour,
 } from '../shared/replyFlowMatch.js';
-import { applyMessageVars, findConfiguredOptOutReply, ReplyFlowEngine, resolveReplyFlowOptionOutbound, sanitizeReplyFlowSteps } from './replyFlowEngine.js';
+import {
+  applyMessageVars,
+  buildReplyFlowSessionKey,
+  findConfiguredOptOutReply,
+  ReplyFlowEngine,
+  resolveReplyFlowOptionOutbound,
+  sanitizeReplyFlowSteps,
+} from './replyFlowEngine.js';
 
 const matched = (cleanTok: string, body: string, mode?: Parameters<typeof matchReplyTriggerToken>[2]) =>
   matchReplyTriggerToken(cleanTok, body, mode).matched;
@@ -842,5 +849,49 @@ describe('Detecção e retribuição de saudações educadas', () => {
     });
     expect(sess.awaitingAfterStep).toBe(1);
     expect(sess.vars.nome).toBe('João');
+  });
+});
+
+describe('buildReplyFlowSessionKey', () => {
+  it('inclui campaignId para isolar fluxos no mesmo telefone', () => {
+    expect(buildReplyFlowSessionKey('conn1', 'camp-a', '5548999999999')).toBe(
+      'conn1:camp-a:5548999999999'
+    );
+  });
+});
+
+describe('isolamento de sessão por campanha', () => {
+  it('abrir campanha B não sobrescreve sessão ativa da campanha A', () => {
+    const engine = new ReplyFlowEngine({ enqueue: () => {} });
+    const step = {
+      body: 'Abertura',
+      acceptAnyReply: false,
+      validTokens: [],
+      invalidReplyBody: '',
+      marketingEffect: 'none' as const,
+    };
+    engine.registerDef('camp-a', [step]);
+    engine.registerDef('camp-b', [step]);
+    engine.openSession({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      campaignId: 'camp-a',
+      vars: {},
+      toRaw: '5548999999999',
+    });
+    const sessA = (engine as any).findSession('conn1', '5548999999999', 'camp-a')?.session;
+    sessA.awaitingAfterStep = 2;
+    engine.openSession({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      campaignId: 'camp-b',
+      vars: {},
+      toRaw: '5548999999999',
+    });
+    const sessB = (engine as any).findSession('conn1', '5548999999999', 'camp-b')?.session;
+    expect(sessB.awaitingAfterStep).toBe(0);
+    expect(sessA.awaitingAfterStep).toBe(2);
+    expect(engine.countOpenSessionsForCampaign('camp-a')).toBe(1);
+    expect(engine.countOpenSessionsForCampaign('camp-b')).toBe(1);
   });
 });

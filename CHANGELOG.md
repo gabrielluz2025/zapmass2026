@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.266] - 2026-10-01
+
+### Corrigido
+- **Campanhas no mesmo contato**: sessões de fluxo por resposta isoladas por `campaignId` (RAM + Redis); campanha B não substitui nem mistura texto/mídia da campanha A; inbound prioriza sessão com atividade mais recente.
+
 ## [2.3.265] - 2026-10-01
 
 ### Adicionado

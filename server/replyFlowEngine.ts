@@ -77,6 +77,8 @@ export type ReplyFlowSession = {
     lastPoliteGreetingAt?: number;
     /** Resposta enfileirada aguardando confirmação de envio — sobrevive queda/restart. */
     pendingOutbound?: ReplyFlowPendingOutbound;
+    /** Usado para rotear inbound quando há mais de uma campanha no mesmo telefone. */
+    lastActivityAt?: number;
 };
 
 const POLITE_GREETING_COOLDOWN_MS = 45_000;
@@ -188,7 +190,7 @@ export type ReplyFlowCallbacks = {
     /** Chamado quando uma sessão é criada ou seu estado muda (awaitingAfterStep) — para persistência. */
     onSessionSave?: (connectionId: string, phoneDigits: string, session: ReplyFlowSession) => void;
     /** Chamado quando uma sessão é descartada — para remoção da persistência. */
-    onSessionDisposed?: (connectionId: string, phoneDigits: string) => void;
+    onSessionDisposed?: (connectionId: string, phoneDigits: string, campaignId: string) => void;
 };
 
 import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
@@ -196,6 +198,40 @@ import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
 /** Chave canônica BR (DDI 55 + 9º dígito) — alinhada ao relatório da UI. */
 export const normalizePhoneKey = (phone: string): string =>
     normPhoneKey(phone) || (phone || '').replace(/\D/g, '');
+
+/** Sessão isolada por campanha — evita misturar fluxos no mesmo contato/chip. */
+export function buildReplyFlowSessionKey(
+    connectionId: string,
+    campaignId: string,
+    phoneDigits: string
+): string {
+    const cid = String(campaignId || '').trim() || '_';
+    const phone = normalizePhoneKey(phoneDigits) || String(phoneDigits || '').replace(/\D/g, '');
+    return `${connectionId}:${cid}:${phone}`;
+}
+
+/** Formato atual `conn:campaignId:phone`; legado `conn:phone` (campaignId vazio). */
+export function parseReplyFlowSessionKey(
+    key: string
+): { connectionId: string; campaignId: string; phoneDigits: string } | null {
+    const trimmed = String(key || '').trim();
+    if (!trimmed) return null;
+    const first = trimmed.indexOf(':');
+    if (first <= 0) return null;
+    const second = trimmed.indexOf(':', first + 1);
+    if (second <= 0) {
+        return {
+            connectionId: trimmed.slice(0, first),
+            campaignId: '',
+            phoneDigits: trimmed.slice(first + 1),
+        };
+    }
+    return {
+        connectionId: trimmed.slice(0, first),
+        campaignId: trimmed.slice(first + 1, second),
+        phoneDigits: trimmed.slice(second + 1),
+    };
+}
 
 export const buildRecipientVarsMap = (
     recipients?: CampaignRecipient[]
@@ -487,9 +523,9 @@ export class ReplyFlowEngine {
     /** Após hidratar defs no boot, religa timeouts das sessões restauradas. */
     rescheduleTimeouts(): void {
         for (const [key, session] of this.sessions) {
-            const colonIdx = key.indexOf(':');
-            if (colonIdx <= 0) continue;
-            this.scheduleStepTimeout(key.slice(0, colonIdx), key.slice(colonIdx + 1), session);
+            const parsed = parseReplyFlowSessionKey(key);
+            if (!parsed) continue;
+            this.scheduleStepTimeout(key, parsed.connectionId, parsed.phoneDigits, session);
         }
     }
 
@@ -503,26 +539,24 @@ export class ReplyFlowEngine {
         convKey?: string;
         remoteJid?: string;
     }) {
-        const sessKey = `${params.connectionId}:${params.phoneDigits}`;
+        const phoneKey =
+            normalizePhoneKey(params.phoneDigits) ||
+            String(params.phoneDigits || '').replace(/\D/g, '');
+        const sessKey = buildReplyFlowSessionKey(
+            params.connectionId,
+            params.campaignId,
+            phoneKey
+        );
         const existing = this.sessions.get(sessKey);
-        if (existing && existing.campaignId === params.campaignId) {
+        if (existing) {
             if (params.ownerUid && !existing.ownerUid) existing.ownerUid = params.ownerUid;
             if (params.vars && Object.keys(params.vars).length > 0) {
                 existing.vars = { ...existing.vars, ...params.vars };
             }
             if (params.toRaw) existing.toRaw = params.toRaw;
-            const aliasKeys = new Set<string>();
-            if (params.convKey) aliasKeys.add(params.convKey);
-            aliasKeys.add(`${params.connectionId}:${params.phoneDigits}`);
-            const jid = String(params.remoteJid || '').trim();
-            if (jid.includes('@')) aliasKeys.add(`${params.connectionId}:${jid}`);
-            else if (params.phoneDigits.length >= 8) {
-                aliasKeys.add(`${params.connectionId}:${params.phoneDigits}@s.whatsapp.net`);
-            }
-            for (const k of aliasKeys) {
-                this.convToCanonical.set(k, sessKey);
-            }
-            this.callbacks.onSessionSave?.(params.connectionId, params.phoneDigits, existing);
+            existing.lastActivityAt = Date.now();
+            this.registerSessionAliases(sessKey, params, phoneKey);
+            this.callbacks.onSessionSave?.(params.connectionId, phoneKey, existing);
             return;
         }
 
@@ -534,34 +568,59 @@ export class ReplyFlowEngine {
             toRaw: params.toRaw,
             registeredConvKey: params.convKey,
             invalidReplyCount: 0,
+            lastActivityAt: Date.now(),
         };
         this.sessions.set(sessKey, session);
+        this.registerSessionAliases(sessKey, params, phoneKey);
+        this.adjustSessionCount(params.campaignId, 1);
+        this.callbacks.onSessionSave?.(params.connectionId, phoneKey, session);
+        this.scheduleStepTimeout(sessKey, params.connectionId, phoneKey, session);
+    }
+
+    /**
+     * Outra campanha no mesmo telefone permanece em RAM/Redis até timeout ou dispose.
+     * Inbound usa a sessão com atividade mais recente (último disparo/abertura ou resposta).
+     */
+    private registerSessionAliases(
+        sessKey: string,
+        params: {
+            connectionId: string;
+            phoneDigits: string;
+            convKey?: string;
+            remoteJid?: string;
+        },
+        phoneKey: string
+    ): void {
         const aliasKeys = new Set<string>();
         if (params.convKey) aliasKeys.add(params.convKey);
-        aliasKeys.add(`${params.connectionId}:${params.phoneDigits}`);
+        aliasKeys.add(`${params.connectionId}:${phoneKey}`);
         const jid = String(params.remoteJid || '').trim();
         if (jid.includes('@')) aliasKeys.add(`${params.connectionId}:${jid}`);
-        else if (params.phoneDigits.length >= 8) {
-            aliasKeys.add(`${params.connectionId}:${params.phoneDigits}@s.whatsapp.net`);
+        else if (phoneKey.length >= 8) {
+            aliasKeys.add(`${params.connectionId}:${phoneKey}@s.whatsapp.net`);
         }
         for (const k of aliasKeys) {
             this.convToCanonical.set(k, sessKey);
         }
-        this.adjustSessionCount(params.campaignId, 1);
-        this.callbacks.onSessionSave?.(params.connectionId, params.phoneDigits, session);
-        this.scheduleStepTimeout(params.connectionId, params.phoneDigits, session);
     }
 
     /** Restaura sessão perdida (ex.: após restart do servidor). Não incrementa contador se já existir. */
     restoreSession(connectionId: string, phoneDigits: string, session: ReplyFlowSession): void {
-        const sessKey = `${connectionId}:${phoneDigits}`;
+        const phoneKey =
+            normalizePhoneKey(phoneDigits) || String(phoneDigits || '').replace(/\D/g, '');
+        const sessKey = buildReplyFlowSessionKey(
+            connectionId,
+            session.campaignId,
+            phoneKey
+        );
         if (this.sessions.has(sessKey)) return;
+        if (!session.lastActivityAt) session.lastActivityAt = Date.now();
         this.sessions.set(sessKey, session);
         if (session.registeredConvKey) {
             this.convToCanonical.set(session.registeredConvKey, sessKey);
         }
-        if (phoneDigits.length >= 8) {
-            this.convToCanonical.set(`${connectionId}:${phoneDigits}@s.whatsapp.net`, sessKey);
+        if (phoneKey.length >= 8) {
+            this.convToCanonical.set(`${connectionId}:${phoneKey}@s.whatsapp.net`, sessKey);
         }
         this.adjustSessionCount(session.campaignId, 1);
     }
@@ -574,15 +633,13 @@ export class ReplyFlowEngine {
         return true;
     }
 
-    hasSession(connectionId: string, phoneDigits: string): boolean {
-        if (this.sessions.has(`${connectionId}:${phoneDigits}`)) return true;
-        const incoming = String(phoneDigits || '').replace(/\D/g, '');
-        for (const key of this.sessions.keys()) {
-            if (!key.startsWith(`${connectionId}:`)) continue;
-            const sp = key.slice(connectionId.length + 1).replace(/\D/g, '');
-            if (sp === incoming) return true;
+    hasSession(connectionId: string, phoneDigits: string, campaignId?: string): boolean {
+        const incoming =
+            normalizePhoneKey(phoneDigits) || String(phoneDigits || '').replace(/\D/g, '');
+        if (campaignId) {
+            return this.sessions.has(buildReplyFlowSessionKey(connectionId, campaignId, incoming));
         }
-        return false;
+        return this.listSessionsForContact(connectionId, incoming).length > 0;
     }
 
     /** Campanha ativa aguardando resposta deste contato (relatório / logs). */
@@ -602,6 +659,46 @@ export class ReplyFlowEngine {
         return found?.session.campaignId;
     }
 
+    private listSessionsForContact(
+        connectionId: string,
+        phoneDigits: string
+    ): Array<{ key: string; session: ReplyFlowSession }> {
+        const incoming =
+            normalizePhoneKey(phoneDigits) || String(phoneDigits || '').replace(/\D/g, '');
+        const hits: Array<{ key: string; session: ReplyFlowSession }> = [];
+        for (const [key, session] of this.sessions) {
+            const parsed = parseReplyFlowSessionKey(key);
+            if (!parsed) continue;
+            if (parsed.connectionId !== connectionId) continue;
+            if (!this.phoneMatchesSession(parsed.phoneDigits, incoming)) continue;
+            hits.push({ key, session });
+        }
+        return hits;
+    }
+
+    /** Prioriza sessão com outbound pendente recente; senão a de maior lastActivityAt. */
+    private pickPrimarySession(
+        candidates: Array<{ key: string; session: ReplyFlowSession }>
+    ): { key: string; session: ReplyFlowSession } | null {
+        if (candidates.length === 0) return null;
+        if (candidates.length === 1) return candidates[0];
+        const now = Date.now();
+        let best = candidates[0];
+        let bestScore = -1;
+        for (const c of candidates) {
+            let score = c.session.lastActivityAt || 0;
+            const pending = c.session.pendingOutbound;
+            if (pending?.enqueuedAt && now - pending.enqueuedAt < 120_000) {
+                score += 1_000_000_000_000;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                best = c;
+            }
+        }
+        return best;
+    }
+
     async resolveConfiguredOptOutReply(
         campaignId: string,
         ownerUid: string | undefined,
@@ -616,48 +713,56 @@ export class ReplyFlowEngine {
         return findConfiguredOptOutReply(def?.steps, bodyText);
     }
 
-    updateSessionAfterSend(connectionId: string, phoneDigits: string, newAwaitingAfterStep: number) {
-        const found = this.findSession(connectionId, phoneDigits);
+    updateSessionAfterSend(
+        connectionId: string,
+        phoneDigits: string,
+        newAwaitingAfterStep: number,
+        campaignId?: string
+    ) {
+        const found = this.findSession(connectionId, phoneDigits, campaignId);
         if (!found) return;
         const { key, session } = found;
         session.awaitingAfterStep = newAwaitingAfterStep;
+        session.lastActivityAt = Date.now();
         delete session.pendingOutbound;
-        const colonIdx = key.indexOf(':');
-        const connId = colonIdx > 0 ? key.slice(0, colonIdx) : connectionId;
-        const phoneKey = colonIdx > 0 ? key.slice(colonIdx + 1) : phoneDigits;
+        const parsed = parseReplyFlowSessionKey(key);
+        const connId = parsed?.connectionId || connectionId;
+        const phoneKey = parsed?.phoneDigits || phoneDigits;
         this.callbacks.onSessionSave?.(connId, phoneKey, session);
-        this.scheduleStepTimeout(connId, phoneKey, session);
+        this.scheduleStepTimeout(key, connId, phoneKey, session);
     }
 
     /** Confirma entrega de resposta pendente; descarta sessão se for resposta terminal. */
     confirmReplyFlowOutboundDelivered(
         connectionId: string,
         phoneDigits: string,
-        disposeAfterSend: boolean
+        disposeAfterSend: boolean,
+        campaignId?: string
     ): void {
-        const found = this.findSession(connectionId, phoneDigits);
+        const found = this.findSession(connectionId, phoneDigits, campaignId);
         if (!found) return;
         const { key, session } = found;
         delete session.pendingOutbound;
-        const colonIdx = key.indexOf(':');
-        const connId = colonIdx > 0 ? key.slice(0, colonIdx) : connectionId;
-        const phoneKey = colonIdx > 0 ? key.slice(colonIdx + 1) : phoneDigits;
+        const parsed = parseReplyFlowSessionKey(key);
+        const connId = parsed?.connectionId || connectionId;
+        const phoneKey = parsed?.phoneDigits || phoneDigits;
         if (disposeAfterSend) {
             this.disposeSession(key, session);
             return;
         }
+        session.lastActivityAt = Date.now();
         this.callbacks.onSessionSave?.(connId, phoneKey, session);
     }
 
     /** Falha no envio — libera sessão para nova tentativa (contato pode responder de novo). */
-    rollbackPendingOutbound(connectionId: string, phoneDigits: string): void {
-        const found = this.findSession(connectionId, phoneDigits);
+    rollbackPendingOutbound(connectionId: string, phoneDigits: string, campaignId?: string): void {
+        const found = this.findSession(connectionId, phoneDigits, campaignId);
         if (!found?.session.pendingOutbound) return;
         const { key, session } = found;
         delete session.pendingOutbound;
-        const colonIdx = key.indexOf(':');
-        const connId = colonIdx > 0 ? key.slice(0, colonIdx) : connectionId;
-        const phoneKey = colonIdx > 0 ? key.slice(colonIdx + 1) : phoneDigits;
+        const parsed = parseReplyFlowSessionKey(key);
+        const connId = parsed?.connectionId || connectionId;
+        const phoneKey = parsed?.phoneDigits || phoneDigits;
         this.callbacks.onSessionSave?.(connId, phoneKey, session);
         this.callbacks.onLog?.('Envio pendente do fluxo por resposta revertido — sessão mantida', {
             campaignId: session.campaignId,
@@ -699,8 +804,12 @@ export class ReplyFlowEngine {
         }
     }
 
-    private scheduleStepTimeout(connectionId: string, phoneDigits: string, session: ReplyFlowSession) {
-        const canonicalKey = `${connectionId}:${phoneDigits}`;
+    private scheduleStepTimeout(
+        canonicalKey: string,
+        connectionId: string,
+        phoneDigits: string,
+        session: ReplyFlowSession
+    ) {
         this.clearStepTimeout(canonicalKey);
         const def = this.defs.get(session.campaignId);
         const step = def?.steps[session.awaitingAfterStep];
@@ -752,12 +861,13 @@ export class ReplyFlowEngine {
         this.sessions.delete(canonicalKey);
         this.adjustSessionCount(session.campaignId, -1);
         this.maybeClearDef(session.campaignId);
-        // Extrai connectionId:phoneDigits do canonicalKey para notificar persistência
-        const colonIdx = canonicalKey.indexOf(':');
-        if (colonIdx > 0) {
-            const connectionId = canonicalKey.slice(0, colonIdx);
-            const phoneDigits = canonicalKey.slice(colonIdx + 1);
-            this.callbacks.onSessionDisposed?.(connectionId, phoneDigits);
+        const parsed = parseReplyFlowSessionKey(canonicalKey);
+        if (parsed) {
+            this.callbacks.onSessionDisposed?.(
+                parsed.connectionId,
+                parsed.phoneDigits,
+                parsed.campaignId || session.campaignId
+            );
         }
     }
 
@@ -771,17 +881,14 @@ export class ReplyFlowEngine {
     }
 
     private persistSession(canonicalKey: string, session: ReplyFlowSession): void {
-        const colonIdx = canonicalKey.indexOf(':');
-        if (colonIdx <= 0) return;
-        this.callbacks.onSessionSave?.(
-            canonicalKey.slice(0, colonIdx),
-            canonicalKey.slice(colonIdx + 1),
-            session
-        );
+        const parsed = parseReplyFlowSessionKey(canonicalKey);
+        if (!parsed) return;
+        session.lastActivityAt = Date.now();
+        this.callbacks.onSessionSave?.(parsed.connectionId, parsed.phoneDigits, session);
     }
 
     private connectionIdFromKey(canonicalKey: string, fallback: string): string {
-        return canonicalKey.includes(':') ? canonicalKey.slice(0, canonicalKey.indexOf(':')) : fallback;
+        return parseReplyFlowSessionKey(canonicalKey)?.connectionId || fallback;
     }
 
     /**
@@ -852,42 +959,34 @@ export class ReplyFlowEngine {
 
     private findSession(
         connectionId: string,
-        phoneDigits: string
+        phoneDigits: string,
+        campaignId?: string
     ): { key: string; session: ReplyFlowSession } | null {
-        const exactKey = `${connectionId}:${phoneDigits}`;
-        const exact = this.sessions.get(exactKey);
-        if (exact) return { key: exactKey, session: exact };
-
-        const incoming = String(phoneDigits || '').replace(/\D/g, '');
+        const incoming =
+            normalizePhoneKey(phoneDigits) || String(phoneDigits || '').replace(/\D/g, '');
+        if (campaignId) {
+            const exactKey = buildReplyFlowSessionKey(connectionId, campaignId, incoming);
+            const exact = this.sessions.get(exactKey);
+            if (exact) return { key: exactKey, session: exact };
+        }
         if (incoming.length < 8) return null;
 
-        let bestKey: string | null = null;
-        let bestSession: ReplyFlowSession | null = null;
-
-        for (const [key, session] of this.sessions) {
-            if (!key.startsWith(`${connectionId}:`)) continue;
-            const sessionPhone = key.slice(connectionId.length + 1);
-            if (!this.phoneMatchesSession(sessionPhone, incoming)) continue;
-            const digits = sessionPhone.replace(/\D/g, '');
-            if (digits === incoming || stripBrNine(digits) === stripBrNine(incoming)) {
-                return { key, session };
-            }
-            bestKey = key;
-            bestSession = session;
-        }
-
-        if (bestKey && bestSession) return { key: bestKey, session: bestSession };
+        const onConn = this.listSessionsForContact(connectionId, incoming);
+        const primary = this.pickPrimarySession(onConn);
+        if (primary) return primary;
 
         // Fallback: mesmo telefone em outro chip (webhook mal mapeado / re-pareamento).
         for (const [key, session] of this.sessions) {
-            const colon = key.indexOf(':');
-            if (colon <= 0) continue;
-            const sessConn = key.slice(0, colon);
-            if (sessConn === connectionId) continue;
-            const sessionPhone = key.slice(colon + 1);
-            if (!this.phoneMatchesSession(sessionPhone, incoming)) continue;
+            const parsed = parseReplyFlowSessionKey(key);
+            if (!parsed || parsed.connectionId === connectionId) continue;
+            if (!this.phoneMatchesSession(parsed.phoneDigits, incoming)) continue;
             return { key, session };
         }
+
+        // Chave legada conn:phone (sem campaignId no path)
+        const legacyKey = `${connectionId}:${incoming}`;
+        const legacy = this.sessions.get(legacyKey);
+        if (legacy) return { key: legacyKey, session: legacy };
 
         return null;
     }
@@ -1014,6 +1113,7 @@ export class ReplyFlowEngine {
         }
 
         const { key, session } = found;
+        session.lastActivityAt = Date.now();
 
         let def = this.defs.get(session.campaignId);
         if (!def?.steps?.length) {
@@ -1056,9 +1156,9 @@ export class ReplyFlowEngine {
                 return { handled: true };
             }
             delete session.pendingOutbound;
-            const colonIdx = key.indexOf(':');
-            const connId = colonIdx > 0 ? key.slice(0, colonIdx) : connectionId;
-            const phoneKey = colonIdx > 0 ? key.slice(colonIdx + 1) : phoneDigits;
+            const keyPartsPending = parseReplyFlowSessionKey(key);
+            const connId = keyPartsPending?.connectionId || connectionId;
+            const phoneKey = keyPartsPending?.phoneDigits || phoneDigits;
             this.callbacks.onSessionSave?.(connId, phoneKey, session);
         }
 
@@ -1174,10 +1274,9 @@ export class ReplyFlowEngine {
                     disposeAfterSend: outbound.disposeAfterSend,
                     enqueuedAt: Date.now(),
                 };
-                const sessionPhoneKey = key.startsWith(`${connectionId}:`)
-                    ? key.slice(connectionId.length + 1)
-                    : phoneDigits;
-                const sendConnectionId = key.includes(':') ? key.slice(0, key.indexOf(':')) : connectionId;
+                const keyParts = parseReplyFlowSessionKey(key);
+                const sessionPhoneKey = keyParts?.phoneDigits || phoneDigits;
+                const sendConnectionId = keyParts?.connectionId || connectionId;
                 this.callbacks.onSessionSave?.(sendConnectionId, sessionPhoneKey, session);
 
                 void this.safeEnqueue({
@@ -1441,9 +1540,8 @@ export class ReplyFlowEngine {
         }
 
         const nextBody = applyMessageVars(steps[nextIdx].body, phoneDigits, session.vars);
-        const sessionPhoneKey = key.startsWith(`${connectionId}:`)
-            ? key.slice(connectionId.length + 1)
-            : phoneDigits;
+        const sessionPhoneKey =
+            parseReplyFlowSessionKey(key)?.phoneDigits || phoneDigits;
 
         this.callbacks.onLog?.('Proxima etapa enfileirada apos resposta', {
             campaignId: session.campaignId,

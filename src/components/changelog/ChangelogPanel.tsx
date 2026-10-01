@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.266',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Mesmo telefone em duas campanhas: fluxo por resposta isolado por campanha (sem misturar mensagens)',
+      },
+    ],
+  },
+  {
     version: '2.3.265',
     date: '01/10/2026',
     highlights: [
