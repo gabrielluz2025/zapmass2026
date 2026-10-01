@@ -21,7 +21,13 @@ export function maskQueuePhone(raw: string): string {
   return head ? `${head}…${tail}` : `…${tail}`;
 }
 
-export type CampaignQueueRemoveConfirmScope = 'campaign' | 'step' | 'channel' | 'jobs' | 'all';
+export type CampaignQueueRemoveConfirmScope =
+  | 'campaign'
+  | 'step'
+  | 'channel'
+  | 'jobs'
+  | 'all'
+  | 'dead-channels';
 
 export function buildQueueRemoveConfirmPhrase(scope: CampaignQueueRemoveConfirmScope, id?: string): string {
   const key = String(id || '').trim();
@@ -36,6 +42,8 @@ export function buildQueueRemoveConfirmPhrase(scope: CampaignQueueRemoveConfirmS
       return 'LIMPAR JOBS';
     case 'all':
       return 'LIMPAR MINHA FILA';
+    case 'dead-channels':
+      return 'LIMPAR CHIPS MORTOS';
     default:
       return 'LIMPAR';
   }

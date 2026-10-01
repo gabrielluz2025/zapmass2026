@@ -245,6 +245,41 @@ export async function migrateLegacyGlobalCampaignQueueOnce(
   return moved;
 }
 
+export type CampaignMassQueueDepth = {
+  waiting: number;
+  active: number;
+  delayed: number;
+  paused: number;
+};
+
+export function campaignMassQueueDepthTotal(d: CampaignMassQueueDepth): number {
+  return (d.waiting || 0) + (d.active || 0) + (d.delayed || 0) + (d.paused || 0);
+}
+
+/** Profundidade real da fila BullMQ de massa do chip (waiting+active+delayed+paused). */
+export async function getCampaignMassQueueDepth(
+  redisConn: IORedis | null,
+  connectionId: string,
+  defaultJobOptions: CampaignMassQueueJobOptions
+): Promise<CampaignMassQueueDepth> {
+  const empty: CampaignMassQueueDepth = { waiting: 0, active: 0, delayed: 0, paused: 0 };
+  const id = String(connectionId || '').trim();
+  if (!id || !redisConn) return empty;
+  const q = getOrCreateCampaignMassQueue(redisConn, id, defaultJobOptions);
+  if (!q) return empty;
+  try {
+    const c = await q.getJobCounts('waiting', 'active', 'delayed', 'paused');
+    return {
+      waiting: c.waiting ?? 0,
+      active: c.active ?? 0,
+      delayed: c.delayed ?? 0,
+      paused: c.paused ?? 0,
+    };
+  } catch {
+    return empty;
+  }
+}
+
 export async function sumRedisMassQueueDepth(redis: IORedis): Promise<{ waitLen: number; delayedLen: number }> {
   let waitLen = 0;
   let delayedLen = 0;

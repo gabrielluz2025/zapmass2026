@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.270',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Fila de disparo: card Fila = BullMQ; inspeção por chip, chips mortos e campanhas runtime; purge e cap de retry offline',
+      },
+    ],
+  },
+  {
     version: '2.3.269',
     date: '01/10/2026',
     highlights: [

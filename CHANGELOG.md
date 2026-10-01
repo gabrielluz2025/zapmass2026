@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.270] - 2026-10-01
+
+### Corrigido
+- **Fila de disparo / card Fila**: contador do chip alinhado ao BullMQ (waiting+active+delayed+paused); inspeção tenant usa dono da campanha (não atribui jobs órfãos a todas as contas).
+- **Operações → Fila de disparo**: totais por chip, breakdown delayed, campanhas runtime com pendências, aviso e **Limpar chips mortos** (`POST /api/campaigns/queue/purge-dead-channels`).
+- **Campanhas presas**: watchdog pausa RUNNING após 20 min com pool todo offline; após 6 adiamentos por chip offline o job falha com `CHIP_OFFLINE_DEFER_CAP` (menos tempestade de retry).
+
 ## [2.3.269] - 2026-10-01
 
 ### Corrigido

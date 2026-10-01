@@ -16,11 +16,29 @@ export type QueueInspectGroup = {
   samplePhones: string[];
 };
 
+export type QueueChannelSummary = {
+  connectionId: string;
+  knownToTenant: boolean;
+  jobs: number;
+  byState: QueueStateCounts;
+};
+
+export type QueueRuntimeCampaign = {
+  campaignId: string;
+  isRunning: boolean;
+  pendingJobs: number;
+  queueJobs: number;
+  paused: boolean;
+};
+
 export type QueueInspectResult = {
   ok: boolean;
   channelQueues: number;
   groups: QueueInspectGroup[];
   totals: { jobs: number; byState: QueueStateCounts };
+  channelSummaries?: QueueChannelSummary[];
+  deadChannelJobs?: number;
+  runtimeCampaigns?: QueueRuntimeCampaign[];
   scannedJobs: number;
   truncated: boolean;
 };
@@ -81,6 +99,16 @@ export async function apiPromoteDelayedQueue(body: {
   confirm?: string;
 }): Promise<QueueRemoveResult> {
   return apiFetchJson<QueueRemoveResult>('/api/campaigns/queue/clear-delayed', {
+    method: 'POST',
+    body: JSON.stringify({ dryRun: true, ...body }),
+  });
+}
+
+export async function apiPurgeDeadChannelQueue(body: {
+  dryRun?: boolean;
+  confirm?: string;
+}): Promise<QueueRemoveResult> {
+  return apiFetchJson<QueueRemoveResult>('/api/campaigns/queue/purge-dead-channels', {
     method: 'POST',
     body: JSON.stringify({ dryRun: true, ...body }),
   });

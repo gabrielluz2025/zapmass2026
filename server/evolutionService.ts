@@ -188,6 +188,8 @@ import {
     resolveAllCampaignMassQueues,
     sumRedisMassQueueDepth,
     usePerChannelCampaignQueues,
+    getCampaignMassQueueDepth,
+    campaignMassQueueDepthTotal,
 } from './campaignChannelBullmq.js';
 import {
     cancelCampaignJobsForPhone,
@@ -3823,6 +3825,46 @@ function getReplyQueue(): Queue<MessageQueueItem> | null {
 
 const connectionQueueSizes = new Map<string, number>();
 const heldDispatchSizes = new Map<string, number>();
+let connectionQueueSizesSyncedAt = 0;
+const CONNECTION_QUEUE_SYNC_MS = 18_000;
+let connectionQueueSizeSyncInFlight = false;
+
+/** Alinha contador "Fila" do chip com BullMQ (waiting+active+delayed+paused na fila de massa). */
+export async function syncConnectionQueueSizesFromRedis(): Promise<void> {
+    const redis = getRedisConnection();
+    if (!redis) return;
+    const opts = campaignQueueDefaultOptions();
+    const ids = new Set<string>(connections.keys());
+    for (const id of await listRegisteredCampaignConnectionIds(redis)) ids.add(id);
+    for (const id of ids) {
+        const depth = await getCampaignMassQueueDepth(redis, id, opts);
+        const total = campaignMassQueueDepthTotal(depth);
+        if (total === 0) connectionQueueSizes.delete(id);
+        else connectionQueueSizes.set(id, total);
+    }
+    connectionQueueSizesSyncedAt = Date.now();
+}
+
+function scheduleConnectionQueueSizeSync(): void {
+    if (connectionQueueSizeSyncInFlight) return;
+    if (Date.now() - connectionQueueSizesSyncedAt < CONNECTION_QUEUE_SYNC_MS) return;
+    connectionQueueSizeSyncInFlight = true;
+    void syncConnectionQueueSizesFromRedis()
+        .catch(() => undefined)
+        .finally(() => {
+            connectionQueueSizeSyncInFlight = false;
+        });
+}
+
+export function getCampaignOwnerUidForQueue(campaignId: string): string | undefined {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return undefined;
+    return campaignsById.get(cid)?.ownerUid;
+}
+
+export function isDispatchChannelUsable(connectionId: string): boolean {
+    return isCampaignChannelUsable(connectionId);
+}
 let campaignWorker: Worker<MessageQueueItem> | null = null;
 let replyQueue: Queue<MessageQueueItem> | null = null;
 let replyWorker: Worker<MessageQueueItem> | null = null;
@@ -9857,6 +9899,16 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             throw new DelayedError();
         }
         item._offlineDelayCount = (item._offlineDelayCount || 0) + 1;
+        const OFFLINE_DEFER_CAP = 6;
+        if (item._offlineDelayCount >= OFFLINE_DEFER_CAP) {
+            return await failCampaignSend(
+                job,
+                item,
+                item.to,
+                `CHIP_OFFLINE_DEFER_CAP: chip indisponível após ${item._offlineDelayCount} tentativas`,
+                campaignState
+            );
+        }
         if (item._offlineDelayCount >= 5) {
             // Só pausa a campanha se NENHUM chip do pool/runtime estiver utilizável.
             // Antes: 5 retries num chip banido pausavam tudo e travavam os demais canais.
@@ -12999,16 +13051,32 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
         const usable = connIds.filter((id) => isCampaignChannelUsable(id));
         if (connIds.length > 0 && usable.length === 0) {
             const notifyKey = `${campaignId}:offline`;
-            if (isCampaignStallNotified(notifyKey)) continue;
-            campaignStallNotified.set(notifyKey, now);
-            const stallMsg =
-                'Nenhum chip do pool online no momento — o disparo continua ativo e tenta de novo quando um chip voltar.';
-            emitCampaignLog('WARN', stallMsg, { campaignId, connectionIds: connIds }, state.ownerUid);
-            publishOwnerEvent(state.ownerUid, 'campaign-stall-paused', {
-                campaignId,
-                reason: 'chip_offline',
-                message: stallMsg,
-            });
+            if (!isCampaignStallNotified(notifyKey)) {
+                campaignStallNotified.set(notifyKey, now);
+                const stallMsg =
+                    'Nenhum chip do pool online no momento — o disparo continua ativo e tenta de novo quando um chip voltar.';
+                emitCampaignLog('WARN', stallMsg, { campaignId, connectionIds: connIds }, state.ownerUid);
+                publishOwnerEvent(state.ownerUid, 'campaign-stall-paused', {
+                    campaignId,
+                    reason: 'chip_offline',
+                    message: stallMsg,
+                });
+            }
+            if (
+                pending > 0 &&
+                startedAt > 0 &&
+                now - startedAt >= 20 * 60_000 &&
+                !isCampaignStallNotified(`${campaignId}:auto-pause-dead`)
+            ) {
+                campaignStallNotified.set(`${campaignId}:auto-pause-dead`, now);
+                pauseCampaign(campaignId, state.ownerUid);
+                emitCampaignLog(
+                    'WARN',
+                    'Campanha pausada automaticamente: todos os chips do pool offline e fila só com reenvios adiados.',
+                    { campaignId, pending },
+                    state.ownerUid
+                );
+            }
         }
     }
 }
@@ -13600,6 +13668,7 @@ function connectionLastActivityLabel(
 }
 
 export function getConnections(): WhatsAppConnection[] {
+    scheduleConnectionQueueSizeSync();
     const result: WhatsAppConnection[] = [];
     let seededConnectedSince = false;
     for (const [id, conn] of connections.entries()) {
@@ -15165,7 +15234,7 @@ export function getConnectionsForTenant(tenantId: string): Array<{ id: string; i
     const result: Array<{ id: string; instanceName: string }> = [];
     for (const [id] of connections.entries()) {
         const owner = resolveOwnerUid(id);
-        if (owner === tenantId) {
+        if (owner && tenantScopeUidsMatch(tenantId, owner)) {
             result.push({ id, instanceName: id });
         }
     }

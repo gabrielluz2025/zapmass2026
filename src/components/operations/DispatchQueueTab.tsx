@@ -14,9 +14,12 @@ import { useZapMassCore } from '../../context/ZapMassContext';
 import {
   apiInspectDispatchQueue,
   apiPromoteDelayedQueue,
+  apiPurgeDeadChannelQueue,
   apiRemoveDispatchQueue,
   apiSetCampaignQueuePriority,
+  type QueueChannelSummary,
   type QueueInspectGroup,
+  type QueueRuntimeCampaign,
 } from '../../services/campaignQueueApi';
 import { Button } from '../ui/Button';
 
@@ -33,7 +36,10 @@ export const DispatchQueueTab: React.FC = () => {
   const { campaigns, connections } = useZapMassCore();
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<QueueInspectGroup[]>([]);
-  const [totals, setTotals] = useState({ jobs: 0 });
+  const [totals, setTotals] = useState({ jobs: 0, byState: { active: 0, waiting: 0, delayed: 0, paused: 0 } });
+  const [channelSummaries, setChannelSummaries] = useState<QueueChannelSummary[]>([]);
+  const [deadChannelJobs, setDeadChannelJobs] = useState(0);
+  const [runtimeCampaigns, setRuntimeCampaigns] = useState<QueueRuntimeCampaign[]>([]);
   const [filterCampaign, setFilterCampaign] = useState('');
   const [filterChannel, setFilterChannel] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -59,7 +65,13 @@ export const DispatchQueueTab: React.FC = () => {
       });
       if (!res.ok) throw new Error('Falha ao inspecionar fila.');
       setGroups(res.groups || []);
-      setTotals({ jobs: res.totals?.jobs ?? 0 });
+      setTotals({
+        jobs: res.totals?.jobs ?? 0,
+        byState: res.totals?.byState ?? { active: 0, waiting: 0, delayed: 0, paused: 0 },
+      });
+      setChannelSummaries(res.channelSummaries || []);
+      setDeadChannelJobs(res.deadChannelJobs ?? 0);
+      setRuntimeCampaigns(res.runtimeCampaigns || []);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao carregar fila.');
     } finally {
@@ -162,6 +174,34 @@ export const DispatchQueueTab: React.FC = () => {
     }
   };
 
+  const runPurgeDeadChannels = async () => {
+    const confirmPhrase = buildQueueRemoveConfirmPhrase('dead-channels');
+    const preview = await apiPurgeDeadChannelQueue({ dryRun: true });
+    const n = preview.result?.wouldRemove ?? 0;
+    if (
+      !window.confirm(
+        `Remover ${n.toLocaleString('pt-BR')} job(s) presos em chips mortos/offline?\nConfirmação: "${confirmPhrase}"`
+      )
+    ) {
+      return;
+    }
+    const typed = window.prompt(`Digite:\n${confirmPhrase}`);
+    if (typed?.trim() !== confirmPhrase) {
+      toast.error('Confirmação incorreta.');
+      return;
+    }
+    setBusyKey('dead-channels');
+    try {
+      const res = await apiPurgeDeadChannelQueue({ dryRun: false, confirm: confirmPhrase });
+      toast.success(`Removidos ${res.result.removed.toLocaleString('pt-BR')} job(s) de chips mortos.`);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
   const togglePriority = async (campaignId: string, boosted: boolean) => {
     setBusyKey(`prio-${campaignId}`);
     try {
@@ -229,10 +269,73 @@ export const DispatchQueueTab: React.FC = () => {
             ))}
           </select>
         </label>
-        <p className="text-sm text-slate-600 dark:text-slate-300 ml-auto">
-          Total na fila: <strong>{totals.jobs.toLocaleString('pt-BR')}</strong> jobs
+        <p className="text-sm text-slate-600 dark:text-slate-300 ml-auto text-right">
+          Total (sua conta): <strong>{totals.jobs.toLocaleString('pt-BR')}</strong> jobs
+          <span className="block text-[11px] text-slate-400 font-normal">
+            aguard. {totals.byState.waiting} · atras. {totals.byState.delayed} · ativos{' '}
+            {totals.byState.active}
+          </span>
         </p>
       </div>
+
+      {!loading && deadChannelJobs > 0 && (
+        <div className="rounded-2xl border border-red-200/80 bg-red-50/60 dark:bg-red-950/25 dark:border-red-800/50 p-4 flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
+          <div className="flex gap-3 text-sm text-red-900 dark:text-red-100">
+            <AlertTriangle className="w-5 h-5 shrink-0" />
+            <p>
+              <strong>{deadChannelJobs.toLocaleString('pt-BR')}</strong> job(s) apontam para chips
+              offline ou removidos da conta — não saem sozinhos. Limpe ou reconecte o chip.
+            </p>
+          </div>
+          <Button variant="danger" disabled={busyKey != null} onClick={() => void runPurgeDeadChannels()}>
+            <Trash2 className="w-4 h-4" />
+            Limpar chips mortos
+          </Button>
+        </div>
+      )}
+
+      {!loading && channelSummaries.length > 0 && (
+        <div className="rounded-2xl border border-slate-200/80 dark:border-slate-700/60 overflow-hidden">
+          <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800/80 text-[10px] font-bold uppercase text-slate-500">
+            Fila por chip (sua conta)
+          </div>
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {channelSummaries.slice(0, 12).map((ch) => {
+              const chipName = channelNameById.get(ch.connectionId) || ch.connectionId;
+              return (
+                <div
+                  key={ch.connectionId}
+                  className="px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-sm"
+                >
+                  <span className="font-medium text-slate-800 dark:text-slate-100">
+                    {chipName}
+                    {!ch.knownToTenant && (
+                      <span className="ml-2 text-[10px] font-bold uppercase text-red-600">órfão</span>
+                    )}
+                  </span>
+                  <span className="text-slate-500 text-xs">{stateSummary(ch.byState)}</span>
+                  <strong>{ch.jobs.toLocaleString('pt-BR')}</strong>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {!loading && runtimeCampaigns.length > 0 && (
+        <div className="rounded-2xl border border-amber-200/60 dark:border-amber-800/40 p-4 text-sm space-y-2">
+          <p className="font-bold text-amber-900 dark:text-amber-100">Campanhas em execução (runtime)</p>
+          <ul className="space-y-1 text-slate-600 dark:text-slate-300">
+            {runtimeCampaigns.map((r) => (
+              <li key={r.campaignId}>
+                {campaignNameById.get(r.campaignId) || r.campaignId.slice(0, 8)} — fila{' '}
+                {r.queueJobs.toLocaleString('pt-BR')} · pend. mem. {r.pendingJobs.toLocaleString('pt-BR')}
+                {r.paused ? ' · pausada' : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16 text-slate-400">
@@ -258,12 +361,18 @@ export const DispatchQueueTab: React.FC = () => {
               {groups.map((g) => {
                 const rowKey = `${g.connectionId}-${g.campaignId}-${g.stepIndex}`;
                 const campName = campaignNameById.get(g.campaignId) || g.campaignId;
-                const chipName = channelNameById.get(g.connectionId) || g.connectionId;
-                return (
-                  <tr key={rowKey} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30">
-                    <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">
-                      {chipName}
-                    </td>
+                    const chipName = channelNameById.get(g.connectionId) || g.connectionId;
+                    const chipOrphan = !channelNameById.has(g.connectionId);
+                    return (
+                      <tr key={rowKey} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30">
+                        <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">
+                          {chipName}
+                          {chipOrphan && (
+                            <span className="block text-[10px] text-red-500 font-bold uppercase">
+                              chip não listado
+                            </span>
+                          )}
+                        </td>
                     <td className="px-4 py-3">
                       <span className="font-semibold">{campName}</span>
                       {g.samplePhones.length > 0 && (

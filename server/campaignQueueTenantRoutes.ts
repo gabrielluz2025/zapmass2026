@@ -3,12 +3,16 @@ import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { requireTenant } from './httpTenant.js';
 import { getCampaignDoc } from './repositories/campaignsRepository.js';
-import { parseQueueRemoveConfirm } from '../shared/campaignQueueTenantHelpers.js';
+import {
+  buildQueueRemoveConfirmPhrase,
+  parseQueueRemoveConfirm,
+} from '../shared/campaignQueueTenantHelpers.js';
 import {
   inferRemoveConfirmScope,
   inspectTenantCampaignQueues,
   promoteTenantDelayedQueueJobs,
   removeTenantCampaignQueueJobs,
+  removeTenantDeadChannelQueueJobs,
   type CampaignQueueRemoveFilters,
 } from './campaignQueueTenant.js';
 import type { CampaignQueueScanState } from './campaignQueueScan.js';
@@ -55,6 +59,18 @@ async function assertConnectionTenant(tenantId: string, connectionId: string | u
   return scoped.some((c) => c.id === id);
 }
 
+function tenantActiveConnectionIds(tenantId: string): Set<string> {
+  return new Set(evolutionService.getConnectionsForTenant(tenantId).map((c) => c.id));
+}
+
+function queueScanContext(tenantId: string) {
+  return {
+    activeConnectionIds: tenantActiveConnectionIds(tenantId),
+    resolveCampaignOwner: evolutionService.getCampaignOwnerUidForQueue,
+    isChannelUsable: evolutionService.isDispatchChannelUsable,
+  };
+}
+
 function logQueueAction(
   tenantId: string,
   action: string,
@@ -87,12 +103,31 @@ export function registerCampaignQueueTenantRoutes(app: Express): void {
       if (filters.campaignId && !(await assertCampaignTenant(ctx.tenantId, filters.campaignId))) {
         return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
       }
+      await evolutionService.syncConnectionQueueSizesFromRedis().catch(() => undefined);
       const queues = await evolutionService.getCampaignBullmqQueuesForAdmin();
+      const scanCtx = queueScanContext(ctx.tenantId);
       const inspect = await inspectTenantCampaignQueues(queues, ctx.tenantId, {
         filters,
         groupLimit: Number(req.query.limit || 80) || 80,
+        ...scanCtx,
       });
-      return res.json({ ok: true, channelQueues: queues.length, ...inspect });
+      const queueCounts = await evolutionService.collectTenantCampaignQueueJobCounts(ctx.tenantId);
+      const runtimeSnapshots = evolutionService.getTenantCampaignRuntimeSnapshots(ctx.tenantId);
+      const runtimeCampaigns = runtimeSnapshots
+        .filter((r) => r.isRunning && (r.pendingJobs > 0 || (queueCounts.get(r.campaignId) || 0) > 0))
+        .map((r) => ({
+          campaignId: r.campaignId,
+          isRunning: r.isRunning,
+          pendingJobs: r.pendingJobs,
+          queueJobs: queueCounts.get(r.campaignId) || 0,
+          paused: r.paused,
+        }));
+      return res.json({
+        ok: true,
+        channelQueues: queues.length,
+        ...inspect,
+        runtimeCampaigns,
+      });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       console.error('[api/campaigns/queue/inspect]', message);
@@ -136,7 +171,10 @@ export function registerCampaignQueueTenantRoutes(app: Express): void {
         paused = true;
       }
 
-      const result = await removeTenantCampaignQueueJobs(queues, ctx.tenantId, filters, { dryRun });
+      const result = await removeTenantCampaignQueueJobs(queues, ctx.tenantId, filters, {
+        dryRun,
+        resolveCampaignOwner: evolutionService.getCampaignOwnerUidForQueue,
+      });
       if (!dryRun) {
         logQueueAction(ctx.tenantId, 'remove', { ...filters, ...result });
       }
@@ -171,9 +209,44 @@ export function registerCampaignQueueTenantRoutes(app: Express): void {
 
     try {
       const queues = await evolutionService.getCampaignBullmqQueuesForAdmin();
-      const result = await promoteTenantDelayedQueueJobs(queues, ctx.tenantId, filters, { dryRun });
+      const result = await promoteTenantDelayedQueueJobs(queues, ctx.tenantId, filters, {
+        dryRun,
+        resolveCampaignOwner: evolutionService.getCampaignOwnerUidForQueue,
+      });
       if (!dryRun) {
         logQueueAction(ctx.tenantId, 'clear-delayed', { ...filters, ...result });
+      }
+      return res.json({ ok: true, result });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return res.status(500).json({ ok: false, error: message });
+    }
+  });
+
+  app.post('/api/campaigns/queue/purge-dead-channels', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+    const dryRun = body.dryRun !== false;
+    const confirmPhrase = buildQueueRemoveConfirmPhrase('dead-channels');
+    if (!dryRun && !parseQueueRemoveConfirm(body, 'dead-channels')) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Confirmação inválida para limpar chips mortos.',
+        expectedScope: 'dead-channels',
+        expectedConfirm: confirmPhrase,
+      });
+    }
+    try {
+      const queues = await evolutionService.getCampaignBullmqQueuesForAdmin();
+      const scanCtx = queueScanContext(ctx.tenantId);
+      const result = await removeTenantDeadChannelQueueJobs(queues, ctx.tenantId, scanCtx, {
+        dryRun,
+        resolveCampaignOwner: evolutionService.getCampaignOwnerUidForQueue,
+      });
+      if (!dryRun) {
+        logQueueAction(ctx.tenantId, 'purge-dead-channels', { ...result });
+        await evolutionService.syncConnectionQueueSizesFromRedis().catch(() => undefined);
       }
       return res.json({ ok: true, result });
     } catch (e) {

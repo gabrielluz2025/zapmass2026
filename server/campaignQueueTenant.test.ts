@@ -5,7 +5,11 @@ import {
   parseQueueRemoveConfirm,
   queueJobStepIndex,
 } from '../shared/campaignQueueTenantHelpers.js';
-import { inferRemoveConfirmScope, queueJobBelongsToTenant } from './campaignQueueTenant.js';
+import {
+  inferRemoveConfirmScope,
+  isTenantDeadChannelJob,
+  queueJobBelongsToTenant,
+} from './campaignQueueTenant.js';
 
 describe('campaignQueueTenantHelpers', () => {
   it('queueJobStepIndex prefere multiStepContact', () => {
@@ -34,7 +38,22 @@ describe('inferRemoveConfirmScope', () => {
 });
 
 describe('queueJobBelongsToTenant', () => {
-  it('aceita job sem owner (legado)', () => {
-    expect(queueJobBelongsToTenant({ campaignId: 'x' }, 'tenant-a')).toBe(true);
+  it('resolve dono via campanha quando ownerUid ausente', () => {
+    const owner = (cid: string) => (cid === 'c1' ? 'tenant-a' : undefined);
+    expect(queueJobBelongsToTenant({ campaignId: 'c1' }, 'tenant-a', owner)).toBe(true);
+    expect(queueJobBelongsToTenant({ campaignId: 'c2' }, 'tenant-a', owner)).toBe(false);
+  });
+
+  it('rejeita job sem dono resolvível', () => {
+    expect(queueJobBelongsToTenant({ campaignId: 'x' }, 'tenant-a')).toBe(false);
+  });
+});
+
+describe('isTenantDeadChannelJob', () => {
+  it('marca chip fora da conta ou offline', () => {
+    const active = new Set(['a']);
+    expect(isTenantDeadChannelJob('b', active)).toBe(true);
+    expect(isTenantDeadChannelJob('a', active, () => false)).toBe(true);
+    expect(isTenantDeadChannelJob('a', active, () => true)).toBe(false);
   });
 });
