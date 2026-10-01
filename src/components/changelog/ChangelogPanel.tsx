@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.255',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Progresso parcial com limite 24 h, mídia em campanha agendada e envio como documento',
+      },
+    ],
+  },
+  {
     version: '2.3.254',
     date: '01/10/2026',
     highlights: [

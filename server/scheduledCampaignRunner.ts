@@ -18,6 +18,34 @@ import {
 import { loadCampaignRecipientSnapshot } from './campaignRecipientSnapshot.js';
 
 const RETRY_DELAY_MS = 5 * 60 * 1000;
+
+type ScheduledCampaignMediaPayload = {
+  base64: string;
+  mimeType: string;
+  fileName: string;
+  sendMediaAsDocument?: boolean;
+};
+
+function scheduledCampaignMediaFromDisk(campaignId: string): {
+  opening?: ScheduledCampaignMediaPayload;
+  followUp?: ScheduledCampaignMediaPayload;
+} {
+  const att = evolutionService.getCampaignMediaAttachmentsForRetry(campaignId);
+  const toPayload = (
+    dto?: evolutionService.CampaignMediaAttachmentDto
+  ): ScheduledCampaignMediaPayload | undefined => {
+    if (!dto?.dataBase64 || !dto.mimeType) return undefined;
+    return {
+      base64: dto.dataBase64,
+      mimeType: dto.mimeType,
+      fileName: dto.fileName,
+      ...(dto.sendMediaAsDocument ? { sendMediaAsDocument: true } : {}),
+    };
+  };
+  const opening = toPayload(att.mediaAttachment);
+  const followUp = toPayload(att.followUpMediaAttachment);
+  return { opening, followUp };
+}
 /** Evita duas réplicas da API iniciarem o mesmo SCHEDULE em paralelo (lock em Firestore). */
 const CAMPAIGN_LOCK_MS = 3 * 60 * 1000;
 const SCHEDULE_LAUNCH_LOCK = '_scheduledLaunchLockUntil';
@@ -314,6 +342,10 @@ async function processOneCampaign(
     const scheduledPoolId = typeof snap?.poolId === 'string' ? snap.poolId : undefined;
 
     try {
+      const { opening: campaignMedia, followUp: followUpMedia } = scheduledCampaignMediaFromDisk(cid);
+      if (campaignMedia || followUpMedia) {
+        evolutionService.storeCampaignMediaForDispatch(cid, campaignMedia, followUpMedia);
+      }
       const started = await evolutionService.startCampaign(
         numbers,
         stages,
@@ -323,8 +355,8 @@ async function processOneCampaign(
         snap?.replyFlow as Parameters<typeof evolutionService.startCampaign>[5],
         ownerUid,
         scheduledWeights,
-        undefined,
-        undefined,
+        campaignMedia,
+        followUpMedia,
         Number.isFinite(delaySeconds) && delaySeconds > 0 ? delaySeconds : undefined,
         undefined,
         snap?.skipFrequencyCap === true,

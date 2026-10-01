@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.255] - 2026-10-01
+
+### Corrigido
+- **Progresso 100% / 0 entregues (parcial)**: contatos ignorados no limite 24 h no `startCampaign` agora entram no `processed`/`skipCount` e o `total` da campanha reflete só jobs reais — evita card preso em “Executando”.
+- **Campanha agendada sem anexo**: disparo agendado reidrata mídia gravada em disco e repassa ao `startCampaign`.
+- **Enviar como documento**: flag `sendMediaAsDocument` respeitada no envio de mídia das campanhas.
+
 ## [2.3.254] - 2026-10-01
 
 ### Corrigido

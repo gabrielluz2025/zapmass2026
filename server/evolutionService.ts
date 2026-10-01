@@ -159,6 +159,7 @@ import {
     buildFrequencyCapBlockSet,
     isPhoneBlockedByFrequencyCap,
 } from './campaignFrequencyCapFilter.js';
+import { adjustCampaignRuntimeForEnqueue } from './campaignEnqueueProgress.js';
 import {
     holdRoundRobinKey,
     pickFairHeldCampaignRoundRobin,
@@ -7783,7 +7784,8 @@ async function sendMediaInternal(
     base64: string,
     mimeType: string,
     fileName: string,
-    caption?: string
+    caption?: string,
+    opts?: { sendMediaAsDocument?: boolean }
 ): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
     const number = normalizeOutboundNumber(to);
     if (!number) {
@@ -7796,9 +7798,11 @@ async function sendMediaInternal(
     }
 
     let type = 'document';
-    if (mimeType.startsWith('image/')) type = 'image';
-    else if (mimeType.startsWith('video/')) type = 'video';
-    else if (mimeType.startsWith('audio/')) type = 'audio';
+    if (!opts?.sendMediaAsDocument) {
+        if (mimeType.startsWith('image/')) type = 'image';
+        else if (mimeType.startsWith('video/')) type = 'video';
+        else if (mimeType.startsWith('audio/')) type = 'audio';
+    }
 
     const useGoBase64 = isEvolutionGoEngine();
     let publicUrl = '';
@@ -10061,7 +10065,10 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                     mediaToSend.base64,
                     mediaToSend.mimeType,
                     mediaToSend.fileName,
-                    mediaToSend.caption || item.message
+                    mediaToSend.caption || item.message,
+                    mediaToSend.sendMediaAsDocument
+                        ? { sendMediaAsDocument: true }
+                        : undefined
                 );
             }
         } else {
@@ -10463,7 +10470,8 @@ async function sendOutboundMediaPayload(
             media.base64,
             media.mimeType,
             media.fileName,
-            caption
+            caption,
+            media.sendMediaAsDocument ? { sendMediaAsDocument: true } : undefined
         );
     }
     return { ok: false, errorDetail: 'Mídia sem URL ou base64' };
@@ -11917,11 +11925,28 @@ export async function startCampaign(
 
         const runtimeBeforeEnqueue = campaignsById.get(cid);
         if (runtimeBeforeEnqueue) {
-            runtimeBeforeEnqueue.total = Math.max(
-                pendingEnqueue.length + seededProcessed,
-                runtimeBeforeEnqueue.total,
-                totalJobs
+            const enqueueAdjust = adjustCampaignRuntimeForEnqueue({
+                seededProcessed,
+                pendingEnqueueLength: pendingEnqueue.length,
+                skippedFrequencyCap,
+            });
+            runtimeBeforeEnqueue.total = enqueueAdjust.total;
+            runtimeBeforeEnqueue.processed = Math.max(
+                runtimeBeforeEnqueue.processed,
+                enqueueAdjust.processed
             );
+            if (enqueueAdjust.skipCountAdd > 0) {
+                runtimeBeforeEnqueue.skipCount =
+                    (runtimeBeforeEnqueue.skipCount || 0) + enqueueAdjust.skipCountAdd;
+                publishOwnerEvent(ownerUid, 'campaign-progress', {
+                    total: runtimeBeforeEnqueue.total,
+                    processed: runtimeBeforeEnqueue.processed,
+                    successCount: runtimeBeforeEnqueue.successCount,
+                    failCount: runtimeBeforeEnqueue.failCount,
+                    skipCount: runtimeBeforeEnqueue.skipCount,
+                    campaignId: cid,
+                });
+            }
         }
 
         for (const entry of pendingEnqueue) {
