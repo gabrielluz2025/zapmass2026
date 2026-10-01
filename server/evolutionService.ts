@@ -5011,6 +5011,10 @@ function resolveMediaForCampaignJob(item: MessageQueueItem): CampaignMediaPayloa
     if (item.media?.base64 || item.media?.url) return item.media;
 
     let lookup = String(item.mediaLookupKey || '').trim();
+    const stageIdx = item.stageIndex ?? item.multiStepContact?.stepIndex ?? 0;
+    if (!lookup && item.campaignId && campaignStageMediaAvailable(item.campaignId, stageIdx)) {
+        lookup = mediaLookupKeyForStage(item.campaignId, stageIdx);
+    }
     if (!lookup && item.campaignId) {
         if (item.sendAsMedia) {
             lookup = item.campaignId;
@@ -5040,6 +5044,50 @@ function resolveMediaForCampaignJob(item: MessageQueueItem): CampaignMediaPayloa
     if (meta.base64) return meta;
     if (meta.url && isPublicHttpMediaUrl(meta.url)) return meta;
     return null;
+}
+
+function mediaLookupKeyForStage(campaignId: string, stageIndex: number): string {
+    const cid = String(campaignId || '').trim();
+    const idx = Math.max(0, Math.floor(Number(stageIndex) || 0));
+    if (!cid) return '';
+    if (idx <= 0) return cid;
+    const stepKey = campaignMediaStorageKey(cid, idx);
+    if (campaignMediaSendable(stepKey)) return stepKey;
+    return cid;
+}
+
+function campaignStageMediaAvailable(campaignId: string, stageIndex: number): boolean {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return false;
+    const idx = Math.max(0, Math.floor(Number(stageIndex) || 0));
+    if (idx <= 0) return campaignOpeningMediaAvailable(cid);
+    const stepKey = campaignMediaStorageKey(cid, idx);
+    if (campaignMediaSendable(stepKey)) return true;
+    return campaignOpeningMediaAvailable(cid);
+}
+
+/** Recarrega anexos do disco após restart da VPS (campanha salva sem reenviar base64 no Play). */
+function hydrateCampaignMediaFromDiskForDispatch(campaignId: string): void {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return;
+    for (const key of [cid, campaignMediaStorageKey(cid, 1)]) {
+        if (!key || campaignMediaSendable(key)) continue;
+        const loaded = resolveStoredCampaignMedia(key);
+        if (!loaded) continue;
+        persistCampaignMediaPayload(key, loaded);
+        campaignMediaReady(key);
+    }
+}
+
+function applyCampaignMediaToQueueItem(item: MessageQueueItem, campaignId: string, stageIndex: number): void {
+    const idx = Math.max(0, Math.floor(Number(stageIndex) || 0));
+    if (!campaignStageMediaAvailable(campaignId, idx)) {
+        item.sendAsMedia = false;
+        item.mediaLookupKey = undefined;
+        return;
+    }
+    item.sendAsMedia = true;
+    item.mediaLookupKey = mediaLookupKeyForStage(campaignId, idx);
 }
 
 function persistCampaignMediaPayload(storageKey: string, payload?: CampaignMediaPayload): void {
@@ -10856,8 +10904,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 ownerUid: campaignState?.ownerUid || item.ownerUid,
                 callbacks: {
                     enqueue: async (p) => {
-                        await enqueueCampaignItem(
-                            {
+                        const queueItem: MessageQueueItem = {
                                 connectionId: p.connectionId,
                                 to: item.to,
                                 message: p.message,
@@ -10865,11 +10912,10 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                                 ownerUid: p.ownerUid,
                                 stageIndex: p.stepIndex,
                                 rotationIndex: item.rotationIndex,
-                                sendAsMedia: campaignOpeningMediaAvailable(p.campaignId),
                                 multiStepContact: { contactId: p.contactId, stepIndex: p.stepIndex },
-                            },
-                            p.delayMs
-                        );
+                            };
+                        applyCampaignMediaToQueueItem(queueItem, p.campaignId, p.stepIndex);
+                        await enqueueCampaignItem(queueItem, p.delayMs);
                         // NÃO incrementar campaignPendingJobs aqui — enqueueCampaignItem já incrementa.
                         // O duplo incremento anterior inflava o contador e impedia a campanha de finalizar.
                     },
@@ -11756,7 +11802,10 @@ export async function redispatchCampaign(
         .filter((t) => t.length > 0);
 
     const dispatchSettings = resolveCampaignDispatchSettings(tenantId, campaign.delaySeconds);
-    const hasMedia = campaignOpeningMediaAvailable(campaignId);
+    hydrateCampaignMediaFromDiskForDispatch(campaignId);
+    const hasMedia =
+        campaignOpeningMediaAvailable(campaignId) ||
+        campaignMediaSendable(campaignMediaStorageKey(campaignId, 1));
     const prev = campaignsById.get(campaignId);
     const recipientVars = prev?._recipientVars || buildRecipientVarsMap(undefined);
     const baseProcessed = prev?.processed ?? campaign.processedCount ?? 0;
@@ -11814,7 +11863,8 @@ export async function redispatchCampaign(
                 deferClock: true,
             });
             pendingEnqueue.push({
-                item: {
+                item: (() => {
+                    const queueItem: MessageQueueItem = {
                     connectionId: assignedConnectionId,
                     to: phone,
                     message: personalizedMessage,
@@ -11822,10 +11872,12 @@ export async function redispatchCampaign(
                     ownerUid: tenantId,
                     stageIndex: stepIndex,
                     rotationIndex: i,
-                    sendAsMedia: hasMedia && stepIndex === 0,
                     skipFrequencyCap,
                     multiStepContact: { contactId: cleanPhone, stepIndex },
-                },
+                    };
+                    applyCampaignMediaToQueueItem(queueItem, campaignId, stepIndex);
+                    return queueItem;
+                })(),
                 delayMs: staggerDelay,
             });
         } else if (useReplyFlow && stepIndex === 0) {
@@ -11833,14 +11885,14 @@ export async function redispatchCampaign(
                 deferClock: true,
             });
             pendingEnqueue.push({
-                item: {
+                item: (() => {
+                    const queueItem: MessageQueueItem = {
                     connectionId: assignedConnectionId,
                     to: phone,
                     message: personalizedMessage,
                     campaignId,
                     ownerUid: tenantId,
                     rotationIndex: i,
-                    sendAsMedia: hasMedia,
                     skipFrequencyCap,
                     replyFlowOpen: {
                         campaignId,
@@ -11848,7 +11900,10 @@ export async function redispatchCampaign(
                         vars,
                         ownerUid: tenantId,
                     },
-                },
+                    };
+                    applyCampaignMediaToQueueItem(queueItem, campaignId, 0);
+                    return queueItem;
+                })(),
                 delayMs: staggerDelay,
             });
         } else {
@@ -11857,7 +11912,8 @@ export async function redispatchCampaign(
                 deferClock: true,
             });
             pendingEnqueue.push({
-                item: {
+                item: (() => {
+                    const queueItem: MessageQueueItem = {
                     connectionId: assignedConnectionId,
                     to: phone,
                     message: personalizedMessage,
@@ -11865,9 +11921,11 @@ export async function redispatchCampaign(
                     ownerUid: tenantId,
                     stageIndex: stepIndex,
                     rotationIndex: i,
-                    sendAsMedia: hasMedia && stepIndex === 0,
                     skipFrequencyCap,
-                },
+                    };
+                    applyCampaignMediaToQueueItem(queueItem, campaignId, stepIndex);
+                    return queueItem;
+                })(),
                 delayMs: staggerDelay,
             });
         }
@@ -11987,6 +12045,7 @@ export async function startCampaign(
     if (connectionIds.length === 0 || numbers.length === 0) return false;
 
     const cid = campaignId || `campaign_${Date.now()}`;
+    hydrateCampaignMediaFromDiskForDispatch(cid);
     if (numbers.length > 1_500) {
         saveCampaignRecipientSnapshot(cid, {
             numbers: numbers.map((n) => String(n || '')),
@@ -12110,7 +12169,9 @@ export async function startCampaign(
         ? numbers.length
         : numbers.length * (useReplyFlow ? 1 : stageCount);
     const recipientVars = buildRecipientVarsMap(recipients);
-    const hasMedia = campaignOpeningMediaAvailable(cid);
+    const hasMedia =
+        campaignOpeningMediaAvailable(cid) ||
+        campaignMediaSendable(campaignMediaStorageKey(cid, 1));
 
     const resolvedPoolWeights = poolDispatch?.channelWeights ?? channelWeights ?? {};
     const poolStrategy = resolvePoolStrategy(poolDispatch?.strategy, resolvedPoolWeights);
@@ -12360,7 +12421,8 @@ export async function startCampaign(
                     deferClock: true,
                 });
                 pendingEnqueue.push({
-                    item: {
+                    item: (() => {
+                        const queueItem: MessageQueueItem = {
                     connectionId: assignedConnectionId,
                     to: num,
                     message: personalizedMessage,
@@ -12368,11 +12430,13 @@ export async function startCampaign(
                         ownerUid,
                         stageIndex: 0,
                         rotationIndex: i,
-                    sendAsMedia: hasMedia,
                         multiStepContact: { contactId: cleanPhone, stepIndex: 0 },
                         skipFrequencyCap: skipFrequencyCap === true,
                         alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
-                    },
+                        };
+                        applyCampaignMediaToQueueItem(queueItem, cid, 0);
+                        return queueItem;
+                    })(),
                     delayMs: staggerDelay,
                 });
             } else if (useReplyFlow) {
@@ -12380,14 +12444,14 @@ export async function startCampaign(
                     deferClock: true,
                 });
                 pendingEnqueue.push({
-                    item: {
+                    item: (() => {
+                        const queueItem: MessageQueueItem = {
                         connectionId: assignedConnectionId,
                         to: num,
                         message: personalizedMessage,
                         campaignId: cid,
                         ownerUid,
                         rotationIndex: i,
-                        sendAsMedia: hasMedia,
                         skipFrequencyCap: skipFrequencyCap === true,
                         alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
                     replyFlowOpen: {
@@ -12396,7 +12460,10 @@ export async function startCampaign(
                         vars,
                         ownerUid,
                     },
-                },
+                        };
+                        applyCampaignMediaToQueueItem(queueItem, cid, 0);
+                        return queueItem;
+                    })(),
                     delayMs: staggerDelay,
                 });
         } else {
@@ -12416,7 +12483,8 @@ export async function startCampaign(
                     const interStageMinDelay = dispatchSettings.minDelayMs;
                     const stageDelay = staggerDelay + stageIndex * interStageMinDelay;
                     pendingEnqueue.push({
-                        item: {
+                        item: (() => {
+                            const queueItem: MessageQueueItem = {
                         connectionId: assignedConnectionId,
                         to: num,
                         message: personalizedMessage,
@@ -12424,10 +12492,12 @@ export async function startCampaign(
                             ownerUid,
                             stageIndex,
                             rotationIndex: i,
-                        sendAsMedia: hasMedia && stageIndex === 0,
                             skipFrequencyCap: skipFrequencyCap === true,
                             alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
-                        },
+                            };
+                            applyCampaignMediaToQueueItem(queueItem, cid, stageIndex);
+                            return queueItem;
+                        })(),
                         delayMs: stageDelay,
                     });
                 }

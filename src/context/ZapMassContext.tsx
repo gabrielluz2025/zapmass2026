@@ -96,6 +96,7 @@ import {
   getCampaignPlannedSendTotal,
   getCampaignProgressMetrics,
   campaignStatusAfterProgress,
+  healCampaignDocument,
   healStuckRunningCampaignsList,
   isCampaignLikelyStartedOnServer,
   isCampaignQueueWorkComplete,
@@ -769,13 +770,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const syncStuckCampaignsToFirestore = useCallback((raw: Campaign[], uid: string) => {
     for (const c of raw) {
-      if (c.status === CampaignStatus.COMPLETED || c.status === CampaignStatus.SCHEDULED) continue;
+      if (c.status === CampaignStatus.SCHEDULED) continue;
+      if (c.status === CampaignStatus.COMPLETED || c.status === CampaignStatus.FAILED) continue;
       if (!isCampaignQueueWorkComplete(c)) continue;
       if (campaignFirestoreHealRef.current.has(c.id)) continue;
       campaignFirestoreHealRef.current.add(c.id);
-      const m = getCampaignProgressMetrics(c);
+      const healed = healCampaignDocument(c);
+      const m = getCampaignProgressMetrics(healed);
       patchCampaignPersist(uid, c.id, {
-        status: CampaignStatus.COMPLETED,
+        status: healed.status,
         processedCount: m.effectiveProcessed,
         successCount: m.ok,
         failedCount: m.fail

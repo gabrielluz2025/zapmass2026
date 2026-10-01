@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.278] - 2026-10-01
+
+### Corrigido
+- **Anexo em campanha**: mídia recarregada do disco ao disparar; `mediaLookupKey` por etapa (abertura + follow-up); imagem nas etapas multi-mensagem quando o arquivo existe.
+- **Pausar/Retomar**: status **Falhou** não some mais os botões; Firestore deixa de gravar **Concluída** quando só houve falhas.
+
 ## [2.3.277] - 2026-10-01
 
 ### Corrigido

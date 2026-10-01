@@ -231,6 +231,7 @@ export function healStuckRunningCampaignsList(list: Campaign[]): Campaign[] {
 /** Campanha já saiu do rascunho ou já registrou envios — útil após timeout de ACK do socket. */
 /** UI: campanha terminou (status explícito ou fila esgotada nos contadores). */
 export function isCampaignEffectivelyDone(c: Campaign): boolean {
+  if (c.status === CampaignStatus.FAILED) return false;
   return c.status === CampaignStatus.COMPLETED || isCampaignQueueWorkComplete(c);
 }
 

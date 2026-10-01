@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.278',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Imagem anexada enviada em todas as etapas com mídia disponível; recarga do disco ao iniciar disparo',
+      },
+      {
+        type: 'fix',
+        text: 'Botões Pausar/Retomar mantidos em campanhas Falhou; status Concluída falso corrigido no Firestore',
+      },
+    ],
+  },
+  {
     version: '2.3.277',
     date: '01/10/2026',
     highlights: [
