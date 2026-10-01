@@ -1,15 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowDown, Copy, MessageSquare, Reply } from 'lucide-react';
+import { Copy, MessageSquare } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Campaign } from '../../types';
-import {
-  CampaignFlowPreviewWaIn,
-  CampaignFlowPreviewWaOut
-} from './CampaignFlowPreviewWaBubble';
 import {
   buildReplyFlowPreviewSequence,
   type ReplyFlowPreviewItem
 } from '../../utils/campaignReplyFlowPreviewSequence';
+import { ReplyFlowPreviewBubbleList } from './ReplyFlowPreviewBubbleList';
 
 interface CampaignMessagePreviewProps {
   campaign: Campaign;
@@ -131,55 +128,18 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
         )}
       </div>
 
-      <div
-        className="rounded-xl p-3 flex flex-col gap-2 relative overflow-y-auto flex-1"
-        style={{
-          background: 'linear-gradient(180deg, #0b141a 0%, #111b21 100%)',
-          minHeight: 160,
-          maxHeight: 320,
-          border: '1px solid rgba(255,255,255,0.06)'
-        }}
-      >
-        {visible.length === 0 ? (
-          <div className="text-center text-[12px] py-6" style={{ color: 'rgba(255,255,255,0.4)' }}>
-            (campanha sem mensagem configurada)
-          </div>
-        ) : (
-          visible.map((s, idx) => {
-            if (s.kind === 'gate') {
-              return (
-                <div key={idx} className="flex flex-col items-center gap-1 py-1">
-                  <ArrowDown className="w-3.5 h-3.5" style={{ color: 'rgba(255,255,255,0.35)' }} />
-                  <div
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold"
-                    style={{
-                      background: 'rgba(245,158,11,0.15)',
-                      border: '1px solid rgba(245,158,11,0.35)',
-                      color: '#fcd34d'
-                    }}
-                  >
-                    <Reply className="w-3 h-3 shrink-0" />
-                    {s.meta}
-                  </div>
-                </div>
-              );
-            }
-
-            if (s.kind === 'in') {
-              return <CampaignFlowPreviewWaIn key={idx} text={s.text} meta={s.meta} />;
-            }
-
-            return (
-              <CampaignFlowPreviewWaOut
-                key={idx}
-                text={s.text}
-                stepLabel={s.stepLabel}
-                time={tNow}
-                showRead={idx === 0}
-              />
-            );
-          })
-        )}
+      <div className="flex-1 min-h-0 flex flex-col">
+        <ReplyFlowPreviewBubbleList
+          items={visible}
+          time={tNow}
+          maxHeight={activeTab === 'flow' && isReplyFlow ? 400 : 320}
+          emptyLabel="(campanha sem mensagem configurada)"
+        />
+        {activeTab === 'flow' && isReplyFlow && sequence.length > 6 ? (
+          <p className="text-[10px] mt-1 text-center" style={{ color: 'var(--text-3)' }}>
+            Role a prévia para ver todas as opções e respostas.
+          </p>
+        ) : null}
       </div>
 
       <div

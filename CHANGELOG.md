@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.274] - 2026-10-01
+
+### Corrigido
+- **Funil por etapa**: bolhas WhatsApp em cada card (mensagem da etapa + gatilho e **Resposta 1/2** por opção).
+- **Prévia Fluxo por resposta**: altura maior e dica de scroll; componente compartilhado garante todas as bolhas de resposta.
+
 ## [2.3.273] - 2026-10-01
 
 ### Corrigido

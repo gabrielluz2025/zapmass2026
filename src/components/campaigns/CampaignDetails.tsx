@@ -2227,6 +2227,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
             <ReplyFlowStageFunnels
               stages={replyFlowStages}
               totalContacts={campaign.totalContacts || replyFlowStages[0]?.sent || 0}
+              flowSteps={campaign.replyFlow?.steps ?? []}
             />
           </div>
         )}

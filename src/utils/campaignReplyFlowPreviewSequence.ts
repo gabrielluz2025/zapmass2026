@@ -137,3 +137,39 @@ export function buildReplyFlowPreviewSequence(steps: CampaignReplyFlowStep[]): R
 
   return out;
 }
+
+/** Bolhas de uma única etapa (mensagem + gatilhos + respostas por opção). */
+export function buildReplyFlowStagePreviewItems(
+  steps: CampaignReplyFlowStep[],
+  stageIndex: number
+): ReplyFlowPreviewItem[] {
+  const step = steps[stageIndex];
+  if (!step) return [];
+
+  const out: ReplyFlowPreviewItem[] = [
+    {
+      text: step.body,
+      kind: 'out',
+      stepLabel: `Etapa ${stageIndex + 1}`,
+      meta: stageIndex === 0 ? 'Enviada ao iniciar' : 'Enviada após resposta'
+    }
+  ];
+
+  const menuOptions = menuOptionsFromStep(step);
+  menuOptions.forEach((opt, oIdx) => {
+    out.push({
+      text: formatReplyFlowOptionTrigger(opt, oIdx),
+      kind: 'in',
+      meta: `Opção ${oIdx + 1}`
+    });
+    const reply = resolveMenuOptionPreviewReply(step, opt, stageIndex, steps);
+    out.push({
+      text: reply.trim() ? reply : REPLY_FLOW_PREVIEW_EMPTY_REPLY,
+      kind: 'out',
+      stepLabel: `Resposta ${oIdx + 1}`,
+      meta: 'Enviada após escolha'
+    });
+  });
+
+  return out;
+}

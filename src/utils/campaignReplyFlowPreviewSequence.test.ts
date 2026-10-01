@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildReplyFlowPreviewSequence,
+  buildReplyFlowStagePreviewItems,
   dedupeReplyFlowPreviewTokens,
   formatReplyFlowOptionTrigger,
   REPLY_FLOW_PREVIEW_EMPTY_REPLY,
@@ -75,5 +76,23 @@ describe('buildReplyFlowPreviewSequence', () => {
     const seq = buildReplyFlowPreviewSequence(steps);
     expect(seq.find((s) => s.stepLabel === 'Resposta 1')?.text).toBe('Pitch etapa 2');
     expect(seq.find((s) => s.stepLabel === 'Resposta 2')?.text).toBe('Tchau');
+  });
+});
+
+describe('buildReplyFlowStagePreviewItems', () => {
+  it('inclui mensagem da etapa e uma bolha por opção', () => {
+    const steps = [
+      {
+        body: 'Abertura',
+        options: [
+          { tokens: ['quero'], reply: 'OK' },
+          { tokens: ['sair'], reply: '' }
+        ]
+      },
+      { body: 'Etapa 2' }
+    ];
+    const items = buildReplyFlowStagePreviewItems(steps, 0);
+    expect(items.filter((i) => i.kind === 'out')).toHaveLength(3);
+    expect(items.find((i) => i.stepLabel === 'Resposta 2')?.text).toBe('Etapa 2');
   });
 });
