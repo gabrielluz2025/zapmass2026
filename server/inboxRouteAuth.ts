@@ -1,6 +1,7 @@
 import { zapmassAuthProvider } from './auth/authMode.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
-import { resolveAuthPrincipal, type AuthPrincipal } from './resolveAuth.js';
+import type { AuthPrincipal } from './auth/types.js';
+import { resolveAuthPrincipal } from './resolveAuth.js';
 
 export type InboxRouteParticipantResult =
   | { ok: true; tenantUid: string; authUid: string; provider: AuthPrincipal['provider'] }

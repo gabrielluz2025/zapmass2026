@@ -347,7 +347,7 @@ export function registerWorkspaceRoutes(app: Express): void {
       return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
     }
     const participant = await resolveInboxRouteParticipant(token);
-    if (!participant.ok) {
+    if (participant.ok === false) {
       return res.status(participant.status).json({ ok: false, error: participant.error });
     }
     const { tenantUid, provider } = participant;
@@ -457,7 +457,7 @@ export function registerWorkspaceRoutes(app: Express): void {
       return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
     }
     const participant = await resolveInboxRouteParticipant(token);
-    if (!participant.ok) {
+    if (participant.ok === false) {
       return res.status(participant.status).json({ ok: false, error: participant.error });
     }
     const { tenantUid, authUid } = participant;
@@ -574,7 +574,7 @@ export function registerWorkspaceRoutes(app: Express): void {
       return res.status(400).json({ ok: false, error: 'conversationId é obrigatório.' });
     }
     const participant = await resolveInboxRouteParticipant(token);
-    if (!participant.ok) {
+    if (participant.ok === false) {
       return res.status(participant.status).json({ ok: false, error: participant.error });
     }
     const { tenantUid, authUid } = participant;
@@ -619,7 +619,7 @@ export function registerWorkspaceRoutes(app: Express): void {
       return res.status(400).json({ ok: false, error: 'conversationId e targetAuthUid são obrigatórios.' });
     }
     const participant = await resolveInboxRouteParticipant(token);
-    if (!participant.ok) {
+    if (participant.ok === false) {
       return res.status(participant.status).json({ ok: false, error: participant.error });
     }
     const { tenantUid, authUid } = participant;
@@ -693,7 +693,7 @@ export function registerWorkspaceRoutes(app: Express): void {
       return res.status(400).json({ ok: false, error: 'conversationId é obrigatório.' });
     }
     const participant = await resolveInboxRouteParticipant(token);
-    if (!participant.ok) {
+    if (participant.ok === false) {
       return res.status(participant.status).json({ ok: false, error: participant.error });
     }
     const { tenantUid, authUid } = participant;
@@ -767,7 +767,7 @@ export function registerWorkspaceRoutes(app: Express): void {
       return res.status(400).json({ ok: false, error: 'conversationId inválido.' });
     }
     const participant = await resolveInboxRouteParticipant(token);
-    if (!participant.ok) {
+    if (participant.ok === false) {
       return res.status(participant.status).json({ ok: false, error: participant.error });
     }
     const { tenantUid, authUid } = participant;
