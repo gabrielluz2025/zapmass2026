@@ -6887,7 +6887,7 @@ async function tryRestoreReplyFlowSession(connectionId: string, phoneDigits: str
                         phoneDigits: sessPhone,
                         campaignId: sess.campaignId,
                     });
-                    replyFlowEngine.restoreSession(sessConn, body.slice(colon + 1), sess);
+                    replyFlowEngine.restoreSession(sessConn, sessPhone, sess);
                     await replyFlowEngine.ensureDefLoaded(sess.campaignId, sess.ownerUid);
                     return;
                 }
