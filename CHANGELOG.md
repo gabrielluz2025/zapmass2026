@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.277] - 2026-10-01
+
+### Corrigido
+- **Campanha “Concluída” sem envio**: status **Falhou** quando 0 entregues e só falhas; botão **Retomar** visível; campanhas antigas “Concluída” reclassificadas na UI.
+- **Demora até falhar**: reagendamento por chip offline em segundos nas primeiras tentativas (não ~2 min a cada ciclo).
+
 ## [2.3.276] - 2026-10-01
 
 ### Corrigido

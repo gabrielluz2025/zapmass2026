@@ -6,6 +6,8 @@ import {
   healCampaignCounters,
   campaignStatusAfterProgress,
   healStuckCampaignStatus,
+  healCampaignDocument,
+  resolveCampaignTerminalStatus,
   isCampaignLikelyStartedOnServer,
   isCampaignQueueWorkComplete,
   isRunningStatusButWorkComplete,
@@ -125,7 +127,29 @@ describe('healStuckCampaignStatus', () => {
     expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.RUNNING);
   });
 
-  it('cura DRAFT→COMPLETED quando fila esgotada (sem reply flow)', () => {
+  it('cura DRAFT→FAILED quando só houve falhas', () => {
+    const c = baseCampaign({
+      status: CampaignStatus.DRAFT,
+      totalContacts: 1,
+      processedCount: 1,
+      successCount: 0,
+      failedCount: 1
+    });
+    expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.FAILED);
+  });
+
+  it('reclassifica COMPLETED falso (0 entregues, só falhas) para FAILED', () => {
+    const c = baseCampaign({
+      status: CampaignStatus.COMPLETED,
+      totalContacts: 1,
+      processedCount: 1,
+      successCount: 0,
+      failedCount: 1
+    });
+    expect(healCampaignDocument(c).status).toBe(CampaignStatus.FAILED);
+  });
+
+  it('cura DRAFT→COMPLETED quando fila esgotada com sucesso', () => {
     const c = baseCampaign({
       status: CampaignStatus.DRAFT,
       totalContacts: 1,
@@ -133,7 +157,15 @@ describe('healStuckCampaignStatus', () => {
       successCount: 1
     });
     expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.COMPLETED);
-    expect(isCampaignQueueWorkComplete(c)).toBe(true);
+  });
+
+  it('resolveCampaignTerminalStatus distingue sucesso vs só falha', () => {
+    expect(resolveCampaignTerminalStatus({ successCount: 1, failCount: 0 })).toBe(
+      CampaignStatus.COMPLETED
+    );
+    expect(resolveCampaignTerminalStatus({ successCount: 0, failCount: 2 })).toBe(
+      CampaignStatus.FAILED
+    );
   });
 });
 

@@ -6048,6 +6048,13 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
         return;
     }
 
+    const terminalStatus =
+        (state.successCount || 0) > 0
+            ? 'COMPLETED'
+            : (state.failCount || 0) > 0
+              ? 'FAILED'
+              : 'COMPLETED';
+
             state.isRunning = false;
     releaseCampaignMediaFromMemory(campaignId);
     releaseCampaignMediaFromMemory(campaignMediaStorageKey(campaignId, 1));
@@ -6059,10 +6066,10 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
                     state.successCount,
                     state.failCount,
                     state.processed,
-                    'COMPLETED'
+                    terminalStatus
                 );
         void persistCampaignReportSnapshot(state.ownerUid, campaignId);
-                if (state.successCount === 0 && (state.skipCount || 0) > 0) {
+                if (state.successCount === 0 && (state.skipCount || 0) > 0 && (state.failCount || 0) === 0) {
                     publishOwnerEvent(state.ownerUid, 'campaign-error', {
                         campaignId,
                         error:
@@ -6075,6 +6082,7 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
                     failCount: state.failCount,
                     total: state.total,
                     skipCount: state.skipCount || 0,
+                    terminalStatus,
                 });
                 onCampaignEnded(state.ownerUid);
                 void notifyTenant(
@@ -9338,6 +9346,14 @@ export async function tickAutoResumeProtectedCampaigns(): Promise<void> {
 
 const lastDailyLimitNoticeAt = new Map<string, number>();
 
+/** Reagenda chip offline em segundos (não minutos) nas primeiras tentativas — evita “travado até falhar”. */
+function computeCampaignOfflineRetryDelayMs(offlineDelayCount: number): number {
+    const n = Math.max(1, Math.floor(Number(offlineDelayCount) || 1));
+    if (n <= 2) return 4_000 + Math.floor(Math.random() * 2_500);
+    if (n <= 4) return 12_000 + Math.floor(Math.random() * 8_000);
+    return 35_000 + Math.floor(Math.random() * 20_000);
+}
+
 function shouldAnnounceDailyLimitHit(connectionId: string): boolean {
     const now = Date.now();
     const prev = lastDailyLimitNoticeAt.get(connectionId) || 0;
@@ -9668,7 +9684,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         return;
     }
     if (claim === 'busy') {
-        await job.moveToDelayed(Date.now() + 8_000, token);
+        await job.moveToDelayed(Date.now() + 2_500, token);
         throw new DelayedError();
     }
 
@@ -10123,7 +10139,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                     campaignState?.ownerUid
                 );
                 await job.updateData(item).catch(() => {});
-                await job.moveToDelayed(Date.now() + 60_000, token);
+                await job.moveToDelayed(Date.now() + 15_000, token);
                 throw new DelayedError();
             }
             const stallMsg = `Chip ${connLabel} offline e sem alternativo — envio adiado, campanha segue ativa. Reconecte o WhatsApp em Conexões.`;
@@ -10133,7 +10149,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 { campaignId: item.campaignId, connectionId: item.connectionId, to: item.to },
                 campaignState?.ownerUid
             );
-            await job.moveToDelayed(Date.now() + 120_000, token);
+            await job.moveToDelayed(Date.now() + computeCampaignOfflineRetryDelayMs(item._offlineDelayCount || 1), token);
             throw new DelayedError();
         }
         if (item._offlineDelayCount > 180) {
@@ -10149,7 +10165,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             campaignState?.ownerUid
         );
         await job.updateData(item).catch(() => {});
-        await job.moveToDelayed(Date.now() + 120_000, token);
+        await job.moveToDelayed(Date.now() + computeCampaignOfflineRetryDelayMs(item._offlineDelayCount || 1), token);
         throw new DelayedError();
     }
 

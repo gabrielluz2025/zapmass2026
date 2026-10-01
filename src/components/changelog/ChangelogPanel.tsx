@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.277',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Campanhas com só falhas passam a status Falhou (não Concluída) e exibem botão Retomar',
+      },
+      {
+        type: 'fix',
+        text: 'Menos espera em fila antes de falha definitiva quando chip está offline',
+      },
+    ],
+  },
+  {
     version: '2.3.276',
     date: '01/10/2026',
     highlights: [

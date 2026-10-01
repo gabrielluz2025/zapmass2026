@@ -30,6 +30,31 @@ export function getCampaignPlannedSendTotal(
  * Taxa de entregas bem-sucedidas vs planejado (evita >100% em campanhas multi-etapa:
  * `successCount` soma um ponto por envio concluído, não por contacto).
  */
+/** Status final ao esgotar a fila: sem entregas e só falhas → FAILED (mantém botão Retomar). */
+export function resolveCampaignTerminalStatus(params: {
+  successCount: number;
+  failCount: number;
+  skipCount?: number;
+}): CampaignStatus.COMPLETED | CampaignStatus.FAILED {
+  const ok = Math.max(0, Math.floor(Number(params.successCount) || 0));
+  const fail = Math.max(0, Math.floor(Number(params.failCount) || 0));
+  if (ok > 0) return CampaignStatus.COMPLETED;
+  if (fail > 0) return CampaignStatus.FAILED;
+  return CampaignStatus.COMPLETED;
+}
+
+/** Campanha marcada concluída no passado mas só com falhas — reclassifica para FAILED na UI. */
+export function reclassifyFalseCompletedCampaign(c: Campaign): Campaign {
+  if (
+    c.status === CampaignStatus.COMPLETED &&
+    (c.successCount ?? 0) === 0 &&
+    (c.failedCount ?? 0) > 0
+  ) {
+    return { ...c, status: CampaignStatus.FAILED };
+  }
+  return c;
+}
+
 export function getCampaignDeliverySuccessRatePct(campaign: Campaign): number {
   const denom = getCampaignPlannedSendTotal(campaign);
   const ok = Math.max(0, Math.floor(Number(campaign.successCount) || 0));
@@ -56,10 +81,12 @@ export function getCampaignProgressMetrics(campaign: Campaign) {
     effectiveProcessed = Math.min(effectiveProcessed, total);
     reported = Math.min(reported, total);
   }
-  if (campaign.status === CampaignStatus.COMPLETED && plannedSendTotal > 0) {
-    // Campanha concluída: sem pendentes — todo contato foi processado (ou descartado).
-    // Antes só forçava quando effectiveProcessed === 0; agora sempre iguala ao planejado
-    // para evitar exibir "X Pendentes" em campanhas já encerradas.
+  if (
+    (campaign.status === CampaignStatus.COMPLETED || campaign.status === CampaignStatus.FAILED) &&
+    plannedSendTotal > 0 &&
+    effectiveProcessed >= plannedSendTotal
+  ) {
+    // Fila esgotada nos contadores — não exibir pendentes fantasmas.
     effectiveProcessed = plannedSendTotal;
   }
   // Restantes = 0 para campanhas COMPLETED (forçado pela igualação acima)
@@ -89,7 +116,7 @@ export function getCampaignProgressMetrics(campaign: Campaign) {
  * `campaign-finished` não atualizou o documento.
  */
 export function isCampaignQueueWorkComplete(c: Campaign): boolean {
-  if (c.status === CampaignStatus.COMPLETED) return true;
+  if (c.status === CampaignStatus.COMPLETED || c.status === CampaignStatus.FAILED) return true;
   if (c.status === CampaignStatus.SCHEDULED) return false;
   const m = getCampaignProgressMetrics(c);
   if (m.plannedSendTotal <= 0) return false;
@@ -131,27 +158,45 @@ export function healCampaignCounters(c: Campaign): Campaign {
 }
 
 export function healStuckCampaignStatus(c: Campaign): Campaign {
-  const m = getCampaignProgressMetrics(c);
+  const reclassified = reclassifyFalseCompletedCampaign(c);
+  const m = getCampaignProgressMetrics(reclassified);
 
   if (
-    isConversationalMultiStepCampaign(c) &&
+    isConversationalMultiStepCampaign(reclassified) &&
     m.pending === 0 &&
     m.effectiveProcessed >= m.plannedSendTotal &&
-    (c.successCount ?? 0) > 0 &&
-    c.status === CampaignStatus.RUNNING
+    (reclassified.successCount ?? 0) > 0 &&
+    reclassified.status === CampaignStatus.RUNNING
   ) {
     return {
-      ...healCampaignCounters(c),
+      ...healCampaignCounters(reclassified),
       status: CampaignStatus.WAITING_REPLY,
     };
   }
 
-  if (isCampaignQueueWorkComplete(c)) {
-    if (c.status === CampaignStatus.COMPLETED) return healCampaignCounters(c);
-    const m = getCampaignProgressMetrics(c);
+  if (isCampaignQueueWorkComplete(reclassified)) {
+    if (
+      reclassified.status === CampaignStatus.COMPLETED ||
+      reclassified.status === CampaignStatus.FAILED
+    ) {
+      const healed = healCampaignCounters(reclassified);
+      if (
+        healed.status === CampaignStatus.COMPLETED &&
+        (healed.successCount ?? 0) === 0 &&
+        (healed.failedCount ?? 0) > 0
+      ) {
+        return { ...healed, status: CampaignStatus.FAILED };
+      }
+      return healed;
+    }
+    const failTally = Math.max(m.fail, reclassified.failedCount ?? 0);
+    const terminal = resolveCampaignTerminalStatus({
+      successCount: m.ok,
+      failCount: failTally,
+    });
     return {
-      ...c,
-      status: CampaignStatus.COMPLETED,
+      ...reclassified,
+      status: terminal,
       processedCount: m.effectiveProcessed,
       successCount: m.ok,
       failedCount: m.fail
@@ -171,7 +216,7 @@ export function healStuckCampaignStatus(c: Campaign): Campaign {
 
 /** Aplica cura de status preso e normalização de contadores (ok/fail/processed). */
 export function healCampaignDocument(c: Campaign): Campaign {
-  return healCampaignCounters(healStuckCampaignStatus(c));
+  return healCampaignCounters(healStuckCampaignStatus(reclassifyFalseCompletedCampaign(c)));
 }
 
 /** @deprecated Use healStuckCampaignStatus */
@@ -207,7 +252,8 @@ export function isCampaignPauseControlVisible(status: CampaignStatus): boolean {
   return (
     status === CampaignStatus.RUNNING ||
     status === CampaignStatus.WAITING_REPLY ||
-    status === CampaignStatus.PAUSED
+    status === CampaignStatus.PAUSED ||
+    status === CampaignStatus.FAILED
   );
 }
 

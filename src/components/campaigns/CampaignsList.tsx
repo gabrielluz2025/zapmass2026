@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Campaign, CampaignStatus } from '../../types';
-import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
+import { getCampaignProgressMetrics, isCampaignPauseControlVisible } from '../../utils/campaignMetrics';
 import {
   CAMPAIGN_REMAINING_CONTACTS_LABEL,
   CAMPAIGN_REMAINING_CONTACTS_TITLE,
@@ -546,10 +546,12 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                   const isRunning = camp.status === CampaignStatus.RUNNING;
                   const isPaused = camp.status === CampaignStatus.PAUSED;
                   const isDone = camp.status === CampaignStatus.COMPLETED;
+                  const isFailed = camp.status === CampaignStatus.FAILED;
                   const isScheduled = camp.status === CampaignStatus.SCHEDULED;
+                  const showPauseControl = isCampaignPauseControlVisible(camp.status) && !isScheduled;
                   const isWaitingForReplies =
                     Boolean(camp.replyFlow?.enabled) &&
-                    !isDone && !isScheduled &&
+                    !isDone && !isFailed && !isScheduled &&
                     (isRunning || isPaused ||
                       (camp.status === CampaignStatus.DRAFT && (camp.processedCount ?? 0) > 0));
                   const eta = etaForCampaign(camp);
@@ -575,6 +577,7 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                             : isPaused ? 'warning'
                             : isScheduled ? 'info'
                             : isDone ? 'info'
+                            : isFailed ? 'warning'
                             : isWaitingForReplies ? 'warning'
                             : 'neutral'
                           }
@@ -588,6 +591,8 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                             ? 'Agendada'
                             : isDone
                             ? 'Concluída'
+                            : isFailed
+                            ? 'Falhou'
                             : isWaitingForReplies
                             ? 'Aguardando respostas'
                             : 'Pendente'}
@@ -634,7 +639,7 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                       </td>
                       <td className="px-3 py-2.5 text-right">
                         <div className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                          {!isDone && !isScheduled && (
+                          {showPauseControl && (
                             <button
                               type="button"
                               onClick={() => onTogglePause(camp.id)}
@@ -782,10 +787,12 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
   const isRunning = campaign.status === CampaignStatus.RUNNING;
   const isPaused = campaign.status === CampaignStatus.PAUSED;
   const isDone = campaign.status === CampaignStatus.COMPLETED;
+  const isFailed = campaign.status === CampaignStatus.FAILED;
   const isScheduled = campaign.status === CampaignStatus.SCHEDULED;
+  const showPauseControl = isCampaignPauseControlVisible(campaign.status) && !isScheduled;
   const isWaitingForReplies =
     Boolean(campaign.replyFlow?.enabled) &&
-    !isDone && !isScheduled &&
+    !isDone && !isFailed && !isScheduled &&
     (isRunning || isPaused ||
       (campaign.status === CampaignStatus.DRAFT && (campaign.processedCount ?? 0) > 0));
   const spark = useMemo(() => buildSpark(campaign), [campaign]);
@@ -862,6 +869,7 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
                 : isPaused ? 'warning'
                 : isScheduled ? 'info'
                 : isDone ? 'info'
+                : isFailed ? 'warning'
                 : isWaitingForReplies ? 'warning'
                 : 'neutral'
               }
@@ -875,6 +883,8 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
                 ? 'Agendada'
                 : isDone
                 ? 'Concluída'
+                : isFailed
+                ? 'Falhou'
                 : isWaitingForReplies
                 ? 'Aguardando respostas'
                 : 'Pendente'}
@@ -901,7 +911,7 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
               e.preventDefault();
             }}
           >
-            {!isDone && !isScheduled && (
+            {showPauseControl && (
               <button
                 type="button"
                 onClick={(e) => {
@@ -913,7 +923,7 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
                   background: isRunning ? 'rgba(245,158,11,0.14)' : 'rgba(16,185,129,0.12)',
                   color: isRunning ? '#d97706' : 'var(--brand-600)'
                 }}
-                title={isRunning ? 'Pausar' : 'Retomar'}
+                title={isRunning ? 'Pausar' : isFailed ? 'Tentar de novo' : 'Retomar'}
               >
                 {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
               </button>
@@ -1106,7 +1116,9 @@ const CampaignCompactRow: React.FC<CampaignCompactRowProps> = memo(function Camp
   const isRunning = campaign.status === CampaignStatus.RUNNING;
   const isPaused = campaign.status === CampaignStatus.PAUSED;
   const isDone = campaign.status === CampaignStatus.COMPLETED;
+  const isFailed = campaign.status === CampaignStatus.FAILED;
   const isScheduled = campaign.status === CampaignStatus.SCHEDULED;
+  const showPauseControl = isCampaignPauseControlVisible(campaign.status) && !isScheduled;
   const accent = isRunning
     ? 'var(--brand-500)'
     : isPaused
@@ -1168,13 +1180,13 @@ const CampaignCompactRow: React.FC<CampaignCompactRowProps> = memo(function Camp
       </div>
       {!selectionMode && (
         <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-          {!isDone && !isScheduled && (
+          {showPauseControl && (
             <button
               type="button"
               onClick={onTogglePause}
               className="w-7 h-7 rounded-md flex items-center justify-center transition-colors hover:bg-[var(--surface-2)]"
               style={{ color: isRunning ? '#d97706' : 'var(--brand-600)' }}
-              title={isRunning ? 'Pausar' : 'Retomar'}
+              title={isRunning ? 'Pausar' : isFailed ? 'Tentar de novo' : 'Retomar'}
             >
               {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
             </button>

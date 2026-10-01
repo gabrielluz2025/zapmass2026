@@ -98,7 +98,8 @@ import {
   campaignStatusAfterProgress,
   healStuckRunningCampaignsList,
   isCampaignLikelyStartedOnServer,
-  isCampaignQueueWorkComplete
+  isCampaignQueueWorkComplete,
+  resolveCampaignTerminalStatus
 } from '../utils/campaignMetrics';
 import { isConversationalMultiStepCampaign } from '../utils/campaignStageCount';
 import { clearAllCampaignWizardSessions } from '../utils/campaignWizardSession';
@@ -2482,6 +2483,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               typeof tz === 'string' &&
               tz.length > 0;
             const nextIso = shouldReschedule ? computeNextRunIso(slots, tz, Date.now() + 45_000) : null;
+            const ok = Number(successCount) || 0;
+            const fail = Number(failCount) || 0;
+            const terminalStatus = resolveCampaignTerminalStatus({
+              successCount: ok,
+              failCount: fail
+            });
 
             if (uid) {
               if (shouldReschedule && nextIso) {
@@ -2495,7 +2502,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                 });
               } else {
                 patchCampaignPersist(uid, campaignId, {
-                  status: CampaignStatus.COMPLETED,
+                  status: terminalStatus,
                   successCount,
                   failedCount: failCount,
                   processedCount
@@ -2518,7 +2525,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               }
               return {
                 ...c,
-                status: CampaignStatus.COMPLETED,
+                status: terminalStatus,
                 successCount,
                 failedCount: failCount,
                 processedCount
@@ -2570,6 +2577,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               typeof tz === 'string' &&
               tz.length > 0;
             const nextIso = shouldReschedule ? computeNextRunIso(slots, tz, Date.now() + 45_000) : null;
+            const ok = Number(successCount) || 0;
+            const fail = Number(failCount) || 0;
+            const terminalStatus = resolveCampaignTerminalStatus({
+              successCount: ok,
+              failCount: fail
+            });
 
             if (uid) {
               if (shouldReschedule && nextIso) {
@@ -2583,7 +2596,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                 });
               } else {
                 patchCampaignPersist(uid, campaignId, {
-                  status: CampaignStatus.COMPLETED,
+                  status: terminalStatus,
                   successCount,
                   failedCount: failCount,
                   processedCount
@@ -2606,7 +2619,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               }
               return {
                 ...c,
-                status: CampaignStatus.COMPLETED,
+                status: terminalStatus,
                 successCount,
                 failedCount: failCount,
                 processedCount
