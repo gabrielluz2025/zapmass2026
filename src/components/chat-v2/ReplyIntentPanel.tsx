@@ -78,7 +78,7 @@ export const ReplyIntentPanel: React.FC<Props> = ({
     } else {
       setInspect(null);
     }
-  }, [open, runInspect]);
+  }, [open, conversation.id, conversation.connectionId, runInspect]);
 
   const apply = async (classification: LeadClassification) => {
     const phoneDigits = phoneFromConversation(conversation);

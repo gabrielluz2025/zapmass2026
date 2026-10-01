@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.258',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Bate-papo: corrige de novo o crash React #185 quando o inbox alterna @lid e telefone',
+      },
+    ],
+  },
+  {
     version: '2.3.257',
     date: '01/10/2026',
     highlights: [

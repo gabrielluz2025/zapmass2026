@@ -13,7 +13,7 @@ import {
 import { useClientCrm } from '../chat/useClientCrm';
 import { useSendChatMedia } from './hooks/useSendChatMedia';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
-import { collapseConversationsByPhone, resolveStableConversationId } from '../../utils/collapseConversationsByPhone';
+import { collapseConversationsByPhone, resolveStableConversationId, upgradeStableConversationId } from '../../utils/collapseConversationsByPhone';
 import { buildCanonicalConversationId } from '../../utils/conversationId';
 import { OPEN_CHAT_BY_CONVERSATION_ID_KEY } from '../../utils/openChatByConversationIdNav';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
@@ -141,6 +141,9 @@ export const WaWebChatApp: React.FC<{
   const [inThreadQuery, setInThreadQuery] = useState('');
   const [inThreadMatchIndex, setInThreadMatchIndex] = useState(0);
   const autoSelectDoneRef = useRef(false);
+  const autoOpenConversationRef = useRef<string | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  const hydrateConvIdRef = useRef<string | null>(null);
   const { sending: sendingMedia, sendFile: sendChatFile } = useSendChatMedia(sendMedia);
   /** Evita pedir a mesma foto várias vezes ao servidor (prefetch + chat aberto). */
   const pictureAttemptedRef = useRef<Set<string>>(new Set());
@@ -447,12 +450,23 @@ export const WaWebChatApp: React.FC<{
 
   useEffect(() => {
     if (!selectedId) return;
+    const upgraded = upgradeStableConversationId(sortedConversations, selectedId);
+    if (upgraded) {
+      setSelectedId(upgraded);
+      return;
+    }
+    if (sortedConversations.some((c) => c.id === selectedId)) return;
     const stable = resolveStableConversationId(sortedConversations, selectedId);
     if (stable && stable !== selectedId) setSelectedId(stable);
   }, [selectedId, sortedConversations]);
 
   const selectChat = useCallback(
     (id: string) => {
+      if (id === selectedIdRef.current) {
+        setMobileShowThread(true);
+        return;
+      }
+      selectedIdRef.current = id;
       historyInitializedRef.current.delete(id);
       setHistoryExhausted((prev) => {
         if (!prev[id]) return prev;
@@ -576,16 +590,27 @@ export const WaWebChatApp: React.FC<{
       }
     }
     if (!id) return;
-    const hit = sortedConversations.find((c) => c.id === id);
-    if (hit) {
-      selectChat(hit.id);
-      try {
-        sessionStorage.removeItem(OPEN_CHAT_BY_CONVERSATION_ID_KEY);
-      } catch {
-        /* ignore */
+    if (autoOpenConversationRef.current === id) return;
+
+    let hit = sortedConversations.find((c) => c.id === id);
+    let resolvedId = hit?.id;
+    if (!resolvedId) {
+      const stable = resolveStableConversationId(sortedConversations, id);
+      if (stable) {
+        resolvedId = stable;
+        hit = sortedConversations.find((c) => c.id === stable) ?? undefined;
       }
-      onClearAutoSelected?.();
     }
+    if (!resolvedId) return;
+
+    autoOpenConversationRef.current = id;
+    selectChat(resolvedId);
+    try {
+      sessionStorage.removeItem(OPEN_CHAT_BY_CONVERSATION_ID_KEY);
+    } catch {
+      /* ignore */
+    }
+    onClearAutoSelected?.();
   }, [autoSelectedConversationId, sortedConversations, selectChat, onClearAutoSelected]);
 
   useEffect(() => {
@@ -885,8 +910,15 @@ export const WaWebChatApp: React.FC<{
   }, [selected?.id, selected?.connectionId, isSelectedDraft, draftChannelById]);
 
   useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
     if (!selected?.id || isSelectedDraft) return;
-    historyAutoLoadRef.current.delete(selected.id);
+    if (hydrateConvIdRef.current !== selected.id) {
+      hydrateConvIdRef.current = selected.id;
+      historyAutoLoadRef.current.delete(selected.id);
+    }
     const convId = selected.id;
     const t = window.setTimeout(() => {
       void hydrateFirestoreChatArchive(convId, isGoWebhookInbox ? 1500 : 500).finally(() => {
@@ -1226,7 +1258,7 @@ export const WaWebChatApp: React.FC<{
       return;
     }
     setInThreadMatchIndex((i) => Math.min(i, inThreadMatchIds.length - 1));
-  }, [inThreadMatchIds]);
+  }, [inThreadMatchIds.length, inThreadQuery, selectedId]);
 
   const highlightMessageId = inThreadMatchIds[inThreadMatchIndex] ?? null;
 

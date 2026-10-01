@@ -271,6 +271,7 @@ export function resolveStableConversationId(
   if (!selectedId) return null;
   if (list.some((c) => c.id === selectedId)) return selectedId;
 
+  const selectedRank = conversationIdRank(selectedId);
   const tail = selectedId.includes(':') ? selectedId.slice(selectedId.indexOf(':') + 1) : selectedId;
   const digits = tail.split('@')[0]?.replace(/\D/g, '') || '';
   if (digits.length < 8) return null;
@@ -288,5 +289,37 @@ export function resolveStableConversationId(
     if (rankDiff !== 0) return rankDiff;
     return newestActivityMs(b) - newestActivityMs(a);
   });
-  return sorted[0]?.id ?? null;
+  const best = sorted[0]?.id ?? null;
+  if (!best) return null;
+  /** Inbox oscilando só @lid ↔ telefone: não rebaixar JID (causa loop React #185). */
+  if (selectedRank > conversationIdRank(best)) return null;
+  return best;
+}
+
+/** Sobe para @s.whatsapp.net quando o id selecionado ainda é @lid na lista. */
+export function upgradeStableConversationId(
+  list: Conversation[],
+  selectedId: string | null
+): string | null {
+  if (!selectedId || !list.some((c) => c.id === selectedId)) return null;
+  const rank = conversationIdRank(selectedId);
+  if (rank >= 3) return null;
+  const tail = selectedId.includes(':') ? selectedId.slice(selectedId.indexOf(':') + 1) : selectedId;
+  const digits = tail.split('@')[0]?.replace(/\D/g, '') || '';
+  const cp = list.find((c) => c.id === selectedId)?.contactPhone?.replace(/\D/g, '') || '';
+  const lookupDigits = cp.length >= 8 ? cp : digits;
+  if (lookupDigits.length < 8) return null;
+  const matches = list.filter((c) => {
+    const ccp = (c.contactPhone || '').replace(/\D/g, '');
+    const cid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
+    const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
+    return ccp === lookupDigits || jidD === lookupDigits;
+  });
+  if (matches.length < 2) return null;
+  const sorted = [...matches].sort(
+    (a, b) => conversationIdRank(b.id) - conversationIdRank(a.id)
+  );
+  const best = sorted[0]?.id ?? null;
+  if (!best || best === selectedId || conversationIdRank(best) <= rank) return null;
+  return best;
 }

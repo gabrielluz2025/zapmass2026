@@ -255,6 +255,7 @@ export function resolveStableConversationId(list, selectedId) {
         return null;
     if (list.some((c) => c.id === selectedId))
         return selectedId;
+    const selectedRank = conversationIdRank(selectedId);
     const tail = selectedId.includes(':') ? selectedId.slice(selectedId.indexOf(':') + 1) : selectedId;
     const digits = tail.split('@')[0]?.replace(/\D/g, '') || '';
     if (digits.length < 8)
@@ -273,5 +274,10 @@ export function resolveStableConversationId(list, selectedId) {
             return rankDiff;
         return newestActivityMs(b) - newestActivityMs(a);
     });
-    return sorted[0]?.id ?? null;
+    const best = sorted[0]?.id ?? null;
+    if (!best)
+        return null;
+    if (selectedRank > conversationIdRank(best))
+        return null;
+    return best;
 }

@@ -202,6 +202,27 @@ describe('collapseConversationsByPhone', () => {
     expect(stable).toBe(`${conn}:554799127801@s.whatsapp.net`);
   });
 
+  it('nao rebaixa JID @s.whatsapp.net para @lid (evita loop no Bate-papo)', () => {
+    const conn = 'conn_osc';
+    const phoneId = `${conn}:554799127801@s.whatsapp.net`;
+    const lidOnly: Conversation[] = [
+      {
+        id: `${conn}:554799127801@lid`,
+        connectionId: conn,
+        contactPhone: '554799127801',
+        contactName: 'Contato',
+        unreadCount: 0,
+        lastMessage: 'oi',
+        lastMessageTime: '',
+        lastMessageTimestamp: 100,
+        messages: [],
+        tags: [],
+      },
+    ];
+    const stable = resolveStableConversationId(lidOnly, phoneId);
+    expect(stable).toBeNull();
+  });
+
   it('chaves fortes nao incluem sufixo de 8 digitos', () => {
     const keys = buildStrongPhoneMergeKeys('554799127801');
     expect(keys.some((k) => k.length < 10)).toBe(false);

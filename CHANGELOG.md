@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.258] - 2026-10-01
+
+### Corrigido
+- **Bate-papo (React #185) de novo**: ao oscilar inbox só @lid ↔ telefone, a seleção não rebaixa mais o JID (evita loop infinito de `setSelectedId`); auto-abrir conversa e hidratação de histórico deixam de repetir `selectChat`/reset a cada update do socket.
+
 ## [2.3.257] - 2026-10-01
 
 ### Corrigido
