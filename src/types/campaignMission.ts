@@ -27,7 +27,7 @@ export interface CampaignWizardStageDraft {
 /** Rascunho para reabrir o assistente (clone / template). */
 export interface CampaignWizardDraft {
   name: string;
-  sendMode: 'list' | 'manual' | 'filter';
+  sendMode: 'list' | 'manual' | 'filter' | 'spreadsheet';
   selectedListId: string;
   manualNumbers: string;
   selectedConnectionIds: string[];

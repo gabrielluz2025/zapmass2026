@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.262',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'feature',
+        text: 'Campanhas: importar público via planilha XLSX com modelo, validação de telefone e checagem WhatsApp',
+      },
+    ],
+  },
+  {
     version: '2.3.261',
     date: '01/10/2026',
     highlights: [

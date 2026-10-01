@@ -489,6 +489,51 @@ export type FrequencyCapCheckResult = {
   contacts: FrequencyCapContactResult[];
 };
 
+export type CampaignRecipientWaVerifyResult = 'found' | 'corrected' | 'missing' | 'invalid_format' | 'uncertain';
+
+export type CampaignRecipientPhoneVerifyBatch = {
+  ok: boolean;
+  results: Array<{ phone: string; result: CampaignRecipientWaVerifyResult; canonical?: string }>;
+  summary: {
+    onWhatsApp: number;
+    phoneCorrected: number;
+    notOnWhatsApp: number;
+    invalidFormat: number;
+    uncertain: number;
+  };
+  hasMore: boolean;
+  nextOffset: number;
+  connectionId: string;
+  error?: string;
+};
+
+/** Verifica presença no WhatsApp (Evolution) para números de planilha — em lotes. */
+export async function apiVerifyCampaignRecipientPhones(opts: {
+  phones: string[];
+  connectionId?: string;
+  offset?: number;
+  limit?: number;
+}): Promise<CampaignRecipientPhoneVerifyBatch> {
+  const j = await apiFetchJson<CampaignRecipientPhoneVerifyBatch>(
+    '/api/campaigns/verify-recipient-phones',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        phones: opts.phones,
+        connectionId: opts.connectionId,
+        offset: opts.offset ?? 0,
+        limit: opts.limit ?? 80,
+      }),
+      timeoutMs: 120_000,
+      retries: 0,
+    }
+  );
+  if (j.ok === false) {
+    throw new Error(j.error || 'Falha ao verificar números no WhatsApp.');
+  }
+  return j;
+}
+
 /** Verifica quais contatos já receberam mensagem nas últimas 24 h. */
 export async function apiFrequencyCapCheck(phones: string[]): Promise<FrequencyCapCheckResult> {
   return apiFetchJson<FrequencyCapCheckResult>('/api/campaigns/frequency-cap-check', {

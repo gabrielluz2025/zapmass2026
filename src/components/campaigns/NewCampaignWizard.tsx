@@ -77,6 +77,10 @@ import {
 } from '../../utils/whatsappMediaLimits';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
 import { hasUnresolvedCampaignTemplateTokens } from '../../../shared/campaignSpintax';
+import {
+  CampaignSpreadsheetAudience,
+  type CampaignSpreadsheetRowState,
+} from './CampaignSpreadsheetAudience';
 
 type MessageStageOptionDraft = {
   id: string;
@@ -149,7 +153,7 @@ function draftStageToMessageStage(s: CampaignWizardStageDraft): MessageStageDraf
   };
 }
 
-type SendMode = 'list' | 'manual' | 'filter';
+type SendMode = 'list' | 'manual' | 'filter' | 'spreadsheet';
 
 interface NewCampaignWizardProps {
   connections: WhatsAppConnection[];
@@ -250,6 +254,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [sendMode, setSendMode] = useState<SendMode>('list');
   const [manualNumbers, setManualNumbers] = useState('');
+  const [spreadsheetRows, setSpreadsheetRows] = useState<CampaignSpreadsheetRowState[]>([]);
+  const [spreadsheetFileLabel, setSpreadsheetFileLabel] = useState('');
+  const [spreadsheetWaVerified, setSpreadsheetWaVerified] = useState(false);
+  const [spreadsheetVerifyConnectionId, setSpreadsheetVerifyConnectionId] = useState('');
   const [name, setName] = useState('');
   const [messageStages, setMessageStages] = useState<MessageStageDraft[]>(() => [newMessageStage()]);
   const [activeStageIdx, setActiveStageIdx] = useState(0);
@@ -625,6 +633,22 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     [rawManualNumbers, marketingOptOutPhoneKeys]
   );
 
+  const spreadsheetRowsForSend = useMemo(
+    () =>
+      spreadsheetRows.filter(
+        (r) => r.include && r.formatOk && (r.waStatus === 'found' || r.waStatus === 'corrected' || r.waStatus === 'uncertain')
+      ),
+    [spreadsheetRows]
+  );
+
+  const spreadsheetNumbersForSend = useMemo(
+    () =>
+      spreadsheetRowsForSend
+        .map((r) => r.sendPhone || r.phone)
+        .filter((n) => !marketingOptOutPhoneKeys.has(normPhoneKey(n))),
+    [spreadsheetRowsForSend, marketingOptOutPhoneKeys]
+  );
+
   // ============================================================
   // FILTRO POR ATRIBUTO (cidade / igreja / cargo)
   // ============================================================
@@ -787,6 +811,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       ? selectedListNumbers
       : sendMode === 'manual'
       ? manualNumbersForSend
+      : sendMode === 'spreadsheet'
+      ? spreadsheetNumbersForSend
       : filteredNumbers;
 
   const numbers = useMemo(
@@ -797,8 +823,15 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const reviewRecipientCount = useMemo(() => {
     if (sendMode === 'list') return selectedListContactsForSend.length;
     if (sendMode === 'filter') return filteredContacts.length;
+    if (sendMode === 'spreadsheet') return spreadsheetNumbersForSend.length;
     return numbers.length;
-  }, [sendMode, selectedListContactsForSend.length, filteredContacts.length, numbers.length]);
+  }, [
+    sendMode,
+    selectedListContactsForSend.length,
+    filteredContacts.length,
+    spreadsheetNumbersForSend.length,
+    numbers.length,
+  ]);
 
   const reviewStageCount = useMemo(
     () => (campaignFlowMode === 'single' ? 1 : Math.max(1, messageStages.filter((s) => s.body.trim()).length)),
@@ -1301,8 +1334,25 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     };
     if (sendMode === 'list' && selectedListContactsForSend[0]) return pick(selectedListContactsForSend[0]);
     if (sendMode === 'filter' && filteredContacts[0]) return pick(filteredContacts[0]);
+    if (sendMode === 'spreadsheet' && spreadsheetRowsForSend[0]) {
+      const v = spreadsheetRowsForSend[0].vars;
+      return {
+        nome: v.nome,
+        nome_completo: v.nome_completo,
+        telefone: v.telefone,
+        email: v.email,
+        cidade: v.cidade,
+        igreja: v.igreja,
+        cargo: v.cargo,
+        profissao: v.profissao,
+        aniversario: v.aniversario,
+        conjuge: v.conjuge,
+        data_bodas: v.data_bodas,
+        anos_casamento: v.anos_casamento,
+      };
+    }
     return {};
-  }, [sendMode, selectedListContactsForSend, filteredContacts]);
+  }, [sendMode, selectedListContactsForSend, filteredContacts, spreadsheetRowsForSend]);
 
   const previewDisplayName = previewSample.nome || 'Maria';
   const messageStepHint =
@@ -1315,6 +1365,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       ? selectedListNumbers.length > 0
       : sendMode === 'manual'
       ? manualNumbersForSend.length > 0
+      : sendMode === 'spreadsheet'
+      ? spreadsheetWaVerified && spreadsheetNumbersForSend.length > 0
       : filteredNumbers.length > 0;
   const replyFlowGatesOk =
     campaignFlowMode !== 'reply' ||
@@ -1442,6 +1494,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     };
     if (sendMode === 'list') return selectedListContactsForSend.map(fromContact);
     if (sendMode === 'filter') return filteredContacts.map(fromContact);
+    if (sendMode === 'spreadsheet') {
+      return spreadsheetRowsForSend.map((r) => ({
+        phone: r.sendPhone || r.phone,
+        vars: { ...r.vars, telefone: r.sendPhone || r.phone },
+      }));
+    }
     return numbers.map((phone) => ({ phone, vars: { telefone: phone } }));
   };
 
@@ -1743,6 +1801,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               campaignKind === 'prospecting'
                 ? 'Base completa (prospecção)'
                 : buildFilterLabel()
+          }
+        : sendMode === 'spreadsheet'
+        ? {
+            id: undefined,
+            name: spreadsheetFileLabel
+              ? `Planilha: ${spreadsheetFileLabel}`
+              : 'Planilha importada',
           }
         : { id: undefined, name: 'Envio manual' };
 
@@ -2131,12 +2196,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
               {campaignKind !== 'prospecting' && (
               <>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
                 {[
                   {
                     id: 'list' as const,
                     label: 'Lista de contatos',
-                    icon: FileSpreadsheet,
+                    icon: Users,
                     desc: 'Use uma lista já criada e organizada na sua base',
                     badge: 'Recomendado',
                     badgeColor: '#10b981',
@@ -2165,6 +2230,17 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     badgeBg: 'rgba(245,158,11,0.12)',
                     iconBg: '#f59e0b',
                     accent: 'rgba(245,158,11,0.28)'
+                  },
+                  {
+                    id: 'spreadsheet' as const,
+                    label: 'Planilha (.xlsx)',
+                    icon: FileSpreadsheet,
+                    desc: 'Baixe o modelo, importe e valide números no WhatsApp',
+                    badge: 'Importar',
+                    badgeColor: '#8b5cf6',
+                    badgeBg: 'rgba(139,92,246,0.12)',
+                    iconBg: '#8b5cf6',
+                    accent: 'rgba(139,92,246,0.28)'
                   }
                 ].map((m) => {
                   const isSel = sendMode === m.id;
@@ -2295,6 +2371,20 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     </p>
                   )}
                 </div>
+              )}
+
+              {sendMode === 'spreadsheet' && (
+                <CampaignSpreadsheetAudience
+                  connections={connections}
+                  rows={spreadsheetRows}
+                  onRowsChange={setSpreadsheetRows}
+                  verifyConnectionId={spreadsheetVerifyConnectionId}
+                  onVerifyConnectionIdChange={setSpreadsheetVerifyConnectionId}
+                  verificationDone={spreadsheetWaVerified}
+                  onVerificationDoneChange={setSpreadsheetWaVerified}
+                  fileLabel={spreadsheetFileLabel}
+                  onFileLabelChange={setSpreadsheetFileLabel}
+                />
               )}
 
               {sendMode === 'filter' && (
@@ -3956,6 +4046,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       ? selectedList?.name || '—'
                       : sendMode === 'filter'
                       ? buildFilterLabel()
+                      : sendMode === 'spreadsheet'
+                      ? spreadsheetFileLabel
+                        ? `Planilha: ${spreadsheetFileLabel}`
+                        : 'Planilha importada'
                       : 'Envio manual'
                   }
                 />

@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.262] - 2026-10-01
+
+### Adicionado
+- **Campanhas — público por planilha**: no assistente de nova campanha, opção «Planilha (.xlsx)» com modelo baixável, importação, validação de formato e verificação de presença no WhatsApp (Evolution) em lotes com chip selecionado.
+
 ## [2.3.261] - 2026-10-01
 
 ### Corrigido

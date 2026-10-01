@@ -32,6 +32,7 @@ import {
 } from './campaignReportSnapshot.js';
 import * as evolutionService from './evolutionService.js';
 import { notifyTenantDataChanged } from './tenantDataNotify.js';
+import { verifyAdHocPhonesOnWhatsApp } from './contactWhatsAppValidateService.js';
 
 export function registerCampaignsDataRoutes(app: Express): void {
   if (!vpsDataEnabled() || !getZapmassPool()) return;
@@ -615,6 +616,39 @@ export function registerCampaignsDataRoutes(app: Express): void {
     } catch (e) {
       console.error('[api/campaigns/frequency-cap-check]', e);
       return res.status(500).json({ ok: false, error: 'Erro ao verificar limite de frequência.' });
+    }
+  });
+
+  /**
+   * POST /api/campaigns/verify-recipient-phones
+   * Valida formato (cliente) + presença no WhatsApp (Evolution) para lista avulsa (planilha).
+   */
+  app.post('/api/campaigns/verify-recipient-phones', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = req.body as { phones?: string[]; connectionId?: string; offset?: number; limit?: number };
+    const phones: string[] = Array.isArray(body.phones)
+      ? body.phones.map((p) => String(p || '').replace(/\D/g, '')).filter((p) => p.length >= 10)
+      : [];
+    if (phones.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Informe ao menos um telefone.' });
+    }
+    if (phones.length > 10_000) {
+      return res.status(400).json({ ok: false, error: 'Limite de 10.000 números por verificação.' });
+    }
+    const offset = Math.max(Number(body.offset) || 0, 0);
+    const limit = Math.min(Math.max(Number(body.limit) || 80, 1), 80);
+    try {
+      const result = await verifyAdHocPhonesOnWhatsApp(ctx.tenantId, phones, {
+        connectionId: body.connectionId,
+        offset,
+        limit,
+      });
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao verificar números no WhatsApp.';
+      console.error('[api/campaigns/verify-recipient-phones]', e);
+      return res.status(500).json({ ok: false, error: msg });
     }
   });
 

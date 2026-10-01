@@ -61,7 +61,7 @@ type CheckOutcome = {
   checkFailed?: boolean;
 };
 
-async function batchCheckWhatsAppNumbers(
+export async function batchCheckWhatsAppNumbers(
   instanceName: string,
   numbers: string[]
 ): Promise<Map<string, CheckOutcome>> {
@@ -84,7 +84,7 @@ async function batchCheckWhatsAppNumbers(
   return out;
 }
 
-function resolveFromVariantChecks(
+export function resolveFromVariantChecks(
   phone: string,
   checks: Map<string, CheckOutcome>
 ): { result: WhatsAppValidateSampleResult; canonical?: string } {
@@ -119,7 +119,7 @@ function resolveFromVariantChecks(
   return { result: 'uncertain' };
 }
 
-async function pickOpenConnectionForTenant(
+export async function pickOpenConnectionForTenant(
   tenantId: string,
   preferredConnectionId?: string
 ): Promise<string | null> {
@@ -250,5 +250,107 @@ export async function validateTenantContactsWhatsApp(
     hasMore,
     nextOffset: offset + page.length,
     applied: !dryRun && items.length > 0,
+  };
+}
+
+const ADHOC_VERIFY_PAGE = 80;
+const ADHOC_WA_BATCH = 25;
+const ADHOC_WA_DELAY_MS = 180;
+
+export type AdHocPhoneVerifyItem = {
+  phone: string;
+  result: WhatsAppValidateSampleResult;
+  canonical?: string;
+};
+
+export type VerifyAdHocPhonesResult = {
+  results: AdHocPhoneVerifyItem[];
+  summary: {
+    onWhatsApp: number;
+    phoneCorrected: number;
+    notOnWhatsApp: number;
+    invalidFormat: number;
+    uncertain: number;
+  };
+  hasMore: boolean;
+  nextOffset: number;
+  connectionId: string;
+};
+
+/** Verifica lista avulsa (ex.: planilha de campanha) via Evolution whatsappNumbers. */
+export async function verifyAdHocPhonesOnWhatsApp(
+  tenantId: string,
+  phones: string[],
+  opts: { connectionId?: string; offset?: number; limit?: number } = {}
+): Promise<VerifyAdHocPhonesResult> {
+  const offset = Math.max(Number(opts.offset) || 0, 0);
+  const limit = Math.min(Math.max(Number(opts.limit) || ADHOC_VERIFY_PAGE, 1), ADHOC_VERIFY_PAGE);
+  const slice = phones.slice(offset, offset + limit);
+
+  const connectionId = await pickOpenConnectionForTenant(tenantId, opts.connectionId);
+  if (!connectionId) {
+    throw new Error('Nenhum chip WhatsApp conectado. Conecte um canal antes de validar.');
+  }
+
+  const allVariants = new Set<string>();
+  for (const p of slice) {
+    const normalized = normalizeBRPhone(p || '');
+    const variants = isPlausibleBrazilWhatsAppPhone(normalized)
+      ? buildOutboundPhoneVariants(normalized)
+      : [];
+    for (const v of variants) allVariants.add(v);
+  }
+
+  const checks = new Map<string, CheckOutcome>();
+  const variantList = [...allVariants];
+  for (let i = 0; i < variantList.length; i += ADHOC_WA_BATCH) {
+    const chunk = variantList.slice(i, i + ADHOC_WA_BATCH);
+    const partial = await batchCheckWhatsAppNumbers(connectionId, chunk);
+    for (const [k, v] of partial) checks.set(k, v);
+    if (i + ADHOC_WA_BATCH < variantList.length) await sleep(ADHOC_WA_DELAY_MS);
+  }
+
+  let onWhatsApp = 0;
+  let phoneCorrected = 0;
+  let notOnWhatsApp = 0;
+  let invalidFormat = 0;
+  let uncertain = 0;
+  const results: AdHocPhoneVerifyItem[] = [];
+
+  for (const raw of slice) {
+    const resolved = resolveFromVariantChecks(raw, checks);
+    let canonical = resolved.canonical;
+    if (resolved.result === 'found') onWhatsApp++;
+    else if (resolved.result === 'corrected') {
+      onWhatsApp++;
+      phoneCorrected++;
+    } else if (resolved.result === 'missing') notOnWhatsApp++;
+    else if (resolved.result === 'invalid_format') invalidFormat++;
+    else uncertain++;
+
+    if (resolved.result === 'corrected' && canonical) {
+      canonical = normalizeBRPhone(canonical) || canonical;
+    }
+
+    results.push({
+      phone: normalizeBRPhone(raw) || String(raw || '').replace(/\D/g, ''),
+      result: resolved.result,
+      canonical,
+    });
+  }
+
+  const hasMore = offset + slice.length < phones.length;
+  return {
+    results,
+    summary: {
+      onWhatsApp,
+      phoneCorrected,
+      notOnWhatsApp,
+      invalidFormat,
+      uncertain,
+    },
+    hasMore,
+    nextOffset: offset + slice.length,
+    connectionId,
   };
 }
