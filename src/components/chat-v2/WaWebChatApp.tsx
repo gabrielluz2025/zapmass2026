@@ -13,7 +13,12 @@ import {
 import { useClientCrm } from '../chat/useClientCrm';
 import { useSendChatMedia } from './hooks/useSendChatMedia';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
-import { collapseConversationsByPhone, resolveStableConversationId, upgradeStableConversationId } from '../../utils/collapseConversationsByPhone';
+import {
+  collapseConversationsByPhone,
+  reconcileConversationSelection,
+  resolveStableConversationId,
+  selectionAnchorFromConversationId,
+} from '../../utils/collapseConversationsByPhone';
 import { buildCanonicalConversationId } from '../../utils/conversationId';
 import { OPEN_CHAT_BY_CONVERSATION_ID_KEY } from '../../utils/openChatByConversationIdNav';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
@@ -144,6 +149,8 @@ export const WaWebChatApp: React.FC<{
   const autoOpenConversationRef = useRef<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   const hydrateConvIdRef = useRef<string | null>(null);
+  const selectionAnchorRef = useRef<ReturnType<typeof selectionAnchorFromConversationId>>(null);
+  const selectionRemapLockRef = useRef(false);
   const { sending: sendingMedia, sendFile: sendChatFile } = useSendChatMedia(sendMedia);
   /** Evita pedir a mesma foto várias vezes ao servidor (prefetch + chat aberto). */
   const pictureAttemptedRef = useRef<Set<string>>(new Set());
@@ -295,6 +302,12 @@ export const WaWebChatApp: React.FC<{
       return tb - ta;
     });
   }, [mergedConversations]);
+
+  /** Chave estável da lista — evita efeito de seleção a cada tick com mesmos ids. */
+  const inboxConversationIdsKey = useMemo(
+    () => sortedConversations.map((c) => c.id).join('\n'),
+    [sortedConversations]
+  );
 
   // Usa deferredContacts — não precisa recalcular nomes ao carregar cada batch de contatos.
   const displayById = useMemo(
@@ -449,16 +462,29 @@ export const WaWebChatApp: React.FC<{
   );
 
   useEffect(() => {
-    if (!selectedId) return;
-    const upgraded = upgradeStableConversationId(sortedConversations, selectedId);
-    if (upgraded) {
-      setSelectedId(upgraded);
+    if (!selectedId) {
+      selectionAnchorRef.current = null;
       return;
     }
-    if (sortedConversations.some((c) => c.id === selectedId)) return;
-    const stable = resolveStableConversationId(sortedConversations, selectedId);
-    if (stable && stable !== selectedId) setSelectedId(stable);
-  }, [selectedId, sortedConversations]);
+    const anchor = selectionAnchorFromConversationId(selectedId);
+    if (anchor) selectionAnchorRef.current = anchor;
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedId || selectionRemapLockRef.current) return;
+    const next = reconcileConversationSelection(
+      sortedConversations,
+      selectedId,
+      selectionAnchorRef.current
+    );
+    if (!next || next === selectedId) return;
+    selectionRemapLockRef.current = true;
+    selectedIdRef.current = next;
+    setSelectedId(next);
+    queueMicrotask(() => {
+      selectionRemapLockRef.current = false;
+    });
+  }, [selectedId, inboxConversationIdsKey]);
 
   const selectChat = useCallback(
     (id: string) => {

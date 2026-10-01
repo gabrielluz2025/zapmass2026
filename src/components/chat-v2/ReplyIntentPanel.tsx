@@ -70,7 +70,7 @@ export const ReplyIntentPanel: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  }, [conversation]);
+  }, [conversation.id, conversation.connectionId, conversation.messages]);
 
   useEffect(() => {
     if (open) {

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { collapseConversationsByPhone, resolveStableConversationId } from './collapseConversationsByPhone';
+import {
+  collapseConversationsByPhone,
+  compareConversationsForCanonicalId,
+  pickConversationIdForAnchor,
+  reconcileConversationSelection,
+  resolveStableConversationId,
+  selectionAnchorFromConversationId,
+} from './collapseConversationsByPhone';
 import { collapseConversationsByPhone as collapseFromJs } from './collapseConversationsByPhone.js';
 import { buildStrongPhoneMergeKeys } from './contactPhoneLookup';
 import type { Conversation } from '../types';
@@ -259,5 +266,99 @@ describe('collapseConversationsByPhone', () => {
       }
     ]);
     expect(out).toHaveLength(2);
+  });
+
+  it('id canônico do merge não alterna quando só lastMessageTimestamp oscila', () => {
+    const conn = 'conn_tick';
+    const phone = '5511999999999';
+    const base = (id: string, ts: number): Conversation => ({
+      id,
+      connectionId: conn,
+      contactPhone: phone,
+      contactName: 'Contato',
+      unreadCount: 0,
+      lastMessage: 'x',
+      lastMessageTime: '',
+      lastMessageTimestamp: ts,
+      messages: [],
+      tags: [],
+    });
+    const a = `${conn}:${phone}@host-a`;
+    const b = `${conn}:${phone}@host-b`;
+    const outLow = collapseConversationsByPhone([base(a, 100), base(b, 500)]);
+    const outHigh = collapseConversationsByPhone([base(a, 900), base(b, 100)]);
+    expect(outLow).toHaveLength(1);
+    expect(outHigh).toHaveLength(1);
+    expect(outLow[0].id).toBe(outHigh[0].id);
+    expect(outLow[0].id).toBe(a);
+  });
+
+  it('reconcileConversationSelection idempotente com lista oscilando @lid ↔ @s', () => {
+    const conn = 'conn_reconcile';
+    const phone = '554799127801';
+    const lidId = `${conn}:${phone}@lid`;
+    const phoneId = `${conn}:${phone}@s.whatsapp.net`;
+    const mk = (id: string): Conversation => ({
+      id,
+      connectionId: conn,
+      contactPhone: phone,
+      contactName: 'Contato',
+      unreadCount: 0,
+      lastMessage: 'oi',
+      lastMessageTime: '',
+      lastMessageTimestamp: 100,
+      messages: [],
+      tags: [],
+    });
+    const anchor = selectionAnchorFromConversationId(lidId)!;
+    const lidOnly = collapseConversationsByPhone([mk(lidId)]);
+    const merged = collapseConversationsByPhone([mk(lidId), mk(phoneId)]);
+
+    let selected = lidId;
+    const steps: string[] = [selected];
+    for (const list of [merged, lidOnly, merged, lidOnly, merged]) {
+      const next = reconcileConversationSelection(list, selected, anchor);
+      if (next) {
+        selected = next;
+        steps.push(selected);
+      }
+    }
+    expect(steps).toEqual([lidId, phoneId]);
+    expect(reconcileConversationSelection(merged, selected, anchor)).toBeNull();
+    expect(reconcileConversationSelection(lidOnly, selected, anchor)).toBeNull();
+  });
+
+  it('pickConversationIdForAnchor é determinístico entre JIDs do mesmo rank', () => {
+    const conn = 'c';
+    const phone = '5511888777666';
+    const list: Conversation[] = [
+      {
+        id: `${conn}:${phone}@zzz`,
+        connectionId: conn,
+        contactPhone: phone,
+        contactName: 'Z',
+        unreadCount: 0,
+        lastMessage: '',
+        lastMessageTime: '',
+        lastMessageTimestamp: 50,
+        messages: [],
+        tags: [],
+      },
+      {
+        id: `${conn}:${phone}@aaa`,
+        connectionId: conn,
+        contactPhone: phone,
+        contactName: 'A',
+        unreadCount: 0,
+        lastMessage: '',
+        lastMessageTime: '',
+        lastMessageTimestamp: 500,
+        messages: [],
+        tags: [],
+      },
+    ];
+    const anchor = { connectionId: conn, phoneDigits: phone };
+    expect(pickConversationIdForAnchor(list, anchor)).toBe(`${conn}:${phone}@aaa`);
+    expect(compareConversationsForCanonicalId(list[1], list[0])).toBeLessThan(0);
   });
 });

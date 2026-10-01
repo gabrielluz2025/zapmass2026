@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.261',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Bate-papo: fim do crash React #185 — id da thread estável no merge e seleção ancorada em chip+telefone',
+      },
+    ],
+  },
+  {
     version: '2.3.260',
     date: '01/10/2026',
     highlights: [

@@ -24,6 +24,61 @@ function newestActivityMs(conv) {
     const fromMsgN = typeof fromMsg === 'number' && Number.isFinite(fromMsg) ? fromMsg : 0;
     return Math.max(conv.lastMessageTimestamp ?? 0, fromMsgN);
 }
+/** Desempate estável — evita alternar id primário a cada tick (React #185). */
+export function compareConversationsForCanonicalId(a, b) {
+    const rankDiff = conversationIdRank(b.id) - conversationIdRank(a.id);
+    if (rankDiff !== 0)
+        return rankDiff;
+    return a.id.localeCompare(b.id);
+}
+export function selectionAnchorFromConversationId(conversationId) {
+    if (!conversationId)
+        return null;
+    if (conversationId.startsWith('draft:')) {
+        const digits = conversationId.slice('draft:'.length).replace(/\D/g, '');
+        return digits.length >= 8 ? { connectionId: '', phoneDigits: digits } : null;
+    }
+    const colon = conversationId.indexOf(':');
+    const connectionId = colon >= 0 ? conversationId.slice(0, colon) : '';
+    const tail = colon >= 0 ? conversationId.slice(colon + 1) : conversationId;
+    const phoneDigits = tail.split('@')[0]?.replace(/\D/g, '') || '';
+    return phoneDigits.length >= 8 ? { connectionId, phoneDigits } : null;
+}
+function conversationMatchesPhoneDigits(conv, phoneDigits) {
+    const cp = (conv.contactPhone || '').replace(/\D/g, '');
+    const cid = conv.id.includes(':') ? conv.id.slice(conv.id.indexOf(':') + 1) : conv.id;
+    const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
+    return cp === phoneDigits || jidD === phoneDigits;
+}
+export function pickConversationIdForAnchor(list, anchor) {
+    const matches = list.filter((c) => {
+        if (anchor.connectionId && (c.connectionId || '') !== anchor.connectionId)
+            return false;
+        return conversationMatchesPhoneDigits(c, anchor.phoneDigits);
+    });
+    if (matches.length === 0)
+        return null;
+    return [...matches].sort(compareConversationsForCanonicalId)[0]?.id ?? null;
+}
+export function reconcileConversationSelection(list, selectedId, anchor) {
+    if (!selectedId)
+        return null;
+    if (list.some((c) => c.id === selectedId))
+        return null;
+    const selectedRank = conversationIdRank(selectedId);
+    if (anchor) {
+        const picked = pickConversationIdForAnchor(list, anchor);
+        if (picked && picked !== selectedId) {
+            if (selectedRank > conversationIdRank(picked))
+                return null;
+            return picked;
+        }
+    }
+    const stable = resolveStableConversationId(list, selectedId);
+    if (stable && stable !== selectedId)
+        return stable;
+    return null;
+}
 /** Foto real do WhatsApp (não avatar gerado). Path estável — query string muda. */
 export function stableWhatsappPicKey(url) {
     const raw = String(url || '').trim();
@@ -102,12 +157,7 @@ export function mergeConversationsPair(a, b) {
     return mergeConversationCluster([a, b]);
 }
 function mergeConversationCluster(cluster) {
-    const sorted = [...cluster].sort((a, b) => {
-        const rankDiff = conversationIdRank(b.id) - conversationIdRank(a.id);
-        if (rankDiff !== 0)
-            return rankDiff;
-        return newestActivityMs(b) - newestActivityMs(a);
-    });
+    const sorted = [...cluster].sort(compareConversationsForCanonicalId);
     const primary = sorted[0];
     const msgById = new Map();
     let unread = 0;
@@ -268,12 +318,7 @@ export function resolveStableConversationId(list, selectedId) {
     });
     if (matches.length === 0)
         return null;
-    const sorted = [...matches].sort((a, b) => {
-        const rankDiff = conversationIdRank(b.id) - conversationIdRank(a.id);
-        if (rankDiff !== 0)
-            return rankDiff;
-        return newestActivityMs(b) - newestActivityMs(a);
-    });
+    const sorted = [...matches].sort(compareConversationsForCanonicalId);
     const best = sorted[0]?.id ?? null;
     if (!best)
         return null;
@@ -302,7 +347,7 @@ export function upgradeStableConversationId(list, selectedId) {
     });
     if (matches.length < 2)
         return null;
-    const sorted = [...matches].sort((a, b) => conversationIdRank(b.id) - conversationIdRank(a.id));
+    const sorted = [...matches].sort(compareConversationsForCanonicalId);
     const best = sorted[0]?.id ?? null;
     if (!best || best === selectedId || conversationIdRank(best) <= rank)
         return null;

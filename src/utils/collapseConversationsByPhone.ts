@@ -33,6 +33,80 @@ function newestActivityMs(conv: Conversation): number {
   return Math.max(conv.lastMessageTimestamp ?? 0, fromMsgN);
 }
 
+/**
+ * Escolha de id canônico da thread — só rank + id (nunca timestamp).
+ * Timestamps oscilam a cada `conversations-update` e alternavam o id primário → loop React #185.
+ */
+export function compareConversationsForCanonicalId(a: Conversation, b: Conversation): number {
+  const rankDiff = conversationIdRank(b.id) - conversationIdRank(a.id);
+  if (rankDiff !== 0) return rankDiff;
+  return a.id.localeCompare(b.id);
+}
+
+export type ConversationSelectionAnchor = {
+  connectionId: string;
+  phoneDigits: string;
+};
+
+/** Ancora seleção do Bate-papo ao chip + telefone, não ao JID bruto. */
+export function selectionAnchorFromConversationId(
+  conversationId: string
+): ConversationSelectionAnchor | null {
+  if (!conversationId) return null;
+  if (conversationId.startsWith('draft:')) {
+    const digits = conversationId.slice('draft:'.length).replace(/\D/g, '');
+    return digits.length >= 8 ? { connectionId: '', phoneDigits: digits } : null;
+  }
+  const colon = conversationId.indexOf(':');
+  const connectionId = colon >= 0 ? conversationId.slice(0, colon) : '';
+  const tail = colon >= 0 ? conversationId.slice(colon + 1) : conversationId;
+  const phoneDigits = tail.split('@')[0]?.replace(/\D/g, '') || '';
+  return phoneDigits.length >= 8 ? { connectionId, phoneDigits } : null;
+}
+
+function conversationMatchesPhoneDigits(conv: Conversation, phoneDigits: string): boolean {
+  const cp = (conv.contactPhone || '').replace(/\D/g, '');
+  const cid = conv.id.includes(':') ? conv.id.slice(conv.id.indexOf(':') + 1) : conv.id;
+  const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
+  return cp === phoneDigits || jidD === phoneDigits;
+}
+
+/** Melhor id da lista para a âncora (determinístico). */
+export function pickConversationIdForAnchor(
+  list: Conversation[],
+  anchor: ConversationSelectionAnchor
+): string | null {
+  const matches = list.filter((c) => {
+    if (anchor.connectionId && (c.connectionId || '') !== anchor.connectionId) return false;
+    return conversationMatchesPhoneDigits(c, anchor.phoneDigits);
+  });
+  if (matches.length === 0) return null;
+  return [...matches].sort(compareConversationsForCanonicalId)[0]?.id ?? null;
+}
+
+/**
+ * Remapeia seleção quando o id sumiu da lista — retorna null se não precisa mudar.
+ */
+export function reconcileConversationSelection(
+  list: Conversation[],
+  selectedId: string | null,
+  anchor: ConversationSelectionAnchor | null
+): string | null {
+  if (!selectedId) return null;
+  if (list.some((c) => c.id === selectedId)) return null;
+  const selectedRank = conversationIdRank(selectedId);
+  if (anchor) {
+    const picked = pickConversationIdForAnchor(list, anchor);
+    if (picked && picked !== selectedId) {
+      if (selectedRank > conversationIdRank(picked)) return null;
+      return picked;
+    }
+  }
+  const stable = resolveStableConversationId(list, selectedId);
+  if (stable && stable !== selectedId) return stable;
+  return null;
+}
+
 /** Foto real do WhatsApp (não avatar gerado). Path estável — query string muda. */
 export function stableWhatsappPicKey(url: string | undefined | null): string {
   const raw = String(url || '').trim();
@@ -103,11 +177,7 @@ export function mergeConversationsPair(a: Conversation, b: Conversation): Conver
 }
 
 function mergeConversationCluster(cluster: Conversation[]): Conversation {
-  const sorted = [...cluster].sort((a, b) => {
-    const rankDiff = conversationIdRank(b.id) - conversationIdRank(a.id);
-    if (rankDiff !== 0) return rankDiff;
-    return newestActivityMs(b) - newestActivityMs(a);
-  });
+  const sorted = [...cluster].sort(compareConversationsForCanonicalId);
   const primary = sorted[0];
   const msgById = new Map<string, ChatMessage>();
   let unread = 0;
@@ -284,11 +354,7 @@ export function resolveStableConversationId(
   });
   if (matches.length === 0) return null;
 
-  const sorted = [...matches].sort((a, b) => {
-    const rankDiff = conversationIdRank(b.id) - conversationIdRank(a.id);
-    if (rankDiff !== 0) return rankDiff;
-    return newestActivityMs(b) - newestActivityMs(a);
-  });
+  const sorted = [...matches].sort(compareConversationsForCanonicalId);
   const best = sorted[0]?.id ?? null;
   if (!best) return null;
   /** Inbox oscilando só @lid ↔ telefone: não rebaixar JID (causa loop React #185). */
@@ -316,9 +382,7 @@ export function upgradeStableConversationId(
     return ccp === lookupDigits || jidD === lookupDigits;
   });
   if (matches.length < 2) return null;
-  const sorted = [...matches].sort(
-    (a, b) => conversationIdRank(b.id) - conversationIdRank(a.id)
-  );
+  const sorted = [...matches].sort(compareConversationsForCanonicalId);
   const best = sorted[0]?.id ?? null;
   if (!best || best === selectedId || conversationIdRank(best) <= rank) return null;
   return best;

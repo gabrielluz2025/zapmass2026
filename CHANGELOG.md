@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.261] - 2026-10-01
+
+### Corrigido
+- **Bate-papo (React #185 — definitivo)**: id canônico do merge/de seleção deixa de alternar a cada tick do inbox (desempate por JID, não por timestamp); remapeamento ancorado em chip+telefone sem rebaixar JID nem `upgradeStable` em loop.
+
 ## [2.3.260] - 2026-10-01
 
 ### Melhorias
