@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.260',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Modo 100% VPS: script ensure-vps-only-mode, doc e indicador em Configurações',
+      },
+    ],
+  },
+  {
     version: '2.3.259',
     date: '01/10/2026',
     highlights: [

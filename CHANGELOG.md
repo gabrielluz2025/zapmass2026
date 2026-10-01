@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.260] - 2026-10-01
+
+### Melhorias
+- **Operação 100% VPS**: script `deployment/ensure-vps-only-mode.sh`, doc `docs/OPERACAO-100-VPS.md`, `/api/health` e `/api/version` expõem `vpsOnly`; Configurações mostra se auth+dados estão só na VPS.
+
 ## [2.3.259] - 2026-10-01
 
 ### Corrigido

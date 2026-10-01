@@ -233,6 +233,9 @@ export const SettingsTab: React.FC = () => {
   const [apiVersion, setApiVersion] = useState<{
     version: string;
     startedAt: string;
+    vpsOnly?: boolean;
+    authProvider?: string;
+    dataProvider?: string;
     err?: string;
   } | null>(null);
 
@@ -265,8 +268,22 @@ export const SettingsTab: React.FC = () => {
     setApiVersion(null);
     fetch(apiUrl('/api/version'))
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { version: string; startedAt: string }) => {
-        if (!cancelled) setApiVersion({ version: d.version, startedAt: d.startedAt });
+      .then((d: {
+        version: string;
+        startedAt: string;
+        vpsOnly?: boolean;
+        authProvider?: string;
+        dataProvider?: string;
+      }) => {
+        if (!cancelled) {
+          setApiVersion({
+            version: d.version,
+            startedAt: d.startedAt,
+            vpsOnly: d.vpsOnly,
+            authProvider: d.authProvider,
+            dataProvider: d.dataProvider,
+          });
+        }
       })
       .catch(() => {
         if (!cancelled) setApiVersion({ version: '—', startedAt: '—', err: 'Falha ao consultar a API' });
@@ -844,6 +861,24 @@ export const SettingsTab: React.FC = () => {
                           ? `${apiVersion.version} — arranque: ${new Date(apiVersion.startedAt).toLocaleString('pt-BR')}`
                           : 'A carregar…'}
                       </span>
+                    )}
+                  </p>
+                  <p style={{ color: 'var(--text-2)' }}>
+                    <span className="text-[10px] uppercase font-bold" style={{ color: 'var(--text-3)' }}>Infraestrutura</span>
+                    <br />
+                    {apiVersion?.vpsOnly ? (
+                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                        100% VPS — auth e dados no Postgres deste servidor
+                      </span>
+                    ) : apiVersion?.err ? (
+                      <span>—</span>
+                    ) : apiVersion ? (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        Modo misto ({apiVersion.authProvider || '?'} / {apiVersion.dataProvider || '?'}) — rode{' '}
+                        <code className="text-[10px]">ensure-vps-only-mode.sh</code> na VPS
+                      </span>
+                    ) : (
+                      <span>A carregar…</span>
                     )}
                   </p>
                 </div>

@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { getZapmassPool } from './db/postgres.js';
-import { vpsAuthEnabled } from './auth/authMode.js';
+import { vpsAuthEnabled, zapmassAuthProvider } from './auth/authMode.js';
+import { zapmassDataProvider } from './auth/dataMode.js';
 import {
   createUserWithPassword,
   findUserByEmail,
@@ -108,11 +109,14 @@ export function registerVpsAuthRoutes(app: Express): void {
   if (!vpsAuthEnabled()) return;
 
   app.get('/api/auth/config', (_req, res) => {
+    const authProvider = zapmassAuthProvider();
+    const dataProvider = zapmassDataProvider();
     res.json({
       ok: true,
-      authProvider: process.env.ZAPMASS_AUTH_PROVIDER || 'firebase',
-      dataProvider: process.env.ZAPMASS_DATA_PROVIDER || 'auto',
-      postgres: !!getZapmassPool()
+      authProvider,
+      dataProvider,
+      vpsOnly: authProvider === 'vps' && dataProvider === 'vps',
+      postgres: !!getZapmassPool(),
     });
   });
 

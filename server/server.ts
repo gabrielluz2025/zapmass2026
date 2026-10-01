@@ -100,8 +100,8 @@ import { registerVpsProfileRoutes } from './vpsProfileRoutes.js';
 import { registerVpsWorkspaceStaffRoutes } from './vpsWorkspaceStaffRoutes.js';
 import { runZapmassMigrations } from './db/migrate.js';
 import { resolveAuthPrincipal, getWorkspaceMembersForPrincipal } from './resolveAuth.js';
-import { vpsAuthEnabled, vpsAuthRequired } from './auth/authMode.js';
-import { vpsDataEnabled } from './auth/dataMode.js';
+import { vpsAuthEnabled, vpsAuthRequired, zapmassAuthProvider } from './auth/authMode.js';
+import { vpsDataEnabled, zapmassDataProvider } from './auth/dataMode.js';
 import { registerContactsDataRoutes } from './contactsRoutes.js';
 import { registerContactIdentityRoutes } from './contactIdentity/contactIdentityRoutes.js';
 import { registerConnectionPoolsRoutes } from './connectionPoolsRoutes.js';
@@ -484,11 +484,16 @@ app.get('/api/health', async (_req, res) => {
     getMercadoPagoHealthCached().catch(() => null),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500))
   ]);
+  const authProvider = zapmassAuthProvider();
+  const dataProvider = zapmassDataProvider();
   res.json({
     status: 'ok',
     serverTime: new Date(),
     version: getAppVersion(),
     environment: String(process.env.ZAPMASS_ENV || 'production').trim() || 'production',
+    authProvider,
+    dataProvider,
+    vpsOnly: authProvider === 'vps' && dataProvider === 'vps',
     mercadopagoConfigured: mp?.configured ?? false,
     mercadopagoCheckoutAvailable: mp?.valid ?? false,
     mercadopagoMode: mp?.mode ?? null,
@@ -753,11 +758,16 @@ app.get('/metrics', metricsAccessMiddleware, async (_req, res) => {
 
 app.get('/api/version', (req, res) => {
   const gitRef = (process.env.VITE_GIT_REF || process.env.GIT_REF || '').trim() || undefined;
+  const authProvider = zapmassAuthProvider();
+  const dataProvider = zapmassDataProvider();
   res.json({
     version: getAppVersion(),
     ...(gitRef ? { gitRef } : {}),
     startedAt: serverStartedAt.toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    authProvider,
+    dataProvider,
+    vpsOnly: authProvider === 'vps' && dataProvider === 'vps',
   });
 });
 
@@ -2612,8 +2622,23 @@ const startServer = async (port: number): Promise<boolean> => {
 
   // 0.0.0.0: acessível de fora do container e em IPv4 (evita bind só em :: em alguns ambientes).
   httpServer.listen(port, '0.0.0.0', () => {
+    const authProvider = zapmassAuthProvider();
+    const dataProvider = zapmassDataProvider();
+    const vpsOnly = authProvider === 'vps' && dataProvider === 'vps';
     console.log(`🚀 Servidor rodando na porta ${port}`);
     console.log(`📦 Versão ativa: ${getAppVersion()}`);
+    console.log(
+      `[Deploy] auth=${authProvider} data=${dataProvider}${vpsOnly ? ' (100% VPS)' : ' — preferir auth/data=vps na produção'}`
+    );
+    if (
+      String(process.env.ZAPMASS_ENFORCE_VPS_ONLY || '').trim() === '1' &&
+      !vpsOnly
+    ) {
+      console.error(
+        '[FATAL] ZAPMASS_ENFORCE_VPS_ONLY=1 mas ZAPMASS_AUTH_PROVIDER ou ZAPMASS_DATA_PROVIDER não são vps.'
+      );
+      process.exit(1);
+    }
     console.log(`[Socket.IO] buffer máximo: ${socketMaxHttpBufferMb}MB | keepAliveTimeout: ${httpServer.keepAliveTimeout}ms`);
     void (async () => {
       const envRedis = process.env.REDIS_URL?.trim();
