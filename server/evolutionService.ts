@@ -11497,6 +11497,24 @@ export async function startCampaign(
     };
     persistCampaignMediaPayload(cid, media);
     persistCampaignMediaPayload(campaignMediaStorageKey(cid, 1), followUpMedia);
+
+    campaignMediaReady(cid);
+    campaignMediaReady(campaignMediaStorageKey(cid, 1));
+    if (!media?.base64) {
+        const hydratedOpening = resolveStoredCampaignMedia(cid);
+        if (hydratedOpening?.base64) {
+            media = hydratedOpening;
+            persistCampaignMediaPayload(cid, media);
+        }
+    }
+    if (!followUpMedia?.base64) {
+        const hydratedFollowUp = resolveStoredCampaignMedia(campaignMediaStorageKey(cid, 1));
+        if (hydratedFollowUp?.base64) {
+            followUpMedia = hydratedFollowUp;
+            persistCampaignMediaPayload(campaignMediaStorageKey(cid, 1), followUpMedia);
+        }
+    }
+
     if (media?.base64 && !campaignOpeningMediaAvailable(cid)) {
         const mediaErr =
             'Anexo da campanha não foi gravado no servidor (disco). Verifique espaço em /app/data e dispare de novo.';

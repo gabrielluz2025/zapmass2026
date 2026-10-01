@@ -11,7 +11,7 @@ import {
   formatPoliteGreetingInvalidReply,
   getBrazilHour,
 } from '../shared/replyFlowMatch.js';
-import { applyMessageVars, findConfiguredOptOutReply, ReplyFlowEngine, sanitizeReplyFlowSteps } from './replyFlowEngine.js';
+import { applyMessageVars, findConfiguredOptOutReply, ReplyFlowEngine, resolveReplyFlowOptionOutbound, sanitizeReplyFlowSteps } from './replyFlowEngine.js';
 
 const matched = (cleanTok: string, body: string, mode?: Parameters<typeof matchReplyTriggerToken>[2]) =>
   matchReplyTriggerToken(cleanTok, body, mode).matched;
@@ -768,5 +768,79 @@ describe('Detecção e retribuição de saudações educadas', () => {
         { message: 'Segue a foto Ana', mediaStorageKey: 'camp1:reply-opt:abc' },
       ]);
     });
+  });
+
+  describe('resolveReplyFlowOptionOutbound', () => {
+    it('envia etapa 2 quando a resposta da opção repete a abertura', () => {
+      const opening = 'Olá! Digite QUERO para continuar.';
+      const step2 = 'Obrigado! Seguem os detalhes da campanha.';
+      const out = resolveReplyFlowOptionOutbound({
+        matchedOption: { tokens: ['quero'], reply: opening, marketingEffect: 'opt_in' },
+        gateStep: {
+          body: opening,
+          acceptAnyReply: false,
+          validTokens: [],
+          invalidReplyBody: '',
+          marketingEffect: 'none',
+          options: [{ tokens: ['quero'], reply: opening, marketingEffect: 'opt_in' }],
+        },
+        steps: [
+          {
+            body: opening,
+            acceptAnyReply: false,
+            validTokens: [],
+            invalidReplyBody: '',
+            marketingEffect: 'none',
+            options: [{ tokens: ['quero'], reply: opening, marketingEffect: 'opt_in' }],
+          },
+          {
+            body: step2,
+            acceptAnyReply: true,
+            validTokens: [],
+            invalidReplyBody: '',
+            marketingEffect: 'none',
+          },
+        ],
+        awaitingStepIndex: 0,
+        phoneDigits: '5548999999999',
+        vars: {},
+        campaignId: 'camp-abc',
+      });
+      expect(out.message).toBe(step2);
+      expect(out.mediaStorageKey).toBe('camp-abc:reply-step:1');
+      expect(out.disposeAfterSend).toBe(true);
+      expect(out.afterSend).toBeUndefined();
+    });
+  });
+
+  it('openSession não zera awaitingAfterStep se a sessão já existe', () => {
+    const engine = new ReplyFlowEngine({ enqueue: () => {} });
+    engine.registerDef('camp-x', [
+      {
+        body: 'Abertura',
+        acceptAnyReply: false,
+        validTokens: [],
+        invalidReplyBody: '',
+        marketingEffect: 'none',
+      },
+    ]);
+    engine.openSession({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      campaignId: 'camp-x',
+      vars: {},
+      toRaw: '5548999999999',
+    });
+    const sess = (engine as any).findSession('conn1', '5548999999999')?.session;
+    sess.awaitingAfterStep = 1;
+    engine.openSession({
+      connectionId: 'conn1',
+      phoneDigits: '5548999999999',
+      campaignId: 'camp-x',
+      vars: { nome: 'João' },
+      toRaw: '5548999999999',
+    });
+    expect(sess.awaitingAfterStep).toBe(1);
+    expect(sess.vars.nome).toBe('João');
   });
 });

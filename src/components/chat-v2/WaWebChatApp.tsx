@@ -13,7 +13,7 @@ import {
 import { useClientCrm } from '../chat/useClientCrm';
 import { useSendChatMedia } from './hooks/useSendChatMedia';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
-import { collapseConversationsByPhone } from '../../utils/collapseConversationsByPhone';
+import { collapseConversationsByPhone, resolveStableConversationId } from '../../utils/collapseConversationsByPhone';
 import { buildCanonicalConversationId } from '../../utils/conversationId';
 import { OPEN_CHAT_BY_CONVERSATION_ID_KEY } from '../../utils/openChatByConversationIdNav';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
@@ -447,17 +447,8 @@ export const WaWebChatApp: React.FC<{
 
   useEffect(() => {
     if (!selectedId) return;
-    if (sortedConversations.some((c) => c.id === selectedId)) return;
-    const tail = selectedId.includes(':') ? selectedId.slice(selectedId.indexOf(':') + 1) : selectedId;
-    const digits = tail.split('@')[0]?.replace(/\D/g, '') || '';
-    if (digits.length < 8) return;
-    const hit = sortedConversations.find((c) => {
-      const cp = (c.contactPhone || '').replace(/\D/g, '');
-      const cid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
-      const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
-      return cp === digits || jidD === digits;
-    });
-    if (hit && hit.id !== selectedId) setSelectedId(hit.id);
+    const stable = resolveStableConversationId(sortedConversations, selectedId);
+    if (stable && stable !== selectedId) setSelectedId(stable);
   }, [selectedId, sortedConversations]);
 
   const selectChat = useCallback(

@@ -82,6 +82,67 @@ export type ReplyFlowSession = {
 const POLITE_GREETING_COOLDOWN_MS = 45_000;
 const MAX_POLITE_GREETING_REPLIES = 2;
 
+function normalizeFlowTextForCompare(text: string): string {
+    return String(text || '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+}
+
+/**
+ * Define o texto/mídia após match de opção de menu.
+ * Se a resposta da opção repete a abertura (comum no wizard) e há etapa 2+, envia a próxima etapa com anexo.
+ */
+export function resolveReplyFlowOptionOutbound(params: {
+    matchedOption: ReplyFlowStepOption;
+    gateStep: ReplyFlowStepDef;
+    steps: ReplyFlowStepDef[];
+    awaitingStepIndex: number;
+    phoneDigits: string;
+    vars: Record<string, string>;
+    campaignId: string;
+}): {
+    message: string;
+    mediaStorageKey?: string;
+    disposeAfterSend: boolean;
+    afterSend?: { phoneDigits: string; newAwaitingAfterStep: number };
+} {
+    const { matchedOption, gateStep, steps, awaitingStepIndex, phoneDigits, vars, campaignId } =
+        params;
+    const openingComparable = normalizeFlowTextForCompare(
+        applyMessageVars(gateStep.body, phoneDigits, vars)
+    );
+    let replyBody = applyMessageVars(matchedOption.reply, phoneDigits, vars).trim();
+    let mediaKey = String(matchedOption.mediaStorageKey || '').trim();
+    const nextIdx = awaitingStepIndex + 1;
+    const nextStep = nextIdx < steps.length ? steps[nextIdx] : undefined;
+    const nextBody = nextStep ? applyMessageVars(nextStep.body, phoneDigits, vars).trim() : '';
+
+    const replyLooksLikeOpening =
+        !replyBody || normalizeFlowTextForCompare(replyBody) === openingComparable;
+
+    if (nextBody && replyLooksLikeOpening) {
+        replyBody = nextBody;
+        if (!mediaKey) {
+            mediaKey = campaignMediaStorageKey(campaignId, nextIdx);
+        }
+        const isLastStep = nextIdx >= steps.length - 1;
+        return {
+            message: replyBody,
+            mediaStorageKey: mediaKey || undefined,
+            disposeAfterSend: isLastStep,
+            afterSend: isLastStep ? undefined : { phoneDigits, newAwaitingAfterStep: nextIdx },
+        };
+    }
+
+    return {
+        message: replyBody,
+        mediaStorageKey: mediaKey || undefined,
+        disposeAfterSend: true,
+        afterSend: undefined,
+    };
+}
+
 export type ReplyFlowOutboundItem = {
     to: string;
     message: string;
@@ -443,6 +504,28 @@ export class ReplyFlowEngine {
         remoteJid?: string;
     }) {
         const sessKey = `${params.connectionId}:${params.phoneDigits}`;
+        const existing = this.sessions.get(sessKey);
+        if (existing && existing.campaignId === params.campaignId) {
+            if (params.ownerUid && !existing.ownerUid) existing.ownerUid = params.ownerUid;
+            if (params.vars && Object.keys(params.vars).length > 0) {
+                existing.vars = { ...existing.vars, ...params.vars };
+            }
+            if (params.toRaw) existing.toRaw = params.toRaw;
+            const aliasKeys = new Set<string>();
+            if (params.convKey) aliasKeys.add(params.convKey);
+            aliasKeys.add(`${params.connectionId}:${params.phoneDigits}`);
+            const jid = String(params.remoteJid || '').trim();
+            if (jid.includes('@')) aliasKeys.add(`${params.connectionId}:${jid}`);
+            else if (params.phoneDigits.length >= 8) {
+                aliasKeys.add(`${params.connectionId}:${params.phoneDigits}@s.whatsapp.net`);
+            }
+            for (const k of aliasKeys) {
+                this.convToCanonical.set(k, sessKey);
+            }
+            this.callbacks.onSessionSave?.(params.connectionId, params.phoneDigits, existing);
+            return;
+        }
+
         const session: ReplyFlowSession = {
             campaignId: params.campaignId,
             ownerUid: params.ownerUid,
@@ -1072,14 +1155,23 @@ export class ReplyFlowEngine {
                     matchedOptionIndex: matchMeta.optionIndex,
                     replyPreview: preview,
                 });
-                const replyBody = applyMessageVars(matchedOption.reply, phoneDigits, session.vars);
-                const optionMediaKey = String(matchedOption.mediaStorageKey || '').trim();
+                const outbound = resolveReplyFlowOptionOutbound({
+                    matchedOption,
+                    gateStep,
+                    steps,
+                    awaitingStepIndex: awaiting,
+                    phoneDigits,
+                    vars: session.vars,
+                    campaignId: session.campaignId,
+                });
+                const replyBody = outbound.message;
+                const optionMediaKey = outbound.mediaStorageKey || '';
                 session.invalidReplyCount = 0;
                 delete session.greetingReplyCount;
                 session.pendingOutbound = {
                     message: replyBody,
                     mediaStorageKey: optionMediaKey || undefined,
-                    disposeAfterSend: true,
+                    disposeAfterSend: outbound.disposeAfterSend,
                     enqueuedAt: Date.now(),
                 };
                 const sessionPhoneKey = key.startsWith(`${connectionId}:`)
@@ -1095,7 +1187,8 @@ export class ReplyFlowEngine {
                     campaignId: session.campaignId,
                     ownerUid: session.ownerUid,
                     mediaStorageKey: optionMediaKey || undefined,
-                    replyFlowDisposeAfterSend: true,
+                    replyFlowAfterSend: outbound.afterSend,
+                    replyFlowDisposeAfterSend: outbound.disposeAfterSend,
                 });
 
                 const optMe = matchedOption.marketingEffect || 'none';

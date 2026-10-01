@@ -262,3 +262,31 @@ export function collapseConversationsByPhone(list: Conversation[]): Conversation
     (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
   );
 }
+
+/** ID estável ao unir @lid + telefone — evita loop de setState no Bate-papo. */
+export function resolveStableConversationId(
+  list: Conversation[],
+  selectedId: string | null
+): string | null {
+  if (!selectedId) return null;
+  if (list.some((c) => c.id === selectedId)) return selectedId;
+
+  const tail = selectedId.includes(':') ? selectedId.slice(selectedId.indexOf(':') + 1) : selectedId;
+  const digits = tail.split('@')[0]?.replace(/\D/g, '') || '';
+  if (digits.length < 8) return null;
+
+  const matches = list.filter((c) => {
+    const cp = (c.contactPhone || '').replace(/\D/g, '');
+    const cid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
+    const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
+    return cp === digits || jidD === digits;
+  });
+  if (matches.length === 0) return null;
+
+  const sorted = [...matches].sort((a, b) => {
+    const rankDiff = conversationIdRank(b.id) - conversationIdRank(a.id);
+    if (rankDiff !== 0) return rankDiff;
+    return newestActivityMs(b) - newestActivityMs(a);
+  });
+  return sorted[0]?.id ?? null;
+}

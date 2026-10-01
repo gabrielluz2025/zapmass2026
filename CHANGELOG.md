@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.256] - 2026-10-01
+
+### Corrigido
+- **Fluxo «QUERO» repetia a abertura**: quando a resposta do menu era igual ao texto da etapa 1, o sistema passa a enviar a **etapa 2** (com foto da etapa 2 no anexo).
+- **Sessão do fluxo resetada**: reabrir sessão no mesmo contato/campanha não zera mais o passo aguardado (evita reprocessar abertura).
+- **Mídia da abertura no disparo**: `startCampaign` reidrata anexo do disco antes de enfileirar (restart/deploy sem perder imagem).
+- **Bate-papo (React #185)**: seleção de conversa usa ID canônico estável ao unir @lid + telefone.
+
 ## [2.3.255] - 2026-10-01
 
 ### Corrigido

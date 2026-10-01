@@ -1,4 +1,5 @@
 import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
+import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
 import {
   classifyReplyIntent,
@@ -14,6 +15,7 @@ import {
   applyMessageVars,
   parseReplyFlowDefFromCampaignDoc,
   sanitizeReplyFlowMeta,
+  resolveReplyFlowOptionOutbound,
   type ReplyFlowStepDef,
 } from './replyFlowEngine.js';
 import { findContactByPhoneKey, updateContact } from './repositories/contactsRepository.js';
@@ -285,6 +287,7 @@ export type ReplyFlowCatchUpEnqueueItem = {
   message: string;
   campaignId: string;
   ownerUid?: string;
+  mediaLookupKey?: string;
   replyFlowResponse: true;
   replyFlowDisposeAfterSend?: boolean;
   replyFlowAfterSend?: { phoneDigits: string; newAwaitingAfterStep: number };
@@ -295,6 +298,7 @@ type CatchUpPlan = {
   message: string;
   campaignId: string;
   ownerUid: string;
+  mediaStorageKey?: string;
   disposeAfterSend?: boolean;
   afterSend?: ReplyFlowCatchUpEnqueueItem['replyFlowAfterSend'];
 };
@@ -338,13 +342,25 @@ async function computeReplyFlowCatchUpPlan(params: {
   let outboundMessage = '';
   let disposeAfterSend = false;
   let afterSend: CatchUpPlan['afterSend'];
+  let mediaStorageKey: string | undefined;
 
   if (gate.options && gate.options.length > 0) {
     const best = findBestMatchingOption(gate.options, bodyText, gate.matchMode || 'word');
     if (best) {
       const opt = gate.options[best.optionIndex];
-      outboundMessage = String(opt?.reply || '').trim();
-      disposeAfterSend = true;
+      const optionOutbound = resolveReplyFlowOptionOutbound({
+        matchedOption: opt,
+        gateStep: gate,
+        steps,
+        awaitingStepIndex: 0,
+        phoneDigits: phone,
+        vars: {},
+        campaignId: resolved.campaignId,
+      });
+      outboundMessage = optionOutbound.message;
+      disposeAfterSend = optionOutbound.disposeAfterSend;
+      afterSend = optionOutbound.afterSend;
+      mediaStorageKey = optionOutbound.mediaStorageKey;
     } else if (gate.invalidReplyBody) {
       outboundMessage = gate.invalidReplyBody;
     }
@@ -353,6 +369,7 @@ async function computeReplyFlowCatchUpPlan(params: {
     if (nextIdx < steps.length) {
       outboundMessage = steps[nextIdx].body;
       afterSend = { phoneDigits: phone, newAwaitingAfterStep: nextIdx };
+      mediaStorageKey = campaignMediaStorageKey(resolved.campaignId, nextIdx);
     }
   } else if (gate.invalidReplyBody) {
     outboundMessage = gate.invalidReplyBody;
@@ -364,6 +381,7 @@ async function computeReplyFlowCatchUpPlan(params: {
     message: applyMessageVars(outboundMessage, phone, {}),
     campaignId: resolved.campaignId,
     ownerUid,
+    ...(mediaStorageKey ? { mediaStorageKey } : {}),
     ...(disposeAfterSend ? { disposeAfterSend: true } : {}),
     ...(afterSend ? { afterSend } : {}),
   };
@@ -391,6 +409,7 @@ export async function tryDeliverReplyFlowCatchUp(params: {
     message: plan.message,
     campaignId: plan.campaignId,
     ownerUid: plan.ownerUid,
+    mediaLookupKey: plan.mediaStorageKey,
     replyFlowResponse: true,
     skipFrequencyCap: true,
     ...(plan.disposeAfterSend ? { replyFlowDisposeAfterSend: true } : {}),

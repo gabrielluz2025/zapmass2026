@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { collapseConversationsByPhone } from './collapseConversationsByPhone';
+import { collapseConversationsByPhone, resolveStableConversationId } from './collapseConversationsByPhone';
 import { collapseConversationsByPhone as collapseFromJs } from './collapseConversationsByPhone.js';
 import { buildStrongPhoneMergeKeys } from './contactPhoneLookup';
 import type { Conversation } from '../types';
@@ -167,6 +167,39 @@ describe('collapseConversationsByPhone', () => {
       }
     ]);
     expect(out).toHaveLength(2);
+  });
+
+  it('resolveStableConversationId prefere JID com telefone real', () => {
+    const conn = 'conn_stable';
+    const list = collapseConversationsByPhone([
+      {
+        id: `${conn}:554799127801@lid`,
+        connectionId: conn,
+        contactPhone: '554799127801',
+        contactName: 'Contato',
+        unreadCount: 0,
+        lastMessage: 'a',
+        lastMessageTime: '',
+        lastMessageTimestamp: 100,
+        messages: [],
+        tags: [],
+      },
+      {
+        id: `${conn}:554799127801@s.whatsapp.net`,
+        connectionId: conn,
+        contactPhone: '554799127801',
+        contactName: 'Contato',
+        unreadCount: 0,
+        lastMessage: 'b',
+        lastMessageTime: '',
+        lastMessageTimestamp: 200,
+        messages: [],
+        tags: [],
+      },
+    ]);
+    expect(list).toHaveLength(1);
+    const stable = resolveStableConversationId(list, `${conn}:554799127801@lid`);
+    expect(stable).toBe(`${conn}:554799127801@s.whatsapp.net`);
   });
 
   it('chaves fortes nao incluem sufixo de 8 digitos', () => {

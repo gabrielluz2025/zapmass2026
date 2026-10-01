@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.256',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Fluxo QUERO avança para etapa 2 com mídia; sessão não reseta; anexo no disparo; Bate-papo sem crash #185',
+      },
+    ],
+  },
+  {
     version: '2.3.255',
     date: '01/10/2026',
     highlights: [
