@@ -26,7 +26,8 @@ import {
   Sparkles,
   MapPin,
   Bot,
-  Stethoscope
+  Stethoscope,
+  Layers
 } from 'lucide-react';
 import { useZapMassUiSnapshot } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
@@ -109,6 +110,12 @@ const navGroups: NavGroup[] = [
         label: 'Diagnóstico',
         icon: Stethoscope,
         description: 'Erros recentes e pacote para suporte'
+      },
+      {
+        id: 'dispatch-queue',
+        label: 'Fila de disparo',
+        icon: Layers,
+        description: 'Inspecionar e limpar fila BullMQ por chip e campanha'
       },
       { id: 'support-bot', label: 'Atendimento', icon: Bot, description: 'Bot automático e handoff humano' },
       { id: 'nurture-journey', label: 'Jornada', icon: BookOpen, description: 'Nutrição de leads quentes' }

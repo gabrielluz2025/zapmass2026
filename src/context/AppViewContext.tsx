@@ -35,7 +35,9 @@ const ALLOWED_VIEWS = new Set([
   'pastoral-visits',
   'ai-assistant',
   'support-bot',
-  'nurture-journey'
+  'nurture-journey',
+  'diagnostics',
+  'dispatch-queue'
 ]);
 
 const LAST_VIEW_KEY = 'zapmass.lastView';

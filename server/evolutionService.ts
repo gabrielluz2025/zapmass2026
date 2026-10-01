@@ -4650,8 +4650,18 @@ function evoInst(instanceName: string): string {
 const pausedCampaigns = new Set<string>();
 /** Disparo ativo fica na frente da fila. Pausa vai para o fim, senão 20 mil jobs parados impedem a campanha nova de sair. */
 const RUNNING_CAMPAIGN_JOB_PRIORITY = 10;
+/** Campanha marcada como prioritária na fila de disparo (tenant). */
+const BOOSTED_CAMPAIGN_JOB_PRIORITY = 3;
 const PAUSED_CAMPAIGN_JOB_PRIORITY = 1_000_000;
 const PAUSED_CAMPAIGN_HOLD_MS = 120_000;
+const campaignDispatchBoosted = new Set<string>();
+
+function campaignEnqueuePriority(campaignId?: string): number | undefined {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return undefined;
+    if (campaignDispatchBoosted.has(cid)) return BOOSTED_CAMPAIGN_JOB_PRIORITY;
+    return RUNNING_CAMPAIGN_JOB_PRIORITY;
+}
 /** Evita repetir o aviso de “segue no único chip online” a cada job. */
 const circuitBypassLoggedCampaigns = new Set<string>();
 
@@ -8342,9 +8352,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: {
                 priority:
                     item.replyFlowResponse || item.nurtureFollowUp
                         ? 1
-                        : item.campaignId
-                          ? RUNNING_CAMPAIGN_JOB_PRIORITY
-                          : undefined,
+                        : campaignEnqueuePriority(item.campaignId),
                 removeOnComplete: bullmqRemoveOnComplete(),
                 removeOnFail: bullmqRemoveOnFail(),
             });
@@ -8464,7 +8472,7 @@ async function enqueueCampaignItemsBulk(
                         item.replyFlowResponse || item.nurtureFollowUp
                             ? 1
                             : item.campaignId
-                              ? RUNNING_CAMPAIGN_JOB_PRIORITY
+                              ? campaignEnqueuePriority(item.campaignId)
                               : undefined,
                     removeOnComplete: bullmqRemoveOnComplete(),
                     removeOnFail: bullmqRemoveOnFail(),
@@ -14557,6 +14565,40 @@ async function tuneCampaignJobFairness(onlyCampaignId?: string): Promise<void> {
             parked,
         });
     }
+}
+
+/** Prioriza ou normaliza jobs de uma campanha na fila BullMQ (escopo tenant via rota). */
+export async function setCampaignDispatchPriorityBoost(
+    campaignId: string,
+    boosted: boolean,
+    _ownerUid?: string
+): Promise<number> {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return 0;
+    if (boosted) campaignDispatchBoosted.add(cid);
+    else campaignDispatchBoosted.delete(cid);
+
+    const target = boosted ? BOOSTED_CAMPAIGN_JOB_PRIORITY : RUNNING_CAMPAIGN_JOB_PRIORITY;
+    let updated = 0;
+    await forEachAllCampaignMassQueues(async (queue) => {
+        await forEachCampaignQueueJob(queue, async (job, state) => {
+            if (state === 'active') return;
+            const data = job.data as MessageQueueItem;
+            if (String(data?.campaignId || '').trim() !== cid) return;
+            if (data.replyFlowResponse || data.nurtureFollowUp) return;
+            const prio = pausedCampaigns.has(cid) ? PAUSED_CAMPAIGN_JOB_PRIORITY : target;
+            try {
+                await job.changePriority({ priority: prio });
+                updated += 1;
+            } catch {
+                /* job removido ou em transição */
+            }
+        });
+    });
+    if (boosted && !pausedCampaigns.has(cid)) {
+        void tuneCampaignJobFairness(cid);
+    }
+    return updated;
 }
 
 export function pauseCampaign(campaignId: string, ownerUid?: string) {

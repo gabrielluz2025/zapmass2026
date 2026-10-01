@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.268',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'feature',
+        text: 'Operações → Fila de disparo: ver/limpar fila por chip, campanha e etapa; priorizar campanha',
+      },
+      {
+        type: 'feature',
+        text: 'API tenant: /api/campaigns/queue/inspect, remove, clear-delayed e priority',
+      },
+    ],
+  },
+  {
     version: '2.3.267',
     date: '01/10/2026',
     highlights: [

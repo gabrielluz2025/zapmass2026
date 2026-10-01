@@ -5,6 +5,7 @@ import { AppShell } from './components/shell';
 import { ConnectionsTab } from './components/ConnectionsTab';
 import { ReportsTab } from './components/ReportsTab';
 import { DiagnosticsTab } from './components/DiagnosticsTab';
+import { DispatchQueueTab } from './components/operations/DispatchQueueTab';
 import { SettingsTab } from './components/SettingsTab';
 import { SupportBotSettingsPanel } from './components/settings/SupportBotSettingsPanel';
 import { NurtureJourneyPanel } from './components/nurture/NurtureJourneyPanel';
@@ -392,6 +393,8 @@ const MainLayout: React.FC = () => {
         return <ReportsTab />;
       case 'diagnostics':
         return <DiagnosticsTab />;
+      case 'dispatch-queue':
+        return <DispatchQueueTab />;
       case 'settings':
         return <SettingsTab />;
       case 'support-bot':

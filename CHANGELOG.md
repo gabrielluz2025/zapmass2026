@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.268] - 2026-10-01
+
+### Adicionado
+- **Operações → Fila de disparo**: inspeção da fila BullMQ por chip, campanha e etapa; limpar jobs (com confirmação), antecipar atrasados e priorizar campanha.
+- **API (JWT tenant)**: `GET /api/campaigns/queue/inspect`, `POST /api/campaigns/queue/remove`, `POST /api/campaigns/queue/clear-delayed`, `POST /api/campaigns/queue/priority`.
+
 ## [2.3.267] - 2026-10-01
 
 ### Corrigido

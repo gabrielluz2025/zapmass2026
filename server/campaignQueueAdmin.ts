@@ -103,7 +103,7 @@ export type CampaignQueuePurgeResult = {
   byState: CampaignQueueStateCounts;
 };
 
-function emptyStateCounts(): CampaignQueueStateCounts {
+export function emptyStateCounts(): CampaignQueueStateCounts {
   return { active: 0, waiting: 0, delayed: 0, paused: 0 };
 }
 
