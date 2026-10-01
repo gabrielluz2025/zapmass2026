@@ -6101,7 +6101,11 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
             ? 'COMPLETED'
             : (state.failCount || 0) > 0
               ? 'FAILED'
-              : 'COMPLETED';
+              : (state.skipCount || 0) > 0
+                ? 'COMPLETED'
+                : (state.total || 0) > 0
+                  ? 'FAILED'
+                  : 'COMPLETED';
 
             state.isRunning = false;
     releaseCampaignMediaFromMemory(campaignId);
@@ -6997,6 +7001,68 @@ async function applyProgressSeedToRuntime(campaignId: string, ownerUid?: string)
     if (state.total < state.processed) state.total = state.processed;
 }
 
+async function resolveRegisteredCampaignOwner(
+    campaignId: string,
+    hintOwnerUid?: string
+): Promise<string | null> {
+    const cid = String(campaignId || '').trim();
+    if (!cid || isCampaignDeletedByUser(cid)) return null;
+    const { getCampaignDoc, resolveCampaignTenantId } = await import('./repositories/campaignsRepository.js');
+    let owner = String(hintOwnerUid || '').trim();
+    if (!owner) owner = getCampaignOwnerUidForQueue(cid) || campaignsById.get(cid)?.ownerUid || '';
+    if (!owner) {
+        const resolved = await resolveCampaignTenantId(cid).catch(() => null);
+        if (resolved) owner = resolved;
+    }
+    if (!owner) return null;
+    const doc = await getCampaignDoc(owner, cid).catch(() => null);
+    return doc ? owner : null;
+}
+
+/** Jobs de campanha excluída ou sem cadastro não devem recriar runtime órfão na RAM. */
+async function ensureCampaignJobHasRegisteredDoc(
+    job: Job<MessageQueueItem>,
+    item: MessageQueueItem
+): Promise<boolean> {
+    const cid = String(item.campaignId || '').trim();
+    if (!cid || item.replyFlowResponse || item.nurtureFollowUp) return true;
+    if (isCampaignDeletedByUser(cid)) {
+        bumpQueueSize(item.connectionId, -1, item);
+        await job.remove().catch(() => undefined);
+        return false;
+    }
+    const owner = await resolveRegisteredCampaignOwner(
+        cid,
+        item.ownerUid || campaignsById.get(cid)?.ownerUid
+    );
+    if (owner) return true;
+    const fallbackOwner =
+        item.ownerUid ||
+        getCampaignOwnerUidForQueue(cid) ||
+        campaignsById.get(cid)?.ownerUid ||
+        '';
+    if (fallbackOwner) {
+        await haltRuntimeOrphanCampaign(fallbackOwner, cid, { reason: 'job-no-doc' });
+    } else {
+        markCampaignDeletedByUser(cid);
+        clearCampaignRuntimeMemory(cid);
+        await deleteCampaignRuntimeFromRedis(cid);
+        await purgeCampaignBullQueuesForId(cid, false).catch(() => undefined);
+    }
+    bumpQueueSize(item.connectionId, -1, item);
+    await job.remove().catch(() => undefined);
+    return false;
+}
+
+function resolveConnectionDailyLimitForTierGate(conn: EvolutionInstance): number {
+    const live = Math.max(0, Math.floor(Number(conn.dailyLimit) || 0));
+    const cached = Math.max(
+        0,
+        Math.floor(Number(connectionsSettingsCache[conn.instanceName]?.dailyLimit) || 0)
+    );
+    return Math.max(live, cached);
+}
+
 /**
  * Garante que campaignsById tem entrada para a campanha.
  * Se não estiver em RAM, tenta restaurar do Redis.
@@ -7014,15 +7080,25 @@ async function ensureCampaignRuntimeInMemory(campaignId: string, fallbackOwnerUi
         return;
     }
     const fromRedis = await loadCampaignRuntimeFromRedis(campaignId);
+    const ownerHint = fromRedis?.ownerUid || fallbackOwnerUid;
+    const registeredOwner = await resolveRegisteredCampaignOwner(campaignId, ownerHint);
+    if (!registeredOwner) {
+        markCampaignDeletedByUser(campaignId);
+        clearCampaignRuntimeMemory(campaignId);
+        await deleteCampaignRuntimeFromRedis(campaignId);
+        return;
+    }
     if (fromRedis) {
         campaignsById.set(campaignId, fromRedis);
         syncPausedCampaignFromRuntime(campaignId, fromRedis);
-        await applyProgressSeedToRuntime(campaignId, fromRedis.ownerUid || fallbackOwnerUid);
-        log('info', `[reconcile] Runtime da campanha ${campaignId} restaurado do Redis`, { ownerUid: fromRedis.ownerUid });
+        await applyProgressSeedToRuntime(campaignId, registeredOwner);
+        log('info', `[reconcile] Runtime da campanha ${campaignId} restaurado do Redis`, {
+            ownerUid: fromRedis.ownerUid,
+        });
         return;
     }
     // Fallback: cria entrada mínima com ownerUid do job
-    const uid = fallbackOwnerUid;
+    const uid = registeredOwner;
     if (uid) {
         const pending = campaignPendingJobs.get(campaignId) || 1;
         campaignsById.set(campaignId, {
@@ -9607,6 +9683,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         await closeCampaignJobWithoutRecount(job, item);
         return;
     }
+    if (!(await ensureCampaignJobHasRegisteredDoc(job, item))) {
+        return;
+    }
     if (item.campaignId && !campaignsById.has(item.campaignId)) {
         const fallback = item.ownerUid || item.replyFlowOpen?.ownerUid;
         await ensureCampaignRuntimeInMemory(item.campaignId, fallback);
@@ -9869,7 +9948,10 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             if (
                 isTierDailyCapReached(tierConn.messagesSentToday || 0, tierProfile) &&
                 !tierConn.limitExceededApproved &&
-                !userDailyLimitOverridesTierCap(tierConn.dailyLimit || 0, tierProfile.suggestedDailyCap)
+                !userDailyLimitOverridesTierCap(
+                    resolveConnectionDailyLimitForTierGate(tierConn),
+                    tierProfile.suggestedDailyCap
+                )
             ) {
                 // Tenta redirecionar para outro chip do pool com cota disponível antes de adiar.
                 const tierPoolId = await pickHealthyFailoverChannel(
@@ -13001,19 +13083,48 @@ async function reconcileRunningCampaignsFromPostgres(): Promise<void> {
 
 /** Restaura campaignPendingJobs E campaignsById para campanhas com jobs ativos no Redis. */
 async function reconcilePendingJobsFromRedis() {
-    const queue = getCampaignQueue();
-    if (!queue) return;
     try {
-        const { counts, ownerByCampaign: ownerByC } = await collectCampaignJobCountsFromQueue(queue);
-
-        for (const [cid, count] of counts) {
-            if (!campaignPendingJobs.has(cid)) {
-                campaignPendingJobs.set(cid, count);
-                log('info', `[reconcile] Campanha ${cid}: ${count} jobs pendentes restaurados.`);
+        const mergedCounts = new Map<string, number>();
+        const ownerByCampaign = new Map<string, string>();
+        await forEachAllCampaignMassQueues(async (queue) => {
+            const { counts, ownerByCampaign: owners } = await collectCampaignJobCountsFromQueue(queue);
+            for (const [cid, count] of counts) {
+                mergedCounts.set(cid, (mergedCounts.get(cid) || 0) + count);
+                const o = owners.get(cid);
+                if (o) ownerByCampaign.set(cid, o);
             }
-            // Restaura campaignsById para que finishCampaignJob emita campaign-finished corretamente.
+        });
+
+        for (const [cid, count] of mergedCounts) {
+            if (isCampaignDeletedByUser(cid)) {
+                const owner =
+                    ownerByCampaign.get(cid) ||
+                    campaignsById.get(cid)?.ownerUid ||
+                    '';
+                if (owner) {
+                    await haltRuntimeOrphanCampaign(owner, cid, { reason: 'reconcile-deleted-tombstone' });
+                }
+                continue;
+            }
+            const registeredOwner = await resolveRegisteredCampaignOwner(
+                cid,
+                ownerByCampaign.get(cid) || campaignsById.get(cid)?.ownerUid
+            );
+            if (!registeredOwner) {
+                const hint =
+                    ownerByCampaign.get(cid) ||
+                    campaignsById.get(cid)?.ownerUid ||
+                    '';
+                if (hint) {
+                    await haltRuntimeOrphanCampaign(hint, cid, { reason: 'reconcile-no-doc' });
+                }
+                continue;
+            }
+
+            campaignPendingJobs.set(cid, Math.max(count, campaignPendingJobs.get(cid) || 0));
+            log('info', `[reconcile] Campanha ${cid}: ${count} jobs pendentes restaurados.`);
             if (!campaignsById.has(cid)) {
-                await ensureCampaignRuntimeInMemory(cid, ownerByC.get(cid));
+                await ensureCampaignRuntimeInMemory(cid, registeredOwner);
             }
             const restored = campaignsById.get(cid);
             if (restored) {

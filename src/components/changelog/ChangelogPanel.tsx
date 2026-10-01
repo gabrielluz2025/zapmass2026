@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.279',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Runtime órfãs não voltam após limpar — jobs sem cadastro são removidos e boot reconcilia filas por chip',
+      },
+      {
+        type: 'fix',
+        text: 'Campanha 0 entregas deixa de ficar Concluída (Falhou + Retomar); meta do canal acima do tier libera disparo',
+      },
+    ],
+  },
+  {
     version: '2.3.278',
     date: '01/10/2026',
     highlights: [

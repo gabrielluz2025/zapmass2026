@@ -29,13 +29,21 @@ export function resolveCampaignTerminalStatus(params) {
         return CampaignStatus.COMPLETED;
     if (fail > 0)
         return CampaignStatus.FAILED;
-    return CampaignStatus.COMPLETED;
+    const skip = Math.max(0, Math.floor(Number(params.skipCount) || 0));
+    if (skip > 0)
+        return CampaignStatus.COMPLETED;
+    return CampaignStatus.FAILED;
 }
 /** Campanha marcada concluída no passado mas só com falhas — reclassifica para FAILED na UI. */
 export function reclassifyFalseCompletedCampaign(c) {
-    if (c.status === CampaignStatus.COMPLETED &&
-        (c.successCount ?? 0) === 0 &&
-        (c.failedCount ?? 0) > 0) {
+    if (c.status !== CampaignStatus.COMPLETED)
+        return c;
+    const ok = c.successCount ?? 0;
+    const fail = c.failedCount ?? 0;
+    if (ok === 0 && fail > 0)
+        return { ...c, status: CampaignStatus.FAILED };
+    const planned = getCampaignPlannedSendTotal(c);
+    if (ok === 0 && fail === 0 && planned > 0) {
         return { ...c, status: CampaignStatus.FAILED };
     }
     return c;

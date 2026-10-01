@@ -166,6 +166,12 @@ describe('healStuckCampaignStatus', () => {
     expect(resolveCampaignTerminalStatus({ successCount: 0, failCount: 2 })).toBe(
       CampaignStatus.FAILED
     );
+    expect(resolveCampaignTerminalStatus({ successCount: 0, failCount: 0 })).toBe(
+      CampaignStatus.FAILED
+    );
+    expect(
+      resolveCampaignTerminalStatus({ successCount: 0, failCount: 0, skipCount: 3 })
+    ).toBe(CampaignStatus.COMPLETED);
   });
 });
 

@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.279] - 2026-10-01
+
+### Corrigido
+- **Runtime órfãs que voltavam**: jobs Bull sem campanha no cadastro deixam de recriar motor na RAM; reconciliação no boot varre **todas** as filas por chip (não só a fila global).
+- **Concluída com 0 entregas**: status **Falhou** quando não houve envio nem skip; botão **Retomar** na lista.
+- **Cap tier vs meta do canal**: teto do tier respeita a meta gravada no canal (cache + live) — meta acima do tier Crítico (ex.: >20/dia) libera envio hoje.
+
 ## [2.3.278] - 2026-10-01
 
 ### Corrigido
