@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.275] - 2026-10-01
+
+### Corrigido
+- **Atendimento manual**: envio pelo **Bate-papo** ou **celular (WhatsApp)** pausa automaticamente campanha, fluxo por resposta e nutrição para aquele contato; jobs na fila são cancelados e novos disparos automáticos são bloqueados.
+- **Funil por etapa**: bolhas de resposta por opção do menu na prévia de cada etapa.
+
 ## [2.3.274] - 2026-10-01
 
 ### Corrigido

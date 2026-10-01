@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.275',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Envio manual (chat ou celular) pausa disparo automático, fluxo e nutrição para o contato',
+      },
+      {
+        type: 'fix',
+        text: 'Funil por etapa: bolhas WhatsApp com cada resposta do menu',
+      },
+    ],
+  },
+  {
     version: '2.3.274',
     date: '01/10/2026',
     highlights: [

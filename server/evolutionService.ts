@@ -278,6 +278,7 @@ import {
     evolutionTrackMessageAck,
     evolutionTrackMessageSent,
     evolutionTrackManualMessageSent,
+    isTrackedAutomatedCampaignOutboundMessageId,
     logCampaignContactReply,
     resolveLatestCampaignForReply,
     getCampaignGeoOwner,
@@ -3681,6 +3682,8 @@ export async function pauseContactAutomationsForHumanClaim(
     connectionId: string,
     phoneDigits: string
 ): Promise<{ jobsCancelled: number; replySessionClosed: boolean }> {
+    const { markHumanManualDispatchPaused } = await import('./humanManualDispatchPause.js');
+    await markHumanManualDispatchPaused(tenantUid, phoneDigits);
     ensureReplyFlowEngine();
     const replySessionClosed = replyFlowEngine!.disposeSessionForContact(connectionId, phoneDigits);
     const jobsCancelled = await cancelQueuedCampaignSendsForPhone(tenantUid, phoneDigits);
@@ -10157,6 +10160,18 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             await skipCampaignJobOnce(job, item);
             return;
         }
+        const { isHumanManualDispatchPaused } = await import('./humanManualDispatchPause.js');
+        if (await isHumanManualDispatchPaused(ownerUidForJob, item.to)) {
+            emitCampaignLog(
+                'WARN',
+                `Contato ${item.to} em atendimento manual — disparo automático cancelado para este número.`,
+                { campaignId: item.campaignId, to: item.to, skipReason: 'human_manual' },
+                campaignState?.ownerUid
+            );
+            bumpQueueSize(item.connectionId, -1, item);
+            await skipCampaignJobOnce(job, item);
+            return;
+        }
     }
 
     log('info', 'Tentando envio', {
@@ -13698,6 +13713,39 @@ export async function handleWebhook(event: any) {
                             evolutionTrackMessageAck(String(messageId), evolutionStatus);
                             chatStore.updateMessageStatus(String(messageId), evolutionStatus);
                         }
+
+                        const remoteJidFromMe = String(msg.key.remoteJid || '');
+                        if (
+                            remoteJidFromMe &&
+                            !remoteJidFromMe.endsWith('@g.us') &&
+                            !isTrackedAutomatedCampaignOutboundMessageId(String(messageId))
+                        ) {
+                            const phoneFromMe = resolvePhoneDigitsFromEvolutionMessage(
+                                msg,
+                                chatStore,
+                                instance
+                            );
+                            const ownerFromMe = messageOwnerUid || resolveOwnerUid(instance);
+                            if (phoneFromMe.length >= 8 && ownerFromMe) {
+                                const convFromMe = buildEvolutionIncomingConvId(
+                                    instance,
+                                    remoteJidFromMe,
+                                    phoneFromMe
+                                );
+                                void pauseContactAutomationsForHumanClaim(
+                                    ownerFromMe,
+                                    convFromMe,
+                                    instance,
+                                    phoneFromMe
+                                ).catch((e) => {
+                                    log('warn', 'Pausa automação após envio manual pelo celular', {
+                                        instance,
+                                        error: (e as Error)?.message,
+                                    });
+                                });
+                            }
+                        }
+
                     metrics.totalSent++;
                         const sentOwnerUid = messageOwnerUid || resolveOwnerUid(instance);
                         publishOwnerEvent(sentOwnerUid, 'campaign-progress', {
@@ -14658,6 +14706,14 @@ function recordManualOutboundSend(conversationId: string): void {
     });
     saveConnectionsSettings();
     const ownerUid = resolveOwnerUid(mapKey);
+    if (ownerUid && phoneDigits.length >= 8) {
+        void pauseContactAutomationsForHumanClaim(ownerUid, conversationId, mapKey, phoneDigits).catch((e) => {
+            log('warn', 'pauseContactAutomationsForHumanClaim após envio manual', {
+                conversationId,
+                error: (e as Error)?.message,
+            });
+        });
+    }
     if (ownerUid) {
         publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
     } else {

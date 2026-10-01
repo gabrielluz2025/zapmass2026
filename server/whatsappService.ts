@@ -2078,6 +2078,16 @@ const resolveCampaignAckMessageId = (incomingId: string): string | null => {
     return null;
 };
 
+/** Envio rastreado como campanha/nutrição/reply automático (não atendimento manual). */
+export function isTrackedAutomatedCampaignOutboundMessageId(messageId: string): boolean {
+    const resolved = resolveCampaignAckMessageId(String(messageId || '').trim());
+    if (!resolved) return false;
+    const meta = campaignMsgMeta.get(resolved);
+    const cid = meta?.campaignId;
+    if (!cid || cid === '__chat__') return false;
+    return true;
+}
+
 const registerCampaignAckAlias = (
     aliasId: string,
     canonicalId: string,
@@ -6397,11 +6407,18 @@ export const sendMessage = async (conversationId: string, text: string) => {
         emitConnectionsUpdate();
     }
     recordConnectionDispatch(connectionId);
+    const ownerUid = connInfo?.ownerUid;
+    const effectiveId = conv?.id || effectiveConversationId || conversationId;
+    if (ownerUid) {
+        void import('./evolutionService.js').then(({ pauseContactAutomationsForHumanClaim }) =>
+            pauseContactAutomationsForHumanClaim(ownerUid, effectiveId, connectionId, toPhoneKey(jid))
+        );
+    }
     evolutionTrackManualMessageSent(
         typeof msgId === 'string' ? msgId : undefined,
         connectionId,
         toPhoneKey(jid),
-        connInfo?.ownerUid
+        ownerUid
     );
 };
 
@@ -6488,11 +6505,23 @@ export const sendMedia = async (
         emitConnectionsUpdate();
     }
     recordConnectionDispatch(connectionId);
+    const mediaOwnerUid = connInfo?.ownerUid;
+    const mediaEffectiveId = conv?.id || effectiveConversationId || conversationId;
+    if (mediaOwnerUid) {
+        void import('./evolutionService.js').then(({ pauseContactAutomationsForHumanClaim }) =>
+            pauseContactAutomationsForHumanClaim(
+                mediaOwnerUid,
+                mediaEffectiveId,
+                connectionId,
+                toPhoneKey(jid)
+            )
+        );
+    }
     evolutionTrackManualMessageSent(
         typeof msgId === 'string' ? msgId : undefined,
         connectionId,
         toPhoneKey(jid),
-        connInfo?.ownerUid
+        mediaOwnerUid
     );
 };
 
