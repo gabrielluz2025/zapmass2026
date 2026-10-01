@@ -52,6 +52,10 @@ import {
   MAX_CHANNELS_TOTAL
 } from '../utils/connectionLimitPolicy';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
+import { apiUrl } from '../utils/apiBase';
+import {
+  CONNECTION_CHIP_QUEUE_TITLE,
+} from '../utils/campaignQueueMetricCopy';
 
 type FilterValue = 'ALL' | 'ONLINE' | 'OFFLINE' | 'PAIRING';
 type ViewMode = 'grid' | 'list';
@@ -158,6 +162,27 @@ export const ConnectionsTab: React.FC = () => {
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState<null | 'remove' | 'reconnect'>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const deferredSearch = useDeferredValue(searchTerm);
+  const queueSizesBootSyncRef = useRef(false);
+
+  useEffect(() => {
+    if (!user?.uid || queueSizesBootSyncRef.current) return;
+    queueSizesBootSyncRef.current = true;
+    void (async () => {
+      try {
+        const token = await user.getIdToken();
+        await fetch(apiUrl('/api/connections/sync-queue-sizes'), {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: '{}',
+        });
+      } catch {
+        /* sync leve — falha silenciosa */
+      }
+    })();
+  }, [user?.uid]);
 
   // --- persiste preferências (escopadas por workspace/uid) ---
   useEffect(() => {
@@ -656,7 +681,12 @@ export const ConnectionsTab: React.FC = () => {
           warn={counts.online === 0 && connections.length > 0}
         />
         <StatTile label="Disparos hoje" value={counts.totalSentToday.toLocaleString('pt-BR')} />
-        <StatTile label="Fila global" value={counts.totalQueue.toLocaleString('pt-BR')} warn={counts.totalQueue > 200} />
+        <StatTile
+          label="Fila global"
+          value={counts.totalQueue.toLocaleString('pt-BR')}
+          warn={counts.totalQueue > 200}
+          title={CONNECTION_CHIP_QUEUE_TITLE}
+        />
         <StatTile label="Saúde média" value={`${counts.avgHealth}%`} warn={counts.avgHealth < 50} />
       </div>
 

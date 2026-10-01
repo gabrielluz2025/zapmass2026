@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.273] - 2026-10-01
+
+### Corrigido
+- **Métricas fila vs campanha**: rótulos **Restantes** (contadores) vs **Fila** (jobs Bull no chip); `queueSize` só sobe na fila massa do chip (não na fila de reply); badge **slot** para `heldDispatchSize`; inspeção mostra jobs em chips mortos no total; banner reforçado quando chips online estão zerados; sync leve ao abrir Conexões (`POST /api/connections/sync-queue-sizes`).
+
 ## [2.3.272] - 2026-10-01
 
 ### Corrigido

@@ -23,6 +23,10 @@ import {
   Snowflake
 } from 'lucide-react';
 import { WhatsAppConnection, ConnectionStatus, WarmupChipStats } from '../types';
+import {
+  CONNECTION_CHIP_QUEUE_LABEL,
+  CONNECTION_CHIP_QUEUE_TITLE,
+} from '../utils/campaignQueueMetricCopy';
 import { buildChannelDispatchInsights } from '../utils/channelDispatchInsights';
 
 const formatUptime = (connectedSince?: number): string => {
@@ -211,8 +215,13 @@ export const ConnectionListRow: React.FC<ConnectionListRowProps> = ({
           />
           <MetricCell
             icon={<ListOrdered className="w-3 h-3" style={{ color: '#3b82f6' }} />}
-            label="Fila"
-            value={String(connection.queueSize)}
+            label={CONNECTION_CHIP_QUEUE_LABEL}
+            value={
+              (connection.heldDispatchSize ?? 0) > 0
+                ? `${connection.queueSize} (+${connection.heldDispatchSize} slot)`
+                : String(connection.queueSize)
+            }
+            title={CONNECTION_CHIP_QUEUE_TITLE}
             emphasis={connection.queueSize > 50 ? 'warning' : undefined}
           />
           <MetricCell
@@ -342,11 +351,12 @@ const MetricCell: React.FC<{
   label: string;
   value: string;
   emphasis?: 'warning' | 'danger';
-}> = ({ icon, label, value, emphasis }) => {
+  title?: string;
+}> = ({ icon, label, value, emphasis, title }) => {
   const color =
     emphasis === 'danger' ? '#ef4444' : emphasis === 'warning' ? '#f59e0b' : 'var(--text-1)';
   return (
-    <div className="min-w-[3.5rem]">
+    <div className="min-w-[3.5rem]" title={title}>
       <div className="flex items-center justify-center gap-1 mb-0.5">
         {icon}
         <span

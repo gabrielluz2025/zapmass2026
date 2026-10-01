@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.273',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Alinhar métricas: Restantes (contadores) vs Fila Bull no chip; heldDispatchSize; órfãs em chips mortos; bumpQueueSize só na fila massa',
+      },
+    ],
+  },
+  {
     version: '2.3.272',
     date: '01/10/2026',
     highlights: [

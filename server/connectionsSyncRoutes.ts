@@ -66,6 +66,25 @@ export function registerConnectionsSyncRoutes(app: Express): void {
     }
   });
 
+  app.post('/api/connections/sync-queue-sizes', async (req: Request, res: Response) => {
+    try {
+      const token = parseBearer(req);
+      if (!token) {
+        return res.status(401).json({ ok: false, error: 'Authorization: Bearer <token> obrigatório.' });
+      }
+      const principal = await resolveAuthPrincipal(token);
+      if (!principal) {
+        return res.status(401).json({ ok: false, error: 'Token inválido.' });
+      }
+      await evolutionService.refreshConnectionQueueSizesForOwner(principal.tenantUid);
+      return res.json({ ok: true });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error('[api/connections/sync-queue-sizes]', message);
+      return res.status(500).json({ ok: false, error: message });
+    }
+  });
+
   app.get('/api/connections/:id/qr', async (req: Request, res: Response) => {
     try {
       const token = parseBearer(req);

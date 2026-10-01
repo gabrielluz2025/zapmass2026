@@ -8,6 +8,10 @@ import { QrCanvas } from './QrCanvas';
 import { Sparkline } from './Sparkline';
 import { WhatsAppConnection, ConnectionStatus, WarmupChipStats } from '../types';
 import { buildChannelDispatchInsights, formatChannelSparkDay } from '../utils/channelDispatchInsights';
+import {
+  CONNECTION_CHIP_QUEUE_LABEL,
+  CONNECTION_CHIP_QUEUE_TITLE,
+} from '../utils/campaignQueueMetricCopy';
 
 const formatUptime = (connectedSince?: number): string => {
   if (!connectedSince) return '—';
@@ -744,14 +748,33 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
             </div>
 
             <div className="grid grid-cols-2 gap-2.5">
-              <div className="p-3 rounded-xl" style={{ background: 'var(--surface-2)' }}>
+              <div
+                className="p-3 rounded-xl"
+                style={{ background: 'var(--surface-2)' }}
+                title={
+                  (connection.heldDispatchSize ?? 0) > 0
+                    ? `${CONNECTION_CHIP_QUEUE_TITLE} Aguardando slot: ${connection.heldDispatchSize}.`
+                    : CONNECTION_CHIP_QUEUE_TITLE
+                }
+              >
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <ListOrdered className="w-3.5 h-3.5 text-blue-500" />
-                  <span className="text-[9px] font-black text-slate-400 uppercase">Fila</span>
+                  <span className="text-[9px] font-black text-slate-400 uppercase">
+                    {CONNECTION_CHIP_QUEUE_LABEL}
+                  </span>
+                  {(connection.heldDispatchSize ?? 0) > 0 ? (
+                    <span
+                      className="ml-auto text-[7px] font-black uppercase px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                      title="Envios da campanha aguardando slot de fila quente no chip"
+                    >
+                      slot {(connection.heldDispatchSize ?? 0).toLocaleString('pt-BR')}
+                    </span>
+                  ) : null}
                 </div>
                 <span className={`text-xl font-black tabular-nums ${connection.queueSize > 50 ? 'text-amber-500' : 'text-slate-900 dark:text-white'}`}>
                   {connection.queueSize}
                 </span>
+                <p className="text-[8px] text-slate-400 mt-0.5 leading-tight">jobs Bull neste chip</p>
               </div>
               <div className="p-3 rounded-xl" style={{ background: 'var(--surface-2)' }}>
                 <div className="flex items-center gap-1.5 mb-1.5">

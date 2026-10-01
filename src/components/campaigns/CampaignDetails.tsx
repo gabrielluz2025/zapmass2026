@@ -63,6 +63,10 @@ import {
   mergeCampaignMetricsWithReport
 } from '../../utils/campaignMetrics';
 import {
+  CAMPAIGN_REMAINING_CONTACTS_LABEL,
+  CAMPAIGN_REMAINING_CONTACTS_TITLE,
+} from '../../utils/campaignQueueMetricCopy';
+import {
   applyReplyHintsToReportRow,
   applyServerInboundReplyToRow,
   buildReplyHintsFromLogs,
@@ -1997,18 +2001,20 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 color: '#3b82f6'
               },
               {
-                label: isRunning ? 'ETA' : 'Pendentes',
+                label: isRunning ? 'ETA' : CAMPAIGN_REMAINING_CONTACTS_LABEL,
                 value: isRunning && etaSec > 0 ? formatDuration(etaSec) : remaining.toLocaleString('pt-BR'),
                 hint: isRunning && etaSec > 0
                   ? `~${new Date(Date.now() + etaSec * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
-                  : remaining > 0 ? 'aguardando' : 'concluído',
-                color: '#f59e0b'
+                  : remaining > 0 ? 'aguardando envio' : 'concluído',
+                color: '#f59e0b',
+                title: remaining > 0 && !isRunning ? CAMPAIGN_REMAINING_CONTACTS_TITLE : undefined,
               }
             ].map((s) => (
               <div
                 key={s.label}
                 className="rounded-xl px-3 py-2.5"
                 style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                title={'title' in s ? (s as { title?: string }).title : undefined}
               >
                 <div className="text-[10px] font-bold uppercase tracking-[0.12em] mb-0.5" style={{ color: 'var(--text-3)' }}>
                   {s.label}
@@ -2055,20 +2061,26 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
             filter: 'FAILED' as ReportFilter
           },
           {
-            label: remaining > 0 ? 'Pendentes' : isWaitingForReplies ? 'Aguardando' : 'Pendentes',
+            label:
+              remaining > 0
+                ? CAMPAIGN_REMAINING_CONTACTS_LABEL
+                : isWaitingForReplies
+                  ? 'Aguardando'
+                  : CAMPAIGN_REMAINING_CONTACTS_LABEL,
             value: pendingKpi.toLocaleString('pt-BR'),
             helper:
               remaining > 0
                 ? isRunning
-                  ? `fila ativa${etaSec > 0 ? ` · ~${formatDuration(etaSec)}` : ''}`
-                  : 'ainda na fila'
+                  ? `contadores · fila Bull separada${etaSec > 0 ? ` · ~${formatDuration(etaSec)}` : ''}`
+                  : 'contadores da campanha (≠ jobs Bull)'
                 : isWaitingForReplies
                   ? 'resposta do contato'
                   : isRunning
                     ? `fila ativa${etaSec > 0 ? ` · ~${formatDuration(etaSec)}` : ''}`
                     : 'concluído',
             color: '#f59e0b',
-            filter: 'PENDING' as ReportFilter
+            filter: 'PENDING' as ReportFilter,
+            title: remaining > 0 ? CAMPAIGN_REMAINING_CONTACTS_TITLE : undefined,
           }
         ].map((kpi) => (
         <KpiPill
@@ -2077,6 +2089,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
             value={kpi.value}
             helper={kpi.helper}
             color={kpi.color}
+            title={kpi.title}
             onClick={() => handleFilterClick(kpi.filter)}
           />
         ))}
@@ -3080,11 +3093,13 @@ interface KpiPillProps {
   helper?: React.ReactNode;
   color: string;
   onClick?: () => void;
+  title?: string;
 }
 
-const KpiPill: React.FC<KpiPillProps> = ({ label, value, helper, color, onClick }) => (
+const KpiPill: React.FC<KpiPillProps> = ({ label, value, helper, color, onClick, title }) => (
   <button
     onClick={onClick}
+    title={title}
     className="text-left rounded-2xl p-4 transition-all hover:scale-[1.015] active:scale-[0.985] relative overflow-hidden group"
     style={{
       background: 'var(--surface-0)',

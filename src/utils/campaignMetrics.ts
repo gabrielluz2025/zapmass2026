@@ -62,7 +62,7 @@ export function getCampaignProgressMetrics(campaign: Campaign) {
     // para evitar exibir "X Pendentes" em campanhas já encerradas.
     effectiveProcessed = plannedSendTotal;
   }
-  // Pendentes = 0 para campanhas COMPLETED (forçado pela igualação acima)
+  // Restantes = 0 para campanhas COMPLETED (forçado pela igualação acima)
   const pending = Math.max(0, plannedSendTotal - effectiveProcessed);
   ok = Math.min(ok, plannedSendTotal, effectiveProcessed);
   fail = Math.min(fail, Math.max(0, effectiveProcessed - ok));

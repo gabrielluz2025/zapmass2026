@@ -26,6 +26,18 @@ const baseCampaign = (patch: Partial<Campaign> = {}): Campaign => ({
   ...patch
 });
 
+import {
+  CAMPAIGN_REMAINING_CONTACTS_LABEL,
+  CAMPAIGN_REMAINING_CONTACTS_TITLE,
+} from './campaignQueueMetricCopy';
+
+describe('rótulos de métricas de campanha', () => {
+  it('usa Restantes com tooltip que distingue contadores de fila Bull', () => {
+    expect(CAMPAIGN_REMAINING_CONTACTS_LABEL).toBe('Restantes');
+    expect(CAMPAIGN_REMAINING_CONTACTS_TITLE).toMatch(/Bull/i);
+  });
+});
+
 describe('campaignMetrics — fluxo conversacional', () => {
   it('planeja 1 envio por contato quando reply flow tem 2+ etapas', () => {
     const c = baseCampaign({

@@ -20,6 +20,10 @@ import {
 import toast from 'react-hot-toast';
 import { Campaign, CampaignStatus } from '../../types';
 import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
+import {
+  CAMPAIGN_REMAINING_CONTACTS_LABEL,
+  CAMPAIGN_REMAINING_CONTACTS_TITLE,
+} from '../../utils/campaignQueueMetricCopy';
 import { appendAudit } from '../../utils/campaignMissionStorage';
 import { Badge, Button, Card, EmptyState, Input, Modal, Tabs } from '../ui';
 import { Sparkline, fmtInt } from './CampaignVisuals';
@@ -981,7 +985,12 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
       >
         <Metric label="Entregues" value={fmtInt(campaign.successCount)} tone="#059669" />
         <Metric label="Falhas" value={fmtInt(campaign.failedCount)} tone="#dc2626" />
-        <Metric label="Pendentes" value={fmtInt(pending)} tone="#6b7280" />
+        <Metric
+          label={CAMPAIGN_REMAINING_CONTACTS_LABEL}
+          value={fmtInt(pending)}
+          tone="#6b7280"
+          title={CAMPAIGN_REMAINING_CONTACTS_TITLE}
+        />
         <Metric label="Sucesso" value={`${rate}%`} tone={rate >= 85 ? '#059669' : rate >= 60 ? '#d97706' : '#dc2626'} />
       </div>
 
@@ -1052,9 +1061,9 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
   );
 });
 
-const Metric: React.FC<{ label: string; value: string; tone: string }> = memo(function MetricInner({ label, value, tone }) {
+const Metric: React.FC<{ label: string; value: string; tone: string; title?: string }> = memo(function MetricInner({ label, value, tone, title }) {
   return (
-  <div className="rounded-md px-1.5 py-1 text-center" style={{ background: 'var(--surface-0)' }}>
+  <div className="rounded-md px-1.5 py-1 text-center" style={{ background: 'var(--surface-0)' }} title={title}>
     <p className="text-[13px] font-black tabular-nums leading-none" style={{ color: tone }}>
       {value}
     </p>

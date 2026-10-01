@@ -64,6 +64,7 @@ import {
     isUnrecoverableCampaignOutboundError,
     isPhantomCampaignJobFailure,
 } from '../shared/campaignOutboundErrorKind.js';
+import { shouldCountJobOnConnectionMassQueue } from '../shared/campaignConnectionQueue.js';
 import {
     isRecoverableMediaDeliveryError,
     shouldSkipChipFailoverForMediaError,
@@ -3845,6 +3846,16 @@ export async function syncConnectionQueueSizesFromRedis(): Promise<void> {
     connectionQueueSizesSyncedAt = Date.now();
 }
 
+/** Sync Bull → contador "Fila" e propaga `connections-update` ao tenant (leve, ex.: abrir aba Conexões). */
+export async function refreshConnectionQueueSizesForOwner(ownerUid: string): Promise<void> {
+    await syncConnectionQueueSizesFromRedis();
+    const payload = filterByConnectionScope(ownerUid, getConnections());
+    publishOwnerEvent(ownerUid, 'connections-update', payload);
+    if (io) {
+        io.to(`user:${ownerUid}`).emit('connections-update', payload);
+    }
+}
+
 function scheduleConnectionQueueSizeSync(): void {
     if (connectionQueueSizeSyncInFlight) return;
     if (Date.now() - connectionQueueSizesSyncedAt < CONNECTION_QUEUE_SYNC_MS) return;
@@ -5766,6 +5777,9 @@ async function applyProxyToInstance(instanceName: string, proxy?: ConnectionProx
 }
 
 function bumpQueueSize(connectionId: string, delta: number, item?: MessageQueueItem) {
+    if (item && !shouldCountJobOnConnectionMassQueue(item)) {
+        return;
+    }
     const next = Math.max(0, (connectionQueueSizes.get(connectionId) || 0) + delta);
     if (next === 0) connectionQueueSizes.delete(connectionId);
     else connectionQueueSizes.set(connectionId, next);
@@ -8456,7 +8470,11 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: {
         throw new Error('Sistema sob backpressure — tente novamente em instantes.');
     }
 
-    bumpQueueSize(item.connectionId, 1);
+    const targetQueueKind =
+        item.replyFlowResponse || item.nurtureFollowUp ? ('reply' as const) : ('mass' as const);
+    if (targetQueueKind === 'mass') {
+        bumpQueueSize(item.connectionId, 1, item);
+    }
     if (opts?.countPending !== false && item.campaignId) {
         campaignPendingJobs.set(item.campaignId, (campaignPendingJobs.get(item.campaignId) || 0) + 1);
     }
@@ -8467,7 +8485,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: {
     try {
         await withCampaignBullmqReconnect(async () => {
             const targetQueue =
-                item.replyFlowResponse || item.nurtureFollowUp
+                targetQueueKind === 'reply'
                     ? getReplyQueue()
                     : resolveCampaignMassQueue(item.connectionId);
             if (!targetQueue) {
@@ -8573,7 +8591,9 @@ async function enqueueCampaignItemsBulk(
                 await parkHeldCampaignSends(item.campaignId, [item]);
                 continue;
             }
-            bumpQueueSize(item.connectionId, 1);
+            if (shouldCountJobOnConnectionMassQueue(item)) {
+                bumpQueueSize(item.connectionId, 1, item);
+            }
             if (item.campaignId) {
                 campaignPendingJobs.set(item.campaignId, (campaignPendingJobs.get(item.campaignId) || 0) + 1);
             }

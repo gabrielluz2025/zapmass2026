@@ -14,6 +14,8 @@ import {
   runtimeCampaignConfirmShortId,
 } from '../../../shared/campaignQueueTenantHelpers';
 import { useZapMassCore } from '../../context/ZapMassContext';
+import { ConnectionStatus } from '../../types';
+import { DISPATCH_QUEUE_TAB_INTRO } from '../../utils/campaignQueueMetricCopy';
 import {
   apiInspectDispatchQueue,
   apiPromoteDelayedQueue,
@@ -184,6 +186,14 @@ export const DispatchQueueTab: React.FC = () => {
     [runtimeCampaigns]
   );
 
+  const deadJobsOrphanHighlight = useMemo(() => {
+    if (deadChannelJobs <= 0) return false;
+    const online = connections.filter((c) => c.status === ConnectionStatus.CONNECTED);
+    if (online.length === 0) return false;
+    const jobsByChip = new Map(channelSummaries.map((s) => [s.connectionId, s.jobs]));
+    return online.some((c) => (jobsByChip.get(c.id) ?? 0) === 0);
+  }, [deadChannelJobs, connections, channelSummaries]);
+
   const runPurgeRuntimeOrphans = async () => {
     const confirmPhrase = buildQueueRemoveConfirmPhrase('runtime-orphans');
     const preview = await apiPurgeRuntimeOrphans({ dryRun: true });
@@ -313,8 +323,8 @@ export const DispatchQueueTab: React.FC = () => {
             Fila de disparo
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-xl">
-            Inspeção lista só jobs em chips da sua conta (online). Campanhas runtime órfãs podem
-            ter pend. mem. e fila em chips mortos — use parar runtime ou limpar chips mortos.
+            {DISPATCH_QUEUE_TAB_INTRO} Campanhas runtime órfãs podem ter pend. mem. e fila em chips
+            mortos — use parar runtime ou limpar chips mortos.
           </p>
         </div>
         <Button variant="secondary" onClick={() => void load()} disabled={loading}>
@@ -360,17 +370,37 @@ export const DispatchQueueTab: React.FC = () => {
             aguard. {totals.byState.waiting} · atras. {totals.byState.delayed} · ativos{' '}
             {totals.byState.active}
           </span>
+          {!loading && deadChannelJobs > 0 && (
+            <span className="block text-[11px] text-red-600 dark:text-red-400 font-semibold mt-0.5">
+              Em chips mortos: {deadChannelJobs.toLocaleString('pt-BR')} (não listados)
+            </span>
+          )}
         </p>
       </div>
 
       {!loading && deadChannelJobs > 0 && (
-        <div className="rounded-2xl border border-red-200/80 bg-red-50/60 dark:bg-red-950/25 dark:border-red-800/50 p-4 flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
+        <div
+          className={`rounded-2xl border p-4 flex flex-col sm:flex-row gap-3 sm:items-center justify-between ${
+            deadJobsOrphanHighlight
+              ? 'border-red-500 bg-red-100/80 dark:bg-red-950/50 dark:border-red-600 ring-2 ring-red-400/40 shadow-lg shadow-red-500/10'
+              : 'border-red-200/80 bg-red-50/60 dark:bg-red-950/25 dark:border-red-800/50'
+          }`}
+        >
           <div className="flex gap-3 text-sm text-red-900 dark:text-red-100">
-            <AlertTriangle className="w-5 h-5 shrink-0" />
-            <p>
-              <strong>{deadChannelJobs.toLocaleString('pt-BR')}</strong> job(s) apontam para chips
-              offline ou removidos da conta — não saem sozinhos. Limpe ou reconecte o chip.
-            </p>
+            <AlertTriangle className={`w-5 h-5 shrink-0 ${deadJobsOrphanHighlight ? 'animate-pulse' : ''}`} />
+            <div>
+              <p className="font-bold">
+                {deadJobsOrphanHighlight
+                  ? 'Jobs órfãos em chips mortos — seus chips online estão com fila zerada'
+                  : 'Jobs em chips offline ou removidos'}
+              </p>
+              <p className="mt-1">
+                <strong>{deadChannelJobs.toLocaleString('pt-BR')}</strong> job(s) não saem sozinhos.
+                {deadJobsOrphanHighlight
+                  ? ' Limpe os chips mortos para alinhar totais e cards de conexão.'
+                  : ' Limpe ou reconecte o chip.'}
+              </p>
+            </div>
           </div>
           <Button variant="danger" disabled={busyKey != null} onClick={() => void runPurgeDeadChannels()}>
             <Trash2 className="w-4 h-4" />
