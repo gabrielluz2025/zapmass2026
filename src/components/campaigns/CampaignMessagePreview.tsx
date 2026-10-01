@@ -1,18 +1,21 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowDown, Check, CheckCheck, Copy, MessageSquare, Reply } from 'lucide-react';
+import { ArrowDown, Copy, MessageSquare, Reply } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Campaign } from '../../types';
+import {
+  CampaignFlowPreviewWaIn,
+  CampaignFlowPreviewWaOut
+} from './CampaignFlowPreviewWaBubble';
+import {
+  buildReplyFlowPreviewSequence,
+  type ReplyFlowPreviewItem
+} from '../../utils/campaignReplyFlowPreviewSequence';
 
 interface CampaignMessagePreviewProps {
   campaign: Campaign;
 }
 
-type SeqItem = {
-  text: string;
-  kind: 'out' | 'gate' | 'in';
-  meta?: string;
-  stepLabel?: string;
-};
+type SeqItem = ReplyFlowPreviewItem;
 
 export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ campaign }) => {
   const initial = campaign.message || '';
@@ -22,50 +25,7 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
 
   const sequence = useMemo<SeqItem[]>(() => {
     if (isReplyFlow) {
-      const out: SeqItem[] = [];
-      flowSteps.forEach((step, idx) => {
-        out.push({
-          text: step.body,
-          kind: 'out',
-          stepLabel: `Etapa ${idx + 1}`,
-          meta: idx === 0 ? 'Enviada ao iniciar' : 'Enviada após resposta'
-        });
-
-        const menuOptions = Array.isArray((step as any).options) ? (step as any).options as Array<{ tokens?: string[]; reply?: string }> : [];
-
-        if (menuOptions.length > 0) {
-          // Modo menu: mostra cada opção como ramo "in" + "out"
-          menuOptions.forEach((opt, oIdx) => {
-            const trigger = (opt.tokens || []).join(' / ') || String(oIdx + 1);
-            out.push({
-              text: trigger,
-              kind: 'in',
-              meta: `Opção ${oIdx + 1}`
-            });
-            if ((opt.reply || '').trim()) {
-              out.push({
-                text: opt.reply!.trim(),
-                kind: 'out',
-                stepLabel: `Resposta ${oIdx + 1}`,
-                meta: 'Enviada após escolha'
-              });
-            }
-          });
-          if (idx < flowSteps.length - 1) {
-            out.push({ text: '', kind: 'gate', meta: 'Continua após próxima resposta' });
-          }
-        } else if (idx < flowSteps.length - 1) {
-          const gate = step.acceptAnyReply
-            ? 'qualquer resposta'
-            : (step.validTokens || []).join(' / ') || 'resposta válida';
-          out.push({
-            text: '',
-            kind: 'gate',
-            meta: `Aguardando: ${gate}`
-          });
-        }
-      });
-      return out;
+      return buildReplyFlowPreviewSequence(flowSteps);
     }
 
     const out: SeqItem[] = [];
@@ -172,7 +132,7 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
       </div>
 
       <div
-        className="rounded-xl p-3 space-y-2 relative overflow-y-auto flex-1"
+        className="rounded-xl p-3 flex flex-col gap-2 relative overflow-y-auto flex-1"
         style={{
           background: 'linear-gradient(180deg, #0b141a 0%, #111b21 100%)',
           minHeight: 160,
@@ -205,69 +165,18 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
               );
             }
 
-            // Bolha "in" = resposta do contato (opção escolhida)
             if (s.kind === 'in') {
-              return (
-                <div key={idx} className="space-y-0.5">
-                  {s.meta && (
-                    <div className="flex justify-start pl-1">
-                      <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'rgba(255,255,255,0.35)' }}>
-                        {s.meta}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex justify-start">
-                    <div
-                      className="max-w-[75%] px-3 py-1.5 rounded-2xl rounded-bl-sm text-[12.5px] font-semibold"
-                      style={{
-                        background: 'rgba(255,255,255,0.1)',
-                        color: '#e9edef',
-                        border: '1px solid rgba(255,255,255,0.12)'
-                      }}
-                    >
-                      {s.text}
-                    </div>
-                  </div>
-                </div>
-              );
+              return <CampaignFlowPreviewWaIn key={idx} text={s.text} meta={s.meta} />;
             }
 
             return (
-              <div key={idx} className="space-y-1">
-                {s.stepLabel && (
-                  <div className="flex justify-center">
-                    <span
-                      className="text-[9.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full"
-                      style={{
-                        background: 'rgba(255,255,255,0.08)',
-                        color: 'rgba(255,255,255,0.65)'
-                      }}
-                    >
-                      {s.stepLabel}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-end">
-                  <div
-                    className="max-w-[88%] px-3 py-2 rounded-2xl rounded-br-sm text-[12.5px] whitespace-pre-wrap leading-relaxed"
-                    style={{
-                      background: '#005c4b',
-                      color: '#e9edef',
-                      boxShadow: '0 1px 1px rgba(0,0,0,0.12)'
-                    }}
-                  >
-                    {s.text || <span className="opacity-60 italic">(vazio)</span>}
-                    <div className="text-[9.5px] mt-1 opacity-70 text-right flex items-center justify-end gap-0.5 font-mono">
-                      <span>{tNow}</span>
-                      {idx === 0 ? (
-                        <CheckCheck className="w-3 h-3" style={{ color: '#53bdeb' }} />
-                      ) : (
-                        <Check className="w-3 h-3" />
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <CampaignFlowPreviewWaOut
+                key={idx}
+                text={s.text}
+                stepLabel={s.stepLabel}
+                time={tNow}
+                showRead={idx === 0}
+              />
             );
           })
         )}

@@ -70,6 +70,7 @@ import { CampaignMessageSetupProgress } from './CampaignMessageSetupProgress';
 import { createLibraryItem } from '../../services/campaignLibraryApi';
 import { apiCheckScheduledDuplicates } from '../../services/campaignsApi';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea, type CampaignPreviewSample } from '../../utils/campaignMessageVariables';
+import { formatReplyFlowOptionTrigger } from '../../utils/campaignReplyFlowPreviewSequence';
 import { prepareCampaignAttachmentForSend } from '../../utils/campaignMediaCompress';
 import {
   explainWhatsAppMediaFallback,
@@ -1914,7 +1915,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     if (campaignFlowMode !== 'reply') return undefined;
     const first = messageStages[0];
     if (!first) return undefined;
-    const isAnyReply = Boolean(first.acceptAnyReply ?? true);
+    const hasMenu =
+      first.optionsMode === 'conditional' && (first.options?.length ?? 0) > 0;
+    const isAnyReply = !hasMenu && Boolean(first.acceptAnyReply ?? true);
     if (isAnyReply) {
       const followUp = messageStages[1]?.body?.trim();
       return {
@@ -1925,7 +1928,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       };
     }
     const options = (first.options || []).map((opt, i) => ({
-      trigger: (opt.tokensText || String(i + 1)).split(/[,;]/)[0]?.trim() || String(i + 1),
+      trigger: formatReplyFlowOptionTrigger({ tokensText: opt.tokensText }, i),
       reply: opt.reply.trim()
         ? applyCampaignMessagePreviewVars(opt.reply, previewSample)
         : '',
@@ -4333,7 +4336,8 @@ const WizardLivePreview: React.FC<{
   const initial = (displayName || 'C').charAt(0).toUpperCase();
   const isReplyFlow = flowMode === 'reply' && bodies.length > 0;
   const openingBody = bodies[0];
-  const menuOptions = replyPreview?.menuOptions?.filter((o) => o.reply.trim()) ?? [];
+  const menuOptionsWithTrigger =
+    replyPreview?.menuOptions?.filter((o) => o.trigger.trim()) ?? [];
   return (
     <div className="space-y-3">
             <div
@@ -4377,65 +4381,57 @@ const WizardLivePreview: React.FC<{
           {bodies.length > 0 ? (
             isReplyFlow ? (
               <>
-                <div className="self-end max-w-[92%]">
+                <div className="self-end max-w-[92%] w-full flex flex-col items-end">
                   <p className="text-[9px] font-semibold mb-1 text-right" style={{ color: '#8696a0' }}>
                     Abertura (disparo)
                   </p>
-                  <div
-                    className="rounded-xl rounded-tr-none px-3 py-2 text-[12.5px] leading-[18px] whitespace-pre-wrap"
-                    style={{
-                      background: 'linear-gradient(135deg,#005c4b,#006b58)',
-                      color: '#e9edef',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-                    }}
-                  >
-                    {openingBody}
-                  </div>
+                  <div className="cw-wa-bubble cw-wa-bubble--out max-w-full text-[12.5px]">{openingBody}</div>
                 </div>
-                {!replyPreview?.isAnyReply && replyPreview?.menuOptions && replyPreview.menuOptions.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 justify-end max-w-[92%] self-end">
-                    {replyPreview.menuOptions.map((opt) => (
-                      <span
-                        key={opt.trigger}
-                        className="text-[10px] font-semibold px-2.5 py-1 rounded-full"
-                        style={{ background: 'rgba(255,255,255,0.08)', color: '#53bdeb', border: '1px solid rgba(83,189,235,0.25)' }}
-                      >
-                        {opt.trigger}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <div className="self-start max-w-[78%]">
-                  <p className="text-[9px] font-semibold mb-1" style={{ color: '#8696a0' }}>
-                    Contato responde
-                  </p>
-                  <div
-                    className="rounded-xl rounded-tl-none px-3 py-2 text-[12px]"
-                    style={{ background: '#202c33', color: '#e9edef' }}
-                  >
-                    {replyPreview?.isAnyReply ? '…' : replyPreview?.menuOptions?.[0]?.trigger || '1'}
-                  </div>
-                </div>
-                {(replyPreview?.isAnyReply && replyPreview.followUpBody) ||
-                (!replyPreview?.isAnyReply && menuOptions[0]?.reply) ? (
-                  <div className="self-end max-w-[92%]">
-                    <p className="text-[9px] font-semibold mb-1 text-right" style={{ color: '#8696a0' }}>
-                      Resposta automática
-                    </p>
-                    <div
-                      className="rounded-xl rounded-tr-none px-3 py-2 text-[12.5px] leading-[18px] whitespace-pre-wrap"
-                      style={{
-                        background: 'linear-gradient(135deg,#005c4b,#006b58)',
-                        color: '#e9edef',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-                      }}
-                    >
-                      {replyPreview?.isAnyReply ? replyPreview.followUpBody : menuOptions[0]?.reply}
+                {replyPreview?.isAnyReply ? (
+                  <>
+                    <div className="self-start max-w-[78%] w-full flex flex-col items-start">
+                      <p className="text-[9px] font-semibold mb-1" style={{ color: '#8696a0' }}>
+                        Contato responde
+                      </p>
+                      <div className="cw-wa-bubble cw-wa-bubble--in text-[12px]">…</div>
                     </div>
-                  </div>
+                    {replyPreview.followUpBody ? (
+                      <div className="self-end max-w-[92%] w-full flex flex-col items-end">
+                        <p className="text-[9px] font-semibold mb-1 text-right" style={{ color: '#8696a0' }}>
+                          Resposta automática
+                        </p>
+                        <div className="cw-wa-bubble cw-wa-bubble--out max-w-full text-[12.5px]">
+                          {replyPreview.followUpBody}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-center text-[10px] py-2" style={{ color: '#667781' }}>
+                        Configure a resposta automática para ver o follow-up
+                      </p>
+                    )}
+                  </>
+                ) : menuOptionsWithTrigger.length > 0 ? (
+                  menuOptionsWithTrigger.map((opt, idx) => (
+                    <React.Fragment key={`${opt.trigger}-${idx}`}>
+                      <div className="self-start max-w-[78%] w-full flex flex-col items-start">
+                        <p className="text-[9px] font-semibold mb-1" style={{ color: '#8696a0' }}>
+                          Opção {idx + 1}
+                        </p>
+                        <div className="cw-wa-bubble cw-wa-bubble--in text-[12px]">{opt.trigger}</div>
+                      </div>
+                      {opt.reply.trim() ? (
+                        <div className="self-end max-w-[92%] w-full flex flex-col items-end">
+                          <p className="text-[9px] font-semibold mb-1 text-right" style={{ color: '#8696a0' }}>
+                            Resposta {idx + 1}
+                          </p>
+                          <div className="cw-wa-bubble cw-wa-bubble--out max-w-full text-[12.5px]">{opt.reply}</div>
+                        </div>
+                      ) : null}
+                    </React.Fragment>
+                  ))
                 ) : (
                   <p className="text-center text-[10px] py-2" style={{ color: '#667781' }}>
-                    Configure a resposta automática para ver o follow-up
+                    Configure gatilhos e respostas do menu
                   </p>
                 )}
               </>

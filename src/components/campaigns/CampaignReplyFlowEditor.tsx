@@ -22,6 +22,7 @@ import { Button, Textarea } from '../ui';
 import type { ReplyMatchMode } from '../../../shared/replyFlowMatch';
 import { DEFAULT_GLOBAL_OPT_OUT_KEYWORDS, simulateReplyFlowMatch } from '../../../shared/replyFlowMatch';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
+import { formatReplyFlowOptionTrigger } from '../../utils/campaignReplyFlowPreviewSequence';
 
 export type ReplyStageOption = {
   id: string;
@@ -383,28 +384,18 @@ function StageMenuBuilder({
       {previewBody.trim() ? (
         <div className="cw-reply-menu-preview mt-3">
           <p className="cw-reply-menu-preview__title">Prévia da etapa {stageIdx + 1}</p>
-          <div className="cw-reply-menu-preview__wa">
+          <div className="cw-reply-menu-preview__wa flex flex-col gap-1">
             <div className="cw-wa-bubble cw-wa-bubble--out cw-wa-bubble--sm">{previewBody}</div>
-            {options.length > 0 && (
-              <div className="cw-reply-menu-chips" role="list">
-                {options.map((o, i) => {
-                  const trigger = (o.tokensText || String(i + 1)).split(/[,;]/)[0]?.trim() || String(i + 1);
-                  return (
-                    <span key={o.id} className="cw-reply-menu-chip" role="listitem">{trigger}</span>
-                  );
-                })}
-              </div>
-            )}
             {options.map((o, i) => {
-              const trigger = (o.tokensText || String(i + 1)).split(/[,;]/)[0]?.trim() || String(i + 1);
-              const preview = o.reply.trim() || '…';
-              return preview !== '…' ? (
-                <div key={o.id} className="cw-reply-menu-preview__step">
-                  <span className="cw-reply-menu-preview__trigger">&quot;{trigger}&quot;</span>
-                  <span className="cw-reply-menu-preview__arrow" aria-hidden>→</span>
-                  <span className="cw-reply-menu-preview__msg">{preview}</span>
-                </div>
-              ) : null;
+              const trigger = formatReplyFlowOptionTrigger({ tokensText: o.tokensText }, i);
+              const replyPreview = o.reply.trim() ? applyCampaignMessagePreviewVars(o.reply.trim()) : '';
+              if (!replyPreview.trim()) return null;
+              return (
+                <React.Fragment key={o.id}>
+                  <div className="cw-wa-bubble cw-wa-bubble--in cw-wa-bubble--sm">{trigger}</div>
+                  <div className="cw-wa-bubble cw-wa-bubble--out cw-wa-bubble--sm">{replyPreview}</div>
+                </React.Fragment>
+              );
             })}
           </div>
         </div>

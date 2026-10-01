@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.269] - 2026-10-01
+
+### Corrigido
+- **Campanha — prévia fluxo por resposta**: gatilhos (Opção) e respostas automáticas usam as mesmas bolhas WhatsApp (`cw-wa-bubble`) do editor; gatilhos duplicados deixam de aparecer repetidos na prévia; assistente e detalhes da campanha alinhados.
+
 ## [2.3.268] - 2026-10-01
 
 ### Adicionado

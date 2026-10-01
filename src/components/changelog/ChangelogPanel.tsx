@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.269',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Prévia fluxo por resposta: Opção e Resposta com bolhas WhatsApp iguais ao editor; gatilhos duplicados ocultos na prévia',
+      },
+    ],
+  },
+  {
     version: '2.3.268',
     date: '01/10/2026',
     highlights: [
