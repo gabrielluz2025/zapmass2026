@@ -2520,6 +2520,7 @@ function applyConnectionStateUpdate(
                     'connections-update',
                     filterByConnectionScope(ou, getConnections())
                 );
+                void wakeOfflineDelayedJobsForConnection(instance).catch(() => undefined);
                 const { socketConversationsPayload } = await import('./conversationsEmit.js');
                 publishOwnerEvent(
                     ou,
@@ -3554,10 +3555,11 @@ export type CampaignBullmqQueueMetrics = {
     active: number;
     delayed: number;
     failed: number;
+    channelQueues: number;
 };
 
 export async function getCampaignBullmqQueueMetrics(): Promise<CampaignBullmqQueueMetrics> {
-    const empty = { enabled: false, waiting: 0, active: 0, delayed: 0, failed: 0 };
+    const empty = { enabled: false, waiting: 0, active: 0, delayed: 0, failed: 0, channelQueues: 0 };
     const conn = getRedisConnection();
     if (!conn) return empty;
     try {
@@ -3572,10 +3574,43 @@ export async function getCampaignBullmqQueueMetrics(): Promise<CampaignBullmqQue
             active: agg.active,
             delayed: agg.delayed,
             failed: agg.failed,
+            channelQueues: agg.channelQueues,
         };
     } catch {
         return empty;
     }
+}
+
+export async function countCampaignJobsInAllMassQueues(campaignId: string): Promise<number> {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return 0;
+    let total = 0;
+    await forEachAllCampaignMassQueues(async (queue) => {
+        total += await countQueueJobsForCampaign(queue, cid);
+    });
+    return total;
+}
+
+export async function collectTenantCampaignQueueJobCounts(tenantId: string): Promise<Map<string, number>> {
+    const tid = String(tenantId || '').trim();
+    const merged = new Map<string, number>();
+    if (!tid) return merged;
+    await forEachAllCampaignMassQueues(async (queue) => {
+        const { counts, ownerByCampaign } = await collectCampaignJobCountsFromQueue(queue);
+        for (const [cid, n] of counts) {
+            const owner =
+                ownerByCampaign.get(cid) ||
+                campaignsById.get(cid)?.ownerUid ||
+                '';
+            if (owner && !tenantScopeUidsMatch(tid, owner)) continue;
+            if (!owner && campaignsById.get(cid)?.ownerUid) {
+                const stOwner = campaignsById.get(cid)!.ownerUid;
+                if (stOwner && !tenantScopeUidsMatch(tid, stOwner)) continue;
+            }
+            merged.set(cid, (merged.get(cid) || 0) + n);
+        }
+    });
+    return merged;
 }
 
 export function getTenantCampaignRuntimeSnapshots(tenantId: string): Array<{
@@ -9879,7 +9914,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
         emitCampaignLog(
             'WARN',
-            `Grupo sem chip conectado — reagenda em 2 min (tentativa ${item._offlineDelayCount})`,
+            `Chip do grupo offline — nova tentativa em ~2 min (tentativa ${item._offlineDelayCount}). Reconecte em Conexões ou aguarde o pool redistribuir.`,
             { campaignId: item.campaignId, connectionId: item.connectionId, to: item.to },
             campaignState?.ownerUid
         );
@@ -11239,8 +11274,7 @@ export async function redispatchCampaign(
     }
     if (pendingJobs > 0 && memState?.isRunning) {
         // Se estiver em modo resume, checa se a fila BullMQ realmente ainda tem jobs ativos/esperando
-        const queue = getCampaignQueue();
-        const actualBullJobs = queue ? await countQueueJobsForCampaign(queue, campaignId) : 0;
+        const actualBullJobs = await countCampaignJobsInAllMassQueues(campaignId);
         if (actualBullJobs <= 0) {
             campaignPendingJobs.delete(campaignId);
             pendingJobs = 0;
@@ -12614,8 +12648,7 @@ async function reconcileRunningCampaignsFromPostgres(): Promise<void> {
             const pendingMem = campaignPendingJobs.get(campaignId) || 0;
             if (pendingMem > 0) continue;
 
-            const queue = getCampaignQueue();
-            const pendingQueue = await countQueueJobsForCampaign(queue, campaignId);
+            const pendingQueue = await countCampaignJobsInAllMassQueues(campaignId);
             if (pendingQueue > 0) {
                 campaignPendingJobs.set(campaignId, pendingQueue);
                 continue;
@@ -12795,8 +12828,6 @@ async function remigrateStuckCampaignJobsToUsableChips(
     campaignId: string,
     state: CampaignRuntimeState
 ): Promise<number> {
-    const queue = getCampaignQueue();
-    if (!queue) return 0;
     const poolCfg = await loadCampaignPoolConfig(campaignId).catch(() => null);
     const ids = Array.from(
         new Set([...(state.connectionIds || []), ...(poolCfg?.connectionIds || [])].filter(Boolean))
@@ -12808,33 +12839,35 @@ async function remigrateStuckCampaignJobsToUsableChips(
     const strategy = resolvePoolStrategy(poolCfg?.strategy, poolCfg?.channelWeights);
     let remapped = 0;
     try {
-        const jobs = await queue.getJobs(['waiting', 'delayed', 'paused']);
-        for (const job of jobs) {
-            const data = job.data as MessageQueueItem;
-            if (String(data?.campaignId || '') !== campaignId) continue;
-            const cur = String(data?.connectionId || '').trim();
-            if (!cur || isCampaignChannelUsable(cur)) continue;
-            const newConnId = pickRemapConnectionForCampaign(
-                data,
-                usable,
-                strategy,
-                poolCfg?.channelWeights
-            );
-            if (!newConnId || newConnId === cur) continue;
-            const alt = ids.length > 1 ? ids : undefined;
-            await job.updateData({
-                ...data,
-                connectionId: newConnId,
-                alternateChannelIds: alt,
+        await forEachAllCampaignMassQueues(async (queue) => {
+            await forEachCampaignQueueJob(queue, async (job, jobState) => {
+                if (jobState === 'active') return;
+                const data = job.data as MessageQueueItem;
+                if (String(data?.campaignId || '') !== campaignId) return;
+                const cur = String(data?.connectionId || '').trim();
+                if (!cur || isCampaignChannelUsable(cur)) return;
+                const newConnId = pickRemapConnectionForCampaign(
+                    data,
+                    usable,
+                    strategy,
+                    poolCfg?.channelWeights
+                );
+                if (!newConnId || newConnId === cur) return;
+                const alt = ids.length > 1 ? ids : undefined;
+                await job.updateData({
+                    ...data,
+                    connectionId: newConnId,
+                    alternateChannelIds: alt,
+                    _offlineDelayCount: 0,
+                });
+                try {
+                    await job.changeDelay(500 + Math.floor(Math.random() * 4_500));
+                } catch {
+                    /* job ativo / API — updateData já aponta para o chip bom */
+                }
+                remapped++;
             });
-            try {
-                // BullMQ v5: traz job delayed (ex.: quarentena 1h) de volta para a fila em breve.
-                await job.changeDelay(500 + Math.floor(Math.random() * 4_500));
-            } catch {
-                /* job ativo / API — updateData já aponta para o chip bom */
-            }
-            remapped++;
-        }
+        });
     } catch (e: unknown) {
         log('warn', 'remigrateStuckCampaignJobs: falha', {
             campaignId,
@@ -12860,7 +12893,6 @@ async function remigrateStuckCampaignJobsToUsableChips(
 export async function tickCampaignStallWatchdog(): Promise<void> {
     if (isInCampaignResumeGrace()) return;
     ensureCampaignWorker();
-    const queue = getCampaignQueue();
     const now = Date.now();
 
     for (const [campaignId, state] of campaignsById.entries()) {
@@ -12877,18 +12909,16 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
 
         const pendingMem = campaignPendingJobs.get(campaignId) || 0;
         let pendingQueue = pendingMem;
-        if (pendingMem <= 0 && queue) {
-            try {
-                pendingQueue = await countQueueJobsForCampaign(queue, campaignId);
-                if (pendingQueue > 0) campaignPendingJobs.set(campaignId, pendingQueue);
-            } catch {
-                pendingQueue = pendingMem;
-            }
+        try {
+            pendingQueue = await countCampaignJobsInAllMassQueues(campaignId);
+            if (pendingQueue > 0) campaignPendingJobs.set(campaignId, pendingQueue);
+        } catch {
+            pendingQueue = pendingMem;
         }
 
         const pending = Math.max(pendingMem, pendingQueue);
 
-        if (hasSuccess && pending > 0 && queue) {
+        if (hasSuccess && pending > 0) {
             const lastWake = campaignStallRemapAt.get(`${campaignId}:wake`) || 0;
             if (now - lastWake >= 120_000) {
                 campaignStallRemapAt.set(`${campaignId}:wake`, now);
@@ -12899,6 +12929,12 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
                         () => undefined
                     );
                 }
+            }
+            const lastRemapSuccess = campaignStallRemapAt.get(`${campaignId}:remap-success`) || 0;
+            if (now - lastRemapSuccess >= 60_000) {
+                campaignStallRemapAt.set(`${campaignId}:remap-success`, now);
+                const remapped = await remigrateStuckCampaignJobsToUsableChips(campaignId, state);
+                if (remapped > 0) continue;
             }
             continue;
         }
@@ -14603,8 +14639,7 @@ async function kickCampaignRedispatchIfQueueEmpty(
     const ou = resolveCampaignOwnerUid(campaignId, ownerUid);
     if (!cid || !ou || pausedCampaigns.has(cid)) return;
 
-    const queue = getCampaignQueue();
-    const bullCount = queue ? await countQueueJobsForCampaign(queue, cid) : 0;
+    const bullCount = await countCampaignJobsInAllMassQueues(cid);
     if (bullCount > 0) return;
 
     const pg = await countCampaignJobsByStatus(cid);
@@ -14649,30 +14684,61 @@ async function runPostResumeCampaignQueueRepair(
     await refreshConnectionsForCampaign(channelIds);
     await saveCampaignRuntimeToRedis(cid);
 
-    const queue = getCampaignQueue();
-    if (!queue) return;
-
     const dispatchSettings = getTenantDispatchSettings(ownerUid || state?.ownerUid);
     const spreadStep = (dispatchSettings.minDelayMs + dispatchSettings.maxDelayMs) / 2;
     const headroom = computeResumeDispatchHeadroom(channelIds);
 
-    const realign = await realignCampaignJobsAfterResume(queue, cid, {
-        wakeOverdue: true,
-        overdueGraceMs: 20_000,
-        stuckFutureThresholdMs: skipPullForward ? Number.MAX_SAFE_INTEGER : 30 * 60_000,
-        maxPullForward: skipPullForward ? 0 : headroom,
-        maxWakeOverdue: 150,
-        spreadStepMs: spreadStep,
-        jitterMaxMs: Number(process.env.GRADUAL_RESUME_JITTER_MS ?? 5_000),
+    let totalWoken = 0;
+    let totalPulled = 0;
+    await forEachAllCampaignMassQueues(async (queue) => {
+        const realign = await realignCampaignJobsAfterResume(queue, cid, {
+            wakeOverdue: true,
+            overdueGraceMs: 20_000,
+            stuckFutureThresholdMs: skipPullForward ? Number.MAX_SAFE_INTEGER : 30 * 60_000,
+            maxPullForward: skipPullForward ? 0 : headroom,
+            maxWakeOverdue: 150,
+            spreadStepMs: spreadStep,
+            jitterMaxMs: Number(process.env.GRADUAL_RESUME_JITTER_MS ?? 5_000),
+        });
+        totalWoken += realign.wokenOverdue;
+        totalPulled += realign.pulledForward;
     });
-    if (realign.wokenOverdue > 0 || realign.pulledForward > 0) {
+    if (totalWoken > 0 || totalPulled > 0) {
         log('info', `[dispatch] Fila realinhada após retomar ${cid}`, {
-            wokenOverdue: realign.wokenOverdue,
-            pulledForward: realign.pulledForward,
+            wokenOverdue: totalWoken,
+            pulledForward: totalPulled,
             headroom,
         });
     }
     await releaseShortHeldCampaignJobs(cid);
+}
+
+/** Quando um chip volta online, antecipa jobs delayed por chip offline (evita fila “fantasma”). */
+async function wakeOfflineDelayedJobsForConnection(connectionId: string): Promise<number> {
+    const id = String(connectionId || '').trim();
+    if (!id || !(await isConnectionOpen(id))) return 0;
+    let woken = 0;
+    let stagger = 0;
+    await forEachAllCampaignMassQueues(async (queue) => {
+        await forEachCampaignQueueJob(queue, async (job, state) => {
+            if (state !== 'delayed') return;
+            const data = job.data as MessageQueueItem;
+            if (String(data?.connectionId || '').trim() !== id) return;
+            if ((data._offlineDelayCount || 0) <= 0) return;
+            try {
+                await job.updateData({ ...data, _offlineDelayCount: 0 });
+                await job.changeDelay(600 + stagger);
+                stagger = Math.min(stagger + 350, 25_000);
+                woken += 1;
+            } catch {
+                /* job ativo ou já promovido */
+            }
+        });
+    });
+    if (woken > 0) {
+        log('info', `[dispatch] Chip ${id} online — ${woken} envio(s) offline reativados na fila`);
+    }
+    return woken;
 }
 
 /**
@@ -14682,26 +14748,27 @@ async function runPostResumeCampaignQueueRepair(
  */
 async function releaseShortHeldCampaignJobs(campaignId: string): Promise<number> {
     const cid = String(campaignId || '').trim();
-    const queue = getCampaignQueue();
-    if (!queue || !cid || pausedCampaigns.has(cid)) return 0;
+    if (!cid || pausedCampaigns.has(cid)) return 0;
     const now = Date.now();
     const maxRemainMs = 6 * 60_000;
     let released = 0;
     let stagger = 0;
-    await forEachCampaignQueueJob(queue, async (job, state) => {
-        if (state !== 'delayed') return;
-        const data = job.data as MessageQueueItem;
-        if (String(data?.campaignId || '') !== cid) return;
-        const runAt = estimateJobRunAt(job);
-        const remain = runAt - now;
-        if (remain > maxRemainMs) return;
-        try {
-            await job.changeDelay(500 + stagger);
-            stagger = Math.min(stagger + 250, 15_000);
-            released += 1;
-        } catch {
-            /* job ativo ou já promovido */
-        }
+    await forEachAllCampaignMassQueues(async (queue) => {
+        await forEachCampaignQueueJob(queue, async (job, state) => {
+            if (state !== 'delayed') return;
+            const data = job.data as MessageQueueItem;
+            if (String(data?.campaignId || '') !== cid) return;
+            const runAt = estimateJobRunAt(job);
+            const remain = runAt - now;
+            if (remain > maxRemainMs) return;
+            try {
+                await job.changeDelay(500 + stagger);
+                stagger = Math.min(stagger + 250, 15_000);
+                released += 1;
+            } catch {
+                /* job ativo ou já promovido */
+            }
+        });
     });
     if (released > 0) {
         log('info', `[dispatch] ${released} job(s) de espera curta liberados para envio`, { campaignId: cid });

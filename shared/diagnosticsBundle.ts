@@ -22,8 +22,13 @@ export type DiagnosticsCampaignSummary = {
   processed?: number;
   successCount?: number;
   failCount?: number;
+  /** Contador em memória (pode ficar abaixo da fila BullMQ real). */
   pendingJobs?: number;
+  /** Jobs na fila (waiting+active+delayed+paused) — inclui filas por chip. */
+  queueJobs?: number;
   paused?: boolean;
+  /** Campanha ativa só em runtime (ex.: apagada do PG ou fora do top 15). */
+  runtimeOnly?: boolean;
 };
 
 export type DiagnosticsConnectionSummary = {
@@ -41,6 +46,7 @@ export type DiagnosticsBundle = {
   tenantId: string;
   configFlags: {
     dataProvider: string;
+    authProvider?: string;
     evolutionEngine: string;
     vpsOnly?: boolean;
   };
@@ -51,7 +57,13 @@ export type DiagnosticsBundle = {
     waitLen: number | null;
     delayedLen: number | null;
     activeJobs: number | null;
+    failedLen?: number | null;
+    channelQueues?: number | null;
+    /** Ex.: muitos delayed com chip offline — fila global ainda processa outros tenants. */
+    note?: string;
   };
+  /** campaignId referenciado em recentErrors mas ausente de campaigns[] */
+  orphanCampaignIdsFromErrors?: string[];
   clientHints?: Record<string, unknown>;
 };
 

@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.267',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Pacote de diagnóstico: chips Evolution, vpsOnly correto, queueJobs por campanha e fila cluster',
+      },
+      {
+        type: 'fix',
+        text: 'Disparo: heal/redistribuição em filas por chip (delayed alto com campanha RUNNING)',
+      },
+    ],
+  },
+  {
     version: '2.3.266',
     date: '01/10/2026',
     highlights: [

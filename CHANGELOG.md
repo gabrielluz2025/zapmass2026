@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.267] - 2026-10-01
+
+### Corrigido
+- **Diagnóstico (export JSON)**: conexões passam a vir do Evolution (não Baileys vazio); `vpsOnly` alinhado a auth+dados VPS; campanhas órfãs/runtime, `queueJobs` por campanha e métricas extras da fila (failed, filas por chip, nota).
+- **Campanhas — filas por chip**: contagem/heal/redistribuição e watchdog passam a varrer todas as filas BullMQ (corrige `pendingJobs` baixo com muitos `delayed`); chip online reativa jobs adiados por offline.
+
 ## [2.3.266] - 2026-10-01
 
 ### Corrigido

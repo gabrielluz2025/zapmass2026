@@ -223,9 +223,16 @@ export const DiagnosticsTab: React.FC = () => {
                 Campanhas e fila
               </h2>
               <p className="text-[12px] mb-2" style={{ color: 'var(--text-3)' }}>
-                Fila: aguardando {queue?.waitLen ?? '—'} · atrasados {queue?.delayedLen ?? '—'} · ativos{' '}
+                Fila (cluster): aguardando {queue?.waitLen ?? '—'} · atrasados {queue?.delayedLen ?? '—'} · ativos{' '}
                 {queue?.activeJobs ?? '—'}
+                {typeof queue?.failedLen === 'number' ? ` · falhas ${queue.failedLen}` : ''}
+                {typeof queue?.channelQueues === 'number' && queue.channelQueues > 0
+                  ? ` · ${queue.channelQueues} filas por chip`
+                  : ''}
               </p>
+              {queue?.note ? (
+                <p className="text-[11px] mb-2 text-amber-600 dark:text-amber-400">{queue.note}</p>
+              ) : null}
               <ul className="space-y-1.5 text-[12px] max-h-[220px] overflow-y-auto">
                 {(serverCampaigns.length
                   ? serverCampaigns
@@ -239,7 +246,10 @@ export const DiagnosticsTab: React.FC = () => {
                       <span style={{ color: 'var(--text-3)' }}>
                         {c.isRunning ? 'Executando' : 'Parada'}
                         {'pendingJobs' in c && typeof c.pendingJobs === 'number'
-                          ? ` · fila ${c.pendingJobs}`
+                          ? ` · memória ${c.pendingJobs}`
+                          : ''}
+                        {'queueJobs' in c && typeof c.queueJobs === 'number'
+                          ? ` · fila Bull ${c.queueJobs}`
                           : ''}
                         {'failCount' in c && typeof c.failCount === 'number' ? ` · falhas ${c.failCount}` : ''}
                       </span>
