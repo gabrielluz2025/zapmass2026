@@ -156,6 +156,10 @@ import {
 } from './campaignHumanizePipeline.js';
 import { CAMPAIGN_CHANNEL_WINDOW, splitCampaignDispatchWindow } from './campaignDispatchWindow.js';
 import {
+    buildFrequencyCapBlockSet,
+    isPhoneBlockedByFrequencyCap,
+} from './campaignFrequencyCapFilter.js';
+import {
     holdRoundRobinKey,
     pickFairHeldCampaignRoundRobin,
     reconcileChannelHotSlotCounter,
@@ -5830,11 +5834,19 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
                     'COMPLETED'
                 );
         void persistCampaignReportSnapshot(state.ownerUid, campaignId);
+                if (state.successCount === 0 && (state.skipCount || 0) > 0) {
+                    publishOwnerEvent(state.ownerUid, 'campaign-error', {
+                        campaignId,
+                        error:
+                            'Campanha encerrada sem entregas: contato(s) ignorado(s) (ex.: limite 24 h). Marque "Incluir reenvio" ou aguarde.',
+                    });
+                }
                 publishOwnerEvent(state.ownerUid, 'campaign-finished', {
                     campaignId,
                     successCount: state.successCount,
                     failCount: state.failCount,
                     total: state.total,
+                    skipCount: state.skipCount || 0,
                 });
                 onCampaignEnded(state.ownerUid);
                 void notifyTenant(
@@ -5850,7 +5862,7 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
                     'campaign_complete'
                 );
             }
-        }
+}
 
 function finishCampaignJob(
     campaignId: string | undefined,
@@ -9815,22 +9827,35 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     let mediaToSend = resolveMediaForCampaignJob(item);
+    const textPayload = String(item.message || '').trim();
     if (item.sendAsMedia && !mediaToSend) {
-        emitCampaignLog(
-            'WARN',
-            'Anexo não encontrado no servidor — mensagem enviada só como texto. Dispare de novo com a foto anexada.',
-            { campaignId: item.campaignId, to: item.to },
-            campaignState?.ownerUid
-        );
-        log('warn', 'Campanha marcada com mídia mas arquivo não encontrado — enviando só texto', {
-            campaignId: item.campaignId,
-            mediaLookupKey: item.mediaLookupKey,
-            to: item.to,
-        });
+        const mediaMissingDetail =
+            'Anexo (imagem/vídeo) não encontrado no servidor. Salve a campanha com o arquivo anexado e dispare de novo.';
+        if (!item.replyFlowResponse && !item.nurtureFollowUp && !textPayload) {
+            return await failCampaignSend(
+                job,
+                item,
+                sendTo || item.to,
+                mediaMissingDetail,
+                campaignState
+            );
+        }
+        if (!item.replyFlowResponse && !item.nurtureFollowUp) {
+            emitCampaignLog(
+                'WARN',
+                'Anexo não encontrado — enviando só o texto da legenda (sem imagem/vídeo).',
+                { campaignId: item.campaignId, to: item.to },
+                campaignState?.ownerUid
+            );
+            log('warn', 'Campanha marcada com mídia mas arquivo não encontrado — enviando só texto', {
+                campaignId: item.campaignId,
+                mediaLookupKey: item.mediaLookupKey,
+                to: item.to,
+            });
+        }
     }
 
     const hasMediaPayload = Boolean(mediaToSend?.base64 || mediaToSend?.url);
-    const textPayload = String(item.message || '').trim();
     if (!hasMediaPayload && !textPayload) {
         if (item.replyFlowResponse) {
             await skipReplyFlowJobGracefully(
@@ -11644,12 +11669,21 @@ export async function startCampaign(
     const seenPhones = new Set<string>();
     const skipPhoneIfAlreadySent = useLazyMotor || useReplyFlow || templates.length <= 1;
     let skippedSettled = 0;
+    let skippedFrequencyCap = 0;
+    const freqCapBlockedKeys =
+        ownerUid && skipFrequencyCap !== true
+            ? buildFrequencyCapBlockSet(await checkFrequencyCapForPhones(ownerUid, numbers))
+            : new Set<string>();
 
     try {
     for (let i = 0; i < numbers.length; i++) {
         const num = numbers[i];
         const cleanPhone = normalizePhoneKey(num);
             if (cleanPhone.length < 8) continue;
+            if (freqCapBlockedKeys.size > 0 && isPhoneBlockedByFrequencyCap(cleanPhone, freqCapBlockedKeys)) {
+                skippedFrequencyCap += 1;
+                continue;
+            }
             const phoneCanon = canonicalBrazilMobileKey(cleanPhone) || cleanPhone;
             if (seenPhones.has(phoneCanon) || seenPhones.has(cleanPhone)) continue;
             seenPhones.add(phoneCanon);
@@ -11819,6 +11853,47 @@ export async function startCampaign(
             }
         }
 
+        if (pendingEnqueue.length === 0) {
+            let emptyMsg: string;
+            if (skippedFrequencyCap > 0) {
+                emptyMsg = `Nenhum envio enfileirado: ${skippedFrequencyCap} contato(s) já receberam mensagem nas últimas 24 h. Marque "Incluir reenvio" no preview ou aguarde.`;
+            } else if (skippedSettled > 0) {
+                emptyMsg =
+                    'Nenhum envio novo: todos os contatos desta campanha já foram processados (reenvio não solicitado).';
+            } else {
+                emptyMsg = 'Nenhum contato válido para enviar. Verifique a lista e tente de novo.';
+            }
+            emitCampaignLog(
+                'ERROR',
+                emptyMsg,
+                { campaignId: cid, skippedFrequencyCap, skippedSettled },
+                ownerUid
+            );
+            campaignsById.delete(cid);
+            pausedCampaigns.delete(cid);
+            throw new Error(emptyMsg);
+        }
+
+        const runtimeBeforeEnqueue = campaignsById.get(cid);
+        if (runtimeBeforeEnqueue) {
+            runtimeBeforeEnqueue.total = Math.max(
+                pendingEnqueue.length + seededProcessed,
+                runtimeBeforeEnqueue.total,
+                totalJobs
+            );
+        }
+
+        for (const entry of pendingEnqueue) {
+            if (!entry.item.sendAsMedia) continue;
+            if (resolveMediaForCampaignJob(entry.item)) continue;
+            const mediaErr =
+                'Anexo da campanha não está no servidor (imagem/vídeo). Salve a campanha com o arquivo e dispare de novo.';
+            emitCampaignLog('ERROR', mediaErr, { campaignId: cid }, ownerUid);
+            campaignsById.delete(cid);
+            pausedCampaigns.delete(cid);
+            throw new Error(mediaErr);
+        }
+
         const paceMs = Math.round((dispatchSettings.minDelayMs + dispatchSettings.maxDelayMs) / 2);
         const windowed = splitCampaignDispatchWindow(pendingEnqueue, CAMPAIGN_CHANNEL_WINDOW, paceMs);
         if (pendingEnqueue.length >= 100) {
@@ -11861,9 +11936,11 @@ export async function startCampaign(
                 total: totalJobs,
                 queued: pendingEnqueue.length,
                 skippedSettled,
+                skippedFrequencyCap,
                 connections: activeConnectionIds.length,
                 stages: stageCount,
                 replyFlow: useReplyFlow,
+                hasMedia,
             },
             ownerUid
         );

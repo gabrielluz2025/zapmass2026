@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.253',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Campanha Executando sem enviar: limite 24 h antes da fila, fila vazia com erro, mídia ausente falha claro',
+      },
+    ],
+  },
+  {
     version: '2.3.252',
     date: '30/09/2026',
     highlights: [

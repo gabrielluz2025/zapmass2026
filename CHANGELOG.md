@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.253] - 2026-10-01
+
+### Corrigido
+- **Campanha "Executando" sem enviar (grave)**: contatos no limite 24 h não entram mais na fila (evita 100% / 0 entregues); fila vazia aborta com erro claro; anexo só-imagem ausente no servidor falha com mensagem explícita em vez de ficar preso.
+
 ## [2.3.252] - 2026-09-30
 
 ### Corrigido
