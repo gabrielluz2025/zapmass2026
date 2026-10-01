@@ -233,6 +233,8 @@ import { isEvolutionFullHistorySyncEnabled } from '../shared/chatSyncConfig.js';
 import {
     campaignRotationIndexFromPhone,
     hasUnresolvedCampaignTemplateTokens,
+    isPublicHttpMediaUrl,
+    normalizeCampaignTemplateDelimiters,
     sanitizeCampaignTemplateForOutbound,
 } from '../shared/campaignSpintax.js';
 import {
@@ -4844,11 +4846,20 @@ function campaignMediaReady(storageKey: string): boolean {
     }
 }
 
+/** Mídia realmente enviável (base64/disco ou URL https) — evita "URL is required" no Evolution Go. */
+function campaignMediaSendable(storageKey: string): boolean {
+    if (!campaignMediaReady(storageKey)) return false;
+    const payload = resolveStoredCampaignMedia(storageKey);
+    if (!payload) return false;
+    if (String(payload.base64 || '').trim().length > 0) return true;
+    return isPublicHttpMediaUrl(payload.url);
+}
+
 /** Mídia da abertura (etapa 1) — inclui arquivo em disco após restart do app. */
 function campaignOpeningMediaAvailable(campaignId: string): boolean {
     const cid = String(campaignId || '').trim();
     if (!cid) return false;
-    return campaignMediaReady(cid);
+    return campaignMediaSendable(cid);
 }
 
 function resolveMediaForCampaignJob(item: MessageQueueItem): CampaignMediaPayload | null {
@@ -4881,7 +4892,8 @@ function resolveMediaForCampaignJob(item: MessageQueueItem): CampaignMediaPayloa
         if (loaded?.base64) return loaded;
         return null;
     }
-    if (meta.base64 || meta.url) return meta;
+    if (meta.base64) return meta;
+    if (meta.url && isPublicHttpMediaUrl(meta.url)) return meta;
     return null;
 }
 
@@ -4979,6 +4991,7 @@ function resolveStoredCampaignMedia(storageKey: string): (CampaignMediaPayload &
         if (inMem._diskPath) {
             return loadCampaignMediaFromDisk(inMem._diskPath, inMem.mimeType, inMem.fileName, inMem.caption);
         }
+        if (inMem.url && isPublicHttpMediaUrl(inMem.url)) return inMem;
     }
     try {
         ensureCampaignMediaDir();
@@ -6288,7 +6301,7 @@ export async function recoverStuckReplyFlowSessions(): Promise<number> {
             void saveReplyFlowSessionToRedis(connectionId, phoneDigits, sess);
 
             const mediaKey = pending.mediaStorageKey || '';
-            const sendAsMedia = Boolean(mediaKey && campaignMediaReady(mediaKey));
+            const sendAsMedia = Boolean(mediaKey && campaignMediaSendable(mediaKey));
             const ownerFromState = campaignsById.get(sess.campaignId)?.ownerUid ?? sess.ownerUid;
 
             void enqueueCampaignItem(
@@ -6767,7 +6780,7 @@ function ensureReplyFlowEngine() {
             const ownerFromState = item.campaignId ? campaignsById.get(item.campaignId)?.ownerUid : undefined;
             const ownerUid = item.ownerUid || ownerFromState || resolveOwnerUid(item.connectionId) || undefined;
             const mediaKey = item.mediaStorageKey || '';
-            const sendAsMedia = Boolean(mediaKey && campaignMediaReady(mediaKey));
+            const sendAsMedia = Boolean(mediaKey && campaignMediaSendable(mediaKey));
             void enqueueCampaignItem({
                 connectionId: item.connectionId,
                 to: item.to,
@@ -8001,7 +8014,7 @@ async function sendMessageInternal(
     to: string,
     message: string
 ): Promise<{ ok: boolean; messageId?: string; errorDetail?: string; isPending?: boolean }> {
-    const rawOutgoingText = String(message ?? '');
+    const rawOutgoingText = normalizeCampaignTemplateDelimiters(String(message ?? ''));
     const hadUnresolvedTemplate = hasUnresolvedCampaignTemplateTokens(rawOutgoingText);
     const outgoingText = hadUnresolvedTemplate
         ? sanitizeCampaignTemplateForOutbound(rawOutgoingText, campaignRotationIndexFromPhone(to))
@@ -9337,7 +9350,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         const skipHashForMediaOnly =
             Boolean(item.sendAsMedia || item.mediaLookupKey || item.replyFlowOpen) &&
             Boolean(item.campaignId || item.mediaLookupKey) &&
-            campaignMediaReady(String(item.mediaLookupKey || item.campaignId || ''));
+            campaignMediaSendable(String(item.mediaLookupKey || item.campaignId || ''));
         if (!skipHashForMediaOnly) {
         const hashLock = await validateCampaignContentHash(
             getSharedRedis(),
@@ -9827,7 +9840,20 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     let mediaToSend = resolveMediaForCampaignJob(item);
+    if (mediaToSend?.url && !isPublicHttpMediaUrl(mediaToSend.url) && !String(mediaToSend.base64 || '').trim()) {
+        mediaToSend = null;
+    }
     const textPayload = String(item.message || '').trim();
+    if (item.sendAsMedia && !mediaToSend && textPayload) {
+        item.sendAsMedia = false;
+        await job.updateData(item).catch(() => {});
+        emitCampaignLog(
+            'WARN',
+            'Anexo indisponível (sem base64/URL pública) — enviando só o texto.',
+            { campaignId: item.campaignId, to: item.to, mediaLookupKey: item.mediaLookupKey },
+            campaignState?.ownerUid
+        );
+    }
     if (item.sendAsMedia && !mediaToSend) {
         const mediaMissingDetail =
             'Anexo (imagem/vídeo) não encontrado no servidor. Salve a campanha com o arquivo anexado e dispare de novo.';
@@ -11668,6 +11694,21 @@ export async function startCampaign(
     const pendingEnqueue: Array<{ item: MessageQueueItem; delayMs: number }> = [];
     const seenPhones = new Set<string>();
     const skipPhoneIfAlreadySent = useLazyMotor || useReplyFlow || templates.length <= 1;
+
+    if (useReplyFlow && sanitizedReplySteps[0]?.body && numbers.length > 0) {
+        const probePhone = normalizePhoneKey(String(numbers[0] || ''));
+        const probeVars = recipientVars.get(probePhone) || {};
+        const probeText = applyMessageVars(sanitizedReplySteps[0].body, probePhone, probeVars, 0);
+        if (!probeText.trim() && !hasMedia) {
+            const emptyOpenMsg =
+                'Mensagem de abertura ficou vazia após personalização. Revise SpinTrax/variáveis — use {oi|opa} e {horario} (chaves simples), não {{...}} duplas.';
+            emitCampaignLog('ERROR', emptyOpenMsg, { campaignId: cid }, ownerUid);
+            campaignsById.delete(cid);
+            pausedCampaigns.delete(cid);
+            throw new Error(emptyOpenMsg);
+        }
+    }
+
     let skippedSettled = 0;
     let skippedFrequencyCap = 0;
     const freqCapBlockedKeys =

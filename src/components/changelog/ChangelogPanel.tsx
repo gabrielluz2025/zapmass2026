@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.254',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Fluxo por resposta: texto vazio/SpinTrax duplo, mídia Go sem URL is required, sessão destravada após falha',
+      },
+    ],
+  },
+  {
     version: '2.3.253',
     date: '01/10/2026',
     highlights: [

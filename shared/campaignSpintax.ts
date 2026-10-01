@@ -99,6 +99,22 @@ export function hasCampaignSpintax(text: string): boolean {
 }
 
 /**
+ * Corrige templates colados com chaves duplas (ex.: `{{oi|opa}} {{horario}}`),
+ * que quebram o SpinTrax e podem gerar texto vazio ou ilegível no WhatsApp.
+ */
+export function normalizeCampaignTemplateDelimiters(text: string): string {
+  let out = String(text || '');
+  out = out.replace(/\{\{([^{}]+(?:\|[^{}]+)+)\}\}/g, '{$1}');
+  out = out.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, '{$1}');
+  return out;
+}
+
+/** URL pública utilizável pelo Evolution Go em /send/media. */
+export function isPublicHttpMediaUrl(url: string | undefined): boolean {
+  return /^https?:\/\//i.test(String(url || '').trim());
+}
+
+/**
  * Detecta sintaxe de template que permaneceu depois da personalização.
  * É mais seguro bloquear o envio do que entregar `{nome}` ou `{A|B}` literalmente.
  */

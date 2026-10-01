@@ -8,6 +8,7 @@ import {
   resolveCampaignSpintax,
   hasUnresolvedCampaignTemplateTokens,
   sanitizeCampaignTemplateForOutbound,
+  normalizeCampaignTemplateDelimiters,
 } from './campaignSpintax';
 
 describe('campaignSpintax', () => {
@@ -76,5 +77,12 @@ describe('campaignSpintax', () => {
     expect(campaignRotationIndexFromPhone('5511999887766')).toBe(
       campaignRotationIndexFromPhone('5511999887766')
     );
+  });
+
+  it('normaliza SpinTrax e variáveis com chaves duplas', () => {
+    expect(normalizeCampaignTemplateDelimiters('{{oi|Opa}} {{horario}}!!')).toBe('{oi|Opa} {horario}!!');
+    expect(
+      resolveCampaignSpintax(normalizeCampaignTemplateDelimiters('{{oi|Opa}}!!'), 0)
+    ).toBe('oi!!');
   });
 });

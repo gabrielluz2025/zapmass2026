@@ -78,6 +78,16 @@ export function campaignRotationIndexFromPhone(phone) {
 export function hasCampaignSpintax(text) {
     return extractCampaignSpintaxBlocks(text).some((block) => block.options.length > 1);
 }
+/** Corrige templates com chaves duplas (ex.: `{{oi|opa}}`). */
+export function normalizeCampaignTemplateDelimiters(text) {
+    let out = String(text || '');
+    out = out.replace(/\{\{([^{}]+(?:\|[^{}]+)+)\}\}/g, '{$1}');
+    out = out.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, '{$1}');
+    return out;
+}
+export function isPublicHttpMediaUrl(url) {
+    return /^https?:\/\//i.test(String(url || '').trim());
+}
 /**
  * Detecta sintaxe de template que permaneceu depois da personalização.
  * É mais seguro bloquear o envio do que entregar `{nome}` ou `{A|B}` literalmente.

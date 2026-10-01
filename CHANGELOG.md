@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.254] - 2026-10-01
+
+### Corrigido
+- **Mensagem em branco / ilegível no WhatsApp**: normaliza templates com chaves duplas (`{{oi|opa}}` → `{oi|opa}`); bloqueia abertura de fluxo que ficaria vazia após personalização.
+- **`URL is required` no Evolution Go (etapa 2 / foto do gatilho)**: só envia mídia com base64 em disco ou URL `https://`; anexo inválido cai para texto em vez de falhar em todos os chips.
+- **Fluxo por resposta travado**: `acceptAnyReply` padrão quando não há menu; libera sessão se envio pendente expirar (>2 min) após falha na fila.
+
 ## [2.3.253] - 2026-10-01
 
 ### Corrigido

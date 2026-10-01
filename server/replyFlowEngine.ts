@@ -1,4 +1,4 @@
-import { campaignRotationIndexFromPhone, resolveCampaignSpintax } from '../shared/campaignSpintax.js';
+import { campaignRotationIndexFromPhone, normalizeCampaignTemplateDelimiters, resolveCampaignSpintax } from '../shared/campaignSpintax.js';
 import {
     cleanReplyTriggerToken,
     detectGlobalOptOut,
@@ -179,6 +179,7 @@ export const applyMessageVars = (
     if (!options?.deferClock) {
         Object.assign(safeVars, clock);
     }
+    template = normalizeCampaignTemplateDelimiters(template);
     let out = template.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_, key: string) => {
         const v = safeVars[key.toLowerCase()];
         return typeof v === 'string' ? v : '';
@@ -267,7 +268,10 @@ export const sanitizeReplyFlowSteps = (
             const timeoutHours = Number(s.timeoutHours);
             return {
                 body: String(s.body || '').trim(),
-                acceptAnyReply: Boolean(s.acceptAnyReply),
+                acceptAnyReply:
+                    Array.isArray(sanitizedOptions) && sanitizedOptions.length > 0
+                        ? false
+                        : s.acceptAnyReply !== false,
                 validTokens: Array.isArray(s.validTokens)
                     ? s.validTokens.map((t) => String(t || '').toLowerCase().trim()).filter(Boolean)
                     : [],
@@ -957,7 +961,9 @@ export class ReplyFlowEngine {
 
         if (session.pendingOutbound) {
             const ageMs = Date.now() - (session.pendingOutbound.enqueuedAt || 0);
-            if (ageMs < 90_000 && !wouldMatchOption) {
+            if (ageMs > 120_000) {
+                delete session.pendingOutbound;
+            } else if (ageMs < 90_000 && !wouldMatchOption) {
                 this.callbacks.onLog?.('Resposta recebida mas envio anterior ainda pendente', {
                     campaignId: session.campaignId,
                     connectionId,
