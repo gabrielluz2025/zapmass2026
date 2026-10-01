@@ -122,9 +122,17 @@ const etaForCampaign = (camp: Campaign): number | null => {
   return (pending * delay) / chips;
 };
 
-const formatEta = (seconds: number | null): string => {
+const formatEta = (seconds: number | null, camp?: Campaign): string => {
   if (seconds === null) return '—';
-  if (seconds <= 0) return 'Finalizando';
+  if (seconds <= 0) {
+    if (camp?.status === CampaignStatus.RUNNING) {
+      const m = getCampaignProgressMetrics(camp);
+      if (m.pending === 0 && m.ok === 0) {
+        return m.progressPct >= 100 ? 'Aguardando envio' : 'Na fila';
+      }
+    }
+    return 'Finalizando';
+  }
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   if (h >= 1) return `~${h}h ${m}m`;
@@ -618,7 +626,7 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                         className="px-3 py-2.5 text-right tabular-nums"
                         style={{ color: 'var(--text-3)' }}
                       >
-                        {formatEta(eta)}
+                        {formatEta(eta, camp)}
                       </td>
                       <td className="px-3 py-2.5 text-right">
                         <div className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -1036,7 +1044,7 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
               border: '1px solid rgba(16,185,129,0.25)'
             }}
           >
-            ETA {formatEta(eta)}
+            ETA {formatEta(eta, campaign)}
           </span>
         )}
       </div>

@@ -91,10 +91,17 @@ export function getCampaignProgressMetrics(campaign: Campaign) {
 export function isCampaignQueueWorkComplete(c: Campaign): boolean {
   if (c.status === CampaignStatus.COMPLETED) return true;
   if (c.status === CampaignStatus.SCHEDULED) return false;
-  if (isConversationalMultiStepCampaign(c)) return false;
   const m = getCampaignProgressMetrics(c);
   if (m.plannedSendTotal <= 0) return false;
-  return m.pending === 0 && m.effectiveProcessed > 0;
+  if (m.pending > 0) return false;
+  if (m.effectiveProcessed < m.plannedSendTotal) return false;
+
+  if (isConversationalMultiStepCampaign(c)) {
+    // Fila inicial (1 msg/contato) esgotada nos contadores — não deixar RUNNING com 100% e 0 entregues.
+    if ((c.successCount ?? 0) > 0) return false;
+    return true;
+  }
+  return m.effectiveProcessed > 0;
 }
 
 /** @deprecated Use isCampaignQueueWorkComplete */
@@ -124,6 +131,21 @@ export function healCampaignCounters(c: Campaign): Campaign {
 }
 
 export function healStuckCampaignStatus(c: Campaign): Campaign {
+  const m = getCampaignProgressMetrics(c);
+
+  if (
+    isConversationalMultiStepCampaign(c) &&
+    m.pending === 0 &&
+    m.effectiveProcessed >= m.plannedSendTotal &&
+    (c.successCount ?? 0) > 0 &&
+    c.status === CampaignStatus.RUNNING
+  ) {
+    return {
+      ...healCampaignCounters(c),
+      status: CampaignStatus.WAITING_REPLY,
+    };
+  }
+
   if (isCampaignQueueWorkComplete(c)) {
     if (c.status === CampaignStatus.COMPLETED) return healCampaignCounters(c);
     const m = getCampaignProgressMetrics(c);

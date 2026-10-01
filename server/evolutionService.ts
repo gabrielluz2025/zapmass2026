@@ -12063,6 +12063,13 @@ export async function startCampaign(
                 pendingEnqueue.length === 0 && seededProcessed >= totalJobs ? 'COMPLETED' : 'RUNNING'
             );
         }
+        if (
+            runtimeAfterEnqueue &&
+            runtimeAfterEnqueue.processed >= runtimeAfterEnqueue.total &&
+            runtimeAfterEnqueue.total > 0
+        ) {
+            void tryFinalizeOrHoldCampaign(cid);
+        }
     } catch (err: any) {
         // Falha de enfileiramento (Redis fora, etc.): cancela campanha em RAM
         // e propaga para o socket handler avisar a UI.

@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.257',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Campanha não fica mais em Executando 100%/0 entregues; ETA mais claro na fila',
+      },
+    ],
+  },
+  {
     version: '2.3.256',
     date: '01/10/2026',
     highlights: [

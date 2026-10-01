@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.257] - 2026-10-01
+
+### Corrigido
+- **Campanha “Executando” 100% / 0 entregues**: fluxo por resposta deixa de ficar preso em RUNNING quando a fila inicial acabou (só skip 24 h ou abertura já contabilizada); finalização imediata no servidor; UI cura para Concluída ou Aguardando resposta.
+- **ETA “Finalizando” enganoso**: com 0 pendentes e nenhuma entrega ainda, mostra “Na fila” / “Aguardando envio”.
+
 ## [2.3.256] - 2026-10-01
 
 ### Corrigido
