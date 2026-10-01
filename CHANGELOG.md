@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.259] - 2026-10-01
+
+### Corrigido
+- **Build**: export `upgradeStableConversationId` no bundle `.js` usado pelo Vite.
+
 ## [2.3.258] - 2026-10-01
 
 ### Corrigido

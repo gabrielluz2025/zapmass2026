@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.259',
+    date: '01/10/2026',
+    highlights: [
+      { type: 'fix', text: 'Build: export upgradeStableConversationId no bundle do Bate-papo' },
+    ],
+  },
+  {
     version: '2.3.258',
     date: '01/10/2026',
     highlights: [
