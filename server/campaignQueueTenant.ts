@@ -420,6 +420,43 @@ export async function promoteTenantDelayedQueueJobs(
   };
 }
 
+/** Remove jobs de contatos marcados por atendimento manual (chat/celular). */
+export async function removeTenantHumanManualPausedJobs(
+  queues: Queue[],
+  tenantId: string,
+  opts: CampaignQueueTenantScanOpts
+): Promise<{ dryRun: boolean; matched: number; removed: number; wouldRemove: number }> {
+  const { isHumanManualDispatchPaused } = await import('./humanManualDispatchPause.js');
+  let matched = 0;
+  let removed = 0;
+  let wouldRemove = 0;
+
+  for (const queue of queues) {
+    await forEachCampaignQueueJob(queue, async (job, state) => {
+      if (state === 'active') return;
+      const data = (job.data || {}) as QueueJobOwnerData;
+      if (!queueJobBelongsToTenant(data, tenantId, opts.resolveCampaignOwner)) return;
+      if (data.replyFlowResponse || data.nurtureFollowUp) return;
+      const phone = String(data.to || '').trim();
+      if (!phone) return;
+      if (!(await isHumanManualDispatchPaused(tenantId, phone))) return;
+      matched += 1;
+      if (opts.dryRun) {
+        wouldRemove += 1;
+        return;
+      }
+      try {
+        await job.remove();
+        removed += 1;
+      } catch {
+        /* lock / removido */
+      }
+    });
+  }
+
+  return { dryRun: opts.dryRun, matched, removed, wouldRemove };
+}
+
 export function inferRemoveConfirmScope(
   filters: CampaignQueueRemoveFilters
 ): { scope: CampaignQueueRemoveConfirmScope; scopeId?: string } {

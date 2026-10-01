@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.276',
+    date: '01/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Disparo de campanha: fila não fica só em atrasados; distribuição entre chips e antecipar reativam o fluxo',
+      },
+      {
+        type: 'fix',
+        text: 'Fila de disparo: remover jobs de contatos em atendimento manual',
+      },
+    ],
+  },
+  {
     version: '2.3.275',
     date: '01/10/2026',
     highlights: [

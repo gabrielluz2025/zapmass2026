@@ -29,7 +29,8 @@ export type CampaignQueueRemoveConfirmScope =
   | 'all'
   | 'dead-channels'
   | 'runtime-orphans'
-  | 'runtime-campaign';
+  | 'runtime-campaign'
+  | 'human-manual';
 
 /** Prefixo curto do UUID para confirmação de purge runtime órfão. */
 export function runtimeCampaignConfirmShortId(campaignId: string): string {
@@ -55,6 +56,8 @@ export function buildQueueRemoveConfirmPhrase(scope: CampaignQueueRemoveConfirmS
       return 'PARAR CAMPANHAS RUNTIME ÓRFÃS';
     case 'runtime-campaign':
       return `LIMPAR RUNTIME ${runtimeCampaignConfirmShortId(key)}`;
+    case 'human-manual':
+      return 'LIMPAR ATENDIMENTO MANUAL';
     default:
       return 'LIMPAR';
   }

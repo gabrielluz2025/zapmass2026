@@ -6003,7 +6003,18 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
         const state = campaignsById.get(campaignId);
     if (!state?.isRunning) return;
 
-    const pendingJobs = campaignPendingJobs.get(campaignId) || 0;
+    let pendingJobs = campaignPendingJobs.get(campaignId) || 0;
+    if (pendingJobs <= 0) {
+        try {
+            const bullPending = await countCampaignJobsInAllMassQueues(campaignId);
+            if (bullPending > 0) {
+                campaignPendingJobs.set(campaignId, bullPending);
+                pendingJobs = bullPending;
+            }
+        } catch {
+            /* Redis indisponível — segue contador em memória */
+        }
+    }
     if (pendingJobs > 0) return;
 
     const openReplyFlowSessions = replyFlowEngine
@@ -6109,6 +6120,7 @@ async function closeCampaignJobWithoutRecount(
     if (!item.campaignId) return;
     if (!item.replyFlowResponse && !item.nurtureFollowUp) {
         void promoteHeldCampaignJob(item.campaignId, item.connectionId).catch(() => undefined);
+        void drainHeldForConnection(item.connectionId).catch(() => undefined);
     }
     const pending = Math.max(0, (campaignPendingJobs.get(item.campaignId) || 0) - 1);
     if (pending <= 0) {
@@ -6130,6 +6142,7 @@ async function skipCampaignJobOnce(
     if (!item.campaignId) return;
     if (!item.replyFlowResponse && !item.nurtureFollowUp) {
         void promoteHeldCampaignJob(item.campaignId, item.connectionId).catch(() => undefined);
+        void drainHeldForConnection(item.connectionId).catch(() => undefined);
     }
     bumpCampaignSkip(item.campaignId);
     const pending = Math.max(0, (campaignPendingJobs.get(item.campaignId) || 0) - 1);
@@ -6184,6 +6197,7 @@ async function accountCampaignJobOnce(
     finishCampaignJob(item.campaignId, success, countTowardAutoPause);
     if (!item.replyFlowResponse && !item.nurtureFollowUp) {
         void promoteHeldCampaignJob(item.campaignId, item.connectionId).catch(() => undefined);
+        void drainHeldForConnection(item.connectionId).catch(() => undefined);
     }
 }
 
@@ -6968,6 +6982,46 @@ async function ensureCampaignRuntimeInMemory(campaignId: string, fallbackOwnerUi
         await applyProgressSeedToRuntime(campaignId, uid);
         log('info', `[reconcile] Runtime mínimo criado para campanha ${campaignId} (sem Redis)`, { ownerUid: uid });
     }
+}
+
+/** Jobs ainda na BullMQ mas runtime marcado parado — reativa para o worker processar. */
+async function reassertCampaignRunningWhenJobsQueued(
+    campaignId: string,
+    ownerUid?: string
+): Promise<void> {
+    const cid = String(campaignId || '').trim();
+    if (!cid || pausedCampaigns.has(cid)) return;
+    let bullCount = 0;
+    try {
+        bullCount = await countCampaignJobsInAllMassQueues(cid);
+    } catch {
+        return;
+    }
+    if (bullCount <= 0) return;
+    campaignPendingJobs.set(cid, Math.max(bullCount, campaignPendingJobs.get(cid) || 0));
+    let state = campaignsById.get(cid);
+    if (!state) {
+        await ensureCampaignRuntimeInMemory(cid, ownerUid);
+        state = campaignsById.get(cid);
+    }
+    if (!state) return;
+    if (state.isRunning) return;
+    state.isRunning = true;
+    state.startedAt = state.startedAt ?? Date.now();
+    const ou = state.ownerUid || ownerUid;
+    void saveCampaignRuntimeToRedis(cid);
+    if (ou) {
+        void persistCampaignProgressToFirestore(
+            ou,
+            cid,
+            state.successCount ?? 0,
+            state.failCount ?? 0,
+            state.processed ?? 0,
+            'RUNNING'
+        ).catch(() => undefined);
+    }
+    ensureCampaignWorker();
+    void runPostResumeCampaignQueueRepair(cid, ou, true).catch(() => undefined);
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -8777,10 +8831,8 @@ async function promoteHeldCampaignJob(campaignId?: string, connectionId?: string
         return false;
     }
     heldDispatchSizes.set(connId, Math.max(0, (heldDispatchSizes.get(connId) || 1) - 1));
-    const settings = getTenantDispatchSettings(item.ownerUid);
-    const delay = getGaussianDelayMs(settings.minDelayMs, settings.maxDelayMs, 1);
     try {
-        await enqueueCampaignItem(item, delay, { countPending: false, hotSlotReserved: true });
+        await enqueueCampaignItem(item, 0, { countPending: false, hotSlotReserved: true });
     } catch {
         await redis.lpush(heldListKey(cid, connId), raw);
         await releaseChannelHotSlot(redis, connId);
@@ -9494,6 +9546,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     if (item.campaignId && !campaignsById.has(item.campaignId)) {
         const fallback = item.ownerUid || item.replyFlowOpen?.ownerUid;
         await ensureCampaignRuntimeInMemory(item.campaignId, fallback);
+    }
+    if (item.campaignId && !item.replyFlowResponse && !item.nurtureFollowUp) {
+        await reassertCampaignRunningWhenJobsQueued(item.campaignId, item.ownerUid);
     }
     const campaignStateEarly = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
 
@@ -11734,7 +11789,7 @@ export async function redispatchCampaign(
                       index: i,
                   })
                 : activeConnectionIds[i % activeConnectionIds.length];
-        const staggerDelay = i * dispatchSettings.minDelayMs;
+        const staggerDelay = 0;
         const vars = recipientVars.get(cleanPhone) || {};
 
         if (useLazyMotor && stageConfigs?.[stepIndex]) {
@@ -11807,7 +11862,11 @@ export async function redispatchCampaign(
             if (pendingEnqueue.length >= 100) {
                 await trimCampaignBullmqQueuesBestEffort();
             }
-            const paceMs = Math.round((dispatchSettings.minDelayMs + dispatchSettings.maxDelayMs) / 2);
+            const enqueuePaceMs = Math.max(
+                0,
+                Number(process.env.CAMPAIGN_ENQUEUE_WINDOW_PACE_MS ?? 0) || 0
+            );
+            const paceMs = enqueuePaceMs;
             const windowed = splitCampaignDispatchWindow(pendingEnqueue, CAMPAIGN_CHANNEL_WINDOW, paceMs);
             await enqueueCampaignItemsBulk(windowed.hot);
             await parkHeldCampaignSends(campaignId, windowed.held.map((entry) => entry.item));
@@ -12275,11 +12334,8 @@ export async function startCampaign(
                     channelDailyLimit: connDailyLimit,
                 });
             } else {
-                const jitterFactor = 0.75 + Math.random() * 0.5;
-                staggerDelay = Math.round(i * avgDelayMs * jitterFactor)
-                    + (humanizedPauses && i > 0 && i % 30 === 0
-                        ? Math.round((120_000 + Math.random() * 180_000))
-                        : 0);
+                // Ritmo entre envios fica no worker (intervalo pós-envio / tier), não no delay Bull na largada.
+                staggerDelay = 0;
             }
 
             if (useLazyMotor) {
@@ -12420,7 +12476,11 @@ export async function startCampaign(
             throw new Error(mediaErr);
         }
 
-        const paceMs = Math.round((dispatchSettings.minDelayMs + dispatchSettings.maxDelayMs) / 2);
+        const enqueuePaceMs = Math.max(
+            0,
+            Number(process.env.CAMPAIGN_ENQUEUE_WINDOW_PACE_MS ?? 0) || 0
+        );
+        const paceMs = enqueuePaceMs;
         const windowed = splitCampaignDispatchWindow(pendingEnqueue, CAMPAIGN_CHANNEL_WINDOW, paceMs);
         if (pendingEnqueue.length >= 100) {
             await trimCampaignBullmqQueuesBestEffort();
@@ -13155,6 +13215,15 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
                 campaignStallRemapAt.set(campaignId, now);
                 const remapped = await remigrateStuckCampaignJobsToUsableChips(campaignId, state);
                 if (remapped > 0) continue;
+            }
+            const lastWake = campaignStallRemapAt.get(`${campaignId}:wake-stall`) || 0;
+            if (now - lastWake >= 90_000) {
+                campaignStallRemapAt.set(`${campaignId}:wake-stall`, now);
+                const channelIds = collectCampaignChannelIdsForRuntime(campaignId, state.ownerUid);
+                const headroom = computeResumeDispatchHeadroom(channelIds);
+                void runPostResumeCampaignQueueRepair(campaignId, state.ownerUid, headroom <= 0).catch(
+                    () => undefined
+                );
             }
         }
 
@@ -15011,6 +15080,19 @@ async function runPostResumeCampaignQueueRepair(
         });
     }
     await releaseShortHeldCampaignJobs(cid);
+}
+
+/** Após antecipar jobs delayed (UI/API): reativa runtime, workers e held. */
+export async function repairCampaignDispatchQueueAfterDelayPromote(
+    campaignId: string,
+    ownerUid?: string
+): Promise<void> {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return;
+    ensureCampaignWorker();
+    await reassertCampaignRunningWhenJobsQueued(cid, ownerUid);
+    await runPostResumeCampaignQueueRepair(cid, ownerUid, true);
+    await drainHeldForCampaign(cid);
 }
 
 /** Quando um chip volta online, antecipa jobs delayed por chip offline (evita fila “fantasma”). */

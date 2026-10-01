@@ -18,6 +18,7 @@ import {
   promoteTenantDelayedQueueJobs,
   removeTenantCampaignQueueJobs,
   removeTenantDeadChannelQueueJobs,
+  removeTenantHumanManualPausedJobs,
   type CampaignQueueRemoveFilters,
 } from './campaignQueueTenant.js';
 import type { CampaignQueueScanState } from './campaignQueueScan.js';
@@ -224,6 +225,18 @@ export function registerCampaignQueueTenantRoutes(app: Express): void {
       });
       if (!dryRun) {
         logQueueAction(ctx.tenantId, 'clear-delayed', { ...filters, ...result });
+        if (filters.campaignId) {
+          await evolutionService.setCampaignDispatchPriorityBoost(
+            filters.campaignId,
+            true,
+            ctx.tenantId
+          );
+          await evolutionService.repairCampaignDispatchQueueAfterDelayPromote(
+            filters.campaignId,
+            ctx.tenantId
+          );
+        }
+        await evolutionService.syncConnectionQueueSizesFromRedis().catch(() => undefined);
       }
       return res.json({ ok: true, result });
     } catch (e) {
@@ -367,6 +380,38 @@ export function registerCampaignQueueTenantRoutes(app: Express): void {
       });
       if (!dryRun) {
         logQueueAction(ctx.tenantId, 'purge-dead-channels', { ...result });
+        await evolutionService.syncConnectionQueueSizesFromRedis().catch(() => undefined);
+      }
+      return res.json({ ok: true, result });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return res.status(500).json({ ok: false, error: message });
+    }
+  });
+
+  app.post('/api/campaigns/queue/purge-human-manual', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+    const dryRun = body.dryRun !== false;
+    const confirmPhrase = buildQueueRemoveConfirmPhrase('human-manual');
+    if (!dryRun && !parseQueueRemoveConfirm(body, 'human-manual')) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Confirmação inválida para limpar jobs de atendimento manual.',
+        expectedScope: 'human-manual',
+        expectedConfirm: confirmPhrase,
+      });
+    }
+    try {
+      const queues = await evolutionService.getCampaignBullmqQueuesForAdmin();
+      const scanCtx = queueScanContext(ctx.tenantId);
+      const result = await removeTenantHumanManualPausedJobs(queues, ctx.tenantId, {
+        dryRun,
+        resolveCampaignOwner: evolutionService.getCampaignOwnerUidForQueue,
+      });
+      if (!dryRun) {
+        logQueueAction(ctx.tenantId, 'purge-human-manual', { ...result });
         await evolutionService.syncConnectionQueueSizesFromRedis().catch(() => undefined);
       }
       return res.json({ ok: true, result });

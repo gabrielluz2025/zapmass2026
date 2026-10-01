@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.276] - 2026-10-01
+
+### Corrigido
+- **Fila travada (só atrasados)**: largada sem empilhar delay no Bull; held promovido com delay 0; runtime não conclui enquanto houver jobs na fila; watchdog acorda jobs presos; **Antecipar** reativa workers e held.
+- **Distribuição multi-chip**: rodízio na largada mantido; drenagem de held após cada envio.
+- **Operações**: purge de jobs pausados por atendimento manual (`purge-human-manual`).
+
 ## [2.3.275] - 2026-10-01
 
 ### Corrigido
