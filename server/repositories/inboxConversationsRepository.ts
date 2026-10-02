@@ -102,6 +102,60 @@ export async function markInboxConversationsDeleted(
  * Carrega conversas persistidas para um tenant.
  * Usado no boot para restaurar a inbox sem precisar sincronizar do Evolution.
  */
+/** Uma conversa persistida (ex.: chip offline, claim/transfer no workspace). */
+export async function findPersistedInboxConversationPg(
+  tenantId: string,
+  conversationId: string,
+  phoneDigitKeys?: string[]
+): Promise<Conversation | null> {
+  const pool = getZapmassPool();
+  const tid = String(tenantId || '').trim();
+  const cid = String(conversationId || '').trim();
+  if (!pool || !tid || !cid) return null;
+  const colon = cid.indexOf(':');
+  const connFromId = colon > 0 ? cid.slice(0, colon) : '';
+  const keys = (phoneDigitKeys || []).filter((k) => k.length >= 8);
+  try {
+    const r = await pool.query(
+      `SELECT conversation_id, connection_id, contact_name, contact_phone,
+              last_message, last_msg_ts, unread_count, tags, profile_pic_url
+       FROM zapmass.wa_inbox_conversations
+       WHERE tenant_id = $1 AND deleted = false
+         AND (
+           conversation_id = $2
+           OR ($3 <> '' AND connection_id = $3 AND cardinality($4::text[]) > 0
+               AND regexp_replace(contact_phone, '\\D', '', 'g') = ANY($4::text[]))
+         )
+       ORDER BY CASE WHEN conversation_id = $2 THEN 0 ELSE 1 END, last_msg_ts DESC
+       LIMIT 1`,
+      [tid, cid, connFromId, keys]
+    );
+    const row = r.rows?.[0];
+    if (!row) return null;
+    const lastMsgTs = Number(row.last_msg_ts) || 0;
+    return {
+      id: String(row.conversation_id),
+      connectionId: String(row.connection_id),
+      contactName: String(row.contact_name || 'Contato'),
+      contactPhone: String(row.contact_phone || ''),
+      lastMessage: String(row.last_message || ''),
+      lastMessageTime:
+        lastMsgTs > 0
+          ? new Date(lastMsgTs).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+          : '',
+      lastMessageTimestamp: lastMsgTs,
+      unreadCount: Number(row.unread_count) || 0,
+      messages: [],
+      tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
+      profilePicUrl: row.profile_pic_url ? String(row.profile_pic_url) : undefined,
+      connectionOwnerUid: tid,
+    };
+  } catch (e) {
+    console.warn('[InboxPersist] find conversa falhou:', (e as Error)?.message);
+    return null;
+  }
+}
+
 export async function loadPersistedInboxConversations(
   tenantId: string,
   limit = 2000

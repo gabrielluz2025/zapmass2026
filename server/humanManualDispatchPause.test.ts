@@ -11,6 +11,13 @@ describe('humanManualDispatchPause', () => {
   const campaignA = 'camp-a';
   const campaignB = 'camp-b';
 
+  it('nova campanha pode disparar após assumir (pausa só na campanha cancelada)', async () => {
+    const t = 'tenant-nova-campanha-pause';
+    await markHumanManualDispatchPausedForCampaigns(t, phone, [campaignA]);
+    expect(await isHumanManualDispatchPaused(t, phone, campaignA)).toBe(true);
+    expect(await isHumanManualDispatchPaused(t, phone, campaignB)).toBe(false);
+  });
+
   it('pausa só a campanha indicada', async () => {
     expect(await isHumanManualDispatchPaused(tenant, phone, campaignA)).toBe(false);
     await markHumanManualDispatchPausedForCampaigns(tenant, phone, [campaignA]);

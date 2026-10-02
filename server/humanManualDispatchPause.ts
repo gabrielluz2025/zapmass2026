@@ -3,6 +3,11 @@ import { buildPhoneDigitLookupKeys, normalizePhoneDigits } from '../src/utils/co
 import { getSharedRedis } from './redisShared.js';
 import { normalizeOptOutPhoneSuffix, phoneMatchesJobTarget } from './contactOptOutService.js';
 
+/**
+ * Pausa de disparo automático após **Assumir** conversa ou envio manual no chat.
+ * - Grava por par `{campaignId}:{telefone}` — não bloqueia o número em campanhas novas.
+ * - Só a campanha cuja fila foi cancelada permanece pausada até Finalizar/Libertar (clear).
+ */
 const localPausedByTenant = new Map<string, Set<string>>();
 
 /** @deprecated Legado — membros eram só sufixo do telefone (bloqueio global). Limpo em `clearHumanManualDispatchPaused`. */

@@ -14,7 +14,7 @@ import {
   inboxTransferConversation,
   inboxReleaseConversation
 } from './inboxAssignments.js';
-import { getConversations, broadcastConversationsUpdate } from './whatsappService.js';
+import { broadcastConversationsUpdate } from './whatsappService.js';
 import { submitSendMessage } from './sessionControlPlane.js';
 import {
   buildClientSurveyUrl,
@@ -27,6 +27,22 @@ import { getZapmassPool } from './db/postgres.js';
 import { resolveAuthPrincipal } from './resolveAuth.js';
 import { resolveInboxRouteParticipant } from './inboxRouteAuth.js';
 import { findUserById } from './auth/userRepository.js';
+import { resolveWorkspaceInboxConversation } from './workspaceInboxConversation.js';
+import type { Conversation } from './types.js';
+
+async function workspaceInboxConversationForTenant(
+  tenantUid: string,
+  conversationId: string
+): Promise<Conversation | null> {
+  const conv = await resolveWorkspaceInboxConversation(tenantUid, conversationId);
+  if (!conv) return null;
+  if (
+    !ownsConnectionForUid(tenantUid, conv.connectionId, resolveConnectionOwnerUid(conv.connectionId))
+  ) {
+    return null;
+  }
+  return conv;
+}
 
 function parseBearer(req: Request): string | null {
   const h = req.headers.authorization || '';
@@ -579,11 +595,8 @@ export function registerWorkspaceRoutes(app: Express): void {
     }
     const { tenantUid, authUid } = participant;
     try {
-      const conv = getConversations().find((c) => c.id === conversationId);
-      if (
-        !conv ||
-        !ownsConnectionForUid(tenantUid, conv.connectionId, resolveConnectionOwnerUid(conv.connectionId))
-      ) {
+      const conv = await workspaceInboxConversationForTenant(tenantUid, conversationId);
+      if (!conv) {
         return res.status(403).json({ ok: false, error: 'Conversa não encontrada neste workspace.' });
       }
       const r = await inboxClaimConversation(tenantUid, authUid, conversationId, conv);
@@ -624,11 +637,8 @@ export function registerWorkspaceRoutes(app: Express): void {
     }
     const { tenantUid, authUid } = participant;
     try {
-      const conv = getConversations().find((c) => c.id === conversationId);
-      if (
-        !conv ||
-        !ownsConnectionForUid(tenantUid, conv.connectionId, resolveConnectionOwnerUid(conv.connectionId))
-      ) {
+      const conv = await workspaceInboxConversationForTenant(tenantUid, conversationId);
+      if (!conv) {
         return res.status(403).json({ ok: false, error: 'Conversa não encontrada neste workspace.' });
       }
       const isOwner = authUid === tenantUid;
@@ -698,11 +708,8 @@ export function registerWorkspaceRoutes(app: Express): void {
     }
     const { tenantUid, authUid } = participant;
     try {
-      const conv = getConversations().find((c) => c.id === conversationId);
-      if (
-        !conv ||
-        !ownsConnectionForUid(tenantUid, conv.connectionId, resolveConnectionOwnerUid(conv.connectionId))
-      ) {
+      const conv = await workspaceInboxConversationForTenant(tenantUid, conversationId);
+      if (!conv) {
         return res.status(403).json({ ok: false, error: 'Conversa não encontrada neste workspace.' });
       }
       const isOwner = authUid === tenantUid;
@@ -772,11 +779,8 @@ export function registerWorkspaceRoutes(app: Express): void {
     }
     const { tenantUid, authUid } = participant;
     try {
-      const conv = getConversations().find((c) => c.id === conversationId);
-      if (
-        !conv ||
-        !ownsConnectionForUid(tenantUid, conv.connectionId, resolveConnectionOwnerUid(conv.connectionId))
-      ) {
+      const conv = await workspaceInboxConversationForTenant(tenantUid, conversationId);
+      if (!conv) {
         return res.status(403).json({ ok: false, error: 'Conversa não encontrada neste workspace.' });
       }
       const isOwner = authUid === tenantUid;

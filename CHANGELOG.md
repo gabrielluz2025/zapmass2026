@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.302] - 2026-10-02
+
+### Corrigido
+- **Bate-papo — Assumir**: rotas `/api/workspace/inbox-claim` (e transfer/finish/libertar) resolvem a conversa na RAM do Evolution, no Postgres (`wa_inbox_conversations`) ou no arquivo — chip offline deixa de retornar «Conversa não encontrada neste workspace».
+- **Campanhas**: pausa após assumir continua **só na campanha cancelada**; nova campanha para o mesmo número não é bloqueada (comportamento documentado em `humanManualDispatchPause`).
+
 ## [2.3.301] - 2026-10-02
 
 ### Corrigido

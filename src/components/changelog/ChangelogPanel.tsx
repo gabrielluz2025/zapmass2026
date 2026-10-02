@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.302',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Assumir conversa com chip offline: busca Evolution/PG/arquivo; nova campanha não bloqueada pela pausa de outra campanha',
+      },
+    ],
+  },
+  {
     version: '2.3.301',
     date: '02/10/2026',
     highlights: [
