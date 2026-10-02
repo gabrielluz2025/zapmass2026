@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.282',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Build: campanha agendada passa dailySchedule no índice correto de startCampaign (após limite 24 h por telefone)',
+      },
+    ],
+  },
+  {
     version: '2.3.281',
     date: '02/10/2026',
     highlights: [

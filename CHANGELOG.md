@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.282] - 2026-10-02
+
+### Corrigido
+- **CI / campanhas agendadas**: índice do parâmetro `dailySchedule` em `startCampaign` após inclusão de `frequencyCapAllowPhones` (typecheck quebrava o build).
+
 ## [2.3.281] - 2026-10-02
 
 ### Corrigido

@@ -325,9 +325,9 @@ async function processOneCampaign(
     const delaySecondsMax = Number(snap?.delaySecondsMax);
     const dailySchedule =
       snap?.dailySchedule && typeof snap.dailySchedule === 'object'
-        ? (snap.dailySchedule as Parameters<typeof evolutionService.startCampaign>[15])
+        ? (snap.dailySchedule as Parameters<typeof evolutionService.startCampaign>[16])
         : data.dailySchedule && typeof data.dailySchedule === 'object'
-          ? (data.dailySchedule as Parameters<typeof evolutionService.startCampaign>[15])
+          ? (data.dailySchedule as Parameters<typeof evolutionService.startCampaign>[16])
           : undefined;
 
     const scheduledWeights =
