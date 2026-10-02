@@ -790,6 +790,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           allRecipients={previewRecipients}
           isLoading={previewConfirmLoading}
           selectedConnectionIds={previewPayload.connectedIds}
+          connections={connections}
         />
       )}
 

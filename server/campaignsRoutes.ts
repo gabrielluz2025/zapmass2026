@@ -545,10 +545,10 @@ export function registerCampaignsDataRoutes(app: Express): void {
     if (connectionIds.length === 0) {
       return res.status(400).json({ ok: false, error: 'Informe ao menos uma conexão.' });
     }
-    // Filtra somente conexões do tenant
-    const tenantConns = evolutionService.getConnectionsForTenant(ctx.tenantId);
-    const ownedIds = new Set(tenantConns.map((c) => c.instanceName || c.id));
-    const filtered = connectionIds.filter((id) => ownedIds.has(id));
+    // Filtra conexões do tenant (Firebase legado + UUID Postgres derivado)
+    const filtered = connectionIds.filter((id) =>
+      evolutionService.tenantOwnsConnection(ctx.tenantId, id)
+    );
     if (filtered.length === 0) {
       return res.status(403).json({ ok: false, error: 'Nenhuma conexão pertence a esta conta.' });
     }

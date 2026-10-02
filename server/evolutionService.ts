@@ -16086,4 +16086,5 @@ export default {
     getConnectionsForTenant,
     getConnectionStatePublic,
     sendTestMessage,
+    tenantOwnsConnection,
 };

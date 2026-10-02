@@ -35,6 +35,18 @@ import {
 import { DispatchFixPanel } from './DispatchFixPanel';
 import { useAuth } from '../../context/AuthContext';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
+import { useZapMassCore } from '../../context/ZapMassContext';
+import type { WhatsAppConnection } from '../../types';
+import {
+  chipResultsFromLocalConnections,
+  chipStatusFromResults,
+  formatChipStatusLine,
+  chipStatusHint,
+  freqCapStatusAfterCheck,
+  motorStatusFromDispatchHealth,
+  type PreviewChipResult,
+  type PreviewHealthStatus,
+} from '../../utils/campaignPreviewHealth';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function renderMessage(template: string, recipientVars: Record<string, string>): string {
@@ -87,16 +99,11 @@ interface CampaignPreviewModalProps {
   allRecipients: SampleRecipient[];
   isLoading?: boolean;
   selectedConnectionIds?: string[];
+  /** Estado local dos chips — fallback quando /preflight falha. */
+  connections?: WhatsAppConnection[];
 }
 
-type HealthStatus = 'idle' | 'checking' | 'ok' | 'warn' | 'error' | 'reconnecting';
-
-interface ChipResult {
-  connectionId: string;
-  status: string;
-  isReady: boolean;
-  error: string | null;
-}
+type HealthStatus = PreviewHealthStatus;
 
 interface TriagedContact {
   phone: string;
@@ -122,13 +129,18 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   allRecipients,
   isLoading = false,
   selectedConnectionIds = [],
+  connections = [],
 }) => {
   const { user } = useAuth();
   const isAdmin = isPlatformAdminUser(user);
+  const { isBackendConnected } = useZapMassCore();
 
   const [motorStatus, setMotorStatus] = useState<HealthStatus>('idle');
   const [chipStatus, setChipStatus] = useState<HealthStatus>('idle');
-  const [chipResults, setChipResults] = useState<ChipResult[]>([]);
+  const [chipResults, setChipResults] = useState<PreviewChipResult[]>([]);
+  const [chipUsedLocalFallback, setChipUsedLocalFallback] = useState(false);
+  const [chipPreflightError, setChipPreflightError] = useState<string | null>(null);
+  const [freqCapDegraded, setFreqCapDegraded] = useState(false);
   const [showChipDetails, setShowChipDetails] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [freqCapStatus, setFreqCapStatus] = useState<HealthStatus>('idle');
@@ -155,8 +167,10 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
 
   const recipientsRef = useRef(allRecipients);
   const connectionIdsRef = useRef(selectedConnectionIds);
+  const connectionsRef = useRef(connections);
   recipientsRef.current = allRecipients;
   connectionIdsRef.current = selectedConnectionIds;
+  connectionsRef.current = connections;
 
   /** Base grande: o check 24h no cliente trava o modal (payload + re-render). O servidor aplica o cap no envio. */
   const LARGE_FREQ_CAP_CLIENT = 1_500;
@@ -211,43 +225,49 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
         }))
       );
       setCappedCount(0);
-      setFreqCapStatus('error');
+      setFreqCapDegraded(true);
+      setFreqCapStatus(freqCapStatusAfterCheck(false, true));
     }
   }, []);
 
   const runHealthCheck = useCallback(async () => {
     const ids = connectionIdsRef.current;
-    setMotorStatus('checking');
+    const localConnections = connectionsRef.current;
+    setMotorStatus(isBackendConnected ? 'checking' : 'reconnecting');
     setChipStatus('checking');
+    setChipUsedLocalFallback(false);
+    setChipPreflightError(null);
 
-    const motorP = ensureDispatchReady({ maxAttempts: 1, tryReconnect: false }).then(
-      (h) => {
-        setMotorStatus(h.ok ? 'ok' : 'warn');
-        return h.ok;
-      },
-      () => {
+    const motorP = ensureDispatchReady({ maxAttempts: 3, tryReconnect: true })
+      .then((h) => {
+        setMotorStatus(motorStatusFromDispatchHealth(h));
+      })
+      .catch(() => {
         setMotorStatus('warn');
-        return false;
-      }
-    );
+      });
 
-    const chipP =
-      ids.length === 0
-        ? Promise.resolve().then(() => {
-            setChipStatus('warn');
-          })
-        : apiPreflightCheck(ids)
-            .then((res) => {
-              setChipResults(res.results);
-              setChipStatus(res.allReady ? 'ok' : 'error');
-            })
-            .catch(() => {
-              setChipStatus('warn');
-              setChipResults([]);
-            });
+    const chipP = (async () => {
+      if (ids.length === 0) {
+        setChipResults([]);
+        setChipStatus('warn');
+        return;
+      }
+      try {
+        const res = await apiPreflightCheck(ids);
+        setChipResults(res.results);
+        setChipStatus(res.allReady ? 'ok' : res.results.some((r) => r.isReady) ? 'warn' : 'error');
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'Falha na verificação dos chips';
+        setChipPreflightError(msg);
+        const fallback = chipResultsFromLocalConnections(ids, localConnections);
+        setChipResults(fallback);
+        setChipUsedLocalFallback(true);
+        setChipStatus(chipStatusFromResults(fallback, { usedLocalFallback: true }));
+      }
+    })();
 
     await Promise.all([motorP, chipP]);
-  }, []);
+  }, [isBackendConnected]);
 
   // Uma única verificação ao abrir — NÃO reexecuta quando o pai re-renderiza a lista (base grande).
   useEffect(() => {
@@ -260,10 +280,13 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       setChipResults([]);
       setShowChipDetails(false);
       setFreqCapStatus('idle');
+      setFreqCapDegraded(false);
       setTriagedContacts([]);
       setCappedCount(0);
       setCappedResendSelected(new Set());
       setShowAllContacts(false);
+      setChipUsedLocalFallback(false);
+      setChipPreflightError(null);
     }
   }, [isOpen, runHealthCheck, runFrequencyCapCheck]);
 
@@ -272,12 +295,17 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
     const t = window.setTimeout(() => {
       setMotorStatus((s) => (s === 'checking' ? 'warn' : s));
       setChipStatus((s) => (s === 'checking' ? 'warn' : s));
-      setFreqCapStatus((s) => (s === 'checking' ? 'error' : s));
-    }, 10_000);
+      setFreqCapStatus((s) => {
+        if (s !== 'checking') return s;
+        setFreqCapDegraded(true);
+        return freqCapStatusAfterCheck(false, true);
+      });
+    }, 28_000);
     return () => window.clearTimeout(t);
   }, [isOpen]);
 
-  const triageComplete = freqCapStatus === 'ok' || freqCapStatus === 'error';
+  const triageComplete =
+    freqCapStatus === 'ok' || freqCapStatus === 'warn' || freqCapStatus === 'error';
   const needsRepeatConfirm = cappedCount > 0 && freqCapStatus === 'ok';
   const largeBaseSkipClientCap = contactCount > LARGE_FREQ_CAP_CLIENT;
   const dispatchableCount = computeDispatchableAfterFreqCap({
@@ -315,16 +343,25 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       ? 'reconnecting'
       : chipStatus === 'ok' && (motorStatus === 'ok' || motorStatus === 'warn') && triageComplete
       ? 'ok'
-      : motorStatus === 'warn' || freqCapStatus === 'error' || chipStatus === 'warn'
+      : motorStatus === 'warn' || freqCapStatus === 'warn' || freqCapStatus === 'error' || chipStatus === 'warn'
       ? 'warn'
       : 'idle';
 
-  const chipsConfirmedOffline = chipStatus === 'error' && chipResults.some((r) => !r.isReady);
+  const chipHintKey = chipStatusHint(chipStatus, {
+    selectedCount: selectedConnectionIds.length,
+    usedLocalFallback: chipUsedLocalFallback,
+    preflightError: chipPreflightError,
+  });
+  const chipStatusLine = formatChipStatusLine(chipStatus, chipResults, chipHintKey);
+
+  const chipsConfirmedOffline =
+    chipStatus === 'error' && chipResults.length > 0 && chipResults.every((r) => !r.isReady);
   const canDispatch =
     !hasUnresolved &&
     !chipsConfirmedOffline &&
     motorStatus !== 'error' &&
-    dispatchableCount > 0;
+    dispatchableCount > 0 &&
+    (isBackendConnected || chipUsedLocalFallback);
 
   const palette = {
     ok: { bg: '#10b98115', border: '#10b98135', text: '#10b981', icon: <CheckCircle2 className="w-4 h-4" /> },
@@ -341,6 +378,12 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
         Cancelar
       </Button>
       <div className="flex items-center gap-2 flex-wrap justify-end">
+        {!isBackendConnected && (
+          <span className="text-[11px] text-amber-500 flex items-center gap-1">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            Servidor em reconexão — aguarde ou clique em Reverificar
+          </span>
+        )}
         {overallHealth === 'error' && (
           <span className="text-[11px] text-red-400 flex items-center gap-1">
             <AlertTriangle className="w-3.5 h-3.5" />
@@ -494,7 +537,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
                     {motorStatus === 'ok' ? 'Pronto' :
                      motorStatus === 'error' ? (isAdmin ? 'Indisponível — ver correção' : 'Reconectando…') :
                      motorStatus === 'reconnecting' ? 'Sincronizando…' :
-                     motorStatus === 'warn' ? 'Sem confirmação (pode disparar)' :
+                     motorStatus === 'warn' ? 'Sem confirmação na rede (pode disparar)' :
                      motorStatus === 'checking' ? 'Verificando…' : 'Não verificado'}
                   </div>
                 </div>
@@ -511,12 +554,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
               <div className="flex-1">
                 <div className="text-[11px] font-bold" style={{ color: 'var(--text-1)' }}>WhatsApp Chips</div>
                 <div className="text-[10px]" style={{ color: palette[chipStatus].text }}>
-                  {chipStatus === 'ok' ? `${chipResults.filter(r => r.isReady).length}/${chipResults.length} online` :
-                   chipStatus === 'error' ? `${chipResults.filter(r => !r.isReady).length} chip(s) offline` :
-                   chipStatus === 'checking' ? 'Verificando…' :
-                   chipStatus === 'warn'
-                     ? (selectedConnectionIds.length === 0 ? 'Nenhum chip selecionado' : 'Aguardando motor de envio')
-                     : 'Não verificado'}
+                  {chipStatusLine}
                 </div>
               </div>
               {chipResults.length > 0 && (
@@ -588,10 +626,17 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
               {freqCapStatus === 'checking' && <Loader2 className="w-4 h-4 animate-spin shrink-0" style={{ color: 'var(--text-3)' }} />}
               {freqCapStatus === 'ok' && cappedCount === 0 && <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />}
               {freqCapStatus === 'ok' && cappedCount > 0 && <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />}
-              {freqCapStatus === 'error' && <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />}
+              {(freqCapStatus === 'error' || freqCapStatus === 'warn') && freqCapDegraded && (
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
+              )}
+              {freqCapStatus === 'error' && !freqCapDegraded && (
+                <AlertTriangle className="w-4 h-4 shrink-0 text-red-500" />
+              )}
               <span className="text-[12px] font-bold truncate" style={{ color: 'var(--text-1)' }}>
                 {freqCapStatus === 'checking'
                   ? 'Verificando contatos (limite 24 h)…'
+                  : freqCapStatus === 'warn' && freqCapDegraded
+                  ? 'Limite 24 h: verificação parcial — aplicado no envio'
                   : freqCapStatus === 'error'
                   ? 'Não foi possível verificar o limite de 24 h'
                   : largeBaseSkipClientCap

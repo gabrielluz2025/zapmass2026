@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.287] - 2026-10-02
+
+### Corrigido
+- **Preview de disparo (motor/chips/24 h)**: verificação alinhada ao `startCampaign` (Redis com reconexão), timeouts maiores e sem falso «Aguardando motor» quando a API de pré-voo falha — usa status local dos chips e mensagens claras.
+- **Pré-voo `/api/campaigns/preflight`**: ownership por `tenantOwnsConnection` (Firebase + UUID Postgres), evitando 403 com chips válidos na VPS.
+- **Limite 24 h no modal**: falha de API degrada para aviso (limite aplicado no envio); botão bloqueado se socket estiver offline.
+
 ## [2.3.286] - 2026-10-02
 
 ### Corrigido

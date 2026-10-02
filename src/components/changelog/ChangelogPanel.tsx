@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.287',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Modal de disparo: motor/chips/24 h com verificação real (Redis reconecta), pré-voo VPS e sem «aguardando motor» falso',
+      },
+    ],
+  },
+  {
     version: '2.3.286',
     date: '02/10/2026',
     highlights: [

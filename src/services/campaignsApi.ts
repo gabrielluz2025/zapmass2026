@@ -373,6 +373,12 @@ export async function ensureDispatchReady(options?: {
   const maxAttempts = Math.max(1, options?.maxAttempts ?? 4);
   const failFastOnMisconfig = options?.failFastOnMisconfig !== false;
   let last = await fetchDispatchHealth({ retries: 0 });
+  if (!last.kind) {
+    last = {
+      ...last,
+      kind: last.ok ? 'ok' : last.reachable === false ? 'network' : last.redis.misconfigHint ? 'misconfig' : 'redis_down',
+    };
+  }
   if (last.ok) return last;
   if (failFastOnMisconfig && last.kind === 'misconfig') return last;
 
@@ -468,8 +474,8 @@ export async function apiPreflightCheck(connectionIds: string[]): Promise<Prefli
   const j = await apiFetchJson<PreflightResult>('/api/campaigns/preflight', {
     method: 'POST',
     body: JSON.stringify({ connectionIds }),
-    timeoutMs: 10_000,
-    retries: 1,
+    timeoutMs: 18_000,
+    retries: 2,
   });
   return j;
 }
@@ -539,8 +545,8 @@ export async function apiFrequencyCapCheck(phones: string[]): Promise<FrequencyC
   return apiFetchJson<FrequencyCapCheckResult>('/api/campaigns/frequency-cap-check', {
     method: 'POST',
     body: JSON.stringify({ phones }),
-    timeoutMs: 8_000,
-    retries: 1,
+    timeoutMs: 20_000,
+    retries: 2,
   });
 }
 
