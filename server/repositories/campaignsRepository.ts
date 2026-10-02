@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { isUuid } from '../auth/firebaseUidMap.js';
 import { getZapmassPool } from '../db/postgres.js';
-import type { Campaign } from '../../src/types.js';
+import { CampaignStatus, type Campaign } from '../../src/types.js';
 import {
   campaignDocPayload,
   campaignRowFieldsFromDoc,
@@ -93,15 +93,13 @@ export async function listCampaigns(tenantId: string): Promise<Campaign[]> {
     let healed = healCampaignDocument(withJobs);
     if (
       campaignJobsStillActive(jobCounts) > 0 &&
-      (healed.status === 'FAILED' || healed.status === 'COMPLETED')
+      (healed.status === CampaignStatus.FAILED || healed.status === CampaignStatus.COMPLETED)
     ) {
-      healed = {
-        ...healCampaignCounters(withJobs),
-        status:
-          withJobs.status === 'DRAFT' || withJobs.status === 'SCHEDULED'
-            ? withJobs.status
-            : 'RUNNING',
-      };
+      const revertStatus: Campaign['status'] =
+        withJobs.status === CampaignStatus.DRAFT || withJobs.status === CampaignStatus.SCHEDULED
+          ? withJobs.status
+          : CampaignStatus.RUNNING;
+      healed = { ...healCampaignCounters(withJobs), status: revertStatus };
     }
     const channelSendStats = byConn.get(raw.id);
     out.push(channelSendStats?.length ? { ...healed, channelSendStats } : healed);
@@ -127,15 +125,13 @@ export async function getCampaign(tenantId: string, campaignId: string): Promise
   let healed = healCampaignDocument(withJobs);
   if (
     campaignJobsStillActive(jobCounts) > 0 &&
-    (healed.status === 'FAILED' || healed.status === 'COMPLETED')
+    (healed.status === CampaignStatus.FAILED || healed.status === CampaignStatus.COMPLETED)
   ) {
-    healed = {
-      ...healCampaignCounters(withJobs),
-      status:
-        withJobs.status === 'DRAFT' || withJobs.status === 'SCHEDULED'
-          ? withJobs.status
-          : 'RUNNING',
-    };
+    const revertStatus: Campaign['status'] =
+      withJobs.status === CampaignStatus.DRAFT || withJobs.status === CampaignStatus.SCHEDULED
+        ? withJobs.status
+        : CampaignStatus.RUNNING;
+    healed = { ...healCampaignCounters(withJobs), status: revertStatus };
   }
   persistHealedCampaignCounters(tenantId, raw, healed);
   const byConn = await countTenantCampaignJobsByConnection(tenantId);
