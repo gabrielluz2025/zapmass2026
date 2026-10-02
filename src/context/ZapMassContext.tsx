@@ -4236,6 +4236,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         fileName: string;
         sendMediaAsDocument?: boolean;
       };
+      /** Copia anexos da campanha origem ao criar (fluxo clone no assistente). */
+      copyMediaFromCampaignId?: string;
       optionMediaAttachments?: Array<{
         stepIndex: number;
         optionIndex: number;
@@ -4357,6 +4359,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         : {}),
       ...(embedMediaOnCreate && options?.followUpMediaAttachment
         ? { followUpMediaAttachment: options.followUpMediaAttachment }
+        : {}),
+      ...(options?.copyMediaFromCampaignId
+        ? { copyMediaFromCampaignId: options.copyMediaFromCampaignId }
         : {})
     };
 

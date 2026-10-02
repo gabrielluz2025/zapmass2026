@@ -86,7 +86,10 @@ export function rowToCampaign(row: CampaignRow): Campaign {
     poolStrategy: raw.poolStrategy as Campaign['poolStrategy'],
     channelWeights: raw.channelWeights as Campaign['channelWeights'],
     dailySchedule: raw.dailySchedule as Campaign['dailySchedule'],
-    prospecting: raw.prospecting as Campaign['prospecting']
+    prospecting: raw.prospecting as Campaign['prospecting'],
+    mediaMeta: raw.mediaMeta as Campaign['mediaMeta'],
+    hasOpeningMedia: raw.hasOpeningMedia === true,
+    hasFollowUpMedia: raw.hasFollowUpMedia === true,
   };
 }
 

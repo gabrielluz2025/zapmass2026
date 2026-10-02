@@ -4,12 +4,16 @@ import { Button } from '../ui';
 import type { CampaignMediaPayload } from '../../utils/campaignMediaLibrary';
 
 export type CampaignAttachmentState = {
-  file: File;
+  file?: File;
   previewUrl: string | null;
   sendAsDocument?: boolean;
   /** Payload pronto para envio — evita reler o File depois (referência pode expirar). */
   mediaPayload?: CampaignMediaPayload;
   preparing?: boolean;
+  /** Anexo já está na VPS — Play/edit não exige escolher de novo. */
+  persistedOnServer?: boolean;
+  fileName?: string;
+  mimeType?: string;
 };
 
 type Props = {
@@ -80,27 +84,42 @@ export const CampaignAttachmentBlock: React.FC<Props> = ({
               border: '1px solid var(--border-subtle)'
             }}
           >
-            {attachment.file.type.startsWith('image/') && attachment.previewUrl ? (
-              <img src={attachment.previewUrl} alt="" className="w-full h-full object-cover" />
-            ) : attachment.file.type.startsWith('video/') && attachment.previewUrl ? (
-              <video src={attachment.previewUrl} className="w-full h-full object-cover" muted playsInline />
-            ) : (
-              <FileSpreadsheet className="w-8 h-8" style={{ color: 'var(--text-3)' }} />
-            )}
+            {(() => {
+              const mime = attachment.file?.type || attachment.mimeType || '';
+              const label = attachment.file?.name || attachment.fileName || 'Anexo';
+              return mime.startsWith('image/') && attachment.previewUrl ? (
+                <img src={attachment.previewUrl} alt="" className="w-full h-full object-cover" />
+              ) : mime.startsWith('video/') && attachment.previewUrl ? (
+                <video src={attachment.previewUrl} className="w-full h-full object-cover" muted playsInline />
+              ) : (
+                <FileSpreadsheet className="w-8 h-8" style={{ color: 'var(--text-3)' }} />
+              );
+            })()}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[12px] font-semibold truncate" style={{ color: 'var(--text-1)' }} title={attachment.file.name}>
-              {attachment.file.name}
+            <p className="text-[12px] font-semibold truncate" style={{ color: 'var(--text-1)' }} title={attachment.file?.name || attachment.fileName}>
+              {attachment.file?.name || attachment.fileName || 'Anexo'}
             </p>
             <p className="text-[10.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-              {(attachment.file.size / (1024 * 1024)).toFixed(2)} MB
-              {attachment.file.type ? ` · ${attachment.file.type}` : ''}
+              {attachment.file
+                ? `${(attachment.file.size / (1024 * 1024)).toFixed(2)} MB`
+                : attachment.persistedOnServer
+                  ? 'Salvo no servidor'
+                  : ''}
+              {(attachment.file?.type || attachment.mimeType)
+                ? ` · ${attachment.file?.type || attachment.mimeType}`
+                : ''}
               {attachment.preparing ? ' · preparando…' : attachment.mediaPayload ? ' · pronto' : ''}
             </p>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <Button type="button" size="xs" variant="ghost" onClick={onRemove} disabled={attachment.preparing}>
                 Remover
               </Button>
+              {attachment.persistedOnServer && (
+                <span className="text-[10px] font-semibold" style={{ color: '#10b981' }}>
+                  Anexo salvo na campanha
+                </span>
+              )}
               {attachment.preparing && (
                 <span className="text-[10px] font-semibold inline-flex items-center gap-1" style={{ color: '#0ea5e9' }}>
                   <Loader2 className="w-3 h-3 animate-spin" />

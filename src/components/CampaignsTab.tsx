@@ -436,6 +436,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     prospecting?: import('../types').CampaignProspecting;
     editMode?: boolean;
     editCampaignId?: string;
+    copyMediaFromCampaignId?: string;
   }) => {
     if (payload.connectedIds.length === 0) {
       toast.error('Selecione pelo menos um chip conectado para disparar.');
@@ -497,7 +498,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 skipFrequencyCap: payload.skipFrequencyCap,
                 frequencyCapAllowPhones: payload.frequencyCapAllowPhones,
                 dailySchedule: payload.dailySchedule,
-                prospecting: payload.prospecting
+                prospecting: payload.prospecting,
+                copyMediaFromCampaignId: payload.copyMediaFromCampaignId,
               }
             );
       appendAudit({

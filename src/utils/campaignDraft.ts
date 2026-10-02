@@ -169,8 +169,10 @@ function buildCommonDraftFields(c: Campaign): Omit<CampaignWizardDraft, 'name' |
 
 /** Monta rascunho para o assistente a partir de uma campanha existente (público deve ser conferido). */
 export function buildDraftFromCampaign(c: Campaign): CampaignWizardDraft {
+  const hadMedia = Boolean(c.hasOpeningMedia || c.hasFollowUpMedia || c.mediaMeta?.opening || c.mediaMeta?.followUp);
   return {
     name: `${c.name} (cópia)`,
+    ...(hadMedia ? { cloneMediaFromCampaignId: c.id } : {}),
     ...buildCommonDraftFields(c)
   };
 }

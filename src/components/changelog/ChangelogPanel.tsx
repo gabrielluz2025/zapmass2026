@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.295',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Anexo de campanha persiste no servidor e reaparece ao editar/copiar; clone copia mídia para a nova campanha',
+      },
+      {
+        type: 'fix',
+        text: 'Toast de falhas no disparo deixa de contar retries (ex.: «4 falhas» com 1 número)',
+      },
+    ],
+  },
+  {
     version: '2.3.294',
     date: '02/10/2026',
     highlights: [

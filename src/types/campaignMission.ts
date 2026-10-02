@@ -61,6 +61,8 @@ export interface CampaignWizardDraft {
   editMode?: boolean;
   /** ID da campanha sendo editada (só presente quando editMode = true). */
   editCampaignId?: string;
+  /** Ao clonar, copiar anexos do disco da campanha origem para a nova campanha. */
+  cloneMediaFromCampaignId?: string;
   /** Pool selecionado na campanha original (para restaurar o seletor de chips). */
   initialPoolId?: string;
   /** Modo de seleção de chips da campanha original. */

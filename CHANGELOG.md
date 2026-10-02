@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.295] - 2026-10-02
+
+### Corrigido
+- **Anexo sumindo ao editar/copiar campanha**: metadados `hasOpeningMedia` / `mediaMeta` no Postgres; wizard reidrata preview da VPS; clone copia arquivos em `/app/data/campaign-media`; badge «Anexo salvo na campanha».
+- **Toast «4 falhas» com 1 destinatário**: log ERROR só em falha definitiva (retries BullMQ viravam WARN — não inflam mais o digest).
+
 ## [2.3.294] - 2026-10-02
 
 ### Corrigido

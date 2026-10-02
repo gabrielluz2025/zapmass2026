@@ -75,8 +75,10 @@ export function registerCampaignsDataRoutes(app: Express): void {
       const followUpMediaAttachmentRaw = body.followUpMediaAttachment;
       const openingMediaCreate = toCampaignMediaPayload(mediaAttachmentRaw);
       const followMediaCreate = toCampaignMediaPayload(followUpMediaAttachmentRaw);
+      const copyMediaFromCampaignId = String(body.copyMediaFromCampaignId || '').trim();
       delete bodyToSave.mediaAttachment;
       delete bodyToSave.followUpMediaAttachment;
+      delete bodyToSave.copyMediaFromCampaignId;
 
       const { id, campaign } = await createCampaign(ctx.tenantId, bodyToSave);
       if (heavy) {
@@ -85,8 +87,15 @@ export function registerCampaignsDataRoutes(app: Express): void {
           recipients: snap?.recipients,
         });
       }
+      if (copyMediaFromCampaignId) {
+        evolutionService.copyCampaignMediaBetweenCampaigns(copyMediaFromCampaignId, id);
+      }
       if (openingMediaCreate || followMediaCreate) {
         evolutionService.storeCampaignMediaForDispatch(id, openingMediaCreate, followMediaCreate);
+      }
+      if (copyMediaFromCampaignId || openingMediaCreate || followMediaCreate) {
+        const { refreshCampaignMediaDocFlags } = await import('./campaignMediaDocSync.js');
+        await refreshCampaignMediaDocFlags(id, evolutionService.getCampaignMediaAttachmentsStatus(id));
       }
       notifyTenantDataChanged(ctx.tenantId, 'campaigns');
       return res.json({ ok: true, id, campaign: campaignForClientList(campaign) });
@@ -182,6 +191,8 @@ export function registerCampaignsDataRoutes(app: Express): void {
     const followMedia = toCampaignMediaPayload(followUpMediaAttachmentRaw);
     if (openingMedia || followMedia) {
       evolutionService.storeCampaignMediaForDispatch(id, openingMedia, followMedia);
+      const { refreshCampaignMediaDocFlags } = await import('./campaignMediaDocSync.js');
+      await refreshCampaignMediaDocFlags(id, evolutionService.getCampaignMediaAttachmentsStatus(id));
     }
 
     if (patch.dailySchedule) {

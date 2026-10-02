@@ -367,6 +367,15 @@ export interface Campaign {
   dailySchedule?: CampaignDailySchedule;
   /** Prospecção da base: onda 0 + nurture semanal + lembretes para silenciosos. */
   prospecting?: CampaignProspecting;
+  /** Metadados do anexo gravado na VPS (sem base64). */
+  mediaMeta?: {
+    opening?: { fileName: string; mimeType: string; sendMediaAsDocument?: boolean; updatedAt?: string };
+    followUp?: { fileName: string; mimeType: string; sendMediaAsDocument?: boolean; updatedAt?: string };
+  };
+  /** Anexo de abertura disponível em /app/data/campaign-media. */
+  hasOpeningMedia?: boolean;
+  /** Mídia da etapa 2 / follow-up automático. */
+  hasFollowUpMedia?: boolean;
   /** Envios reais por chip (Postgres campaign_jobs) — não depende da RAM do canal. */
   channelSendStats?: Array<{
     connectionId: string;

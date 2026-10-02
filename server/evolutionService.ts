@@ -5141,6 +5141,37 @@ function persistCampaignMediaPayload(storageKey: string, payload?: CampaignMedia
     } else if (payload.url) {
         campaignMediaById.set(storageKey, payload);
     }
+    void import('./campaignMediaDocSync.js')
+        .then(({ mediaMetaEntryFromPayload, mediaMetaSlotForStorageKey, patchCampaignMediaMetaSlot }) => {
+            const slot = mediaMetaSlotForStorageKey(storageKey);
+            const campaignId = campaignIdFromMediaStorageKeyLocal(storageKey);
+            if (!slot || !campaignId) return;
+            const entry = mediaMetaEntryFromPayload(payload);
+            const status = getCampaignMediaAttachmentsStatus(campaignId);
+            return patchCampaignMediaMetaSlot(campaignId, slot, entry, status);
+        })
+        .catch(() => undefined);
+}
+
+function campaignIdFromMediaStorageKeyLocal(storageKey: string): string {
+    const key = String(storageKey || '').trim();
+    if (!key) return '';
+    const stepMarker = ':reply-step:';
+    const idx = key.indexOf(stepMarker);
+    if (idx > 0) return key.slice(0, idx);
+    return key.split(':')[0] || key;
+}
+
+/** Copia anexos de abertura / follow-up para outra campanha (clone). */
+export function copyCampaignMediaBetweenCampaigns(sourceCampaignId: string, targetCampaignId: string): void {
+    const from = String(sourceCampaignId || '').trim();
+    const to = String(targetCampaignId || '').trim();
+    if (!from || !to || from === to) return;
+    hydrateCampaignMediaFromDiskForDispatch(from);
+    const opening = resolveStoredCampaignMedia(from);
+    const followUp = resolveStoredCampaignMedia(campaignMediaStorageKey(from, 1));
+    if (opening?.base64) persistCampaignMediaPayload(to, opening);
+    if (followUp?.base64) persistCampaignMediaPayload(campaignMediaStorageKey(to, 1), followUp);
 }
 
 /** Aguarda anexo aparecer no volume (API gravou via PATCH antes do socket). */
@@ -11340,19 +11371,33 @@ async function failCampaignSend(
         await job.updateData(item).catch(() => {});
     }
     const msg = `Falha no envio para ${destLabel} — ${errDetail}`;
-    emitCampaignLog(
-        'ERROR',
-        `Falha ao enviar para ${destLabel}`,
-        {
-            campaignId: item.campaignId,
-            to: destLabel,
-            connectionId: item.connectionId,
-            error: errDetail,
-        },
-        campaignState?.ownerUid
-    );
-
     const unrecoverable = isUnrecoverableOutboundError(errDetail);
+    // Só emite ERROR visível na UI (toast) quando a falha é definitiva — retries BullMQ geravam "4 falhas" para 1 número.
+    if (unrecoverable) {
+        emitCampaignLog(
+            'ERROR',
+            `Falha ao enviar para ${destLabel}`,
+            {
+                campaignId: item.campaignId,
+                to: destLabel,
+                connectionId: item.connectionId,
+                error: errDetail,
+            },
+            campaignState?.ownerUid
+        );
+    } else {
+        emitCampaignLog(
+            'WARN',
+            `Tentativa de envio falhou (será repetida): ${destLabel}`,
+            {
+                campaignId: item.campaignId,
+                to: destLabel,
+                connectionId: item.connectionId,
+                error: errDetail,
+            },
+            campaignState?.ownerUid
+        );
+    }
     if (
         unrecoverable &&
         item.replyFlowResponse &&
@@ -12253,6 +12298,25 @@ export async function redispatchCampaign(
  * Inicia campanha com suporte a multi-etapas, reply flow e channelWeights.
  * Quando `stageConfigs` está presente, inicializa o motor persistente por contato.
  */
+async function loadCampaignExpectsOpeningMedia(
+    ownerUid: string | undefined,
+    campaignId: string
+): Promise<boolean> {
+    if (!ownerUid) return false;
+    try {
+        const { resolveCampaignTenantId, getCampaignDoc } = await import('./repositories/campaignsRepository.js');
+        const tenantId = await resolveCampaignTenantId(campaignId);
+        if (!tenantId) return false;
+        const doc = await getCampaignDoc(tenantId, campaignId);
+        if (!doc) return false;
+        if (doc.hasOpeningMedia === true) return true;
+        const meta = doc.mediaMeta as { opening?: unknown } | undefined;
+        return Boolean(meta?.opening);
+    } catch {
+        return false;
+    }
+}
+
 export async function startCampaign(
     numbers: string[],
     messageTemplates: string[],
@@ -12344,13 +12408,15 @@ export async function startCampaign(
     }
 
     const expectsOpeningMedia = Boolean(
-        normalizeCampaignMediaBase64(media?.base64) || campaignOpeningMediaAvailable(cid)
+        normalizeCampaignMediaBase64(media?.base64) ||
+            campaignOpeningMediaAvailable(cid) ||
+            (await loadCampaignExpectsOpeningMedia(ownerUid, cid))
     );
     if (expectsOpeningMedia) {
         const openingReady = await waitUntilCampaignMediaSendable(cid);
         if (!openingReady) {
             const mediaErr =
-                'Anexo da campanha não foi gravado no servidor (disco). Verifique espaço em /app/data e dispare de novo.';
+                'Anexo da campanha não está no servidor (imagem/vídeo). Edite a campanha, confira o preview do anexo, salve e dispare de novo.';
             emitCampaignLog('ERROR', mediaErr, { campaignId: cid }, ownerUid);
             throw new Error(mediaErr);
         }

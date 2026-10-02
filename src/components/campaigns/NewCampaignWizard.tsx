@@ -73,6 +73,11 @@ import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea, type 
 import { formatReplyFlowOptionTrigger } from '../../utils/campaignReplyFlowPreviewSequence';
 import { prepareCampaignAttachmentForSend } from '../../utils/campaignMediaCompress';
 import {
+  hydrateFollowUpAttachmentFromServer,
+  hydrateOpeningAttachmentFromServer,
+} from '../../utils/hydrateCampaignWizardAttachment';
+import type { CampaignAttachmentState } from './CampaignAttachmentBlock';
+import {
   explainWhatsAppMediaFallback,
   mediaShouldSendAsDocument
 } from '../../utils/whatsappMediaLimits';
@@ -221,6 +226,8 @@ interface NewCampaignWizardProps {
     prospecting?: CampaignProspecting;
     editMode?: boolean;
     editCampaignId?: string;
+    /** Copiar anexos da campanha origem ao criar (fluxo clone). */
+    copyMediaFromCampaignId?: string;
   }) => Promise<void>;
   /** Reidrata o assistente (clone / modelo). */
   initialDraft?: CampaignWizardDraft | null;
@@ -284,6 +291,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     editMode: Boolean(initialDraft?.editMode),
     editCampaignId: initialDraft?.editCampaignId,
   });
+  const cloneMediaFromCampaignIdRef = useRef<string | undefined>(initialDraft?.cloneMediaFromCampaignId);
   useEffect(() => {
     if (initialDraft?.editMode && initialDraft.editCampaignId) {
       editMetaRef.current = { editMode: true, editCampaignId: initialDraft.editCampaignId };
@@ -366,17 +374,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     Math.min(2048, Number(import.meta.env.VITE_CHAT_UPLOAD_LIMIT_MB) || 200)
   );
   const CAMPAIGN_ATTACHMENT_LIMIT_BYTES = CAMPAIGN_ATTACHMENT_LIMIT_MB * 1024 * 1024;
-  const [campaignAttachment, setCampaignAttachment] = useState<{
-    file: File;
-    previewUrl: string | null;
-    sendAsDocument: boolean;
-  } | null>(null);
+  useEffect(() => {
+    cloneMediaFromCampaignIdRef.current = initialDraft?.cloneMediaFromCampaignId;
+  }, [initialDraft?.cloneMediaFromCampaignId]);
+  const [campaignAttachment, setCampaignAttachment] = useState<CampaignAttachmentState | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
-  const [followUpAttachment, setFollowUpAttachment] = useState<{
-    file: File;
-    previewUrl: string | null;
-    sendAsDocument: boolean;
-  } | null>(null);
+  const [followUpAttachment, setFollowUpAttachment] = useState<CampaignAttachmentState | null>(null);
   const followUpAttachmentInputRef = useRef<HTMLInputElement>(null);
   const [optionImageById, setOptionImageById] = useState<
     Record<string, { file: File; previewUrl: string }>
@@ -1074,9 +1077,41 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     onDraftConsumed?.();
   }, [initialDraft, onDraftConsumed]);
 
+  /** Reidrata anexo da VPS ao editar ou clonar campanha com mídia. */
+  useEffect(() => {
+    const editId = initialDraft?.editMode ? initialDraft.editCampaignId : undefined;
+    const cloneId = initialDraft?.cloneMediaFromCampaignId;
+    const sourceId = editId || cloneId;
+    if (!sourceId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const opening = await hydrateOpeningAttachmentFromServer(sourceId);
+        if (!cancelled && opening) setCampaignAttachment(opening);
+        if (initialDraft?.campaignFlowMode === 'reply') {
+          const follow = await hydrateFollowUpAttachmentFromServer(sourceId);
+          if (!cancelled && follow) setFollowUpAttachment(follow);
+        }
+      } catch {
+        /* rede / anexo ausente */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    initialDraft?.editCampaignId,
+    initialDraft?.editMode,
+    initialDraft?.cloneMediaFromCampaignId,
+    initialDraft?.campaignFlowMode,
+  ]);
+
   const buildCurrentDraft = (): CampaignWizardDraft => ({
     ...(editMetaRef.current.editMode && editMetaRef.current.editCampaignId
       ? { editMode: true, editCampaignId: editMetaRef.current.editCampaignId }
+      : {}),
+    ...(cloneMediaFromCampaignIdRef.current
+      ? { cloneMediaFromCampaignId: cloneMediaFromCampaignIdRef.current }
       : {}),
     name: name.trim(),
     sendMode,
@@ -1658,12 +1693,16 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       return;
     }
     const buildMediaPayload = async (
-      att: { file: File; sendAsDocument: boolean } | null
+      att: CampaignAttachmentState | null
     ): Promise<
       | { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean }
       | undefined
     > => {
-      if (!att?.file) return undefined;
+      if (!att) return undefined;
+      if (!att.file) {
+        if (att.persistedOnServer) return undefined;
+        return undefined;
+      }
       const prepToast = `campaign-attachment-prep-${Math.random().toString(36).slice(2, 8)}`;
       try {
         toast.loading('A preparar anexo…', { id: prepToast, duration: 60000 });
@@ -1842,6 +1881,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           : {}),
         ...(editMetaRef.current.editMode && editMetaRef.current.editCampaignId
           ? { editMode: true, editCampaignId: editMetaRef.current.editCampaignId }
+          : {}),
+        ...(!editMetaRef.current.editMode && cloneMediaFromCampaignIdRef.current
+          ? { copyMediaFromCampaignId: cloneMediaFromCampaignIdRef.current }
           : {}),
         ...(dailyScheduleEnabled && dailyScheduleDays.length > 0 ? {
           dailySchedule: {
