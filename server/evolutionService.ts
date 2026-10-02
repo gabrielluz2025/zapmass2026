@@ -225,6 +225,7 @@ import {
     requeuePhantomDeadCampaignJobs,
     resetCampaignJobAfterPhantomFailure,
     claimCampaignJobForSend,
+    releaseCampaignJobSendClaim,
     countCampaignJobsByStatus,
     campaignJobsStillActive,
 } from './campaignJobsResilience.js';
@@ -9893,20 +9894,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     // segundos só para ser empurrado até meia-noite, e a campanha parece travada na largada.
     await holdCampaignJobIfDailyLimitReached(job, item, token, campaignStateEarly);
 
-    // Marca início do processamento no PG (estado 'sending' — protege contra reaper precoce)
     const jobKey = String(job.id || '');
-    const workerTag = process.env.WORKER_ID || `worker-${process.pid}`;
-    const claim = await claimCampaignJobForSend(jobKey, workerTag);
-    if (claim === 'already_sent') {
-        bumpQueueSize(item.connectionId, -1, item);
-        await closeCampaignJobWithoutRecount(job, item);
-        return;
-    }
-    if (claim === 'busy') {
-        await job.moveToDelayed(Date.now() + 2_500, token);
-        throw new DelayedError();
-    }
-
     const campaignState = campaignStateEarly;
     if (item.to) {
         const canonicalTo = normalizePhoneKey(item.to);
@@ -10675,12 +10663,27 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
     }
 
+    // Claim PG só imediatamente antes do envio: claim antecipado + moveToDelayed (tier/hash)
+    // deixava status 'sending' e o retry caía em busy até o reaper (5 min) — zero WhatsApp.
+    const workerTag = process.env.WORKER_ID || `worker-${process.pid}`;
+    const claim = await claimCampaignJobForSend(jobKey, workerTag);
+    if (claim === 'already_sent') {
+        bumpQueueSize(item.connectionId, -1, item);
+        await closeCampaignJobWithoutRecount(job, item);
+        return;
+    }
+    if (claim === 'busy') {
+        await job.moveToDelayed(Date.now() + 2_500, token);
+        throw new DelayedError();
+    }
+
     const sendLeaseId = jobKey || String(job.id || 'send');
     const skipChannelSendSlot = Boolean(item.replyFlowResponse || item.nurtureFollowUp);
     if (
         !skipChannelSendSlot &&
         !(await tryAcquireChannelSendSlot(getSharedRedis(), item.connectionId, sendLeaseId))
     ) {
+        await releaseCampaignJobSendClaim(jobKey);
         await job.moveToDelayed(Date.now() + 2500 + Math.floor(Math.random() * 5500), token);
         throw new DelayedError();
     }

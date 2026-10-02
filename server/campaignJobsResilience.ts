@@ -348,7 +348,14 @@ export async function claimCampaignJobForSend(
       `UPDATE zapmass.campaign_jobs
           SET status = 'sending', locked_at = NOW(), locked_by = $2, updated_at = NOW()
         WHERE idempotency_key = $1
-          AND status IN ('pending', 'failed')
+          AND (
+            status IN ('pending', 'failed')
+            OR (
+              status = 'sending'
+              AND locked_at IS NOT NULL
+              AND locked_at < NOW() - INTERVAL '90 seconds'
+            )
+          )
         RETURNING idempotency_key`,
       [key, workerId]
     );
@@ -358,6 +365,28 @@ export async function claimCampaignJobForSend(
     return 'busy';
   } catch {
     return 'claimed';
+  }
+}
+
+/** Libera lock PG quando o job BullMQ foi adiado antes do envio real (tier/hash/horário). */
+export async function releaseCampaignJobSendClaim(idempotencyKey: string): Promise<void> {
+  const key = String(idempotencyKey || '').trim();
+  if (!key || !isZapmassPostgresConfigured()) return;
+  const pool = getZapmassPool();
+  if (!pool) return;
+  try {
+    await pool.query(
+      `UPDATE zapmass.campaign_jobs
+          SET status = 'pending',
+              locked_at = NULL,
+              locked_by = NULL,
+              updated_at = NOW()
+        WHERE idempotency_key = $1
+          AND status = 'sending'`,
+      [key]
+    );
+  } catch (err) {
+    console.error('[CampaignJobs] releaseCampaignJobSendClaim:', (err as Error)?.message);
   }
 }
 

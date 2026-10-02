@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.286] - 2026-10-02
+
+### Corrigido
+- **Disparo sem sair no WhatsApp (PG `sending` + Bull `busy`)**: o claim em `campaign_jobs` passou para imediatamente antes do envio real. Antes, tier/hash/horário adiavam o job com `moveToDelayed` depois do claim — o retry ficava em `busy` por minutos (até o reaper) e a UI mostrava execução sem mensagem.
+- **Recuperação**: locks `sending` com mais de 90s podem ser reassumidos; slot de envio ocupado libera o claim PG antes de reagendar.
+
 ## [2.3.285] - 2026-10-02
 
 ### Corrigido

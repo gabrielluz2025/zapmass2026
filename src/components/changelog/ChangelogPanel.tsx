@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.286',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Disparo travado: claim Postgres só antes do envio — tier/hash/delay não deixam mais job em sending/busy sem WhatsApp',
+      },
+    ],
+  },
+  {
     version: '2.3.285',
     date: '02/10/2026',
     highlights: [
