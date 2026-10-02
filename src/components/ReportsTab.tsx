@@ -22,6 +22,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useZapMassCore, useZapMassConversations } from '../context/ZapMassContext';
+import { mergePersistedFunnelStats } from '../utils/dashboardFunnelMetrics';
 import { Badge, Button, PageShell } from './ui';
 import { PerformanceFunnel } from './PerformanceFunnel';
 import type { Campaign } from '../types';
@@ -115,14 +116,19 @@ export const ReportsTab: React.FC = () => {
   const healthRate  = plannedCur  > 0 ? Math.min(100, Math.round((totalSuccess / plannedCur)  * 100)) : 0;
   const prevHealth  = plannedPrev > 0 ? Math.min(100, Math.round((prevSuccess  / plannedPrev) * 100)) : 0;
 
-  const funnel = (() => {
-    const sent     = Math.max(0, funnelStats.totalSent || totalSuccess || 0);
-    const replied  = Math.max(0, funnelStats.totalReplied || 0);
-    const read     = Math.max(funnelStats.totalRead || 0, replied);
-    const delivered = Math.max(funnelStats.totalDelivered || 0, read);
-    const cap = (n: number) => sent > 0 ? Math.min(sent, n) : n;
-    return { sent, delivered: cap(delivered), read: cap(read), replied: cap(replied) };
-  })();
+  const funnel = useMemo(() => {
+    const persisted = mergePersistedFunnelStats(funnelStats);
+    if (persisted.totalSent > 0) {
+      return {
+        sent: persisted.totalSent,
+        delivered: persisted.totalDelivered,
+        read: persisted.totalRead,
+        replied: persisted.totalReplied
+      };
+    }
+    const sent = Math.max(0, totalSuccess);
+    return { sent, delivered: 0, read: 0, replied: 0 };
+  }, [funnelStats, totalSuccess]);
   const readRate  = pct(funnel.read, funnel.delivered || funnel.sent);
   const replyRate = pct(funnel.replied, funnel.read || funnel.delivered || funnel.sent);
 

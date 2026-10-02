@@ -104,6 +104,10 @@ import {
   clampCampaignFunnelMetrics,
   funnelPct
 } from '../../utils/campaignFunnelMetrics';
+import {
+  computeCampaignThroughputPerHour,
+  formatDeliveriesPerHour
+} from '../../utils/campaignDeliveryRate';
 import { CampaignDetailInsights } from './CampaignDetailInsights';
 import { CampaignMessagePreview } from './CampaignMessagePreview';
 import { CampaignChipsPodium } from './CampaignChipsPodium';
@@ -744,9 +748,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     : '#94a3b8';
 
   const startedAt = useMemo(() => {
-    const d = new Date(campaign.createdAt);
+    const raw =
+      campaign.campaignStartedAt || campaign.lastRunAt || campaign.createdAt;
+    const d = new Date(raw);
     return isNaN(d.getTime()) ? null : d;
-  }, [campaign.createdAt]);
+  }, [campaign.campaignStartedAt, campaign.lastRunAt, campaign.createdAt]);
 
   // Pendente "real-time": fila viva no backend (queueSize por chip selecionado).
   const pendingLive = useMemo(() => {
@@ -1233,6 +1239,14 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const startedFmt = formatDateTimeBR(campaign.createdAt);
   const elapsedSec = startedAt ? Math.max(0, (now - startedAt.getTime()) / 1000) : 0;
   const throughputPerMin = elapsedSec > 0 ? +(metrics.effectiveProcessed / (elapsedSec / 60)).toFixed(1) : 0;
+  const deliveriesPerHour = useMemo(
+    () =>
+      computeCampaignThroughputPerHour(campaign, {
+        delivered: uiPerformance.delivered,
+        sentOk: metrics.ok
+      }),
+    [campaign, uiPerformance.delivered, metrics.ok]
+  );
   const remaining = metrics.pending;
   // Em reply-flow “aguardando”, não zerar se a fila de envio ainda tem gente.
   const pendingKpi = isDone
@@ -1999,6 +2013,17 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 value: throughputPerMin > 0 ? `${throughputPerMin}/min` : '—',
                 hint: isRunning ? 'ao vivo' : 'média',
                 color: '#3b82f6'
+              },
+              {
+                label: 'Entregas/h',
+                value: formatDeliveriesPerHour(deliveriesPerHour),
+                hint:
+                  uiPerformance.delivered > 0
+                    ? 'média de confirmações'
+                    : metrics.ok > 0
+                      ? 'estimado pelos envios'
+                      : '—',
+                color: '#06B6D4'
               },
               {
                 label: isRunning ? 'ETA' : CAMPAIGN_REMAINING_CONTACTS_LABEL,

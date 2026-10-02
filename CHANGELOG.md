@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.304] - 2026-10-02
+
+### Corrigido
+- **Painel geral — funil**: contadores globais só do acumulador persistido (sem somar geo da campanha aberta no detalhe); `metrics-update` alinhado ao funil por tenant; webhook Evolution não infla envios nem dispara `campaign-progress` falso em mensagens `fromMe` manuais.
+
+### Adicionado
+- **Campanhas**: média de entregas/hora no cartão (tooltip) e no detalhe (KPI **Entregas/h**); cartão **Entregues** usa ACK do relatório, não `successCount`.
+
 ## [2.3.303] - 2026-10-02
 
 ### Corrigido

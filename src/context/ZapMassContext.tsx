@@ -54,6 +54,7 @@ import {
   fetchContactsCount
 } from '../services/contactsApi';
 import { normPhoneKey, normalizeBRPhone } from '../utils/brPhoneNormalize';
+import { mergePersistedFunnelStats } from '../utils/dashboardFunnelMetrics';
 import { applyAddressNormalizationToContact } from '../utils/contactAddressNormalize';
 import {
   apiCreateCampaign,
@@ -800,16 +801,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     campaignsRef.current = campaigns;
   }, [campaigns]);
 
-  // Mantem `metrics` alinhado ao funil acumulado do servidor.
-  // Nao usamos mais `campaigns` para recalcular funil, pois isso apagava leitura/resposta
-  // e criava divergencia na home/relatorios quando havia historico persistido.
+  // Mantem `metrics` alinhado ao funil acumulado do servidor (sem RAM do Evolution).
   useEffect(() => {
-    setMetrics({
-      totalSent: Number(funnelStats.totalSent) || 0,
-      totalDelivered: Number(funnelStats.totalDelivered) || 0,
-      totalRead: Number(funnelStats.totalRead) || 0,
-      totalReplied: Number(funnelStats.totalReplied) || 0
-    });
+    setMetrics(mergePersistedFunnelStats(funnelStats));
   }, [funnelStats]);
 
   const normalizeContactDoc = useCallback((id: string, raw: Record<string, any>): Contact => {
@@ -1833,16 +1827,22 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     socket.on('metrics-update', (newMetrics: DashboardMetrics) => {
       setMetrics((prev) => {
+        const next = mergePersistedFunnelStats({
+          totalSent: Number(newMetrics?.totalSent) || 0,
+          totalDelivered: Number(newMetrics?.totalDelivered) || 0,
+          totalRead: Number(newMetrics?.totalRead) || 0,
+          totalReplied: Number(newMetrics?.totalReplied) || 0
+        });
         if (
           prev &&
-          prev.totalSent === newMetrics.totalSent &&
-          prev.totalDelivered === newMetrics.totalDelivered &&
-          prev.totalRead === newMetrics.totalRead &&
-          prev.totalReplied === newMetrics.totalReplied
+          prev.totalSent === next.totalSent &&
+          prev.totalDelivered === next.totalDelivered &&
+          prev.totalRead === next.totalRead &&
+          prev.totalReplied === next.totalReplied
         ) {
           return prev;
         }
-        return newMetrics;
+        return next;
       });
     });
 

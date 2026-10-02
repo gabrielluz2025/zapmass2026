@@ -82,6 +82,7 @@ import {
   computeAccountDashboardSummary,
   computeAdminOpsSnapshot
 } from '../utils/dashboardAccountSummary';
+import { mergePersistedFunnelStats } from '../utils/dashboardFunnelMetrics';
 // Contato de aniversariante ja enriquecido com dias restantes e idade
 interface UpcomingBirthday {
   id: string;
@@ -318,7 +319,6 @@ export const DashboardTab: React.FC = () => {
     isBackendConnected,
     systemLogs,
     circuitBreakerOpenConnectionIds,
-    campaignGeo,
     warmupChipStats
   } = useZapMassCore();
   const { systemMetrics } = useZapMassUiSnapshot();
@@ -799,37 +799,7 @@ export const DashboardTab: React.FC = () => {
   // desligada), o servidor ja promove "lida" ao receber a resposta. Mas para
   // dados antigos persistidos antes deste fix, sanitizamos aqui na UI para
   // nunca mostrar "1 lida / 2 respostas".
-  const campaignGeoTotals = useMemo(() => {
-    let delivered = 0;
-    let read = 0;
-    let replied = 0;
-    for (const s of Object.values(campaignGeo?.byUf || {})) {
-      delivered += Number(s.delivered) || 0;
-      read += Number(s.read) || 0;
-      replied += Number(s.replied) || 0;
-    }
-    return { delivered, read, replied };
-  }, [campaignGeo?.byUf]);
-
-  const metrics = useMemo(() => {
-    const sent = Math.max(0, funnelStats.totalSent || 0);
-    const replied = Math.max(0, funnelStats.totalReplied || 0, campaignGeoTotals.replied);
-    const read = Math.max(funnelStats.totalRead || 0, campaignGeoTotals.read, replied);
-    const delivered = Math.max(
-      funnelStats.totalDelivered || 0,
-      campaignGeoTotals.delivered,
-      campaignGeoTotals.read,
-      campaignGeoTotals.replied,
-      read
-    );
-    const cap = (n: number) => (sent > 0 ? Math.min(sent, n) : n);
-    return {
-      totalSent: sent,
-      totalDelivered: cap(delivered),
-      totalRead: cap(read),
-      totalReplied: cap(replied)
-    };
-  }, [funnelStats, campaignGeoTotals]);
+  const metrics = useMemo(() => mergePersistedFunnelStats(funnelStats), [funnelStats]);
 
   const deliveryRate = metrics.totalSent > 0 ? Math.round((metrics.totalDelivered / metrics.totalSent) * 100) : 0;
   const readRate = metrics.totalSent > 0 ? Math.round((metrics.totalRead / metrics.totalSent) * 100) : 0;

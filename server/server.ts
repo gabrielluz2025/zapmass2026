@@ -1131,7 +1131,20 @@ const registerSocketHandlers = () => {
     };
     // Métricas reais da sessão atual do motor (não zeros).
     const getLiveMetrics = () => {
-      try { return evolutionService.getMetrics(); } catch { return { totalSent: 0, totalDelivered: 0, totalRead: 0, totalReplied: 0 }; }
+      if (uid && uid !== 'anonymous') {
+        const f = waService.getFunnelStatsForUid(uid);
+        return {
+          totalSent: Number(f.totalSent) || 0,
+          totalDelivered: Number(f.totalDelivered) || 0,
+          totalRead: Number(f.totalRead) || 0,
+          totalReplied: Number(f.totalReplied) || 0
+        };
+      }
+      try {
+        return evolutionService.getMetrics();
+      } catch {
+        return { totalSent: 0, totalDelivered: 0, totalRead: 0, totalReplied: 0 };
+      }
     };
     const getWarmupStateForUid = () => {
       const state = evolutionService.getWarmupState();

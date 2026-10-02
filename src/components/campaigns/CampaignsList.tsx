@@ -25,6 +25,11 @@ import {
   isCampaignPlayButtonVisible
 } from '../../utils/campaignMetrics';
 import {
+  computeCampaignThroughputPerHour,
+  formatDeliveriesPerHour,
+  getCampaignCardFunnelMetrics
+} from '../../utils/campaignDeliveryRate';
+import {
   CAMPAIGN_REMAINING_CONTACTS_LABEL,
   CAMPAIGN_REMAINING_CONTACTS_TITLE,
 } from '../../utils/campaignQueueMetricCopy';
@@ -792,6 +797,15 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
 }) {
   const view = useMemo(() => healCampaignDocument(campaign), [campaign]);
   const m = getCampaignProgressMetrics(view);
+  const funnel = useMemo(() => getCampaignCardFunnelMetrics(view), [view]);
+  const deliveriesPerHour = useMemo(
+    () =>
+      computeCampaignThroughputPerHour(view, {
+        delivered: funnel.delivered,
+        sentOk: m.ok
+      }),
+    [view, funnel.delivered, m.ok]
+  );
   const progress = m.progressPct;
   const rate = m.successRatePct;
   const isRunning = view.status === CampaignStatus.RUNNING;
@@ -1007,7 +1021,18 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
         className="grid grid-cols-4 gap-1.5 mb-2.5 rounded-lg p-1.5"
         style={{ background: 'var(--surface-1)' }}
       >
-        <Metric label="Entregues" value={fmtInt(campaign.successCount)} tone="#059669" />
+        <Metric
+          label="Entregues"
+          value={fmtInt(funnel.delivered)}
+          tone="#059669"
+          title={
+            funnel.delivered > 0
+              ? `Confirmação no aparelho · média ${formatDeliveriesPerHour(deliveriesPerHour)}`
+              : m.ok > 0
+                ? `${fmtInt(m.ok)} enviados · aguardando confirmação de entrega`
+                : undefined
+          }
+        />
         <Metric label="Falhas" value={fmtInt(campaign.failedCount)} tone="#dc2626" />
         <Metric
           label={CAMPAIGN_REMAINING_CONTACTS_LABEL}

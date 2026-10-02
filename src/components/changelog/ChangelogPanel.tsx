@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.304',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Painel: funil global coerente (sem double count/geo fantasma); Evolution não conta envio manual no progresso',
+      },
+      {
+        type: 'feat',
+        text: 'Campanhas: média entregas/hora no cartão e detalhe; Entregues = confirmação WhatsApp no relatório',
+      },
+    ],
+  },
+  {
     version: '2.3.303',
     date: '02/10/2026',
     highlights: [

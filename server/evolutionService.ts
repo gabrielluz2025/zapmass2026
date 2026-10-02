@@ -14424,12 +14424,6 @@ export async function handleWebhook(event: any) {
                             }
                         }
 
-                    metrics.totalSent++;
-                        const sentOwnerUid = messageOwnerUid || resolveOwnerUid(instance);
-                        publishOwnerEvent(sentOwnerUid, 'campaign-progress', {
-                        successCount: metrics.totalSent,
-                        connectionId: instance,
-                    });
                         continue;
                     }
 
