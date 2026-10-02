@@ -840,6 +840,8 @@ export interface ZapMassContextType {
         fileName: string;
         sendMediaAsDocument?: boolean;
       };
+      /** Clone: copia anexos da campanha origem ao criar no Postgres. */
+      copyMediaFromCampaignId?: string;
       optionMediaAttachments?: Array<{
         stepIndex: number;
         optionIndex: number;

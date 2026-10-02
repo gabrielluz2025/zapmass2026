@@ -5,7 +5,7 @@ import type { CampaignMediaPayload } from '../../utils/campaignMediaLibrary';
 
 export type CampaignAttachmentState = {
   file?: File;
-  previewUrl: string | null;
+  previewUrl?: string | null;
   sendAsDocument?: boolean;
   /** Payload pronto para envio — evita reler o File depois (referência pode expirar). */
   mediaPayload?: CampaignMediaPayload;

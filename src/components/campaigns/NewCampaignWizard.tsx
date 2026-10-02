@@ -1745,7 +1745,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           const opt = stageOptions[optionIndex];
           const picked = opt ? optionImageById[opt.id] : undefined;
           if (!opt || !picked) continue;
-          const prepared = await buildMediaPayload({ file: picked.file, sendAsDocument: false });
+          const prepared = await buildMediaPayload({
+            file: picked.file,
+            previewUrl: picked.previewUrl,
+            sendAsDocument: false,
+          });
           if (!prepared) continue;
           optionPayloads.push({
             stepIndex,
