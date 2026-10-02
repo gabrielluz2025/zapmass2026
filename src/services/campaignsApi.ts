@@ -111,35 +111,36 @@ export async function uploadCampaignDispatchMedia(
   const needsStage = stageParts.length > 0;
   if (!needsOpening && !needsFollow && !needsStage) return { uploadedViaApi: false, approxBytes: 0 };
 
+  let mediaAttachment = payload.mediaAttachment;
+  let followUpMediaAttachment = payload.followUpMediaAttachment;
+  let stageToUpload = stageParts;
+
   if (opts?.skipIfOnServer) {
     try {
       const st = await fetchCampaignMediaAttachmentsStatus(campaignId);
-      const openingOk = !needsOpening || st.opening;
-      const followOk = !needsFollow || st.followUp;
-      if (openingOk && followOk) {
-        const onDisk = await fetchCampaignMediaAttachments(campaignId);
-        const openingBytes = onDisk.mediaAttachment?.dataBase64
-          ? approxBytesFromBase64(onDisk.mediaAttachment.dataBase64)
-          : 0;
-        const followBytes = onDisk.followUpMediaAttachment?.dataBase64
-          ? approxBytesFromBase64(onDisk.followUpMediaAttachment.dataBase64)
-          : 0;
-        const openingVerified = !needsOpening || openingBytes > 0;
-        const followVerified = !needsFollow || followBytes > 0;
-        if (openingVerified && followVerified) {
-          return { uploadedViaApi: true, approxBytes: 0, skippedBecauseOnServer: true };
-        }
+      const onDisk = await fetchCampaignMediaAttachments(campaignId);
+      if (needsOpening && st.opening && onDisk.mediaAttachment?.dataBase64) {
+        mediaAttachment = undefined;
       }
+      if (needsFollow && st.followUp && onDisk.followUpMediaAttachment?.dataBase64) {
+        followUpMediaAttachment = undefined;
+      }
+      // Etapas 3+ nunca pulam só porque abertura já está em disco.
+      stageToUpload = stageParts;
     } catch {
-      // segue com upload
+      // segue com upload completo
     }
   }
 
   const parts = [
-    payload.mediaAttachment?.dataBase64,
-    payload.followUpMediaAttachment?.dataBase64,
-    ...stageParts.map((s) => s.dataBase64)
+    mediaAttachment?.dataBase64,
+    followUpMediaAttachment?.dataBase64,
+    ...stageToUpload.map((s) => s.dataBase64)
   ].filter(Boolean) as string[];
+  if (!parts.length) {
+    return { uploadedViaApi: true, approxBytes: 0, skippedBecauseOnServer: true };
+  }
+
   const approxBytes = parts.reduce((sum, b64) => sum + approxBytesFromBase64(b64), 0);
 
   if (approxBytes > CAMPAIGN_MEDIA_API_SAFE_BYTES) {
@@ -151,9 +152,9 @@ export async function uploadCampaignDispatchMedia(
 
   const timeoutMs = Math.min(900_000, Math.max(120_000, 90_000 + Math.ceil(approxBytes / 25_000)));
   const patch: Record<string, unknown> = {};
-  if (payload.mediaAttachment) patch.mediaAttachment = payload.mediaAttachment;
-  if (payload.followUpMediaAttachment) patch.followUpMediaAttachment = payload.followUpMediaAttachment;
-  if (stageParts.length > 0) patch.stageMediaAttachments = stageParts;
+  if (mediaAttachment?.dataBase64) patch.mediaAttachment = mediaAttachment;
+  if (followUpMediaAttachment?.dataBase64) patch.followUpMediaAttachment = followUpMediaAttachment;
+  if (stageToUpload.length > 0) patch.stageMediaAttachments = stageToUpload;
   await apiUpdateCampaign(campaignId, patch, { timeoutMs });
   return { uploadedViaApi: true, approxBytes };
 }
@@ -685,11 +686,12 @@ export type TestSendResult = {
 export async function apiTestSend(
   connectionId: string,
   toNumber: string,
-  message: string
+  message: string,
+  mediaAttachment?: CampaignMediaAttachmentPayload
 ): Promise<TestSendResult> {
   return apiFetchJson<TestSendResult>('/api/campaigns/test-send', {
     method: 'POST',
-    body: JSON.stringify({ connectionId, toNumber, message })
+    body: JSON.stringify({ connectionId, toNumber, message, mediaAttachment })
   });
 }
 

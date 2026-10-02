@@ -4368,6 +4368,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       ...(embedMediaOnCreate && options?.followUpMediaAttachment
         ? { followUpMediaAttachment: options.followUpMediaAttachment }
         : {}),
+      ...(embedMediaOnCreate &&
+      options?.stageMediaAttachments &&
+      options.stageMediaAttachments.length > 0
+        ? { stageMediaAttachments: options.stageMediaAttachments }
+        : {}),
       ...(options?.copyMediaFromCampaignId
         ? { copyMediaFromCampaignId: options.copyMediaFromCampaignId }
         : {})

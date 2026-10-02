@@ -68,10 +68,10 @@ import { CampaignSingleMessageEditor } from './CampaignSingleMessageEditor';
 import { CampaignPreflightEstimate } from './CampaignPreflightEstimate';
 import { CampaignMessageSetupProgress } from './CampaignMessageSetupProgress';
 import { createLibraryItem } from '../../services/campaignLibraryApi';
-import { apiCheckScheduledDuplicates } from '../../services/campaignsApi';
+import { apiCheckScheduledDuplicates, uploadCampaignDispatchMedia } from '../../services/campaignsApi';
+import { buildCampaignAttachmentPayload } from '../../utils/campaignWizardMediaPayload';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea, type CampaignPreviewSample } from '../../utils/campaignMessageVariables';
 import { formatReplyFlowOptionTrigger } from '../../utils/campaignReplyFlowPreviewSequence';
-import { prepareCampaignAttachmentForSend } from '../../utils/campaignMediaCompress';
 import {
   hydrateFollowUpAttachmentFromServer,
   hydrateOpeningAttachmentFromServer,
@@ -429,12 +429,31 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     }
     if (campaignAttachment?.previewUrl) URL.revokeObjectURL(campaignAttachment.previewUrl);
     const isMedia = file.type.startsWith('image/') || file.type.startsWith('video/');
+    const previewUrl = isMedia ? URL.createObjectURL(file) : null;
     setCampaignAttachment({
       file,
-      previewUrl: isMedia ? URL.createObjectURL(file) : null,
+      previewUrl,
       sendAsDocument
     });
     if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+    const editId = editMetaRef.current.editCampaignId;
+    if (editMetaRef.current.editMode && editId) {
+      void (async () => {
+        try {
+          const payload = await buildCampaignAttachmentPayload(
+            { file, previewUrl, sendAsDocument },
+            { onPrepareHint: (h) => toast(h, { duration: 6000 }) }
+          );
+          if (!payload) return;
+          await uploadCampaignDispatchMedia(editId, { mediaAttachment: payload });
+          setCampaignAttachment((prev) =>
+            prev ? { ...prev, persistedOnServer: true, fileName: payload.fileName, mimeType: payload.mimeType } : prev
+          );
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : 'Falha ao gravar anexo no servidor.');
+        }
+      })();
+    }
   };
 
   const removeAttachment = () => {
@@ -458,12 +477,31 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     if (fallbackHint) toast(fallbackHint, { duration: 7000 });
     if (followUpAttachment?.previewUrl) URL.revokeObjectURL(followUpAttachment.previewUrl);
     const isMedia = file.type.startsWith('image/') || file.type.startsWith('video/');
+    const previewUrl = isMedia ? URL.createObjectURL(file) : null;
     setFollowUpAttachment({
       file,
-      previewUrl: isMedia ? URL.createObjectURL(file) : null,
+      previewUrl,
       sendAsDocument
     });
     if (followUpAttachmentInputRef.current) followUpAttachmentInputRef.current.value = '';
+    const editId = editMetaRef.current.editCampaignId;
+    if (editMetaRef.current.editMode && editId) {
+      void (async () => {
+        try {
+          const payload = await buildCampaignAttachmentPayload(
+            { file, previewUrl, sendAsDocument },
+            { onPrepareHint: (h) => toast(h, { duration: 6000 }) }
+          );
+          if (!payload) return;
+          await uploadCampaignDispatchMedia(editId, { followUpMediaAttachment: payload });
+          setFollowUpAttachment((prev) =>
+            prev ? { ...prev, persistedOnServer: true, fileName: payload.fileName, mimeType: payload.mimeType } : prev
+          );
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : 'Falha ao gravar anexo da etapa no servidor.');
+        }
+      })();
+    }
   };
 
   const removeFollowUpAttachment = () => {
@@ -487,6 +525,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     const fallbackHint = explainWhatsAppMediaFallback(file);
     if (fallbackHint) toast(fallbackHint, { duration: 7000 });
     const isMedia = file.type.startsWith('image/') || file.type.startsWith('video/');
+    const previewUrl = isMedia ? URL.createObjectURL(file) : null;
     setExtraStageAttachments((prev) => {
       const cur = prev[stageIndex];
       if (cur?.previewUrl) URL.revokeObjectURL(cur.previewUrl);
@@ -494,13 +533,43 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         ...prev,
         [stageIndex]: {
           file,
-          previewUrl: isMedia ? URL.createObjectURL(file) : null,
+          previewUrl,
           sendAsDocument
         }
       };
     });
     const ref = extraStageAttachmentInputRefs.current[stageIndex];
     if (ref) ref.value = '';
+    const editId = editMetaRef.current.editCampaignId;
+    if (editMetaRef.current.editMode && editId && stageIndex >= 1) {
+      void (async () => {
+        try {
+          const payload = await buildCampaignAttachmentPayload(
+            { file, previewUrl, sendAsDocument },
+            { onPrepareHint: (h) => toast(h, { duration: 6000 }) }
+          );
+          if (!payload) return;
+          await uploadCampaignDispatchMedia(editId, {
+            stageMediaAttachments: [{ stepIndex: stageIndex, ...payload }]
+          });
+          setExtraStageAttachments((prev) => {
+            const cur = prev[stageIndex];
+            if (!cur) return prev;
+            return {
+              ...prev,
+              [stageIndex]: {
+                ...cur,
+                persistedOnServer: true,
+                fileName: payload.fileName,
+                mimeType: payload.mimeType
+              }
+            };
+          });
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : 'Falha ao gravar anexo da etapa no servidor.');
+        }
+      })();
+    }
   };
 
   const removeStageAttachmentAt = (stageIndex: number) => {
@@ -595,26 +664,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       delete next[optionId];
       return next;
     });
-  };
-
-  /** Le o arquivo do anexo como base64 para enviar pelo socket. */
-  const readAttachmentAsBase64 = async (
-    file: File
-  ): Promise<{ dataBase64: string; mimeType: string; fileName: string }> => {
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(new Error('Falha ao ler arquivo anexado.'));
-      reader.readAsDataURL(file);
-    });
-    const commaIdx = dataUrl.indexOf(',');
-    const dataBase64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
-    if (!dataBase64) throw new Error('Nao foi possivel processar o arquivo anexado.');
-    return {
-      dataBase64,
-      mimeType: file.type || 'application/octet-stream',
-      fileName: file.name || 'anexo'
-    };
   };
 
   useEffect(() => {
@@ -1706,6 +1755,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       toast.error('Indique um número válido com DDD.');
       return;
     }
+    void (async () => {
     setQuickTestBusy(true);
     // Antes nao havia timeout: se o servidor nao respondesse, o botao
     // ficava 'busy' para sempre e o listener vazava ao desmontar.
@@ -1737,11 +1787,48 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     }, 30_000);
     quickTestCleanupRef.current = cleanup;
     socket.on('test-dispatch-result', onResult);
+    const previewVars =
+      sendMode === 'manual'
+        ? {
+            nome: '',
+            nome_completo: '',
+            telefone: numbers[0] || raw,
+            email: '',
+            cidade: '',
+            igreja: '',
+            cargo: '',
+            profissao: '',
+            aniversario: '',
+            conjuge: '',
+            data_bodas: '',
+            anos_casamento: ''
+          }
+        : previewSample;
+    const testMessage = applyCampaignMessagePreviewVars(firstMessageStageBody, previewVars);
+    let mediaAttachment: {
+      dataBase64: string;
+      mimeType: string;
+      fileName: string;
+      sendMediaAsDocument?: boolean;
+    } | undefined;
+    try {
+      mediaAttachment = await buildCampaignAttachmentPayload(campaignAttachment, {
+        onPrepareHint: (h) => toast(h, { duration: 5000 })
+      });
+    } catch (err) {
+      finished = true;
+      cleanup();
+      setQuickTestBusy(false);
+      toast.error(err instanceof Error ? err.message : 'Falha ao preparar anexo do teste.');
+      return;
+    }
     socket.emit('test-dispatch', {
       fromConnectionId: fromId,
       toPhone: quickTestPhone.trim(),
-      message: firstMessageStageBody
+      message: testMessage,
+      ...(mediaAttachment ? { mediaAttachment } : {})
     });
+    })();
   };
 
   const handleNextStep = async () => {
@@ -1796,28 +1883,15 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       );
       return;
     }
-    const buildMediaPayload = async (
-      att: CampaignAttachmentState | null
-    ): Promise<
-      | { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean }
-      | undefined
-    > => {
-      if (!att) return undefined;
-      if (!att.file) {
-        if (att.persistedOnServer) return undefined;
-        return undefined;
-      }
+    const buildMediaPayload = async (att: CampaignAttachmentState | null) => {
       const prepToast = `campaign-attachment-prep-${Math.random().toString(36).slice(2, 8)}`;
       try {
         toast.loading('A preparar anexo…', { id: prepToast, duration: 60000 });
-        const prep = await prepareCampaignAttachmentForSend(att.file);
+        const out = await buildCampaignAttachmentPayload(att, {
+          onPrepareHint: (h) => toast(h, { duration: 6000 })
+        });
         toast.dismiss(prepToast);
-        for (const h of prep.hints) toast(h, { duration: 6000 });
-        const read = await readAttachmentAsBase64(prep.file);
-        return {
-          ...read,
-          ...(prep.sendMediaAsDocument ? { sendMediaAsDocument: true } : {})
-        };
+        return out;
       } catch (err) {
         toast.dismiss(prepToast);
         throw err;
@@ -4210,7 +4284,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   </button>
                 </div>
                 <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-3)' }}>
-                  Envia a 1ª mensagem com as variáveis preenchidas para o número informado. Confirme que chegou antes de disparar.
+                  Envia a 1ª mensagem (texto + anexo da abertura, se houver) com variáveis preenchidas. Confirme no WhatsApp antes de disparar.
                 </p>
               </div>
 

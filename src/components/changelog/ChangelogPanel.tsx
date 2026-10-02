@@ -10,6 +10,24 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.298',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: '«Testar antes de disparar» envia imagem/vídeo da abertura com legenda (socket + API de teste)',
+      },
+      {
+        type: 'fix',
+        text: 'Campanha 3 etapas: mídia das etapas 2/3 chega ao startCampaign; upload não ignora reply-step quando abertura já está salva',
+      },
+      {
+        type: 'fix',
+        text: 'Edição no wizard grava anexo na VPS ao anexar arquivo (sem depender só do confirmar disparo)',
+      },
+    ],
+  },
+  {
     version: '2.3.297',
     date: '02/10/2026',
     highlights: [

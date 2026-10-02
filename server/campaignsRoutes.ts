@@ -73,11 +73,13 @@ export function registerCampaignsDataRoutes(app: Express): void {
         : body;
       const mediaAttachmentRaw = body.mediaAttachment;
       const followUpMediaAttachmentRaw = body.followUpMediaAttachment;
+      const stageMediaAttachmentsRaw = body.stageMediaAttachments;
       const openingMediaCreate = toCampaignMediaPayload(mediaAttachmentRaw);
       const followMediaCreate = toCampaignMediaPayload(followUpMediaAttachmentRaw);
       const copyMediaFromCampaignId = String(body.copyMediaFromCampaignId || '').trim();
       delete bodyToSave.mediaAttachment;
       delete bodyToSave.followUpMediaAttachment;
+      delete bodyToSave.stageMediaAttachments;
       delete bodyToSave.copyMediaFromCampaignId;
 
       const { id, campaign } = await createCampaign(ctx.tenantId, bodyToSave);
@@ -93,7 +95,20 @@ export function registerCampaignsDataRoutes(app: Express): void {
       if (openingMediaCreate || followMediaCreate) {
         evolutionService.storeCampaignMediaForDispatch(id, openingMediaCreate, followMediaCreate);
       }
-      if (copyMediaFromCampaignId || openingMediaCreate || followMediaCreate) {
+      if (Array.isArray(stageMediaAttachmentsRaw)) {
+        for (const rawItem of stageMediaAttachmentsRaw.slice(0, 20)) {
+          const stepIndex = Number((rawItem as { stepIndex?: number })?.stepIndex);
+          if (!Number.isInteger(stepIndex) || stepIndex < 1) continue;
+          const payload = toCampaignMediaPayload(rawItem);
+          if (payload) evolutionService.storeCampaignStageMediaForDispatch(id, stepIndex, payload);
+        }
+      }
+      if (
+        copyMediaFromCampaignId ||
+        openingMediaCreate ||
+        followMediaCreate ||
+        Array.isArray(stageMediaAttachmentsRaw)
+      ) {
         const { refreshCampaignMediaDocFlags } = await import('./campaignMediaDocSync.js');
         await refreshCampaignMediaDocFlags(id, evolutionService.getCampaignMediaAttachmentsStatus(id));
       }
@@ -766,18 +781,36 @@ export function registerCampaignsDataRoutes(app: Express): void {
   app.post('/api/campaigns/test-send', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    const body = req.body as { connectionId?: string; toNumber?: string; message?: string };
+    const body = req.body as {
+      connectionId?: string;
+      toNumber?: string;
+      message?: string;
+      mediaAttachment?: unknown;
+    };
     const { connectionId, toNumber, message } = body;
     if (!connectionId || !toNumber || !message) {
       return res.status(400).json({ ok: false, error: 'Informe connectionId, toNumber e message.' });
     }
+    const testMedia = toCampaignMediaPayload(body.mediaAttachment);
     const tenantConns = evolutionService.getConnectionsForTenant(ctx.tenantId);
     const ownedIds = new Set(tenantConns.map((c) => c.instanceName || c.id));
     if (!ownedIds.has(connectionId)) {
       return res.status(403).json({ ok: false, error: 'Conexão não pertence a esta conta.' });
     }
     try {
-      const result = await evolutionService.sendTestMessage(connectionId, toNumber, message);
+      const result = await evolutionService.sendTestMessage(
+        connectionId,
+        toNumber,
+        message,
+        testMedia
+          ? {
+              base64: testMedia.base64,
+              mimeType: testMedia.mimeType,
+              fileName: testMedia.fileName,
+              ...(testMedia.sendMediaAsDocument ? { sendMediaAsDocument: true } : {}),
+            }
+          : undefined
+      );
       return res.json({ ok: result.ok, messageId: result.messageId, error: result.error });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);

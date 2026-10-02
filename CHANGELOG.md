@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.298] - 2026-10-02
+
+### Corrigido
+- **Teste antes de disparar (wizard)**: socket `test-dispatch` e `/api/campaigns/test-send` enviam mídia da abertura com legenda (não só texto).
+- **Disparo 3 etapas**: `stageMediaAttachments` repassado ao `startCampaign`; upload parcial não pula etapas 3+ quando abertura já está na VPS; criação PATCH/POST grava `reply-step:N`.
+- **Salvar no assistente (edição)**: anexo sobe para a VPS ao escolher arquivo, sem esperar confirmar disparo.
+
 ## [2.3.297] - 2026-10-02
 
 ### Corrigido

@@ -514,6 +514,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 dailySchedule: payload.dailySchedule,
                 prospecting: payload.prospecting,
                 copyMediaFromCampaignId: payload.copyMediaFromCampaignId,
+                stageMediaAttachments: payload.stageMediaAttachments,
               }
             );
       appendAudit({

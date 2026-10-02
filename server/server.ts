@@ -2341,16 +2341,66 @@ const registerSocketHandlers = () => {
       }
     });
 
-    socket.on('test-dispatch', async ({ fromConnectionId, toPhone, message }) => {
+    socket.on(
+      'test-dispatch',
+      async ({
+        fromConnectionId,
+        toPhone,
+        message,
+        mediaAttachment,
+      }: {
+        fromConnectionId?: string;
+        toPhone?: string;
+        message?: string;
+        mediaAttachment?: {
+          dataBase64?: string;
+          mimeType?: string;
+          fileName?: string;
+          sendMediaAsDocument?: boolean;
+        };
+      }) => {
       if (!(await requireActiveSubscription())) return;
+      if (!fromConnectionId || !toPhone) {
+        socket.emit('test-dispatch-result', { success: false, error: 'Chip ou número ausente.' });
+        return;
+      }
       if (!ownsConnectionId(fromConnectionId)) {
         denyCrossTenant('test-dispatch', { fromConnectionId });
         return;
       }
-      console.log('[TestDispatch] Iniciando teste de disparo:', { fromConnectionId, toPhone, message });
+      const sanitized = normalizeCampaignMediaAttachment(mediaAttachment);
+      console.log('[TestDispatch] Iniciando teste de disparo:', {
+        fromConnectionId,
+        toPhone,
+        hasMedia: Boolean(sanitized),
+      });
       try {
-        await evolutionService.sendMessage(`${fromConnectionId}:${toPhone}`, message);
-        socket.emit('test-dispatch-result', { success: true, message: 'Teste enviado com sucesso' });
+        const result = await evolutionService.sendTestMessage(
+          fromConnectionId,
+          toPhone,
+          String(message || ''),
+          sanitized
+            ? {
+                base64: sanitized.dataBase64,
+                mimeType: sanitized.mimeType,
+                fileName: sanitized.fileName,
+                ...(sanitized.sendMediaAsDocument ? { sendMediaAsDocument: true } : {}),
+              }
+            : undefined
+        );
+        if (!result.ok) {
+          socket.emit('test-dispatch-result', {
+            success: false,
+            error: result.error || 'Falha ao enviar teste',
+          });
+          return;
+        }
+        socket.emit('test-dispatch-result', {
+          success: true,
+          message: sanitized
+            ? 'Teste enviado com imagem/mídia e legenda'
+            : 'Teste enviado com sucesso',
+        });
       } catch (e: any) {
         console.error('[TestDispatch] Erro:', e?.message || e);
         socket.emit('test-dispatch-result', { success: false, error: e?.message || 'Erro desconhecido' });

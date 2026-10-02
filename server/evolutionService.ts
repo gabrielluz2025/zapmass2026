@@ -16088,10 +16088,30 @@ export async function getConnectionStatePublic(instanceName: string): Promise<{ 
 export async function sendTestMessage(
     connectionId: string,
     toNumber: string,
-    message: string
+    message: string,
+    media?: CampaignMediaPayload
 ): Promise<{ ok: boolean; messageId?: string; error?: string }> {
     try {
-        const result = await sendMessageInternal(connectionId, toNumber, message);
+        const caption = String(message || '').trim();
+        const b64 = media?.base64 ? normalizeCampaignMediaBase64(media.base64) : '';
+        if (b64 && media?.mimeType) {
+            const result = await sendMediaInternal(
+                connectionId,
+                toNumber,
+                b64,
+                media.mimeType,
+                media.fileName || 'anexo',
+                caption,
+                media.sendMediaAsDocument ? { sendMediaAsDocument: true } : undefined
+            );
+            return result.ok
+                ? { ok: true, messageId: result.messageId }
+                : {
+                      ok: false,
+                      error: result.errorDetail || 'Evolution API não confirmou envio da mídia de teste',
+                  };
+        }
+        const result = await sendMessageInternal(connectionId, toNumber, caption);
         return result.ok
             ? { ok: true, messageId: result.messageId }
             : { ok: false, error: result.errorDetail || 'Evolution API não confirmou entrega (possível chip offline)' };
