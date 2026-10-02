@@ -20,6 +20,16 @@ const CHANGELOG: ChangelogEntry[] = [
     ],
   },
   {
+    version: '2.3.299',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Build: tipos de mídia por etapa no startCampaign e dataBase64 no payload do wizard',
+      },
+    ],
+  },
+  {
     version: '2.3.298',
     date: '02/10/2026',
     highlights: [
