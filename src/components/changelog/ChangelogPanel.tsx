@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.290',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Campanha com anexo: upload na VPS antes do socket, lock PG compatível com envio de mídia lento no Evolution Go',
+      },
+    ],
+  },
+  {
     version: '2.3.289',
     date: '02/10/2026',
     highlights: [

@@ -331,6 +331,13 @@ export async function getCampaignJobStatus(idempotencyKey: string): Promise<stri
 
 export type ClaimCampaignJobResult = 'claimed' | 'already_sent' | 'busy';
 
+/** Tempo mínimo em `sending` antes de outro worker reassumir o claim (mídia Evolution pode levar >90s). */
+export function getCampaignSendClaimStaleSeconds(): number {
+  const mediaMs = Number(process.env.EVOLUTION_MEDIA_TIMEOUT_MS ?? 120_000);
+  const fromMedia = Math.ceil(mediaMs / 1000) + 60;
+  return Math.max(120, Math.min(600, fromMedia));
+}
+
 /** Um contato+etapa só envia uma vez: retry/reaper não reenvia se PG já marcou sent. */
 export async function claimCampaignJobForSend(
   idempotencyKey: string,
@@ -343,6 +350,7 @@ export async function claimCampaignJobForSend(
   if (!isZapmassPostgresConfigured()) return 'claimed';
   const pool = getZapmassPool();
   if (!pool) return 'claimed';
+  const staleSec = getCampaignSendClaimStaleSeconds();
   try {
     const r = await pool.query(
       `UPDATE zapmass.campaign_jobs
@@ -353,11 +361,11 @@ export async function claimCampaignJobForSend(
             OR (
               status = 'sending'
               AND locked_at IS NOT NULL
-              AND locked_at < NOW() - INTERVAL '90 seconds'
+              AND locked_at < NOW() - ($3::text || ' seconds')::INTERVAL
             )
           )
         RETURNING idempotency_key`,
-      [key, workerId]
+      [key, workerId, String(staleSec)]
     );
     if ((r.rowCount ?? 0) > 0) return 'claimed';
     const after = await getCampaignJobStatus(key);

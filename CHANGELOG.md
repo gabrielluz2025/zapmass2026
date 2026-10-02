@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.290] - 2026-10-02
+
+### Corrigido
+- **Disparo com foto/vídeo/arquivo travando**: anexo passa a ser gravado na VPS via API REST antes do `start-campaign` (evita payload gigante no Socket.IO); claim PostgreSQL libera após falha de envio e o stale do lock acompanha o timeout de mídia do Evolution Go (~180s).
+
 ## [2.3.289] - 2026-10-02
 
 ### Corrigido

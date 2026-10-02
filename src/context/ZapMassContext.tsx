@@ -61,9 +61,11 @@ import {
   apiDeleteAllCampaigns,
   apiDeleteCampaign,
   apiUpdateCampaign,
+  CAMPAIGN_MEDIA_API_SAFE_BYTES,
   fetchCampaigns,
   ensureDispatchReady,
-  formatDispatchUnavailableMessage
+  formatDispatchUnavailableMessage,
+  uploadCampaignDispatchMedia
 } from '../services/campaignsApi';
 import { getSessionIdToken } from '../utils/sessionAuth';
 import {
@@ -4357,9 +4359,26 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     void reloadVpsCampaignsRef.current();
     const campaignRef = { id: campaignIdCreated };
 
+    let socketMediaAttachment = options?.mediaAttachment;
+    let socketFollowUpMediaAttachment = options?.followUpMediaAttachment;
+    if (socketMediaAttachment || socketFollowUpMediaAttachment) {
+      const upload = await uploadCampaignDispatchMedia(campaignRef.id, {
+        mediaAttachment: socketMediaAttachment,
+        followUpMediaAttachment: socketFollowUpMediaAttachment
+      });
+      if (upload.uploadedViaApi) {
+        socketMediaAttachment = undefined;
+        socketFollowUpMediaAttachment = undefined;
+      } else if (upload.approxBytes > CAMPAIGN_MEDIA_API_SAFE_BYTES) {
+        throw new Error(
+          'Anexo grande demais para enviar pelo navegador (~18 MB após compressão). Use uma foto menor, comprima o vídeo ou aumente JSON_BODY_LIMIT_MB na VPS e dispare de novo.'
+        );
+      }
+    }
+
     try {
       const ackTimeoutMs = startCampaignAckTimeoutMs(
-        options?.mediaAttachment || options?.followUpMediaAttachment,
+        socketMediaAttachment || socketFollowUpMediaAttachment,
         targetConnections.length,
         cleanNumbers.length
       );
@@ -4414,8 +4433,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             poolStrategy: options?.poolStrategy,
             poolId: options?.poolId,
             stageConfigs: options?.stageConfigs,
-            mediaAttachment: options?.mediaAttachment,
-            followUpMediaAttachment: options?.followUpMediaAttachment,
+            mediaAttachment: socketMediaAttachment,
+            followUpMediaAttachment: socketFollowUpMediaAttachment,
             optionMediaAttachments: options?.optionMediaAttachments,
             skipFrequencyCap: options?.skipFrequencyCap === true,
             frequencyCapAllowPhones: options?.frequencyCapAllowPhones,

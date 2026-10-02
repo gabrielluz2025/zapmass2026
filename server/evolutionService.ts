@@ -11286,6 +11286,10 @@ async function failCampaignSend(
     errDetail: string,
     campaignState?: CampaignRuntimeState
 ): Promise<never> {
+    const idempotencyKey = String(job.id || '');
+    if (idempotencyKey) {
+        await releaseCampaignJobSendClaim(idempotencyKey);
+    }
     if (item._dailyQuotaConsumed) {
         await releaseDailyCampaignQuota(item.connectionId, connectionDailyQuotaDeps());
         item._dailyQuotaConsumed = false;

@@ -19,11 +19,65 @@ export async function apiCreateCampaign(payload: Record<string, unknown>): Promi
   return String(j.id || '');
 }
 
-export async function apiUpdateCampaign(id: string, patch: Record<string, unknown>): Promise<void> {
+export async function apiUpdateCampaign(
+  id: string,
+  patch: Record<string, unknown>,
+  opts?: { timeoutMs?: number }
+): Promise<void> {
   await apiFetchJson(`/api/campaigns/${encodeURIComponent(id)}`, {
     method: 'PATCH',
-    body: JSON.stringify(patch)
+    body: JSON.stringify(patch),
+    timeoutMs: opts?.timeoutMs ?? CAMPAIGNS_API_TIMEOUT_MS,
   });
+}
+
+export type CampaignMediaAttachmentPayload = {
+  dataBase64: string;
+  mimeType: string;
+  fileName: string;
+  sendMediaAsDocument?: boolean;
+};
+
+/** ~18 MB binário com JSON_BODY_LIMIT_MB=25 na VPS (base64 infla ~33%). */
+export const CAMPAIGN_MEDIA_API_SAFE_BYTES = 18 * 1024 * 1024;
+
+const approxBytesFromBase64 = (base64: string): number => {
+  const cleaned = base64.replace(/\s+/g, '');
+  const len = cleaned.length;
+  if (!len) return 0;
+  let padding = 0;
+  if (cleaned.endsWith('==')) padding = 2;
+  else if (cleaned.endsWith('=')) padding = 1;
+  return Math.max(0, Math.floor((len * 3) / 4) - padding);
+};
+
+/**
+ * Grava anexo no servidor via REST (evita estourar maxHttpBufferSize do Socket.IO no start-campaign).
+ * Retorna se o socket pode omitir o base64 (já está em disco na VPS).
+ */
+export async function uploadCampaignDispatchMedia(
+  campaignId: string,
+  payload: {
+    mediaAttachment?: CampaignMediaAttachmentPayload;
+    followUpMediaAttachment?: CampaignMediaAttachmentPayload;
+  }
+): Promise<{ uploadedViaApi: boolean; approxBytes: number }> {
+  const parts = [payload.mediaAttachment?.dataBase64, payload.followUpMediaAttachment?.dataBase64].filter(
+    Boolean
+  ) as string[];
+  const approxBytes = parts.reduce((sum, b64) => sum + approxBytesFromBase64(b64), 0);
+  if (!parts.length) return { uploadedViaApi: false, approxBytes: 0 };
+
+  if (approxBytes > CAMPAIGN_MEDIA_API_SAFE_BYTES) {
+    return { uploadedViaApi: false, approxBytes };
+  }
+
+  const timeoutMs = Math.min(900_000, Math.max(120_000, 90_000 + Math.ceil(approxBytes / 25_000)));
+  const patch: Record<string, unknown> = {};
+  if (payload.mediaAttachment) patch.mediaAttachment = payload.mediaAttachment;
+  if (payload.followUpMediaAttachment) patch.followUpMediaAttachment = payload.followUpMediaAttachment;
+  await apiUpdateCampaign(campaignId, patch, { timeoutMs });
+  return { uploadedViaApi: true, approxBytes };
 }
 
 /** Salva edição de campanha ativa/pausada sem reiniciar progresso. */
@@ -264,13 +318,6 @@ export async function updateCampaignChannels(
     onlineCount: Number(j.onlineCount) || 0,
   };
 }
-
-export type CampaignMediaAttachmentPayload = {
-  dataBase64: string;
-  mimeType: string;
-  fileName: string;
-  sendMediaAsDocument?: boolean;
-};
 
 export async function fetchCampaignMediaAttachments(campaignId: string): Promise<{
   mediaAttachment?: CampaignMediaAttachmentPayload;
