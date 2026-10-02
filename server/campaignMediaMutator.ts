@@ -111,11 +111,11 @@ export async function applyMicroMutation(buffer: Buffer, mimeType: string): Prom
       }
       return pipeline.jpeg({ quality: randomQuality, mozjpeg: true }).toBuffer();
     } catch (err) {
-      console.warn('[MediaMutator] sharp indisponível — fallback padding', {
+      console.warn('[MediaMutator] sharp indisponível — mantém buffer original (padding quebra JPEG)', {
         mimeType: mime,
         error: (err as Error)?.message,
       });
-      return appendNeutralPadding(buffer);
+      return buffer;
     }
   }
 

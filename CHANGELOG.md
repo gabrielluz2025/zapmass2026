@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.297] - 2026-10-02
+
+### Corrigido
+- **Disparo multi-etapa com anexo**: mídia persistida e enviada por índice de etapa (`reply-step:N`), hidratação de todos os slots no disco, clone copia todas as etapas; motor lazy usa `applyCampaignMediaToQueueItem` por `stageIndex` (não só abertura).
+- **Fluxo por resposta**: «Qualquer resposta» não cai mais no menu legado (opções antigas); saudações como «Opa» avançam para a próxima etapa; anexo visível em todas as etapas do editor (não só etapa 2).
+- **Evolution Go / JPEG**: mutador anti-hash não corrompe mais imagem quando `sharp` falha (evita «Aguardando mensagem» + legenda solta).
+
 ## [2.3.296] - 2026-10-02
 
 ### Corrigido

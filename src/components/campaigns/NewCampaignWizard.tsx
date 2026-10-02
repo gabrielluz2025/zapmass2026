@@ -213,6 +213,14 @@ interface NewCampaignWizardProps {
       fileName: string;
       sendMediaAsDocument?: boolean;
     };
+    /** Anexos das etapas 3+ (índice 2+) — etapas 0–1 usam mediaAttachment / followUpMediaAttachment. */
+    stageMediaAttachments?: Array<{
+      stepIndex: number;
+      dataBase64: string;
+      mimeType: string;
+      fileName: string;
+      sendMediaAsDocument?: boolean;
+    }>;
     optionMediaAttachments?: Array<{
       stepIndex: number;
       optionIndex: number;
@@ -381,6 +389,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [followUpAttachment, setFollowUpAttachment] = useState<CampaignAttachmentState | null>(null);
   const followUpAttachmentInputRef = useRef<HTMLInputElement>(null);
+  /** Anexos das etapas 3+ (índice 2+) no fluxo por resposta. */
+  const [extraStageAttachments, setExtraStageAttachments] = useState<
+    Record<number, CampaignAttachmentState | null>
+  >({});
+  const extraStageAttachmentInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const [optionImageById, setOptionImageById] = useState<
     Record<string, { file: File; previewUrl: string }>
   >({});
@@ -456,6 +469,91 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const removeFollowUpAttachment = () => {
     if (followUpAttachment?.previewUrl) URL.revokeObjectURL(followUpAttachment.previewUrl);
     setFollowUpAttachment(null);
+  };
+
+  const pickStageAttachmentFile = (stageIndex: number, file?: File | null) => {
+    if (!file) return;
+    if (file.size > CAMPAIGN_ATTACHMENT_LIMIT_BYTES) {
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      toast.error(
+        `Arquivo de ${sizeMb} MB excede o limite de ${CAMPAIGN_ATTACHMENT_LIMIT_MB} MB.`,
+        { duration: 6000 }
+      );
+      const ref = extraStageAttachmentInputRefs.current[stageIndex];
+      if (ref) ref.value = '';
+      return;
+    }
+    const sendAsDocument = mediaShouldSendAsDocument(file);
+    const fallbackHint = explainWhatsAppMediaFallback(file);
+    if (fallbackHint) toast(fallbackHint, { duration: 7000 });
+    const isMedia = file.type.startsWith('image/') || file.type.startsWith('video/');
+    setExtraStageAttachments((prev) => {
+      const cur = prev[stageIndex];
+      if (cur?.previewUrl) URL.revokeObjectURL(cur.previewUrl);
+      return {
+        ...prev,
+        [stageIndex]: {
+          file,
+          previewUrl: isMedia ? URL.createObjectURL(file) : null,
+          sendAsDocument
+        }
+      };
+    });
+    const ref = extraStageAttachmentInputRefs.current[stageIndex];
+    if (ref) ref.value = '';
+  };
+
+  const removeStageAttachmentAt = (stageIndex: number) => {
+    setExtraStageAttachments((prev) => {
+      const cur = prev[stageIndex];
+      if (cur?.previewUrl) URL.revokeObjectURL(cur.previewUrl);
+      const next = { ...prev };
+      delete next[stageIndex];
+      return next;
+    });
+  };
+
+  const getStageAttachmentForEditor = (stageIndex: number): CampaignAttachmentState | null => {
+    if (stageIndex === 0) return campaignAttachment;
+    if (stageIndex === 1) return followUpAttachment;
+    return extraStageAttachments[stageIndex] ?? null;
+  };
+
+  const onPickStageAttachmentForEditor = (stageIndex: number, file: File | null) => {
+    if (stageIndex === 0) {
+      onPickAttachment(file);
+      return;
+    }
+    if (stageIndex === 1) {
+      onPickFollowUpAttachment(file);
+      return;
+    }
+    pickStageAttachmentFile(stageIndex, file);
+  };
+
+  const onRemoveStageAttachmentForEditor = (stageIndex: number) => {
+    if (stageIndex === 0) {
+      removeAttachment();
+      return;
+    }
+    if (stageIndex === 1) {
+      removeFollowUpAttachment();
+      return;
+    }
+    removeStageAttachmentAt(stageIndex);
+  };
+
+  const getStageAttachmentInputRefForEditor = (stageIndex: number) => {
+    if (stageIndex === 0) return attachmentInputRef;
+    if (stageIndex === 1) return followUpAttachmentInputRef;
+    return {
+      get current() {
+        return extraStageAttachmentInputRefs.current[stageIndex] ?? null;
+      },
+      set current(el: HTMLInputElement | null) {
+        extraStageAttachmentInputRefs.current[stageIndex] = el;
+      }
+    } as React.RefObject<HTMLInputElement | null>;
   };
 
   const onPickOptionImage = (optionId: string, file: File) => {
@@ -1685,7 +1783,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
      * Vamos avisar o usuario para escolher: ou tira o anexo ou tira o agendamento.
      */
     const hasOptionImage = Object.keys(optionImageById).length > 0;
-    if ((campaignAttachment || followUpAttachment || hasOptionImage) && launchMode === 'schedule') {
+    if (
+      (campaignAttachment ||
+        followUpAttachment ||
+        Object.values(extraStageAttachments).some(Boolean) ||
+        hasOptionImage) &&
+      launchMode === 'schedule'
+    ) {
       toast.error(
         'Anexos so funcionam em disparo imediato. Remova o anexo ou desative o agendamento.',
         { duration: 7000 }
@@ -1738,6 +1842,16 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     try {
       mediaPayload = await buildMediaPayload(campaignAttachment);
       followUpMediaPayload = await buildMediaPayload(followUpAttachment);
+      const stageMediaPayloads: NonNullable<
+        Parameters<NewCampaignWizardProps['onSubmit']>[0]['stageMediaAttachments']
+      > = [];
+      for (let stepIndex = 2; stepIndex < messageStages.length; stepIndex++) {
+        const att = extraStageAttachments[stepIndex];
+        const prepared = await buildMediaPayload(att ?? null);
+        if (prepared) {
+          stageMediaPayloads.push({ stepIndex, ...prepared });
+        }
+      }
       const optionPayloads: NonNullable<typeof optionMediaAttachments> = [];
       for (let stepIndex = 0; stepIndex < messageStages.length; stepIndex++) {
         const stageOptions = messageStages[stepIndex]?.options || [];
@@ -1879,6 +1993,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         ...(poolDispatch?.poolId ? { poolId: poolDispatch.poolId } : {}),
         ...(mediaPayload ? { mediaAttachment: mediaPayload } : {}),
         ...(followUpMediaPayload ? { followUpMediaAttachment: followUpMediaPayload } : {}),
+        ...(stageMediaPayloads.length > 0 ? { stageMediaAttachments: stageMediaPayloads } : {}),
         ...(optionMediaAttachments ? { optionMediaAttachments } : {}),
         ...(removedOptionMediaKeysRef.current.length > 0
           ? { optionMediaRemovals: [...removedOptionMediaKeysRef.current] }
@@ -2805,6 +2920,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       optionImagePreviewUrl={(optionId) => optionImageById[optionId]?.previewUrl || null}
                       onPickOptionImage={onPickOptionImage}
                       onRemoveOptionImage={onRemoveOptionImage}
+                      getStageAttachment={getStageAttachmentForEditor}
+                      onPickStageAttachment={onPickStageAttachmentForEditor}
+                      onRemoveStageAttachment={onRemoveStageAttachmentForEditor}
+                      getStageAttachmentInputRef={getStageAttachmentInputRefForEditor}
                           />
                         )}
                       </div>

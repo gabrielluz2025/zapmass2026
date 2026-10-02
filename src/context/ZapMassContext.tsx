@@ -4236,6 +4236,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         fileName: string;
         sendMediaAsDocument?: boolean;
       };
+      stageMediaAttachments?: Array<{
+        stepIndex: number;
+        dataBase64: string;
+        mimeType: string;
+        fileName: string;
+        sendMediaAsDocument?: boolean;
+      }>;
       /** Copia anexos da campanha origem ao criar (fluxo clone no assistente). */
       copyMediaFromCampaignId?: string;
       optionMediaAttachments?: Array<{
@@ -4302,7 +4309,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     const embedMediaOnCreate = campaignMediaCanEmbedOnCreate({
       mediaAttachment: options?.mediaAttachment,
-      followUpMediaAttachment: options?.followUpMediaAttachment
+      followUpMediaAttachment: options?.followUpMediaAttachment,
+      stageMediaAttachments: options?.stageMediaAttachments
     });
 
     const campaignPayload = {
@@ -4379,12 +4387,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     let socketMediaAttachment = options?.mediaAttachment;
     let socketFollowUpMediaAttachment = options?.followUpMediaAttachment;
-    if (!embedMediaOnCreate && (socketMediaAttachment || socketFollowUpMediaAttachment)) {
+    const socketStageMediaAttachments = options?.stageMediaAttachments;
+    if (
+      !embedMediaOnCreate &&
+      (socketMediaAttachment || socketFollowUpMediaAttachment || socketStageMediaAttachments?.length)
+    ) {
       const upload = await uploadCampaignDispatchMedia(
         campaignRef.id,
         {
           mediaAttachment: socketMediaAttachment,
-          followUpMediaAttachment: socketFollowUpMediaAttachment
+          followUpMediaAttachment: socketFollowUpMediaAttachment,
+          stageMediaAttachments: socketStageMediaAttachments
         },
         {
           skipIfOnServer: true,
@@ -4408,7 +4421,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const mustHaveOpeningOnServer = Boolean(
       options?.mediaAttachment?.dataBase64 ||
         options?.copyMediaFromCampaignId ||
-        options?.followUpMediaAttachment?.dataBase64
+        options?.followUpMediaAttachment?.dataBase64 ||
+        (options?.stageMediaAttachments?.length ?? 0) > 0
     );
     if (mustHaveOpeningOnServer) {
       const { fetchCampaignMediaAttachmentsStatus } = await import('../services/campaignsApi');

@@ -83,10 +83,14 @@ export async function apiHealCampaignTerminalState(
 export function campaignMediaCanEmbedOnCreate(payload: {
   mediaAttachment?: CampaignMediaAttachmentPayload;
   followUpMediaAttachment?: CampaignMediaAttachmentPayload;
+  stageMediaAttachments?: Array<CampaignMediaAttachmentPayload & { stepIndex: number }>;
 }): boolean {
-  const parts = [payload.mediaAttachment?.dataBase64, payload.followUpMediaAttachment?.dataBase64].filter(
-    Boolean
-  ) as string[];
+  const stageParts = (payload.stageMediaAttachments || []).filter((s) => s?.dataBase64);
+  const parts = [
+    payload.mediaAttachment?.dataBase64,
+    payload.followUpMediaAttachment?.dataBase64,
+    ...stageParts.map((s) => s.dataBase64)
+  ].filter(Boolean) as string[];
   if (!parts.length) return false;
   const approxBytes = parts.reduce((sum, b64) => sum + approxBytesFromBase64(b64), 0);
   return approxBytes > 0 && approxBytes <= CAMPAIGN_MEDIA_API_SAFE_BYTES;
@@ -97,12 +101,15 @@ export async function uploadCampaignDispatchMedia(
   payload: {
     mediaAttachment?: CampaignMediaAttachmentPayload;
     followUpMediaAttachment?: CampaignMediaAttachmentPayload;
+    stageMediaAttachments?: Array<CampaignMediaAttachmentPayload & { stepIndex: number }>;
   },
   opts?: { skipIfOnServer?: boolean; onProgress?: (label: string) => void }
 ): Promise<{ uploadedViaApi: boolean; approxBytes: number; skippedBecauseOnServer?: boolean }> {
   const needsOpening = Boolean(payload.mediaAttachment?.dataBase64);
   const needsFollow = Boolean(payload.followUpMediaAttachment?.dataBase64);
-  if (!needsOpening && !needsFollow) return { uploadedViaApi: false, approxBytes: 0 };
+  const stageParts = (payload.stageMediaAttachments || []).filter((s) => s?.dataBase64);
+  const needsStage = stageParts.length > 0;
+  if (!needsOpening && !needsFollow && !needsStage) return { uploadedViaApi: false, approxBytes: 0 };
 
   if (opts?.skipIfOnServer) {
     try {
@@ -128,9 +135,11 @@ export async function uploadCampaignDispatchMedia(
     }
   }
 
-  const parts = [payload.mediaAttachment?.dataBase64, payload.followUpMediaAttachment?.dataBase64].filter(
-    Boolean
-  ) as string[];
+  const parts = [
+    payload.mediaAttachment?.dataBase64,
+    payload.followUpMediaAttachment?.dataBase64,
+    ...stageParts.map((s) => s.dataBase64)
+  ].filter(Boolean) as string[];
   const approxBytes = parts.reduce((sum, b64) => sum + approxBytesFromBase64(b64), 0);
 
   if (approxBytes > CAMPAIGN_MEDIA_API_SAFE_BYTES) {
@@ -144,6 +153,7 @@ export async function uploadCampaignDispatchMedia(
   const patch: Record<string, unknown> = {};
   if (payload.mediaAttachment) patch.mediaAttachment = payload.mediaAttachment;
   if (payload.followUpMediaAttachment) patch.followUpMediaAttachment = payload.followUpMediaAttachment;
+  if (stageParts.length > 0) patch.stageMediaAttachments = stageParts;
   await apiUpdateCampaign(campaignId, patch, { timeoutMs });
   return { uploadedViaApi: true, approxBytes };
 }

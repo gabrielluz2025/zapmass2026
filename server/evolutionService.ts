@@ -99,6 +99,7 @@ import {
     parseReplyFlowSessionKey,
 } from './replyFlowEngine.js';
 import { campaignMediaStorageKey, isReplyOptionMediaKey } from '../src/utils/campaignMediaKeys.js';
+import { discoverCampaignMediaStorageKeys } from './campaignStageMedia.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
 import {
     collectCampaignChannelIds,
@@ -5086,7 +5087,7 @@ function mediaLookupKeyForStage(campaignId: string, stageIndex: number): string 
     if (idx <= 0) return cid;
     const stepKey = campaignMediaStorageKey(cid, idx);
     if (campaignMediaSendable(stepKey)) return stepKey;
-    return cid;
+    return '';
 }
 
 function campaignStageMediaAvailable(campaignId: string, stageIndex: number): boolean {
@@ -5095,15 +5096,14 @@ function campaignStageMediaAvailable(campaignId: string, stageIndex: number): bo
     const idx = Math.max(0, Math.floor(Number(stageIndex) || 0));
     if (idx <= 0) return campaignOpeningMediaAvailable(cid);
     const stepKey = campaignMediaStorageKey(cid, idx);
-    if (campaignMediaSendable(stepKey)) return true;
-    return campaignOpeningMediaAvailable(cid);
+    return campaignMediaSendable(stepKey);
 }
 
 /** Recarrega anexos do disco após restart da VPS (campanha salva sem reenviar base64 no Play). */
-function hydrateCampaignMediaFromDiskForDispatch(campaignId: string): void {
+function hydrateCampaignMediaFromDiskForDispatch(campaignId: string, maxStepIndex = 12): void {
     const cid = String(campaignId || '').trim();
     if (!cid) return;
-    for (const key of [cid, campaignMediaStorageKey(cid, 1)]) {
+    for (const key of discoverCampaignMediaStorageKeys(cid, maxStepIndex)) {
         if (!key || campaignMediaSendable(key)) continue;
         const loaded = resolveStoredCampaignMedia(key);
         if (!loaded) continue;
@@ -5175,10 +5175,13 @@ export function copyCampaignMediaBetweenCampaigns(sourceCampaignId: string, targ
     const to = String(targetCampaignId || '').trim();
     if (!from || !to || from === to) return;
     hydrateCampaignMediaFromDiskForDispatch(from);
-    const opening = resolveStoredCampaignMedia(from);
-    const followUp = resolveStoredCampaignMedia(campaignMediaStorageKey(from, 1));
-    if (opening?.base64) persistCampaignMediaPayload(to, opening);
-    if (followUp?.base64) persistCampaignMediaPayload(campaignMediaStorageKey(to, 1), followUp);
+    for (const key of discoverCampaignMediaStorageKeys(from)) {
+        if (key.includes(':reply-opt:')) continue;
+        const payload = resolveStoredCampaignMedia(key);
+        if (!payload?.base64) continue;
+        const targetKey = key === from ? to : key.replace(from, to);
+        persistCampaignMediaPayload(targetKey, payload);
+    }
 }
 
 /** Aguarda anexo aparecer no volume (API gravou via PATCH antes do socket). */
@@ -5204,6 +5207,20 @@ export function storeCampaignMediaForDispatch(
     if (!cid) return;
     if (media) persistCampaignMediaPayload(cid, media);
     if (followUpMedia) persistCampaignMediaPayload(campaignMediaStorageKey(cid, 1), followUpMedia);
+}
+
+/** Grava anexo de uma etapa do fluxo (índice 0 = abertura, 1+ = reply-step). */
+export function storeCampaignStageMediaForDispatch(
+    campaignId: string,
+    stepIndex: number,
+    media?: CampaignMediaPayload
+): void {
+    const cid = String(campaignId || '').trim();
+    if (!cid || !media) return;
+    const idx = Math.max(0, Math.floor(Number(stepIndex) || 0));
+    const key = idx <= 0 ? cid : campaignMediaStorageKey(cid, idx);
+    persistCampaignMediaPayload(key, media);
+    campaignMediaReady(key);
 }
 
 export type ReplyTriggerPhotoInput = {
@@ -5313,9 +5330,18 @@ export function getCampaignMediaAttachmentsStatus(campaignId: string): {
     const cid = String(campaignId || '').trim();
     if (!cid) return { opening: false, followUp: false };
     hydrateCampaignMediaFromDiskForDispatch(cid);
+    let followUp = campaignMediaSendable(campaignMediaStorageKey(cid, 1));
+    if (!followUp) {
+        for (const key of discoverCampaignMediaStorageKeys(cid)) {
+            if (key.includes(':reply-step:') && campaignMediaSendable(key)) {
+                followUp = true;
+                break;
+            }
+        }
+    }
     return {
         opening: campaignOpeningMediaAvailable(cid),
-        followUp: campaignMediaSendable(campaignMediaStorageKey(cid, 1)),
+        followUp,
     };
 }
 
@@ -14135,8 +14161,7 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
             ownerUid: ownerUidForReply,
             callbacks: {
                 enqueue: async (p) => {
-                    await enqueueCampaignItem(
-                        {
+                    const queueItem: MessageQueueItem = {
                             connectionId: p.connectionId,
                             to: phoneDigits,
                             message: p.message,
@@ -14144,11 +14169,10 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
                             ownerUid: p.ownerUid,
                             stageIndex: p.stepIndex,
                             rotationIndex: campaignRotationIndexFromPhone(phoneDigits),
-                            sendAsMedia: campaignOpeningMediaAvailable(p.campaignId),
                             multiStepContact: { contactId: p.contactId, stepIndex: p.stepIndex },
-                        },
-                        p.delayMs
-                    );
+                        };
+                    if (p.campaignId) applyCampaignMediaToQueueItem(queueItem, p.campaignId, p.stepIndex);
+                    await enqueueCampaignItem(queueItem, p.delayMs);
                 },
                 onLog: (msg, payload) => emitCampaignLog('INFO', msg, payload, ownerUidForReply),
                 resolveConnectionId: () => instance,

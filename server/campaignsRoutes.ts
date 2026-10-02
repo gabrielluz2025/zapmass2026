@@ -124,10 +124,12 @@ export function registerCampaignsDataRoutes(app: Express): void {
     const optionMediaRemovals = patch.optionMediaRemovals;
     const mediaAttachmentRaw = patch.mediaAttachment;
     const followUpMediaAttachmentRaw = patch.followUpMediaAttachment;
+    const stageMediaAttachmentsRaw = patch.stageMediaAttachments;
     delete patch.optionMediaAttachments;
     delete patch.optionMediaRemovals;
     delete patch.mediaAttachment;
     delete patch.followUpMediaAttachment;
+    delete patch.stageMediaAttachments;
     // Edição pelo wizard não deve reiniciar audiência nem contadores.
     delete patch.numbers;
     if (!allowTerminalStatusHeal) {
@@ -191,6 +193,16 @@ export function registerCampaignsDataRoutes(app: Express): void {
     const followMedia = toCampaignMediaPayload(followUpMediaAttachmentRaw);
     if (openingMedia || followMedia) {
       evolutionService.storeCampaignMediaForDispatch(id, openingMedia, followMedia);
+    }
+    if (Array.isArray(stageMediaAttachmentsRaw)) {
+      for (const rawItem of stageMediaAttachmentsRaw.slice(0, 20)) {
+        const stepIndex = Number((rawItem as { stepIndex?: number })?.stepIndex);
+        if (!Number.isInteger(stepIndex) || stepIndex < 1) continue;
+        const payload = toCampaignMediaPayload(rawItem);
+        if (payload) evolutionService.storeCampaignStageMediaForDispatch(id, stepIndex, payload);
+      }
+    }
+    if (openingMedia || followMedia || Array.isArray(stageMediaAttachmentsRaw)) {
       const { refreshCampaignMediaDocFlags } = await import('./campaignMediaDocSync.js');
       await refreshCampaignMediaDocFlags(id, evolutionService.getCampaignMediaAttachmentsStatus(id));
     }

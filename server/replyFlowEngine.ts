@@ -336,7 +336,9 @@ export const sanitizeReplyFlowSteps = (
             const marketingEffect: 'none' | 'opt_in' | 'opt_out' =
                 me === 'opt_in' || me === 'opt_out' ? me : 'none';
 
-            const sanitizedOptions = Array.isArray(s.options)
+            const preferAnyReply = s.acceptAnyReply !== false;
+
+            const sanitizedOptions = Array.isArray(s.options) && !preferAnyReply
                 ? s.options
                       .map((opt) => {
                           const optMe = String(opt.marketingEffect || 'none').toLowerCase();
@@ -368,7 +370,7 @@ export const sanitizeReplyFlowSteps = (
                 acceptAnyReply:
                     Array.isArray(sanitizedOptions) && sanitizedOptions.length > 0
                         ? false
-                        : s.acceptAnyReply !== false,
+                        : preferAnyReply,
                 validTokens: Array.isArray(s.validTokens)
                     ? s.validTokens.map((t) => String(t || '').toLowerCase().trim()).filter(Boolean)
                     : [],
@@ -1226,7 +1228,7 @@ export class ReplyFlowEngine {
 
         const gateStep = steps[awaiting];
 
-        if (gateStep.options && gateStep.options.length > 0) {
+        if (!gateStep.acceptAnyReply && gateStep.options && gateStep.options.length > 0) {
             const t = tBody;
             const nonText = Boolean(nonTextReply);
             let matchedOption: ReplyFlowStepOption | null = null;

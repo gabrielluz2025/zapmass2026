@@ -575,7 +575,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       patch.dailySchedule = payload.dailySchedule;
     }
     try {
-      if (payload.mediaAttachment || payload.followUpMediaAttachment) {
+      if (payload.mediaAttachment || payload.followUpMediaAttachment || payload.stageMediaAttachments?.length) {
         const uploadToast = 'campaign-edit-media-upload';
         toast.loading('Enviando anexo para o servidor…', { id: uploadToast, duration: 600_000 });
         const { uploadCampaignDispatchMedia } = await import('../services/campaignsApi');
@@ -583,7 +583,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           editId,
           {
             mediaAttachment: payload.mediaAttachment,
-            followUpMediaAttachment: payload.followUpMediaAttachment
+            followUpMediaAttachment: payload.followUpMediaAttachment,
+            stageMediaAttachments: payload.stageMediaAttachments
           },
           { skipIfOnServer: true, onProgress: (label) => toast.loading(label, { id: uploadToast }) }
         );

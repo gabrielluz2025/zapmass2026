@@ -10,6 +10,24 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.297',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Anexo em todas as etapas do fluxo por resposta: grava na VPS, envia com a legenda correta e avanço «qualquer resposta» (ex.: «Opa») não repete a abertura',
+      },
+      {
+        type: 'fix',
+        text: 'Motor multi-etapas (stageConfigs) resolve mídia por stageIndex; clone/hidratação carrega reply-step:2, reply-step:3…',
+      },
+      {
+        type: 'fix',
+        text: 'Mutador de mídia não estraga JPEG quando sharp falha — reduz «Aguardando mensagem» no WhatsApp',
+      },
+    ],
+  },
+  {
     version: '2.3.296',
     date: '02/10/2026',
     highlights: [

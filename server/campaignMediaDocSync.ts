@@ -49,6 +49,7 @@ export function mediaMetaSlotForStorageKey(storageKey: string): 'opening' | 'fol
   if (!cid) return null;
   if (key === cid) return 'opening';
   if (key === campaignMediaStorageKey(cid, 1)) return 'followUp';
+  if (key.includes(':reply-step:')) return 'followUp';
   return null;
 }
 

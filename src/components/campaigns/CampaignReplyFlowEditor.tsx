@@ -79,6 +79,10 @@ type Props = {
   optionImagePreviewUrl?: (optionId: string) => string | null;
   onPickOptionImage?: (optionId: string, file: File) => void;
   onRemoveOptionImage?: (optionId: string) => void;
+  getStageAttachment?: (stageIndex: number) => CampaignAttachmentState | null;
+  onPickStageAttachment?: (stageIndex: number, file: File | null) => void;
+  onRemoveStageAttachment?: (stageIndex: number) => void;
+  getStageAttachmentInputRef?: (stageIndex: number) => React.RefObject<HTMLInputElement | null> | undefined;
 };
 
 const MATCH_MODE_OPTIONS: Array<{ value: ReplyMatchMode; label: string }> = [
@@ -447,6 +451,10 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
   optionImagePreviewUrl,
   onPickOptionImage,
   onRemoveOptionImage,
+  getStageAttachment,
+  onPickStageAttachment,
+  onRemoveStageAttachment,
+  getStageAttachmentInputRef,
 }) => {
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -483,7 +491,7 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
   };
 
   const enableAnyReplyOnStage = (idx: number) => {
-    patchStage(idx, { acceptAnyReply: true, optionsMode: 'linear' });
+    patchStage(idx, { acceptAnyReply: true, optionsMode: 'linear', options: [] });
   };
 
   // ── Renderização de cada etapa ───────────────────────────────────────────────
@@ -523,19 +531,49 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
         const isLast = idx === totalStages - 1;
         const isConditional = !stage.acceptAnyReply && (stage.options?.length ?? 0) > 0;
         const previewBody = applyCampaignMessagePreviewVars(stage.body || '', { nome: previewDisplayName });
+        const resolveStageAttachment = (stageIdx: number): CampaignAttachmentState | null => {
+          if (getStageAttachment) return getStageAttachment(stageIdx);
+          if (stageIdx === 0) return attachment;
+          if (stageIdx === 1) return followUpAttachment ?? null;
+          return null;
+        };
+        const stageAttachment = resolveStageAttachment(idx);
         const stagePhotoEnabled =
-          !isFirst &&
-          idx === 1 &&
-          followUpAttachmentInputRef &&
-          onPickFollowUpAttachment &&
-          onRemoveFollowUpAttachment;
-        const composerAttachment = isFirst ? attachment : stagePhotoEnabled ? followUpAttachment : null;
-        const composerShowAttachment = isFirst
-          ? Boolean(attachmentInputRef && onPickAttachment && onRemoveAttachment)
-          : Boolean(stagePhotoEnabled);
-        const stagePreviewImageUrl =
-          (isFirst ? attachment?.previewUrl : stagePhotoEnabled ? followUpAttachment?.previewUrl : null) ||
-          null;
+          idx >= 1 &&
+          Boolean(
+            (getStageAttachment && onPickStageAttachment && onRemoveStageAttachment) ||
+              (idx === 1 &&
+                followUpAttachmentInputRef &&
+                onPickFollowUpAttachment &&
+                onRemoveFollowUpAttachment)
+          );
+        const composerAttachment = idx === 0 ? attachment : stagePhotoEnabled ? stageAttachment : null;
+        const composerShowAttachment =
+          idx === 0
+            ? Boolean(attachmentInputRef && onPickAttachment && onRemoveAttachment)
+            : Boolean(stagePhotoEnabled);
+        const stagePreviewImageUrl = stageAttachment?.previewUrl || null;
+        const stageInputRef =
+          idx === 0
+            ? attachmentInputRef
+            : getStageAttachmentInputRef?.(idx) ??
+              (idx === 1 ? followUpAttachmentInputRef : undefined);
+        const onPickStage =
+          idx === 0
+            ? onPickAttachment
+            : onPickStageAttachment
+              ? (file: File | null) => onPickStageAttachment(idx, file)
+              : idx === 1
+                ? onPickFollowUpAttachment
+                : undefined;
+        const onRemoveStage =
+          idx === 0
+            ? onRemoveAttachment
+            : onRemoveStageAttachment
+              ? () => onRemoveStageAttachment(idx)
+              : idx === 1
+                ? onRemoveFollowUpAttachment
+                : undefined;
 
         return (
           <React.Fragment key={stage.id}>
@@ -623,15 +661,9 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                       variablesCollapsible
                       showAttachment={composerShowAttachment}
                       attachment={composerAttachment ?? null}
-                      attachmentInputRef={
-                        isFirst ? attachmentInputRef : stagePhotoEnabled ? followUpAttachmentInputRef : undefined
-                      }
-                      onPickAttachment={
-                        isFirst ? onPickAttachment : stagePhotoEnabled ? onPickFollowUpAttachment : undefined
-                      }
-                      onRemoveAttachment={
-                        isFirst ? onRemoveAttachment : stagePhotoEnabled ? onRemoveFollowUpAttachment : undefined
-                      }
+                      attachmentInputRef={stageInputRef}
+                      onPickAttachment={onPickStage}
+                      onRemoveAttachment={onRemoveStage}
                       launchMode={launchMode}
                       minHeight={isFirst ? 168 : 130}
                       campaignBrief={campaignBrief}
