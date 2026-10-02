@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.283',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Campanha Falhou com 0 entregas: jobs idempotentes contam como skip; dono pelo Postgres; sem purge órfão indevido',
+      },
+    ],
+  },
+  {
     version: '2.3.282',
     date: '02/10/2026',
     highlights: [

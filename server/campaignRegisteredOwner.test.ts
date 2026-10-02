@@ -51,4 +51,14 @@ describe('resolveRegisteredCampaignOwner', () => {
     const owner = await resolveRegisteredCampaignOwner('missing-id', 'any');
     expect(owner).toBeNull();
   });
+
+  it('confia no tenant_id da linha mesmo se getCampaignDoc falhar', async () => {
+    const cid = '11111111-1111-4111-8111-111111111111';
+    const pgTenant = '22222222-2222-4222-8222-222222222222';
+    resolveCampaignTenantId.mockResolvedValue(pgTenant);
+    getCampaignDoc.mockResolvedValue(null);
+
+    const owner = await resolveRegisteredCampaignOwner(cid, 'firebaseUidLegacy');
+    expect(owner).toBe(pgTenant);
+  });
 });

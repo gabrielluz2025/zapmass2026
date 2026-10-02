@@ -81,6 +81,7 @@ import {
 import { buildPhoneDigitLookupKeys, normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
 import { canonicalBrazilMobileKey, isPlausibleBrazilWhatsAppPhone } from '../src/utils/brPhoneNormalize.js';
 import { LID_SEND_BLOCKED_MSG } from './evolutionLidResolve.js';
+import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
 import {
     ReplyFlowEngine,
     applyMessageVars,
@@ -6192,6 +6193,7 @@ async function closeCampaignJobWithoutRecount(
     await job.updateData(item).catch(() => {});
     if (!item.campaignId) return;
     if (!item.replyFlowResponse && !item.nurtureFollowUp) {
+        bumpCampaignSkip(item.campaignId);
         void promoteHeldCampaignJob(item.campaignId, item.connectionId).catch(() => undefined);
         void drainHeldForConnection(item.connectionId).catch(() => undefined);
     }
@@ -7028,7 +7030,8 @@ async function resolveRegisteredCampaignOwnerForJob(
 /** Jobs de campanha excluída ou sem cadastro não devem recriar runtime órfão na RAM. */
 async function ensureCampaignJobHasRegisteredDoc(
     job: Job<MessageQueueItem>,
-    item: MessageQueueItem
+    item: MessageQueueItem,
+    token?: string
 ): Promise<boolean> {
     const cid = String(item.campaignId || '').trim();
     if (!cid || item.replyFlowResponse || item.nurtureFollowUp) return true;
@@ -7048,6 +7051,14 @@ async function ensureCampaignJobHasRegisteredDoc(
         }
         return true;
     }
+    const { resolveCampaignTenantId } = await import('./repositories/campaignsRepository.js');
+    const tenantRow = await resolveCampaignTenantId(cid).catch(() => null);
+    if (tenantRow) {
+        item.ownerUid = tenantRow;
+        await job.updateData(item).catch(() => undefined);
+        await job.moveToDelayed(Date.now() + 4_000, token);
+        throw new DelayedError();
+    }
     const fallbackOwner =
         item.ownerUid ||
         getCampaignOwnerUidForQueue(cid) ||
@@ -7062,6 +7073,7 @@ async function ensureCampaignJobHasRegisteredDoc(
         await purgeCampaignBullQueuesForId(cid, false).catch(() => undefined);
     }
     bumpQueueSize(item.connectionId, -1, item);
+    await closeCampaignJobWithoutRecount(job, item);
     await job.remove().catch(() => undefined);
     return false;
 }
@@ -8723,7 +8735,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: {
             void registerCampaignJob({
                 idempotencyKey: jobId,
                 campaignId: item.campaignId,
-                tenantId: item.ownerUid,
+                tenantId: resolvePostgresTenantId(String(item.ownerUid)),
                 connectionId: item.connectionId,
                 toNumber: item.to,
                 stageIndex: item.stageIndex ?? 0,
@@ -8803,7 +8815,7 @@ async function enqueueCampaignItemsBulk(
                 void registerCampaignJob({
                     idempotencyKey: jobId,
                     campaignId: item.campaignId,
-                    tenantId: item.ownerUid,
+                    tenantId: resolvePostgresTenantId(String(item.ownerUid)),
                     connectionId: item.connectionId,
                     toNumber: item.to,
                     stageIndex: item.stageIndex ?? 0,
@@ -9695,7 +9707,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         await closeCampaignJobWithoutRecount(job, item);
         return;
     }
-    if (!(await ensureCampaignJobHasRegisteredDoc(job, item))) {
+    if (!(await ensureCampaignJobHasRegisteredDoc(job, item, token))) {
         return;
     }
     if (item.campaignId && !campaignsById.has(item.campaignId)) {
@@ -10915,7 +10927,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         const journey = await loadJourneyByIdPg(item.ownerUid, item.nurtureJourneyId);
         if (journey) {
             void completeNurtureStepAfterSend({
-                tenantId: item.ownerUid,
+                tenantId: resolvePostgresTenantId(String(item.ownerUid)),
                 enrollmentId: item.nurtureEnrollmentId,
                 journeyId: item.nurtureJourneyId,
                 sentStepIndex: item.nurtureStepIndex ?? 0,
@@ -12140,6 +12152,15 @@ export async function startCampaign(
     prospecting?: CampaignProspecting
 ): Promise<boolean> {
     if (connectionIds.length === 0 || numbers.length === 0) return false;
+
+    if (ownerUid) {
+        try {
+            const { resolvePostgresTenantIdAsync } = await import('./auth/firebaseUidMap.js');
+            ownerUid = await resolvePostgresTenantIdAsync(ownerUid);
+        } catch {
+            ownerUid = resolvePostgresTenantId(ownerUid);
+        }
+    }
 
     const cid = campaignId || `campaign_${Date.now()}`;
     hydrateCampaignMediaFromDiskForDispatch(cid);

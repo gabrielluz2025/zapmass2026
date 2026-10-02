@@ -105,6 +105,9 @@ export async function buildTenantDiagnosticsExport(
     if ((delayedLen ?? 0) > 50 && connectedChips === 0) {
       note =
         'Muitos jobs delayed no cluster e nenhum chip CONNECTED neste tenant — envios aguardam reconexão (~2 min/ciclo) ou redistribuição pelo pool.';
+    } else if ((m.failed ?? 0) > 30 && campaignsDb.some((c) => c.status === 'FAILED')) {
+      note =
+        'Muitos jobs na aba failed do Redis (histórico BullMQ). Se recentErrors está vazio e chips estão CONNECTED, faça deploy ≥2.3.283, limpe failed antigos (Admin fila) e use Retomar ou crie campanha nova.';
     } else if ((delayedLen ?? 0) > 100) {
       note =
         'Fila delayed elevada: pode incluir intervalo entre mensagens, limite diário ou chips offline; veja queueJobs por campanha.';

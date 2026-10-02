@@ -21,6 +21,8 @@ export async function resolveRegisteredCampaignOwner(
   if (tenantFromRow) {
     const doc = await getCampaignDoc(tenantFromRow, cid).catch(() => null);
     if (doc) return tenantFromRow;
+    // Linha existe (tenant_id resolvido) — não tratar como órfã se doc.json falhar momentaneamente.
+    return tenantFromRow;
   }
 
   const hints = new Set<string>();

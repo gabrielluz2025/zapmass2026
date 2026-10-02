@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.283] - 2026-10-02
+
+### Corrigido
+- **Campanha Falhou 0 entregas**: jobs já contabilizados no Postgres (reenvio/idempotência) passam a contar como skip no runtime — evita status **Falhou** com `failedCount` inflado na UI.
+- **Worker / cadastro**: resolve dono pelo `tenant_id` da linha mesmo se leitura do doc falhar; campanha existente não dispara purge órfão; job sem doc real adia em vez de apagar fila.
+- **Jobs espelho PG**: `tenant_id` normalizado (UUID Postgres) ao registrar jobs BullMQ.
+
 ## [2.3.282] - 2026-10-02
 
 ### Corrigido
