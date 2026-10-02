@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.294] - 2026-10-02
+
+### Corrigido
+- **“Mídia indisponível no Evolution Go” na abertura**: base64 sem prefixo `data:` ao gravar e no `/send/media`; header `instanceId` no Go; campanha com anexo **falha** em vez de marcar sucesso só com legenda (fluxo/nutrição mantêm fallback de texto).
+
 ## [2.3.291] - 2026-10-02
 
 ### Corrigido

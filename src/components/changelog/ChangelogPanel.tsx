@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.294',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Disparo com foto: Evolution Go recebe base64 limpo + instanceId; abertura não finge sucesso enviando só a legenda',
+      },
+    ],
+  },
+  {
     version: '2.3.293',
     date: '02/10/2026',
     highlights: [
