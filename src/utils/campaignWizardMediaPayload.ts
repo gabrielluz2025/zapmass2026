@@ -30,12 +30,12 @@ export async function buildCampaignAttachmentPayload(
 ): Promise<CampaignMediaAttachmentPayload | undefined> {
   if (!att) return undefined;
 
-  if (att.mediaPayload?.base64) {
+  if (att.mediaPayload?.dataBase64) {
     return {
-      dataBase64: att.mediaPayload.base64,
+      dataBase64: att.mediaPayload.dataBase64,
       mimeType: att.mediaPayload.mimeType,
       fileName: att.mediaPayload.fileName,
-      ...(att.sendAsDocument || att.mediaPayload.sendAsDocument
+      ...(att.sendAsDocument || att.mediaPayload.sendMediaAsDocument
         ? { sendMediaAsDocument: true }
         : {}),
     };

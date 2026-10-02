@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.299] - 2026-10-02
+
+### Corrigido
+- **CI / tipos**: `stageMediaAttachments` em `ZapMassContextType`; payload do wizard usa `dataBase64` em `CampaignMediaPayload`.
+
 ## [2.3.298] - 2026-10-02
 
 ### Corrigido

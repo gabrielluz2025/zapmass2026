@@ -840,6 +840,14 @@ export interface ZapMassContextType {
         fileName: string;
         sendMediaAsDocument?: boolean;
       };
+      /** Anexo por etapa (reply-step:N no servidor). */
+      stageMediaAttachments?: Array<{
+        stepIndex: number;
+        dataBase64: string;
+        mimeType: string;
+        fileName: string;
+        sendMediaAsDocument?: boolean;
+      }>;
       /** Clone: copia anexos da campanha origem ao criar no Postgres. */
       copyMediaFromCampaignId?: string;
       optionMediaAttachments?: Array<{

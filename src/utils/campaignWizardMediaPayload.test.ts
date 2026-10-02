@@ -6,7 +6,7 @@ describe('buildCampaignAttachmentPayload', () => {
   it('usa mediaPayload pronto sem reler File', async () => {
     const att: CampaignAttachmentState = {
       mediaPayload: {
-        base64: 'aGVsbG8=',
+        dataBase64: 'aGVsbG8=',
         mimeType: 'image/jpeg',
         fileName: 'foto.jpg',
       },
