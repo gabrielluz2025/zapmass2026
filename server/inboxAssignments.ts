@@ -32,6 +32,18 @@ function triggerHumanClaimAutomationsPause(
   }
 }
 
+function triggerHumanReleaseAutomationsResume(
+  tenantUid: string,
+  conversation: Conversation
+): void {
+  const phoneDigits = normalizePhoneDigits(conversation.contactPhone || '');
+  if (phoneDigits.length >= 8) {
+    void import('./humanManualDispatchPause.js').then(({ clearHumanManualDispatchPaused }) =>
+      clearHumanManualDispatchPaused(tenantUid, phoneDigits)
+    );
+  }
+}
+
 function usePostgresInbox(): boolean {
   return vpsDataEnabled() && !!getZapmassPool();
 }
@@ -340,6 +352,7 @@ export async function inboxFinishConversation(
     if (r.ok) rememberRelease(tenantUid, conversationId);
     if (r.ok) void resetSupportBotSessionByConversationPg(tenantUid, conversationId);
     if (r.ok) void resumeEnrollmentsByConversationPg(tenantUid, conversationId);
+    if (r.ok) void clearHumanManualPauseAfterInboxRelease(tenantUid, conversationId);
     return r;
   }
   const admin = getFirebaseAdmin();
@@ -393,6 +406,7 @@ export async function inboxFinishConversation(
   rememberRelease(tenantUid, conversationId);
   void resetSupportBotSessionByConversationPg(tenantUid, conversationId);
   void resumeEnrollmentsByConversationPg(tenantUid, conversationId);
+  void clearHumanManualPauseAfterInboxRelease(tenantUid, conversationId);
   return { ok: true };
 }
 
@@ -408,6 +422,7 @@ export async function inboxReleaseConversation(
     if (r.ok) rememberRelease(tenantUid, conversationId);
     if (r.ok) void resetSupportBotSessionByConversationPg(tenantUid, conversationId);
     if (r.ok) void resumeEnrollmentsByConversationPg(tenantUid, conversationId);
+    if (r.ok) void clearHumanManualPauseAfterInboxRelease(tenantUid, conversationId);
     return r;
   }
   const admin = getFirebaseAdmin();
@@ -423,6 +438,7 @@ export async function inboxReleaseConversation(
   const snap = await ref.get();
   if (!snap.exists) {
     rememberRelease(tenantUid, conversationId);
+    void clearHumanManualPauseAfterInboxRelease(tenantUid, conversationId);
     return { ok: true };
   }
   const claimer =
@@ -434,7 +450,15 @@ export async function inboxReleaseConversation(
   rememberRelease(tenantUid, conversationId);
   void resetSupportBotSessionByConversationPg(tenantUid, conversationId);
   void resumeEnrollmentsByConversationPg(tenantUid, conversationId);
+  void clearHumanManualPauseAfterInboxRelease(tenantUid, conversationId);
   return { ok: true };
+}
+
+function clearHumanManualPauseAfterInboxRelease(tenantUid: string, conversationId: string): void {
+  void import('./whatsappService.js').then(({ getConversations }) => {
+    const conv = getConversations().find((c) => c.id === conversationId);
+    if (conv) triggerHumanReleaseAutomationsResume(tenantUid, conv);
+  });
 }
 
 /** Somente testes (Vitest): repõe cache em memória. */

@@ -3673,21 +3673,28 @@ export function getTenantCampaignRuntimeSnapshots(tenantId: string): Array<{
 export async function cancelQueuedCampaignSendsForPhone(
     tenantId: string,
     phoneDigits: string
-): Promise<number> {
+): Promise<{ removed: number; campaignIds: string[] }> {
     const ownerOf = (campaignId: string) => campaignsById.get(campaignId)?.ownerUid;
+    const campaignIdSet = new Set<string>();
     const replyQ = getReplyQueue();
     let removed = 0;
     if (replyQ) {
-        removed += await cancelCampaignJobsForPhone(replyQ, tenantId, phoneDigits, ownerOf);
+        const r = await cancelCampaignJobsForPhone(replyQ, tenantId, phoneDigits, ownerOf);
+        removed += r.removed;
+        for (const cid of r.campaignIds) campaignIdSet.add(cid);
     }
     await forEachCampaignMassQueue(getRedisConnection(), campaignQueueDefaultOptions(), async (queue) => {
-        removed += await cancelCampaignJobsForPhone(queue, tenantId, phoneDigits, ownerOf);
+        const r = await cancelCampaignJobsForPhone(queue, tenantId, phoneDigits, ownerOf);
+        removed += r.removed;
+        for (const cid of r.campaignIds) campaignIdSet.add(cid);
     });
     const legacy = getCampaignQueue();
     if (legacy && usePerChannelCampaignQueues()) {
-        removed += await cancelCampaignJobsForPhone(legacy, tenantId, phoneDigits, ownerOf);
+        const r = await cancelCampaignJobsForPhone(legacy, tenantId, phoneDigits, ownerOf);
+        removed += r.removed;
+        for (const cid of r.campaignIds) campaignIdSet.add(cid);
     }
-    return removed;
+    return { removed, campaignIds: Array.from(campaignIdSet) };
 }
 
 /** Pausa fluxo por resposta, filas BullMQ e nutrição para um contato (atendimento humano). */
@@ -3697,11 +3704,16 @@ export async function pauseContactAutomationsForHumanClaim(
     connectionId: string,
     phoneDigits: string
 ): Promise<{ jobsCancelled: number; replySessionClosed: boolean }> {
-    const { markHumanManualDispatchPaused } = await import('./humanManualDispatchPause.js');
-    await markHumanManualDispatchPaused(tenantUid, phoneDigits);
     ensureReplyFlowEngine();
     const replySessionClosed = replyFlowEngine!.disposeSessionForContact(connectionId, phoneDigits);
-    const jobsCancelled = await cancelQueuedCampaignSendsForPhone(tenantUid, phoneDigits);
+    const { removed: jobsCancelled, campaignIds } = await cancelQueuedCampaignSendsForPhone(
+        tenantUid,
+        phoneDigits
+    );
+    if (campaignIds.length > 0) {
+        const { markHumanManualDispatchPausedForCampaigns } = await import('./humanManualDispatchPause.js');
+        await markHumanManualDispatchPausedForCampaigns(tenantUid, phoneDigits, campaignIds);
+    }
     void pauseEnrollmentsByConversationPg(tenantUid, conversationId, 'human_claim');
     return { jobsCancelled, replySessionClosed };
 }
@@ -7438,12 +7450,13 @@ function ensureReplyFlowEngine() {
                             cancelJobs: async (tid, phone) => {
                                 const queue = getCampaignQueue();
                                 if (!queue) return 0;
-                                return cancelCampaignJobsForPhone(
+                                const r = await cancelCampaignJobsForPhone(
                                     queue,
                                     tid,
                                     phone,
                                     (cid) => campaignsById.get(cid)?.ownerUid,
                                 );
+                                return r.removed;
                             },
                         });
                         log('info', '[ReplyFlow] Opt-out persistido na lista negra', {
@@ -10462,10 +10475,10 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             return;
         }
         const { isHumanManualDispatchPaused } = await import('./humanManualDispatchPause.js');
-        if (await isHumanManualDispatchPaused(ownerUidForJob, item.to)) {
+        if (await isHumanManualDispatchPaused(ownerUidForJob, item.to, item.campaignId)) {
             emitCampaignLog(
                 'WARN',
-                `Contato ${item.to} em atendimento manual — disparo automático cancelado para este número.`,
+                `Contato ${item.to} em atendimento manual — disparo automático desta campanha pausado (outras campanhas podem continuar).`,
                 { campaignId: item.campaignId, to: item.to, skipReason: 'human_manual' },
                 campaignState?.ownerUid
             );
@@ -13827,12 +13840,13 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
             cancelJobs: async (tenantId, phone) => {
                 const queue = getCampaignQueue();
                 if (!queue) return 0;
-                return cancelCampaignJobsForPhone(
+                const r = await cancelCampaignJobsForPhone(
                     queue,
                     tenantId,
                     phone,
                     (campaignId) => campaignsById.get(campaignId)?.ownerUid
                 );
+                return r.removed;
             },
             publishConsent: (payload) => {
                 publishOwnerEvent(messageOwnerUid, 'contact-marketing-consent', {
@@ -13882,12 +13896,13 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
             cancelJobs: async (tenantId, phone) => {
                 const queue = getCampaignQueue();
                 if (!queue) return 0;
-                return cancelCampaignJobsForPhone(
+                const r = await cancelCampaignJobsForPhone(
                     queue,
                     tenantId,
                     phone,
                     (campaignId) => campaignsById.get(campaignId)?.ownerUid
                 );
+                return r.removed;
             },
             onComplete: (payload) => {
                 log('info', '[OptOut] Contato descadastrado via inbound', {

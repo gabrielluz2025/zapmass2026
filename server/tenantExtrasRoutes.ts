@@ -179,7 +179,10 @@ export function registerTenantExtrasRoutes(app: Express): void {
       phoneDigits: digits,
       reason: reason || 'Lista negra manual',
       source: source || 'manual',
-      cancelJobs: (tid, phone) => cancelQueuedCampaignSendsForPhone(tid, phone),
+      cancelJobs: async (tid, phone) => {
+        const r = await cancelQueuedCampaignSendsForPhone(tid, phone);
+        return r.removed;
+      },
     });
     res.json({ ok: true });
   });

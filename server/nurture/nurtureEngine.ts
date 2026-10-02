@@ -459,7 +459,8 @@ export async function handleNurtureIncoming(params: NurtureInboundParams): Promi
       keyword: params.bodyText.slice(0, 60),
       cancelJobs: async (tid, digits) => {
         const { cancelQueuedCampaignSendsForPhone } = await import('../evolutionService.js');
-        return cancelQueuedCampaignSendsForPhone(tid, digits);
+        const r = await cancelQueuedCampaignSendsForPhone(tid, digits);
+        return r.removed;
       },
     }).catch((err) => {
       console.warn('[nurture] falha ao gravar opt-out na lista negra', (err as Error)?.message);

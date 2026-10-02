@@ -825,7 +825,8 @@ export function registerContactsDataRoutes(app: Express): void {
           source: 'contacts_ui',
           cancelJobs: async (tid, phone) => {
             const { cancelQueuedCampaignSendsForPhone } = await import('./evolutionService.js');
-            return cancelQueuedCampaignSendsForPhone(tid, phone);
+            const r = await cancelQueuedCampaignSendsForPhone(tid, phone);
+            return r.removed;
           },
         }).catch((err) => {
           console.warn('[contacts] falha ao gravar lista negra no disparo', (err as Error)?.message);

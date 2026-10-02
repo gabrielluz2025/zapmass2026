@@ -355,12 +355,13 @@ export async function cancelCampaignJobsForPhone<T extends QueueJobPayload>(
   tenantId: string,
   phoneDigits: string,
   resolveOwnerUid?: (campaignId: string) => string | undefined
-): Promise<number> {
+): Promise<{ removed: number; campaignIds: string[] }> {
   const tid = String(tenantId || '').trim();
-  if (!tid) return 0;
+  if (!tid) return { removed: 0, campaignIds: [] };
   const tidResolved = await resolvePostgresTenantIdAsync(tid).catch(() => tid);
 
   let removed = 0;
+  const campaignIdSet = new Set<string>();
   const states: Array<'waiting' | 'delayed' | 'paused'> = ['waiting', 'delayed', 'paused'];
   const pageSize = 200;
 
@@ -386,6 +387,8 @@ export async function cancelCampaignJobsForPhone<T extends QueueJobPayload>(
         try {
           await job.remove();
           removed += 1;
+          const cid = String(item.campaignId || '').trim();
+          if (cid) campaignIdSet.add(cid);
         } catch {
           /* job ativo ou lock — ignorar */
         }
@@ -396,7 +399,7 @@ export async function cancelCampaignJobsForPhone<T extends QueueJobPayload>(
     }
   }
 
-  return removed;
+  return { removed, campaignIds: Array.from(campaignIdSet) };
 }
 
 export type HandleInboundOptOutParams = {

@@ -137,7 +137,13 @@ export const WaInboxTeamBar: React.FC<Props> = ({
           </span>
         ) : null}
         {(canClaim || ownerCanPull) && (
-          <button type="button" disabled={busy} onClick={() => void claim()} className="wa-inbox-team-btn">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void claim()}
+            className="wa-inbox-team-btn"
+            title="Pausa envios automáticos pendentes das campanhas deste contato. Outras campanhas e novos disparos continuam após libertar a conversa."
+          >
             <UserPlus className="w-3.5 h-3.5" /> Assumir
           </button>
         )}

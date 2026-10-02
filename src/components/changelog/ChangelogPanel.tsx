@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.289',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Assumir conversa: pausa de campanha por escopo (não trava o contato para sempre); libertar conversa reativa disparos em outras campanhas',
+      },
+    ],
+  },
+  {
     version: '2.3.288',
     date: '02/10/2026',
     highlights: [

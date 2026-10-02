@@ -64,7 +64,10 @@ export async function applyLeadClassificationForTenant(
       reason: `Classificação manual: lista negra${replySnippet ? ` — "${replySnippet}"` : ''}`,
       source: 'manual_chat',
       keyword: replySnippet || 'lista negra',
-      cancelJobs: (tid, phone) => cancelQueuedCampaignSendsForPhone(tid, phone),
+      cancelJobs: async (tid, phone) => {
+        const r = await cancelQueuedCampaignSendsForPhone(tid, phone);
+        return r.removed;
+      },
     });
     if (contact) {
       const updated =

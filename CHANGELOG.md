@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.289] - 2026-10-02
+
+### Corrigido
+- **Assumir conversa no Bate-papo**: pausa de disparo deixa de ser bloqueio global permanente no telefone — só afeta campanhas com fila cancelada ao assumir; **Finalizar/Libertar** remove a pausa; outras campanhas e novos disparos voltam a funcionar.
+
 ## [2.3.288] - 2026-10-02
 
 ### Corrigido

@@ -449,7 +449,9 @@ export async function removeTenantHumanManualPausedJobs(
       if (data.replyFlowResponse || data.nurtureFollowUp) return;
       const phone = String(data.to || '').trim();
       if (!phone) return;
-      if (!(await isHumanManualDispatchPaused(tenantId, phone))) return;
+      const campaignId = String(data.campaignId || '').trim();
+      if (!campaignId) return;
+      if (!(await isHumanManualDispatchPaused(tenantId, phone, campaignId))) return;
       matched += 1;
       if (opts.dryRun) {
         wouldRemove += 1;
