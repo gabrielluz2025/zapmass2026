@@ -8605,7 +8605,7 @@ async function attemptEvolutionSendMedia(
         const accepted = parseEvolutionSendMediaAcceptance(
             response.data as Parameters<typeof parseEvolutionSendMediaAcceptance>[0]
         );
-        if (!accepted.ok) {
+        if (accepted.ok === false) {
             return { ok: false, errorDetail: accepted.errorDetail };
         }
         log('info', `✅ Media enviada com sucesso`, {
