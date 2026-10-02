@@ -488,17 +488,40 @@ export function normalizeGoResponseToApiV2(url: string, data: unknown): unknown 
     }
 
     if (path.includes('/send/text') || path.includes('/send/media')) {
-        const wrapped = data as { data?: Record<string, unknown> };
+        const wrapped = data as { data?: Record<string, unknown>; success?: boolean };
         const inner = wrapped?.data || (data as Record<string, unknown>);
-        const msgId = inner?.id || inner?.messageId || inner?.ID || inner?.message_id;
+        const innerRecord = inner && typeof inner === 'object' ? inner : {};
+        const keyObj = innerRecord.key as { id?: string; _serialized?: string } | undefined;
+        const topSuccess = wrapped?.success === true || innerRecord.success === true;
+        const topFailure = wrapped?.success === false || innerRecord.success === false;
+        const msgId =
+            keyObj?.id ||
+            keyObj?._serialized ||
+            innerRecord.id ||
+            innerRecord.messageId ||
+            innerRecord.ID ||
+            innerRecord.message_id;
         // Se Go respondeu sem id mas com status OK-like, ainda consideramos sucesso
-        const statusStr = String(inner?.status || inner?.Status || '').toUpperCase();
-        const statusOk = statusStr === 'PENDING' || statusStr === 'QUEUED' || statusStr === 'SENT' ||
-            statusStr === 'SERVER_ACK' || statusStr === 'DELIVERY_ACK' || statusStr === 'READ';
+        const statusStr = String(innerRecord.status || innerRecord.Status || '').toUpperCase();
+        const statusOk =
+            topSuccess ||
+            statusStr === 'PENDING' ||
+            statusStr === 'QUEUED' ||
+            statusStr === 'SENT' ||
+            statusStr === 'SERVER_ACK' ||
+            statusStr === 'DELIVERY_ACK' ||
+            statusStr === 'READ' ||
+            statusStr === 'DELIVERED';
+        const wrappedMsg = (wrapped as { message?: unknown }).message;
+        const errMsg =
+            topFailure
+                ? String(innerRecord.message || innerRecord.error || wrappedMsg || 'Evolution Go recusou o envio')
+                : undefined;
         return {
-            key: { id: msgId || (statusOk ? 'go-queued' : undefined) },
+            key: { id: msgId || (statusOk && !topFailure ? 'go-queued' : undefined) },
             messageId: msgId || undefined,
-            status: statusStr || 'PENDING',
+            status: statusStr || (statusOk ? 'PENDING' : ''),
+            ...(errMsg ? { error: errMsg, message: errMsg } : {}),
         };
     }
 

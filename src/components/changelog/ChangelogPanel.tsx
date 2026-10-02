@@ -10,12 +10,12 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
-    version: '2.3.299',
+    version: '2.3.300',
     date: '02/10/2026',
     highlights: [
       {
         type: 'fix',
-        text: 'Build: tipos de mídia por etapa no startCampaign e dataBase64 no payload do wizard',
+        text: 'Disparo com imagem no Evolution Go: aceita success/2xx sem key; log ERROR mostra motivo; fallback de mediaLookupKey',
       },
     ],
   },

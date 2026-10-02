@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.300] - 2026-10-02
+
+### Corrigido
+- **Campanha com imagem (Evolution Go)**: respostas `success:true` ou 2xx sem `key` deixam de marcar falha («sem confirmação de mídia»); `send/media` normalizado como o texto; erros `URL is required`/MIME/tamanho humanizados no log.
+- **Log do disparo**: mensagem ERROR inclui o motivo (não só «Falha ao enviar para número»).
+- **Anexo no worker**: se `mediaLookupKey` antigo não resolve no disco, tenta abertura da campanha antes de falhar.
+
 ## [2.3.299] - 2026-10-02
 
 ### Corrigido

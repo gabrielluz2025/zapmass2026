@@ -176,6 +176,24 @@ describe('normalizeGoResponseToApiV2', () => {
         expect(out.profilePictureUrl).toContain('data:image/jpeg;base64,');
     });
 
+    it('send/media com success:true sem id → key go-queued', () => {
+        const out = normalizeGoResponseToApiV2('/send/media', {
+            success: true,
+            message: 'queued',
+        }) as { key?: { id?: string }; status?: string };
+        expect(out.key?.id).toBe('go-queued');
+        expect(out.status).toBe('PENDING');
+    });
+
+    it('send/media com success:false expõe erro', () => {
+        const out = normalizeGoResponseToApiV2('/send/media', {
+            success: false,
+            message: 'URL is required',
+        }) as { error?: string; key?: { id?: string } };
+        expect(out.error).toContain('URL is required');
+        expect(out.key?.id).toBeUndefined();
+    });
+
     it('preserva token e jid em /instance/all', () => {
         const out = normalizeGoResponseToApiV2('/instance/all', {
             data: [{ id: 'uuid-1', name: 'chip1', token: 'tok-1', jid: '554796317344:19@s.whatsapp.net', connected: true }],

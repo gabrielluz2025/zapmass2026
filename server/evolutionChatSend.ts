@@ -26,6 +26,18 @@ export function humanizeEvolutionEngineError(raw: string): string {
   const t = String(raw || '').trim();
   if (!t) return t;
   if (GO_INVALID_UUID_RE.test(t) || t === 'missing-go-uuid') return EVOLUTION_GO_INVALID_UUID_HINT;
+  if (/URL is required/i.test(t)) {
+    return 'Evolution Go não recebeu o arquivo (imagem/vídeo). Salve a campanha com o anexo e dispare de novo.';
+  }
+  if (/Mídia sem URL ou base64|Sem mídia/i.test(t)) {
+    return 'Anexo não chegou ao WhatsApp — regrave a imagem na campanha e tente outra vez.';
+  }
+  if (/file too large|payload too large|entity too large|413/i.test(t)) {
+    return 'Arquivo grande demais para o WhatsApp. Comprima a imagem ou vídeo e salve a campanha de novo.';
+  }
+  if (/unsupported mime|invalid mime|mimetype/i.test(t)) {
+    return 'Formato de arquivo não aceito. Use JPG/PNG para imagem ou MP4 para vídeo.';
+  }
   return t;
 }
 
@@ -122,6 +134,66 @@ export async function postEvolutionSendText(
   }
 
   throw new Error('Evolution retornou resposta sem confirmação de envio.');
+}
+
+type EvolutionSendMediaResponse = {
+  key?: { id?: string; _serialized?: string };
+  message?: string;
+  messageId?: string;
+  id?: string;
+  status?: string;
+  error?: string;
+  success?: boolean;
+};
+
+/** Interpreta 2xx do sendMedia (Evolution v2 ou resposta já normalizada do Go). */
+export function parseEvolutionSendMediaAcceptance(
+  responseData: EvolutionSendMediaResponse | null | undefined
+): { ok: true; messageId?: string } | { ok: false; errorDetail: string } {
+  if (!responseData || typeof responseData !== 'object') {
+    return { ok: false, errorDetail: 'Evolution retornou resposta sem confirmação de mídia' };
+  }
+
+  const messageId =
+    responseData.key?.id ||
+    responseData.key?._serialized ||
+    responseData.messageId ||
+    responseData.id;
+
+  if (responseData.key) {
+    const isGoQueued = messageId === 'go-queued';
+    return {
+      ok: true,
+      messageId: messageId && !isGoQueued ? String(messageId) : undefined,
+    };
+  }
+
+  if (responseData.message === 'Message Sent' || responseData.messageId || responseData.id) {
+    return { ok: true, messageId: messageId ? String(messageId) : undefined };
+  }
+
+  const statusStr = String(responseData.status || '').toUpperCase();
+  const statusOk = ['PENDING', 'QUEUED', 'SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'SENT', 'DELIVERED'].includes(
+    statusStr
+  );
+  if (statusOk || responseData.success === true) {
+    return { ok: true, messageId: messageId ? String(messageId) : undefined };
+  }
+
+  const isExplicitError =
+    responseData.success === false ||
+    responseData.error ||
+    (typeof responseData.message === 'string' && /error|failed|invalid|unauthorized|required/i.test(responseData.message));
+  if (isExplicitError) {
+    const raw = String(responseData.error || responseData.message || 'Evolution recusou o envio de mídia.');
+    return { ok: false, errorDetail: humanizeEvolutionEngineError(raw) };
+  }
+
+  if (Object.keys(responseData).length > 0) {
+    return { ok: true, messageId: messageId ? String(messageId) : undefined };
+  }
+
+  return { ok: false, errorDetail: 'Evolution retornou resposta sem confirmação de mídia' };
 }
 
 /**

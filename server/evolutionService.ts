@@ -348,7 +348,7 @@ import {
 import type { Server as SocketIOServer } from 'socket.io';
 import { atomicWriteJsonFile, parseJsonObjectLenient, shouldRefuseEmptyObjectOverwrite } from './safeJsonFile.js';
 import { isEvolutionOpenState, goPayloadLooksConnected, parseConnectionStatePayload } from './evolutionOpenState.js';
-import { formatEvolutionHttpError } from './evolutionChatSend.js';
+import { formatEvolutionHttpError, parseEvolutionSendMediaAcceptance } from './evolutionChatSend.js';
 import type { CampaignStageConfig, CampaignProspecting } from '../src/types.js';
 import {
     initMultiStepContactStates,
@@ -5064,6 +5064,15 @@ function resolveMediaForCampaignJob(item: MessageQueueItem): CampaignMediaPayloa
     if (!lookup && item.sendAsMedia && item.campaignId) {
         lookup = item.campaignId;
     }
+    if (lookup && item.campaignId && !campaignMediaSendable(lookup)) {
+        const stageIdx = item.stageIndex ?? item.multiStepContact?.stepIndex ?? 0;
+        const fallbackKey = mediaLookupKeyForStage(item.campaignId, stageIdx);
+        if (fallbackKey && fallbackKey !== lookup && campaignMediaSendable(fallbackKey)) {
+            lookup = fallbackKey;
+        } else if (stageIdx <= 0 && campaignOpeningMediaAvailable(item.campaignId)) {
+            lookup = item.campaignId;
+        }
+    }
     if (!lookup) return null;
     if (!campaignMediaReady(lookup)) return null;
 
@@ -8593,12 +8602,18 @@ async function attemptEvolutionSendMedia(
         }, {
             timeout: evolutionConfig.mediaUploadTimeout,
         });
-        const messageId = response.data?.key?.id || response.data?.key?._serialized;
-        if (response.data?.key) {
-            log('info', `✅ Media enviada com sucesso`, { to: number, messageId, url: payload.media });
-            return { ok: true, messageId: messageId ? String(messageId) : undefined };
+        const accepted = parseEvolutionSendMediaAcceptance(
+            response.data as Parameters<typeof parseEvolutionSendMediaAcceptance>[0]
+        );
+        if (accepted.ok) {
+            log('info', `✅ Media enviada com sucesso`, {
+                to: number,
+                messageId: accepted.messageId,
+                url: payload.media?.startsWith('http') ? payload.media : '(base64)',
+            });
+            return { ok: true, messageId: accepted.messageId };
         }
-        return { ok: false, errorDetail: 'Evolution retornou resposta sem confirmação de mídia' };
+        return { ok: false, errorDetail: accepted.errorDetail };
     } catch (error: unknown) {
         const detail = formatEvolutionHttpError(error, toOriginal);
         const ax = error as { message?: string; response?: { status?: number; data?: unknown } };
@@ -11428,18 +11443,23 @@ async function failCampaignSend(
         item._dailyQuotaConsumed = false;
         await job.updateData(item).catch(() => {});
     }
-    const msg = `Falha no envio para ${destLabel} — ${errDetail}`;
+    const errBrief = String(errDetail || 'erro desconhecido').trim();
+    const msg = `Falha no envio para ${destLabel} — ${errBrief}`;
     const unrecoverable = isUnrecoverableOutboundError(errDetail);
+    const logUserMessage =
+        errBrief.length > 0
+            ? `Falha ao enviar para ${destLabel}: ${errBrief.length > 220 ? `${errBrief.slice(0, 219)}…` : errBrief}`
+            : `Falha ao enviar para ${destLabel}`;
     // Só emite ERROR visível na UI (toast) quando a falha é definitiva — retries BullMQ geravam "4 falhas" para 1 número.
     if (unrecoverable) {
         emitCampaignLog(
             'ERROR',
-            `Falha ao enviar para ${destLabel}`,
+            logUserMessage,
             {
                 campaignId: item.campaignId,
                 to: destLabel,
                 connectionId: item.connectionId,
-                error: errDetail,
+                error: errBrief,
             },
             campaignState?.ownerUid
         );

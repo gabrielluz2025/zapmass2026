@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { formatEvolutionHttpError, resolveOutboundSendTarget } from './evolutionChatSend.js';
+import {
+  formatEvolutionHttpError,
+  humanizeEvolutionEngineError,
+  parseEvolutionSendMediaAcceptance,
+  resolveOutboundSendTarget,
+} from './evolutionChatSend.js';
 
 describe('resolveOutboundSendTarget', () => {
   it('normaliza telefone BR do JID @c.us', () => {
@@ -54,6 +59,24 @@ describe('formatEvolutionHttpError', () => {
       message: 'Request failed with status code 400',
     });
     expect(msg).toMatch(/não reconheceu o identificador/i);
+  });
+});
+
+describe('parseEvolutionSendMediaAcceptance', () => {
+  it('aceita key go-queued do adapter Go', () => {
+    expect(parseEvolutionSendMediaAcceptance({ key: { id: 'go-queued' }, status: 'PENDING' }).ok).toBe(true);
+  });
+
+  it('aceita success:true sem key (Evolution Go)', () => {
+    expect(parseEvolutionSendMediaAcceptance({ success: true, status: 'PENDING' }).ok).toBe(true);
+  });
+
+  it('rejeita success:false com mensagem', () => {
+    const r = parseEvolutionSendMediaAcceptance({ success: false, message: 'URL is required' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(humanizeEvolutionEngineError(r.errorDetail)).toMatch(/Salve a campanha/i);
+    }
   });
 });
 
