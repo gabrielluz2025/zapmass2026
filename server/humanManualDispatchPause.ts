@@ -156,18 +156,6 @@ export async function clearHumanManualDispatchPaused(tenantId: string, phoneDigi
   }
 }
 
-async function isSuffixPausedInRedisSet(
-  redis: IORedis,
-  setKey: string,
-  suffix: string
-): Promise<boolean> {
-  try {
-    return (await redis.sismember(setKey, suffix)) === 1;
-  } catch {
-    return false;
-  }
-}
-
 async function isCampaignSuffixPausedInRedis(
   redis: IORedis,
   tenantId: string,
@@ -208,8 +196,6 @@ export async function isHumanManualDispatchPaused(
 
   for (const suffix of suffixKeysForPhone(probe)) {
     if (await isCampaignSuffixPausedInRedis(redis, tid, cid, suffix)) return true;
-    // Legado: sufixo global no set antigo bloqueava todas as campanhas — ainda respeitado até clear/release.
-    if (await isSuffixPausedInRedisSet(redis, humanManualPauseRedisSetKey(tid), suffix)) return true;
   }
   return false;
 }
