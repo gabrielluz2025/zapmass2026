@@ -125,6 +125,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
     followUpMediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
     skipFrequencyCap?: boolean;
+    frequencyCapAllowPhones?: string[];
     dailySchedule?: import('../types').CampaignDailySchedule;
     delaySecondsMax?: number;
     humanizedPauses?: boolean;
@@ -409,6 +410,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     }>;
     optionMediaRemovals?: string[];
     skipFrequencyCap?: boolean;
+    frequencyCapAllowPhones?: string[];
     dailySchedule?: import('../types').CampaignDailySchedule;
     prospecting?: import('../types').CampaignProspecting;
     editMode?: boolean;
@@ -445,6 +447,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 poolStrategy: payload.poolStrategy,
                 poolId: payload.poolId,
                 skipFrequencyCap: payload.skipFrequencyCap,
+                frequencyCapAllowPhones: payload.frequencyCapAllowPhones,
                 dailySchedule: payload.dailySchedule,
                 prospecting: payload.prospecting
               }
@@ -471,6 +474,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 followUpMediaAttachment: payload.followUpMediaAttachment,
                 optionMediaAttachments: payload.optionMediaAttachments,
                 skipFrequencyCap: payload.skipFrequencyCap,
+                frequencyCapAllowPhones: payload.frequencyCapAllowPhones,
                 dailySchedule: payload.dailySchedule,
                 prospecting: payload.prospecting
               }
@@ -587,13 +591,17 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     setPreviewPayload(payload);
   };
 
-  const handlePreviewConfirm = async (opts?: { skipFrequencyCap?: boolean }) => {
+  const handlePreviewConfirm = async (opts?: {
+    skipFrequencyCap?: boolean;
+    frequencyCapAllowPhones?: string[];
+  }) => {
     if (!previewPayload) return;
     setPreviewConfirmLoading(true);
     try {
       await executeSubmitCampaign({
         ...previewPayload,
-        skipFrequencyCap: opts?.skipFrequencyCap === true
+        skipFrequencyCap: opts?.skipFrequencyCap === true,
+        frequencyCapAllowPhones: opts?.frequencyCapAllowPhones
       });
       setPreviewPayload(null);
     } catch (err) {

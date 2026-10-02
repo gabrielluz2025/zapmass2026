@@ -28,6 +28,10 @@ import { campaignRecipientNameVars } from '../../utils/contactNameNormalize';
 import { applyCampaignMessagePreviewVars } from '../../utils/campaignMessageVariables';
 import { hasUnresolvedCampaignTemplateTokens } from '../../../shared/campaignSpintax';
 import { apiPreflightCheck, apiFrequencyCapCheck, ensureDispatchReady } from '../../services/campaignsApi';
+import {
+  computeDispatchableAfterFreqCap,
+  phoneKeyForFreqPreview,
+} from '../../utils/campaignFrequencyCapPreview';
 import { DispatchFixPanel } from './DispatchFixPanel';
 import { useAuth } from '../../context/AuthContext';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
@@ -72,7 +76,7 @@ interface SampleRecipient {
 interface CampaignPreviewModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (opts?: { skipFrequencyCap?: boolean }) => void;
+  onConfirm: (opts?: { skipFrequencyCap?: boolean; frequencyCapAllowPhones?: string[] }) => void;
   campaignName: string;
   message: string;
   messageStages?: string[];
@@ -130,7 +134,8 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   const [freqCapStatus, setFreqCapStatus] = useState<HealthStatus>('idle');
   const [triagedContacts, setTriagedContacts] = useState<TriagedContact[]>([]);
   const [cappedCount, setCappedCount] = useState(0);
-  const [confirmRepeatSend, setConfirmRepeatSend] = useState(false);
+  /** Telefones no limite 24 h que o usuário marcou para reenviar. */
+  const [cappedResendSelected, setCappedResendSelected] = useState<Set<string>>(() => new Set());
   const [showAllContacts, setShowAllContacts] = useState(false);
 
   const allMessages = useMemo(() => {
@@ -159,7 +164,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   const runFrequencyCapCheck = useCallback(async () => {
     const recipients = recipientsRef.current;
     setFreqCapStatus('checking');
-    setConfirmRepeatSend(false);
+    setCappedResendSelected(new Set());
     const phones = recipients.map((r) => r.phone.replace(/\D/g, '')).filter((p) => p.length >= 10);
 
     if (phones.length > LARGE_FREQ_CAP_CLIENT) {
@@ -181,8 +186,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       const cappedByPhone = new Map(
         res.contacts.map((c) => [c.phoneKey, { capped: c.capped, lastSentAt: c.lastSentAt }])
       );
-      const preview = recipients.slice(0, 80);
-      const triaged: TriagedContact[] = preview.map((r) => {
+      const triaged: TriagedContact[] = recipients.map((r) => {
         const digits = r.phone.replace(/\D/g, '');
         const key = digits.slice(-11);
         const cap = cappedByPhone.get(key);
@@ -258,7 +262,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       setFreqCapStatus('idle');
       setTriagedContacts([]);
       setCappedCount(0);
-      setConfirmRepeatSend(false);
+      setCappedResendSelected(new Set());
       setShowAllContacts(false);
     }
   }, [isOpen, runHealthCheck, runFrequencyCapCheck]);
@@ -275,7 +279,32 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
 
   const triageComplete = freqCapStatus === 'ok' || freqCapStatus === 'error';
   const needsRepeatConfirm = cappedCount > 0 && freqCapStatus === 'ok';
-  const dispatchableCount = Math.max(0, contactCount - (needsRepeatConfirm && !confirmRepeatSend ? cappedCount : 0));
+  const largeBaseSkipClientCap = contactCount > LARGE_FREQ_CAP_CLIENT;
+  const dispatchableCount = computeDispatchableAfterFreqCap({
+    contactCount,
+    cappedCount,
+    selectedCappedKeys: cappedResendSelected,
+    largeBaseSkipClientCap,
+  });
+
+  const toggleCappedResend = useCallback((phone: string, include: boolean) => {
+    const key = phoneKeyForFreqPreview(phone);
+    if (key.length < 8) return;
+    setCappedResendSelected((prev) => {
+      const next = new Set(prev);
+      if (include) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+
+  const cappedInPreview = useMemo(
+    () => triagedContacts.filter((c) => c.capped),
+    [triagedContacts]
+  );
+  const allCappedSelected =
+    cappedInPreview.length > 0 &&
+    cappedInPreview.every((c) => cappedResendSelected.has(phoneKeyForFreqPreview(c.phone)));
 
   const overallHealth: HealthStatus =
     chipStatus === 'error'
@@ -291,7 +320,6 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       : 'idle';
 
   const chipsConfirmedOffline = chipStatus === 'error' && chipResults.some((r) => !r.isReady);
-  const largeBaseSkipClientCap = contactCount > LARGE_FREQ_CAP_CLIENT;
   const canDispatch =
     !hasUnresolved &&
     !chipsConfirmedOffline &&
@@ -319,29 +347,31 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
             {isAdmin ? 'Corrija os problemas acima' : 'Aguarde a sincronização ou clique em Reverificar'}
           </span>
         )}
-        {overallHealth === 'ok' && needsRepeatConfirm && dispatchableCount === 0 && !confirmRepeatSend && (
+        {overallHealth === 'ok' && needsRepeatConfirm && dispatchableCount === 0 && (
           <span className="text-[11px] text-amber-500 flex items-center gap-1">
             <AlertTriangle className="w-3.5 h-3.5" />
-            Todos os contatos estão no limite 24 h — marque reenvio ou mude a lista
+            Todos estão no limite 24 h — marque quem reenviar ou mude a lista
           </span>
         )}
         <Button
           variant="primary"
           size="sm"
-          onClick={() =>
+          onClick={() => {
+            const allowPhones = triagedContacts
+              .filter((c) => c.capped && cappedResendSelected.has(phoneKeyForFreqPreview(c.phone)))
+              .map((c) => c.phone);
             onConfirm({
-              skipFrequencyCap: needsRepeatConfirm && confirmRepeatSend,
-            })
-          }
+              skipFrequencyCap: false,
+              frequencyCapAllowPhones: allowPhones.length > 0 ? allowPhones : undefined,
+            });
+          }}
           loading={isLoading}
           leftIcon={isLoading ? undefined : <Rocket className="w-4 h-4" />}
           disabled={!canDispatch}
         >
           {launchMode === 'schedule'
-            ? 'Confirmar agendamento'
-            : needsRepeatConfirm && confirmRepeatSend
-              ? `Confirmar e disparar (${contactCount.toLocaleString('pt-BR')})`
-              : `Confirmar e disparar (${dispatchableCount.toLocaleString('pt-BR')})`}
+            ? `Confirmar agendamento (${dispatchableCount.toLocaleString('pt-BR')})`
+            : `Confirmar e disparar (${dispatchableCount.toLocaleString('pt-BR')})`}
         </Button>
       </div>
     </>
@@ -567,22 +597,40 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
                   : largeBaseSkipClientCap
                   ? `Base grande (${contactCount.toLocaleString('pt-BR')}): limite 24 h aplicado no envio`
                   : cappedCount > 0
-                  ? confirmRepeatSend
-                    ? `${cappedCount} no limite 24 h — reenvio incluído (${contactCount.toLocaleString('pt-BR')} total)`
-                    : `${cappedCount} pulado${cappedCount !== 1 ? 's' : ''} (24 h) · ${dispatchableCount.toLocaleString('pt-BR')} liberado${dispatchableCount !== 1 ? 's' : ''}`
+                  ? `${cappedCount} no limite 24 h · ${dispatchableCount.toLocaleString('pt-BR')} no disparo`
                   : `Todos os ${contactCount} contatos liberados`}
               </span>
             </div>
-            {triagedContacts.length > 6 && (
-              <button
-                type="button"
-                onClick={() => setShowAllContacts((v) => !v)}
-                className="text-[10px] font-bold shrink-0 rounded-lg px-2 py-1"
-                style={{ background: 'var(--surface-0)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }}
-              >
-                {showAllContacts ? 'Recolher' : `Ver todos (${triagedContacts.length})`}
-              </button>
-            )}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {needsRepeatConfirm && cappedInPreview.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (allCappedSelected) {
+                      setCappedResendSelected(new Set());
+                    } else {
+                      setCappedResendSelected(
+                        new Set(cappedInPreview.map((c) => phoneKeyForFreqPreview(c.phone)).filter((k) => k.length >= 8))
+                      );
+                    }
+                  }}
+                  className="text-[10px] font-bold rounded-lg px-2 py-1"
+                  style={{ background: 'var(--surface-0)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }}
+                >
+                  {allCappedSelected ? 'Desmarcar 24 h' : 'Marcar todos (24 h)'}
+                </button>
+              )}
+              {triagedContacts.length > 6 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllContacts((v) => !v)}
+                  className="text-[10px] font-bold rounded-lg px-2 py-1"
+                  style={{ background: 'var(--surface-0)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }}
+                >
+                  {showAllContacts ? 'Recolher' : `Ver todos (${triagedContacts.length})`}
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="px-4 py-3 space-y-1.5 max-h-48 sm:max-h-56 overflow-y-auto">
@@ -591,15 +639,28 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
                 Carregando lista de contatos…
               </div>
             )}
-            {(showAllContacts ? triagedContacts : triagedContacts.slice(0, 6)).map((c, idx) => (
+            {(showAllContacts ? triagedContacts : triagedContacts.slice(0, 6)).map((c, idx) => {
+              const phoneKey = phoneKeyForFreqPreview(c.phone);
+              const included = !c.capped || cappedResendSelected.has(phoneKey);
+              return (
               <div
                 key={`${c.phone}-${idx}`}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg"
                 style={{
                   background: c.capped ? '#f59e0b08' : '#10b98108',
                   border: `1px solid ${c.capped ? '#f59e0b25' : '#10b98120'}`,
+                  opacity: c.capped && !included ? 0.65 : 1,
                 }}
               >
+                <label className="flex items-center shrink-0 cursor-pointer" title={c.capped ? 'Incluir no disparo (reenviar)' : 'Liberado para envio'}>
+                  <input
+                    type="checkbox"
+                    className="w-3.5 h-3.5"
+                    checked={included}
+                    disabled={!c.capped}
+                    onChange={(e) => toggleCappedResend(c.phone, e.target.checked)}
+                  />
+                </label>
                 <div
                   className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shrink-0"
                   style={{ background: `hsl(${(idx * 137) % 360},60%,50%)` }}
@@ -622,10 +683,11 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
                     color: '#fff',
                   }}
                 >
-                  {c.capped ? '24 h' : 'OK'}
+                  {c.capped ? (included ? 'Reenviar' : '24 h') : 'OK'}
                 </span>
               </div>
-            ))}
+            );
+            })}
             {!showAllContacts && triagedContacts.length > 6 && (
               <p className="text-[10px] text-center pt-1" style={{ color: 'var(--text-3)' }}>
                 + {triagedContacts.length - 6} contato(s) oculto(s)
@@ -634,33 +696,12 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
           </div>
 
           {needsRepeatConfirm && (
-            <div className="mx-4 mb-3 space-y-2">
-              {!confirmRepeatSend && (
-                <p className="text-[11px] leading-snug px-1" style={{ color: 'var(--text-3)' }}>
-                  Por padrão, quem já recebeu mensagem nas últimas 24 horas{' '}
-                  <strong>não</strong> entra neste disparo. Você pode confirmar abaixo só se quiser
-                  reenviar para esses contatos.
-                </p>
-              )}
-              <div
-                className="rounded-xl px-3 py-2.5 flex items-start gap-2"
-                style={{ background: '#f59e0b12', border: '1px solid #f59e0b35' }}
-              >
-                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
-                <label className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={confirmRepeatSend}
-                    onChange={(e) => setConfirmRepeatSend(e.target.checked)}
-                  />
-                  <span className="text-[12px] leading-snug" style={{ color: 'var(--text-2)' }}>
-                    Incluir também{' '}
-                    <strong>{cappedCount} contato{cappedCount !== 1 ? 's' : ''}</strong> que já
-                    recebeu mensagem nas últimas 24 horas (reenviar mesmo assim).
-                  </span>
-                </label>
-              </div>
+            <div className="mx-4 mb-3">
+              <p className="text-[11px] leading-snug px-1" style={{ color: 'var(--text-3)' }}>
+                Contatos com badge <strong>24 h</strong> já receberam mensagem hoje — por padrão ficam de
+                fora. Marque na lista quem deve <strong>reenviar</strong>; os demais seguem liberados
+                normalmente.
+              </p>
             </div>
           )}
         </div>

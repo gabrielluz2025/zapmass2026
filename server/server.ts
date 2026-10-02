@@ -1668,6 +1668,7 @@ const registerSocketHandlers = () => {
           optionMediaAttachments,
           stageConfigs,
           skipFrequencyCap,
+          frequencyCapAllowPhones,
           dailySchedule,
           prospecting
         }: {
@@ -1720,6 +1721,7 @@ const registerSocketHandlers = () => {
             next_step_on_no_match?: number;
           }>;
           skipFrequencyCap?: boolean;
+          frequencyCapAllowPhones?: string[];
           delaySecondsMax?: number;
           humanizedPauses?: boolean;
           dailySchedule?: {
@@ -1978,6 +1980,9 @@ const registerSocketHandlers = () => {
                 ? (stageConfigs as import('../src/types.js').CampaignStageConfig[])
                 : undefined,
               skipFrequencyCap === true,
+              Array.isArray(frequencyCapAllowPhones)
+                ? frequencyCapAllowPhones.map((p) => String(p || '')).filter((p) => p.length >= 8)
+                : undefined,
               typeof delaySecondsMax === 'number' && Number.isFinite(delaySecondsMax) ? delaySecondsMax : undefined,
               humanizedPauses === true,
               dailySchedule,

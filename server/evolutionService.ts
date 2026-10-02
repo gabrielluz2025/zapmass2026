@@ -163,8 +163,10 @@ import {
 } from './campaignHumanizePipeline.js';
 import { CAMPAIGN_CHANNEL_WINDOW, splitCampaignDispatchWindow } from './campaignDispatchWindow.js';
 import {
+    applyFrequencyCapAllowList,
     buildFrequencyCapBlockSet,
     isPhoneBlockedByFrequencyCap,
+    normalizeFrequencyCapAllowKeys,
 } from './campaignFrequencyCapFilter.js';
 import { adjustCampaignRuntimeForEnqueue } from './campaignEnqueueProgress.js';
 import {
@@ -12111,6 +12113,7 @@ export async function startCampaign(
     delaySeconds?: number,
     stageConfigs?: CampaignStageConfig[],
     skipFrequencyCap?: boolean,
+    frequencyCapAllowPhones?: string[],
     delaySecondsMax?: number,
     humanizedPauses?: boolean,
     dailySchedule?: {
@@ -12409,10 +12412,21 @@ export async function startCampaign(
 
     let skippedSettled = 0;
     let skippedFrequencyCap = 0;
-    const freqCapBlockedKeys =
+    const freqCapAllowKeys =
+        skipFrequencyCap === true ? null : normalizeFrequencyCapAllowKeys(frequencyCapAllowPhones);
+    let freqCapBlockedKeys =
         ownerUid && skipFrequencyCap !== true
             ? buildFrequencyCapBlockSet(await checkFrequencyCapForPhones(ownerUid, numbers))
             : new Set<string>();
+    if (freqCapAllowKeys?.size) {
+        freqCapBlockedKeys = applyFrequencyCapAllowList(freqCapBlockedKeys, freqCapAllowKeys);
+    }
+    const skipFreqCapForPhone = (phoneDigits: string): boolean => {
+        if (skipFrequencyCap === true) return true;
+        if (!freqCapAllowKeys?.size) return false;
+        const key = String(phoneDigits || '').replace(/\D/g, '').slice(-11);
+        return key.length >= 8 && freqCapAllowKeys.has(key);
+    };
 
     try {
     for (let i = 0; i < numbers.length; i++) {
@@ -12525,7 +12539,7 @@ export async function startCampaign(
                         stageIndex: 0,
                         rotationIndex: i,
                         multiStepContact: { contactId: cleanPhone, stepIndex: 0 },
-                        skipFrequencyCap: skipFrequencyCap === true,
+                        skipFrequencyCap: skipFreqCapForPhone(cleanPhone),
                         alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
                         };
                         applyCampaignMediaToQueueItem(queueItem, cid, 0);
@@ -12546,7 +12560,7 @@ export async function startCampaign(
                         campaignId: cid,
                         ownerUid,
                         rotationIndex: i,
-                        skipFrequencyCap: skipFrequencyCap === true,
+                        skipFrequencyCap: skipFreqCapForPhone(cleanPhone),
                         alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
                     replyFlowOpen: {
                         campaignId: cid,
@@ -12586,7 +12600,7 @@ export async function startCampaign(
                             ownerUid,
                             stageIndex,
                             rotationIndex: i,
-                            skipFrequencyCap: skipFrequencyCap === true,
+                            skipFrequencyCap: skipFreqCapForPhone(cleanPhone),
                             alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
                             };
                             applyCampaignMediaToQueueItem(queueItem, cid, stageIndex);
@@ -12760,6 +12774,12 @@ export async function startCampaign(
             error: err?.message,
         });
         campaignsById.delete(cid);
+        void deleteCampaignRuntimeFromRedis(cid).catch(() => undefined);
+        if (ownerUid) {
+            void persistCampaignProgressToFirestore(ownerUid, cid, 0, 0, 0, 'DRAFT').catch(
+                () => undefined
+            );
+        }
         publishOwnerEvent(ownerUid, 'campaign-error', {
             campaignId: cid,
             error: err?.message || 'Falha ao enfileirar mensagens da campanha.',

@@ -37,4 +37,21 @@ describe('campaignMapper', () => {
     const d = campaignDocPayload({ name: 'X' }, 'tenant-1');
     expect(d.ownerUid).toBe('tenant-1');
   });
+
+  it('campaignDocPayload zera contadores e status terminal (cópia)', () => {
+    const d = campaignDocPayload(
+      {
+        name: 'X (cópia)',
+        status: CampaignStatus.FAILED,
+        processedCount: 2,
+        successCount: 0,
+        failedCount: 2
+      },
+      'tenant-1'
+    );
+    expect(d.status).toBe(CampaignStatus.DRAFT);
+    expect(d.processedCount).toBe(0);
+    expect(d.successCount).toBe(0);
+    expect(d.failedCount).toBe(0);
+  });
 });

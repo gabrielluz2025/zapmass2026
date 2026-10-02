@@ -148,6 +148,8 @@ export interface CampaignScheduleStartSnapshot {
   dailySchedule?: CampaignDailySchedule;
   /** Usuário confirmou envio mesmo com contatos no limite de 24 h. */
   skipFrequencyCap?: boolean;
+  /** Reenvio granular: só estes telefones ignoram o limite de 24 h. */
+  frequencyCapAllowPhones?: string[];
 }
 
 export interface CampaignLog {
@@ -837,6 +839,7 @@ export interface ZapMassContextType {
       }>;
       /** Ignora limite de 24 h — só após confirmação explícita na triagem. */
       skipFrequencyCap?: boolean;
+      frequencyCapAllowPhones?: string[];
       dailySchedule?: CampaignDailySchedule;
       prospecting?: CampaignProspecting;
     }
@@ -867,6 +870,7 @@ export interface ZapMassContextType {
       poolStrategy?: 'round_robin' | 'weighted' | 'priority';
       poolId?: string;
       skipFrequencyCap?: boolean;
+      frequencyCapAllowPhones?: string[];
       dailySchedule?: CampaignDailySchedule;
       prospecting?: CampaignProspecting;
     }
