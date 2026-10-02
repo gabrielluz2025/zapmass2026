@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.284',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Cópia/iniciar: sem Falhou 0 falhas por job sending no PG; skips idempotentes → Concluído; start não finaliza com fila ativa',
+      },
+    ],
+  },
+  {
     version: '2.3.283',
     date: '02/10/2026',
     highlights: [

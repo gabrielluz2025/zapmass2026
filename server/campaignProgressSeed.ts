@@ -6,7 +6,7 @@ import {
 import {
   type CampaignCounterTriple,
   countersFromCampaignDoc,
-  countersFromJobStatusCounts,
+  countersFromJobStatusCountsSettled,
   mergeCampaignCounterTriple,
 } from './campaignProgressGuard.js';
 import { fetchCampaignDoc } from './campaignStore.js';
@@ -56,7 +56,7 @@ export async function loadCampaignProgressSeed(
   }
 
   const jobCounts = await countCampaignJobsByStatus(cid);
-  counters = mergeCampaignCounterTriple(counters, countersFromJobStatusCounts(jobCounts));
+  counters = mergeCampaignCounterTriple(counters, countersFromJobStatusCountsSettled(jobCounts));
 
   const settled = await listSettledCampaignJobs(cid);
   for (const job of settled) {

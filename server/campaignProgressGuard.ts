@@ -22,6 +22,19 @@ export function countersFromJobStatusCounts(counts: Record<string, number>): Cam
   };
 }
 
+/** Contadores só de jobs já encerrados — evita `processed=1` com job `sending` e cura → Falhou. */
+export function countersFromJobStatusCountsSettled(
+  counts: Record<string, number>
+): CampaignCounterTriple {
+  const sent = asCount(counts.sent);
+  const failed = asCount(counts.failed) + asCount(counts.dead);
+  return {
+    successCount: sent,
+    failedCount: failed,
+    processedCount: sent + failed,
+  };
+}
+
 export function mergeCampaignCounterTriple(
   a: CampaignCounterTriple,
   b: CampaignCounterTriple

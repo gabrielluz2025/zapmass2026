@@ -158,9 +158,11 @@ export function healStuckCampaignStatus(c) {
             return healed;
         }
         const failTally = Math.max(m.fail, reclassified.failedCount ?? 0);
+        const impliedSkip = Math.max(0, m.effectiveProcessed - m.ok - failTally);
         const terminal = resolveCampaignTerminalStatus({
             successCount: m.ok,
             failCount: failTally,
+            skipCount: impliedSkip,
         });
         return {
             ...reclassified,

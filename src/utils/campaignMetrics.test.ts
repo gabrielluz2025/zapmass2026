@@ -138,6 +138,17 @@ describe('healStuckCampaignStatus', () => {
     expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.FAILED);
   });
 
+  it('não marca Falhou quando processed só reflete skip (0 entregas / 0 falhas)', () => {
+    const c = baseCampaign({
+      status: CampaignStatus.RUNNING,
+      totalContacts: 1,
+      processedCount: 1,
+      successCount: 0,
+      failedCount: 0
+    });
+    expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.COMPLETED);
+  });
+
   it('reclassifica COMPLETED falso (0 entregues, só falhas) para FAILED', () => {
     const c = baseCampaign({
       status: CampaignStatus.COMPLETED,

@@ -8,13 +8,14 @@ import {
   rowToCampaign,
   type CampaignRow
 } from './campaignMapper.js';
-import { healCampaignDocument } from '../../src/utils/campaignMetrics.js';
+import { healCampaignCounters, healCampaignDocument } from '../../src/utils/campaignMetrics.js';
 import {
   countCampaignJobsByStatus,
   countTenantCampaignJobsByConnection,
   countTenantCampaignJobsByStatus,
   reattachOrphanCampaignJobs,
   requeuePhantomDeadCampaignJobs,
+  campaignJobsStillActive,
 } from '../campaignJobsResilience.js';
 import {
   countersFromCampaignDoc,
@@ -87,8 +88,21 @@ export async function listCampaigns(tenantId: string): Promise<Campaign[]> {
   const jobMapAfterHeal = await countTenantCampaignJobsByStatus(tenantId);
   for (const row of r.rows) {
     const raw = rowToCampaign(row);
-    const withJobs = applyJobCountersToCampaign(raw, jobMapAfterHeal.get(raw.id));
-    const healed = healCampaignDocument(withJobs);
+    const jobCounts = jobMapAfterHeal.get(raw.id);
+    const withJobs = applyJobCountersToCampaign(raw, jobCounts);
+    let healed = healCampaignDocument(withJobs);
+    if (
+      campaignJobsStillActive(jobCounts) > 0 &&
+      (healed.status === 'FAILED' || healed.status === 'COMPLETED')
+    ) {
+      healed = {
+        ...healCampaignCounters(withJobs),
+        status:
+          withJobs.status === 'DRAFT' || withJobs.status === 'SCHEDULED'
+            ? withJobs.status
+            : 'RUNNING',
+      };
+    }
     const channelSendStats = byConn.get(raw.id);
     out.push(channelSendStats?.length ? { ...healed, channelSendStats } : healed);
     persistHealedCampaignCounters(tenantId, raw, healed);
@@ -108,8 +122,21 @@ export async function getCampaign(tenantId: string, campaignId: string): Promise
   if (!r.rows[0]) return null;
   const raw = rowToCampaign(r.rows[0]);
   await requeuePhantomDeadCampaignJobs(campaignId);
-  const withJobs = applyJobCountersToCampaign(raw, await countCampaignJobsByStatus(campaignId));
-  const healed = healCampaignDocument(withJobs);
+  const jobCounts = await countCampaignJobsByStatus(campaignId);
+  const withJobs = applyJobCountersToCampaign(raw, jobCounts);
+  let healed = healCampaignDocument(withJobs);
+  if (
+    campaignJobsStillActive(jobCounts) > 0 &&
+    (healed.status === 'FAILED' || healed.status === 'COMPLETED')
+  ) {
+    healed = {
+      ...healCampaignCounters(withJobs),
+      status:
+        withJobs.status === 'DRAFT' || withJobs.status === 'SCHEDULED'
+          ? withJobs.status
+          : 'RUNNING',
+    };
+  }
   persistHealedCampaignCounters(tenantId, raw, healed);
   const byConn = await countTenantCampaignJobsByConnection(tenantId);
   const channelSendStats = byConn.get(campaignId);

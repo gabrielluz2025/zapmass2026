@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.284] - 2026-10-02
+
+### Corrigido
+- **Cópia / iniciar disparo**: cura de status não marca mais **Falhou** com 0 falhas quando `processedCount` vinha só de job `sending` no Postgres ou de skips idempotentes; `startCampaign` não finaliza a campanha enquanto ainda há jobs na fila BullMQ.
+- **Seed de progresso**: contadores do espelho PG usam apenas jobs encerrados (`sent`/`failed`/`dead`), evitando 100% falso ao abrir a lista.
+
 ## [2.3.283] - 2026-10-02
 
 ### Corrigido

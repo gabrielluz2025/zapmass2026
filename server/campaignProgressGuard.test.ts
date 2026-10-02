@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   countersFromCampaignDoc,
   countersFromJobStatusCounts,
+  countersFromJobStatusCountsSettled,
   mergeCampaignCounterTriple,
   pickCampaignProgressToPersist,
   applyCampaignDocCounterPatch,
@@ -9,6 +10,14 @@ import {
 } from './campaignProgressGuard.js';
 
 describe('campaignProgressGuard', () => {
+  it('settled ignora sending para não curar Falhou com job em voo', () => {
+    expect(countersFromJobStatusCountsSettled({ sent: 0, failed: 0, sending: 1, pending: 2 })).toEqual({
+      successCount: 0,
+      failedCount: 0,
+      processedCount: 0,
+    });
+  });
+
   it('converte jobs sent/failed/dead em contadores do card', () => {
     expect(
       countersFromJobStatusCounts({ sent: 1200, failed: 30, dead: 5, pending: 47000, sending: 2 })

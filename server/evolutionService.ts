@@ -6110,12 +6110,17 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
         return;
     }
 
+    const impliedSkip = Math.max(
+        0,
+        (state.processed || 0) - (state.successCount || 0) - (state.failCount || 0)
+    );
+    const effectiveSkip = Math.max(state.skipCount || 0, impliedSkip);
     const terminalStatus =
         (state.successCount || 0) > 0
             ? 'COMPLETED'
             : (state.failCount || 0) > 0
               ? 'FAILED'
-              : (state.skipCount || 0) > 0
+              : effectiveSkip > 0
                 ? 'COMPLETED'
                 : (state.total || 0) > 0
                   ? 'FAILED'
@@ -12785,7 +12790,12 @@ export async function startCampaign(
             runtimeAfterEnqueue.processed >= runtimeAfterEnqueue.total &&
             runtimeAfterEnqueue.total > 0
         ) {
-            void tryFinalizeOrHoldCampaign(cid);
+            const pendingMem = campaignPendingJobs.get(cid) || 0;
+            const bullPending =
+                pendingMem > 0 ? pendingMem : await countCampaignJobsInAllMassQueues(cid).catch(() => 1);
+            if (bullPending <= 0) {
+                void tryFinalizeOrHoldCampaign(cid);
+            }
         }
     } catch (err: any) {
         // Falha de enfileiramento (Redis fora, etc.): cancela campanha em RAM
