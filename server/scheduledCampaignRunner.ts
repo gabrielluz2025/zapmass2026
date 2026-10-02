@@ -245,6 +245,7 @@ async function processOneCampaign(
           poolStrategy?: 'round_robin' | 'weighted' | 'priority';
           poolId?: string;
           skipFrequencyCap?: boolean;
+          frequencyCapAllowPhones?: string[];
           dailySchedule?: {
             enabled: boolean;
             days: Array<{ dayIndex: number; limitPerChannel: number }>;
@@ -360,6 +361,7 @@ async function processOneCampaign(
         Number.isFinite(delaySeconds) && delaySeconds > 0 ? delaySeconds : undefined,
         undefined,
         snap?.skipFrequencyCap === true,
+        Array.isArray(snap?.frequencyCapAllowPhones) ? snap.frequencyCapAllowPhones : undefined,
         Number.isFinite(delaySecondsMax) && delaySecondsMax > 0 ? delaySecondsMax : undefined,
         snap?.humanizedPauses !== false,
         dailySchedule,

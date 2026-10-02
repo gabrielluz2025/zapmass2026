@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.281',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Preview do disparo: marque um a um quem está no limite 24 h para reenviar; contador do botão Confirma e disparar alinhado',
+      },
+      {
+        type: 'fix',
+        text: 'Campanha cópia/nova não herda mais Falhou e contadores da origem; falha no enqueue volta para Rascunho',
+      },
+    ],
+  },
+  {
     version: '2.3.280',
     date: '02/10/2026',
     highlights: [

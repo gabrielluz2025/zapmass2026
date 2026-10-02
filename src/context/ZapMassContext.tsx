@@ -4200,6 +4200,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         previousMediaStorageKey?: string;
       }>;
       skipFrequencyCap?: boolean;
+      frequencyCapAllowPhones?: string[];
       dailySchedule?: CampaignDailySchedule;
       prospecting?: import('../types').CampaignProspecting;
     }
@@ -4296,6 +4297,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ...(options?.poolId ? { poolId: options.poolId } : {}),
         ...(options?.dailySchedule?.enabled ? { dailySchedule: options.dailySchedule } : {}),
         ...(options?.skipFrequencyCap ? { skipFrequencyCap: true } : {}),
+        ...(options?.frequencyCapAllowPhones?.length
+          ? { frequencyCapAllowPhones: options.frequencyCapAllowPhones }
+          : {}),
         ...(options?.prospecting?.enabled ? { prospecting: options.prospecting } : {})
       }
     };
@@ -4373,6 +4377,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             followUpMediaAttachment: options?.followUpMediaAttachment,
             optionMediaAttachments: options?.optionMediaAttachments,
             skipFrequencyCap: options?.skipFrequencyCap === true,
+            frequencyCapAllowPhones: options?.frequencyCapAllowPhones,
             dailySchedule: options?.dailySchedule?.enabled ? options.dailySchedule : undefined,
             prospecting: options?.prospecting?.enabled ? options.prospecting : undefined
           },
@@ -4443,6 +4448,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       poolStrategy?: 'round_robin' | 'weighted' | 'priority';
       poolId?: string;
       skipFrequencyCap?: boolean;
+      frequencyCapAllowPhones?: string[];
       dailySchedule?: CampaignDailySchedule;
       delaySecondsMax?: number;
       humanizedPauses?: boolean;
@@ -4550,7 +4556,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ...(options?.poolStrategy ? { poolStrategy: options.poolStrategy } : {}),
         ...(options?.poolId ? { poolId: options.poolId } : {}),
         ...(options?.dailySchedule?.enabled ? { dailySchedule: options.dailySchedule } : {}),
-        ...(options?.skipFrequencyCap ? { skipFrequencyCap: true } : {})
+        ...(options?.skipFrequencyCap ? { skipFrequencyCap: true } : {}),
+        ...(options?.frequencyCapAllowPhones?.length
+          ? { frequencyCapAllowPhones: options.frequencyCapAllowPhones }
+          : {})
       }
     };
     const campaignId = await apiCreateCampaign(schedulePayload);

@@ -7,6 +7,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.281] - 2026-10-02
+
+### Corrigido
+- **Cópia/nova campanha**: criação no Postgres zera contadores e status terminal — card não herda mais **Falhou** 100% da origem.
+- **Disparo abortado no enqueue**: campanha volta para **Rascunho** em vez de ficar presa em estado inconsistente.
+
+### Melhorado
+- **Limite 24 h no preview**: checkbox por contato (liberados + bloqueados), contador correto no botão e reenvio granular (`frequencyCapAllowPhones`).
+
 ## [2.3.280] - 2026-10-02
 
 ### Corrigido

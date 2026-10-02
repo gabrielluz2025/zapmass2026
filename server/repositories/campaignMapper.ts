@@ -25,6 +25,16 @@ export function campaignDocPayload(input: Record<string, unknown>, tenantId: str
   const doc = { ...input };
   doc.ownerUid = tenantId;
   if (!doc.createdAt) doc.createdAt = new Date().toISOString();
+  // Cópia/nova campanha não deve herdar progresso nem status terminal do payload do cliente.
+  const status = parseStatus(doc.status);
+  if (status === CampaignStatus.SCHEDULED) {
+    doc.status = CampaignStatus.SCHEDULED;
+  } else {
+    doc.status = CampaignStatus.DRAFT;
+  }
+  doc.processedCount = 0;
+  doc.successCount = 0;
+  doc.failedCount = 0;
   return doc;
 }
 

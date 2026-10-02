@@ -284,9 +284,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     editMode: Boolean(initialDraft?.editMode),
     editCampaignId: initialDraft?.editCampaignId,
   });
-  if (initialDraft?.editMode && initialDraft.editCampaignId) {
-    editMetaRef.current = { editMode: true, editCampaignId: initialDraft.editCampaignId };
-  }
+  useEffect(() => {
+    if (initialDraft?.editMode && initialDraft.editCampaignId) {
+      editMetaRef.current = { editMode: true, editCampaignId: initialDraft.editCampaignId };
+    } else {
+      editMetaRef.current = { editMode: false, editCampaignId: undefined };
+    }
+  }, [initialDraft?.editMode, initialDraft?.editCampaignId]);
   const isEditMode = editMetaRef.current.editMode;
   const [duplicatedContacts, setDuplicatedContacts] = useState<Array<{ phone: string; campaignName: string; campaignId: string }>>([]);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);

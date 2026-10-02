@@ -10,10 +10,35 @@ export function buildFrequencyCapBlockSet(
   return blocked;
 }
 
+export function phoneKeyForFrequencyCap(phone: string): string {
+  return String(phone || '').replace(/\D/g, '').slice(-11);
+}
+
+export function normalizeFrequencyCapAllowKeys(phones: string[] | undefined): Set<string> {
+  const out = new Set<string>();
+  if (!phones?.length) return out;
+  for (const p of phones) {
+    const key = phoneKeyForFrequencyCap(p);
+    if (key.length >= 8) out.add(key);
+  }
+  return out;
+}
+
+/** Remove do bloqueio os contatos autorizados a reenvio (seleção granular na UI). */
+export function applyFrequencyCapAllowList(
+  blocked: ReadonlySet<string>,
+  allowKeys: ReadonlySet<string>
+): Set<string> {
+  if (!allowKeys.size) return new Set(blocked);
+  const next = new Set(blocked);
+  for (const key of allowKeys) next.delete(key);
+  return next;
+}
+
 export function isPhoneBlockedByFrequencyCap(
   normalizedPhoneDigits: string,
   blocked: ReadonlySet<string>
 ): boolean {
-  const key = String(normalizedPhoneDigits || '').replace(/\D/g, '').slice(-11);
+  const key = phoneKeyForFrequencyCap(normalizedPhoneDigits);
   return key.length >= 8 && blocked.has(key);
 }
