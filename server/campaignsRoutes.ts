@@ -547,7 +547,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
     }
     // Filtra conexões do tenant (Firebase legado + UUID Postgres derivado)
     const filtered = connectionIds.filter((id) =>
-      evolutionService.tenantOwnsConnection(ctx.tenantId, id)
+      evolutionService.ensureTenantOwnsConnection(ctx.tenantId, id)
     );
     if (filtered.length === 0) {
       return res.status(403).json({ ok: false, error: 'Nenhuma conexão pertence a esta conta.' });
