@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.305',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Campanhas: destrava fila held + progresso 100% falso em pausada; cap 24 h respeita reenvio liberado',
+      },
+    ],
+  },
+  {
     version: '2.3.304',
     date: '02/10/2026',
     highlights: [

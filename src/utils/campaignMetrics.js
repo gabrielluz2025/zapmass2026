@@ -156,6 +156,9 @@ export function healCampaignCounters(c) {
 export function healStuckCampaignStatus(c) {
     const reclassified = reclassifyFalseCompletedCampaign(c);
     const m = getCampaignProgressMetrics(reclassified);
+    if (reclassified.status === CampaignStatus.PAUSED && m.pending > 0) {
+        return healCampaignCounters(reclassified);
+    }
     if (isConversationalMultiStepCampaign(reclassified) &&
         m.pending === 0 &&
         m.effectiveProcessed >= m.plannedSendTotal &&
@@ -218,9 +221,30 @@ export function healStuckCampaignStatus(c) {
     }
     return counters;
 }
+/**
+ * `processedCount` inflado (ex.: evento de progresso com total da fila quente)
+ * enquanto a campanha segue PAUSED/RUNNING — corrige progresso 100% / restantes 0.
+ */
+export function reconcileInflatedProcessedCount(c) {
+    const planned = getCampaignPlannedSendTotal(c);
+    if (planned <= 0)
+        return c;
+    const tally = Math.max(0, Math.floor(Number(c.successCount) || 0) +
+        Math.floor(Number(c.failedCount) || 0));
+    const reported = Math.max(0, Math.floor(Number(c.processedCount) || 0));
+    if (reported >= planned &&
+        tally < planned &&
+        (c.status === CampaignStatus.PAUSED ||
+            c.status === CampaignStatus.RUNNING ||
+            c.status === CampaignStatus.DRAFT)) {
+        return { ...c, processedCount: Math.min(planned, tally) };
+    }
+    return c;
+}
 /** Aplica cura de status preso e normalização de contadores (ok/fail/processed). */
 export function healCampaignDocument(c) {
-    return healCampaignCounters(healStuckCampaignStatus(reclassifyFalseCompletedCampaign(c)));
+    const base = reconcileInflatedProcessedCount(reclassifyFalseCompletedCampaign(c));
+    return healCampaignCounters(healStuckCampaignStatus(base));
 }
 /** @deprecated Use healStuckCampaignStatus */
 export function healStuckRunningCampaign(c) {

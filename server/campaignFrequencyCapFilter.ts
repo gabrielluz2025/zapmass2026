@@ -42,3 +42,35 @@ export function isPhoneBlockedByFrequencyCap(
   const key = phoneKeyForFrequencyCap(normalizedPhoneDigits);
   return key.length >= 8 && blocked.has(key);
 }
+
+export function buildFrequencyCapResendPhoneKeys(phones?: string[]): Set<string> {
+  const set = new Set<string>();
+  for (const p of phones || []) {
+    const key = String(p || '').replace(/\D/g, '').slice(-11);
+    if (key.length >= 8) set.add(key);
+  }
+  return set;
+}
+
+export function isPhoneInFrequencyCapResendAllowlist(
+  normalizedPhoneDigits: string,
+  resendKeys: ReadonlySet<string>
+): boolean {
+  const key = String(normalizedPhoneDigits || '').replace(/\D/g, '').slice(-11);
+  return key.length >= 8 && resendKeys.has(key);
+}
+
+/** Pula o cap 24 h globalmente ou para contatos liberados no preview. */
+export function shouldBypassFrequencyCap(
+  normalizedPhoneDigits: string,
+  options: {
+    skipFrequencyCap?: boolean;
+    allowKeys?: ReadonlySet<string> | null;
+  }
+): boolean {
+  if (options.skipFrequencyCap === true) return true;
+  const allowKeys = options.allowKeys;
+  if (!allowKeys?.size) return false;
+  const key = phoneKeyForFrequencyCap(normalizedPhoneDigits);
+  return key.length >= 8 && allowKeys.has(key);
+}

@@ -276,6 +276,22 @@ describe('campaignStatusAfterProgress', () => {
   });
 });
 
+describe('reconcileInflatedProcessedCount', () => {
+  it('reduz processedCount inflado em campanha pausada com fila pendente real', () => {
+    const c = baseCampaign({
+      status: CampaignStatus.PAUSED,
+      totalContacts: 10_000,
+      processedCount: 10_000,
+      successCount: 54,
+      failedCount: 121
+    });
+    const m = getCampaignProgressMetrics(healCampaignDocument(c));
+    expect(m.effectiveProcessed).toBe(175);
+    expect(m.progressPct).toBeLessThan(100);
+    expect(m.pending).toBeGreaterThan(9000);
+  });
+});
+
 describe('mergeCampaignMetricsWithReport', () => {
   it('não infla progresso com linhas PENDING da lista', () => {
     const base = getCampaignProgressMetrics(

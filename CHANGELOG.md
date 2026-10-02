@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.305] - 2026-10-02
+
+### Corrigido
+- **Campanhas — travamento**: fila **held** (janela quente) volta a contar como pendente e o watchdog/`resume` drena envios parados; métricas corrigem `processedCount` inflado (100% com milhares pendentes em PAUSED); bypass do cap 24 h alinhado ao preview (`skipFrequencyCap` + liberados).
+
 ## [2.3.304] - 2026-10-02
 
 ### Corrigido

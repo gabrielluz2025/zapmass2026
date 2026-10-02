@@ -3,6 +3,7 @@ import {
   applyFrequencyCapAllowList,
   normalizeFrequencyCapAllowKeys,
   phoneKeyForFrequencyCap,
+  shouldBypassFrequencyCap,
 } from './campaignFrequencyCapFilter.js';
 
 describe('campaignFrequencyCapFilter', () => {
@@ -13,5 +14,18 @@ describe('campaignFrequencyCapFilter', () => {
     const next = applyFrequencyCapAllowList(blocked, allow);
     expect(next.has(keyA)).toBe(false);
     expect(next.has('988776655')).toBe(true);
+  });
+
+  it('shouldBypassFrequencyCap respeita skip global e allow list', () => {
+    const allow = normalizeFrequencyCapAllowKeys(['5547999127001']);
+    expect(shouldBypassFrequencyCap('5547999127001', { skipFrequencyCap: false, allowKeys: allow })).toBe(
+      true
+    );
+    expect(shouldBypassFrequencyCap('5547999887766', { skipFrequencyCap: false, allowKeys: allow })).toBe(
+      false
+    );
+    expect(shouldBypassFrequencyCap('5547999887766', { skipFrequencyCap: true, allowKeys: allow })).toBe(
+      true
+    );
   });
 });

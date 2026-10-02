@@ -171,6 +171,7 @@ import {
     buildFrequencyCapBlockSet,
     isPhoneBlockedByFrequencyCap,
     normalizeFrequencyCapAllowKeys,
+    shouldBypassFrequencyCap,
 } from './campaignFrequencyCapFilter.js';
 import { adjustCampaignRuntimeForEnqueue } from './campaignEnqueueProgress.js';
 import { maybeRepairPhantomZeroOutcomeCampaign } from './campaignPhantomRepair.js';
@@ -7380,8 +7381,13 @@ async function reassertCampaignRunningWhenJobsQueued(
     } catch {
         return;
     }
-    if (bullCount <= 0) return;
-    campaignPendingJobs.set(cid, Math.max(bullCount, campaignPendingJobs.get(cid) || 0));
+    const heldCount = await countHeldCampaignJobsForCampaign(cid).catch(() => 0);
+    if (bullCount <= 0 && heldCount <= 0) return;
+    const outstanding = bullCount + heldCount;
+    campaignPendingJobs.set(cid, Math.max(outstanding, campaignPendingJobs.get(cid) || 0));
+    if (bullCount <= 0 && heldCount > 0) {
+        void drainHeldForCampaign(cid);
+    }
     let state = campaignsById.get(cid);
     if (!state) {
         await ensureCampaignRuntimeInMemory(cid, ownerUid);
@@ -12775,19 +12781,22 @@ export async function startCampaign(
     if (freqCapAllowKeys?.size) {
         freqCapBlockedKeys = applyFrequencyCapAllowList(freqCapBlockedKeys, freqCapAllowKeys);
     }
-    const skipFreqCapForPhone = (phoneDigits: string): boolean => {
-        if (skipFrequencyCap === true) return true;
-        if (!freqCapAllowKeys?.size) return false;
-        const key = String(phoneDigits || '').replace(/\D/g, '').slice(-11);
-        return key.length >= 8 && freqCapAllowKeys.has(key);
-    };
+    const skipFreqCapForPhone = (phoneDigits: string): boolean =>
+        shouldBypassFrequencyCap(phoneDigits, {
+            skipFrequencyCap,
+            allowKeys: freqCapAllowKeys,
+        });
 
     try {
     for (let i = 0; i < numbers.length; i++) {
         const num = numbers[i];
         const cleanPhone = normalizePhoneKey(num);
             if (cleanPhone.length < 8) continue;
-            if (freqCapBlockedKeys.size > 0 && isPhoneBlockedByFrequencyCap(cleanPhone, freqCapBlockedKeys)) {
+            if (
+                freqCapBlockedKeys.size > 0 &&
+                isPhoneBlockedByFrequencyCap(cleanPhone, freqCapBlockedKeys) &&
+                !skipFreqCapForPhone(cleanPhone)
+            ) {
                 skippedFrequencyCap += 1;
                 continue;
             }
@@ -13786,14 +13795,26 @@ export async function tickCampaignStallWatchdog(): Promise<void> {
 
         const pendingMem = campaignPendingJobs.get(campaignId) || 0;
         let pendingQueue = pendingMem;
+        let heldQueue = 0;
         try {
             pendingQueue = await countCampaignJobsInAllMassQueues(campaignId);
-            if (pendingQueue > 0) campaignPendingJobs.set(campaignId, pendingQueue);
+            heldQueue = await countHeldCampaignJobsForCampaign(campaignId);
+            const outstanding = pendingQueue + heldQueue;
+            if (outstanding > 0) campaignPendingJobs.set(campaignId, outstanding);
+            if (
+                heldQueue > 0 &&
+                pendingQueue === 0 &&
+                !pausedCampaigns.has(campaignId) &&
+                !state.manualPaused &&
+                !state.protectionPaused
+            ) {
+                void drainHeldForCampaign(campaignId);
+            }
         } catch {
             pendingQueue = pendingMem;
         }
 
-        const pending = Math.max(pendingMem, pendingQueue);
+        const pending = Math.max(pendingMem, pendingQueue + heldQueue);
 
         if (hasSuccess && pending > 0) {
             const lastWake = campaignStallRemapAt.get(`${campaignId}:wake`) || 0;
@@ -15612,7 +15633,12 @@ async function kickCampaignRedispatchIfQueueEmpty(
     if (!cid || !ou || pausedCampaigns.has(cid)) return;
 
     const bullCount = await countCampaignJobsInAllMassQueues(cid);
+    const heldCount = await countHeldCampaignJobsForCampaign(cid).catch(() => 0);
     if (bullCount > 0) return;
+    if (heldCount > 0) {
+        await drainHeldForCampaign(cid);
+        return;
+    }
 
     const pg = await countCampaignJobsByStatus(cid);
     const pgWork = campaignJobsStillActive(pg);
