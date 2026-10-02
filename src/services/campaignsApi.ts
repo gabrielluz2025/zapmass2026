@@ -110,7 +110,18 @@ export async function uploadCampaignDispatchMedia(
       const openingOk = !needsOpening || st.opening;
       const followOk = !needsFollow || st.followUp;
       if (openingOk && followOk) {
-        return { uploadedViaApi: true, approxBytes: 0, skippedBecauseOnServer: true };
+        const onDisk = await fetchCampaignMediaAttachments(campaignId);
+        const openingBytes = onDisk.mediaAttachment?.dataBase64
+          ? approxBytesFromBase64(onDisk.mediaAttachment.dataBase64)
+          : 0;
+        const followBytes = onDisk.followUpMediaAttachment?.dataBase64
+          ? approxBytesFromBase64(onDisk.followUpMediaAttachment.dataBase64)
+          : 0;
+        const openingVerified = !needsOpening || openingBytes > 0;
+        const followVerified = !needsFollow || followBytes > 0;
+        if (openingVerified && followVerified) {
+          return { uploadedViaApi: true, approxBytes: 0, skippedBecauseOnServer: true };
+        }
       }
     } catch {
       // segue com upload

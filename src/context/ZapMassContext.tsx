@@ -4405,6 +4405,31 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       socketFollowUpMediaAttachment = undefined;
     }
 
+    const mustHaveOpeningOnServer = Boolean(
+      options?.mediaAttachment?.dataBase64 ||
+        options?.copyMediaFromCampaignId ||
+        options?.followUpMediaAttachment?.dataBase64
+    );
+    if (mustHaveOpeningOnServer) {
+      const { fetchCampaignMediaAttachmentsStatus } = await import('../services/campaignsApi');
+      const st = await fetchCampaignMediaAttachmentsStatus(campaignRef.id);
+      if (options?.mediaAttachment && !st.opening) {
+        throw new Error(
+          'O anexo não foi gravado na VPS. Aguarde o envio terminar, confira «Anexo salvo na campanha» e dispare de novo.'
+        );
+      }
+      if (options?.copyMediaFromCampaignId && !st.opening) {
+        throw new Error(
+          'A cópia do anexo da campanha origem falhou no servidor. Anexe o arquivo de novo ou escolha outra campanha modelo.'
+        );
+      }
+      if (options?.followUpMediaAttachment && !st.followUp) {
+        throw new Error(
+          'O anexo da etapa 2 não foi gravado na VPS. Salve de novo antes de disparar.'
+        );
+      }
+    }
+
     try {
       const ackTimeoutMs = startCampaignAckTimeoutMs(
         socketMediaAttachment || socketFollowUpMediaAttachment,

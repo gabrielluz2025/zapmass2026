@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.296',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Campanha com anexo na etapa 1 deixa de enviar só texto em silêncio — falha visível se a mídia não estiver na VPS no momento do envio',
+      },
+      {
+        type: 'fix',
+        text: 'Upload de anexo só é omitido quando a API confirma o arquivo em disco (evita «Anexo salvo» sem bytes no servidor)',
+      },
+    ],
+  },
+  {
     version: '2.3.295',
     date: '02/10/2026',
     highlights: [

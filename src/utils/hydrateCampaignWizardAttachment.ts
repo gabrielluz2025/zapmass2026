@@ -44,13 +44,6 @@ function attachmentStateFromApiPayload(
       mimeType: payload.mimeType,
     };
   } catch {
-    return {
-      file: undefined,
-      previewUrl: null,
-      sendAsDocument: payload.sendMediaAsDocument === true,
-      persistedOnServer: true,
-      fileName: payload.fileName,
-      mimeType: payload.mimeType,
-    };
+    return null;
   }
 }

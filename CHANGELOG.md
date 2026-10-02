@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.296] - 2026-10-02
+
+### Corrigido
+- **Disparo só com texto (anexo no wizard)**: removido fallback silencioso na etapa 0; worker falha com log ERROR se a mídia não resolver no disco; validação no reenvio/retomada; `skipIfOnServer` só pula upload quando o GET `/media-attachments` confirma base64; pré-checagem no cliente antes do `start-campaign`.
+
 ## [2.3.295] - 2026-10-02
 
 ### Corrigido

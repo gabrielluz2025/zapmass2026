@@ -70,6 +70,7 @@ import {
     shouldSkipChipFailoverForMediaError,
 } from '../shared/outboundMediaRecovery.js';
 import { normalizeCampaignMediaBase64 } from '../shared/campaignMediaBase64.js';
+import { massCampaignMustSendOpeningMedia } from './campaignMediaDispatchGuard.js';
 import { pushTenantDiagnosticEvent } from './tenantDiagnosticBuffer.js';
 import {
     createPhonebookNameIndex,
@@ -3235,6 +3236,8 @@ interface MessageQueueItem {
     rotationIndex?: number;
     media?: CampaignMediaPayload;
     sendAsMedia?: boolean;
+    /** Etapa 0 de campanha em massa: falhar se mídia não resolver no worker (não enviar só texto). */
+    expectsOpeningMediaOnSend?: boolean;
     /** Chave em `campaignMediaById` (follow-up pode usar `id:reply-step:1`). */
     mediaLookupKey?: string;
     replyFlowOpen?: {
@@ -5112,6 +5115,7 @@ function hydrateCampaignMediaFromDiskForDispatch(campaignId: string): void {
 function applyCampaignMediaToQueueItem(item: MessageQueueItem, campaignId: string, stageIndex: number): void {
     hydrateCampaignMediaFromDiskForDispatch(campaignId);
     const idx = Math.max(0, Math.floor(Number(stageIndex) || 0));
+    item.expectsOpeningMediaOnSend = false;
     if (!campaignStageMediaAvailable(campaignId, idx)) {
         item.sendAsMedia = false;
         item.mediaLookupKey = undefined;
@@ -5119,6 +5123,9 @@ function applyCampaignMediaToQueueItem(item: MessageQueueItem, campaignId: strin
     }
     item.sendAsMedia = true;
     item.mediaLookupKey = mediaLookupKeyForStage(campaignId, idx);
+    if (idx === 0 && !item.replyFlowResponse && !item.nurtureFollowUp) {
+        item.expectsOpeningMediaOnSend = true;
+    }
 }
 
 function persistCampaignMediaPayload(storageKey: string, payload?: CampaignMediaPayload): void {
@@ -10576,6 +10583,31 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         mediaToSend = null;
     }
     const textPayload = String(item.message || '').trim();
+    const openingMediaRequired = massCampaignMustSendOpeningMedia(item);
+    if (openingMediaRequired && !mediaToSend) {
+        const mediaMissingDetail =
+            'Anexo (imagem/vídeo) não encontrado no servidor no momento do envio. Salve a campanha com o arquivo, confira «Anexo salvo na campanha» e dispare de novo.';
+        log('error', 'Campanha com anexo esperado mas mídia não resolvida no worker', {
+            campaignId: item.campaignId,
+            to: item.to,
+            mediaLookupKey: item.mediaLookupKey,
+            sendAsMedia: item.sendAsMedia,
+            expectsOpeningMediaOnSend: item.expectsOpeningMediaOnSend,
+            connectionId: item.connectionId,
+        });
+        emitCampaignLog(
+            'ERROR',
+            mediaMissingDetail,
+            {
+                campaignId: item.campaignId,
+                to: item.to,
+                mediaLookupKey: item.mediaLookupKey,
+                sendAsMedia: item.sendAsMedia,
+            },
+            campaignState?.ownerUid
+        );
+        return await failCampaignSend(job, item, sendTo || item.to, mediaMissingDetail, campaignState);
+    }
     if (item.sendAsMedia && !mediaToSend && textPayload) {
         item.sendAsMedia = false;
         await job.updateData(item).catch(() => {});
@@ -12236,6 +12268,16 @@ export async function redispatchCampaign(
         }
     }
 
+    for (const entry of pendingEnqueue) {
+        if (!massCampaignMustSendOpeningMedia(entry.item) && !entry.item.sendAsMedia) continue;
+        if (resolveMediaForCampaignJob(entry.item)) continue;
+        const mediaErr =
+            'Anexo da campanha não está no servidor (imagem/vídeo). Edite a campanha, salve o anexo de novo e retome o disparo.';
+        emitCampaignLog('ERROR', mediaErr, { campaignId }, tenantId);
+        campaignEnqueueInFlight.delete(campaignId);
+        throw new Error(mediaErr);
+    }
+
     const finishRedispatchEnqueue = async () => {
         try {
             if (pendingEnqueue.length >= 100) {
@@ -12902,7 +12944,7 @@ export async function startCampaign(
         }
 
         for (const entry of pendingEnqueue) {
-            if (!entry.item.sendAsMedia) continue;
+            if (!massCampaignMustSendOpeningMedia(entry.item) && !entry.item.sendAsMedia) continue;
             if (resolveMediaForCampaignJob(entry.item)) continue;
             const mediaErr =
                 'Anexo da campanha não está no servidor (imagem/vídeo). Salve a campanha com o arquivo e dispare de novo.';
