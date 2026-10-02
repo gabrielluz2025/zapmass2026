@@ -8605,15 +8605,15 @@ async function attemptEvolutionSendMedia(
         const accepted = parseEvolutionSendMediaAcceptance(
             response.data as Parameters<typeof parseEvolutionSendMediaAcceptance>[0]
         );
-        if (accepted.ok) {
-            log('info', `✅ Media enviada com sucesso`, {
-                to: number,
-                messageId: accepted.messageId,
-                url: payload.media?.startsWith('http') ? payload.media : '(base64)',
-            });
-            return { ok: true, messageId: accepted.messageId };
+        if (!accepted.ok) {
+            return { ok: false, errorDetail: accepted.errorDetail };
         }
-        return { ok: false, errorDetail: accepted.errorDetail };
+        log('info', `✅ Media enviada com sucesso`, {
+            to: number,
+            messageId: accepted.messageId,
+            url: payload.media?.startsWith('http') ? payload.media : '(base64)',
+        });
+        return { ok: true, messageId: accepted.messageId };
     } catch (error: unknown) {
         const detail = formatEvolutionHttpError(error, toOriginal);
         const ax = error as { message?: string; response?: { status?: number; data?: unknown } };
