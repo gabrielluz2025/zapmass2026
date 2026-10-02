@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.280] - 2026-10-02
+
+### Corrigido
+- **Disparo falhando em massa (VPS)**: resolução do dono da campanha no worker usa `tenant_id` do Postgres e UUID derivado do Firebase — jobs deixam de ser descartados quando `ownerUid` do socket não batia com o cadastro.
+- **Socket legado + dados VPS**: após login Firebase, `tenantUid` do socket é normalizado para o UUID Postgres antes de `start-campaign`.
+- **Anexos após restart**: hidratação do disco ao montar jobs e ao resolver mídia no worker; fallback de legenda quando Evolution Go rejeita mídia.
+- **whatsappNumbers @lid**: números BR plausíveis não são bloqueados só por resposta `@lid` — tentativa de envio direto antes de falha definitiva.
+
 ## [2.3.279] - 2026-10-01
 
 ### Corrigido

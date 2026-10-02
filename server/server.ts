@@ -1036,6 +1036,14 @@ const registerSocketHandlers = () => {
         } catch (e) {
           console.warn('[socket] userWorkspaceLinks:', (e as Error)?.message || e);
         }
+        if (vpsDataEnabled()) {
+          try {
+            const { resolvePostgresTenantIdAsync } = await import('./auth/firebaseUidMap.js');
+            tenantUid = await resolvePostgresTenantIdAsync(tenantUid);
+          } catch (e) {
+            console.warn('[socket] resolvePostgresTenantIdAsync:', (e as Error)?.message || e);
+          }
+        }
         socket.data.uid = tenantUid;
         if (tenantUid !== 'anonymous') {
           try {

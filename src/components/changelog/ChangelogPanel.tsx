@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.280',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Campanhas que falhavam sem enviar: worker encontra campanha no Postgres mesmo com UID Firebase no job; socket VPS alinha tenant',
+      },
+      {
+        type: 'fix',
+        text: 'Anexos: recarga do disco no worker + legenda se mídia Go falhar; menos bloqueio falso por @lid em números BR',
+      },
+    ],
+  },
+  {
     version: '2.3.279',
     date: '01/10/2026',
     highlights: [
