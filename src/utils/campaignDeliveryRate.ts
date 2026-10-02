@@ -18,7 +18,8 @@ export function resolveCampaignDispatchWindow(
   nowMs = Date.now()
 ): { startMs: number; endMs: number } | null {
   const startMs =
-    parseCampaignMs(campaign.campaignStartedAt) || parseCampaignMs(campaign.createdAt);
+    parseCampaignMs(campaign.prospecting?.campaignStartedAt) ||
+    parseCampaignMs(campaign.createdAt);
   if (!Number.isFinite(startMs)) return null;
 
   let endMs = nowMs;

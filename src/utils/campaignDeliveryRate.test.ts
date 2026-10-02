@@ -24,15 +24,15 @@ const baseCampaign = (over: Partial<Campaign> = {}): Campaign =>
   }) as Campaign;
 
 describe('resolveCampaignDispatchWindow', () => {
-  it('usa lastRunAt como fim em campanha concluída', () => {
+  it('usa createdAt como início e lastRunAt como fim em campanha concluída', () => {
     const c = baseCampaign({
       status: CampaignStatus.COMPLETED,
-      createdAt: '2026-10-02T10:00:00.000Z',
+      createdAt: '2026-10-02T08:00:00.000Z',
       lastRunAt: '2026-10-02T12:00:00.000Z'
     });
     const w = resolveCampaignDispatchWindow(c, Date.parse('2026-10-02T15:00:00.000Z'));
     expect(w).toEqual({
-      startMs: Date.parse('2026-10-02T10:00:00.000Z'),
+      startMs: Date.parse('2026-10-02T08:00:00.000Z'),
       endMs: Date.parse('2026-10-02T12:00:00.000Z')
     });
   });
@@ -73,8 +73,8 @@ describe('getCampaignCardFunnelMetrics', () => {
 describe('computeCampaignThroughputPerHour', () => {
   it('prefere entregues e cai para enviados ok', () => {
     const c = baseCampaign({
-      createdAt: '2026-10-02T10:00:00.000Z',
-      lastRunAt: '2026-10-02T11:00:00.000Z',
+      createdAt: '2026-10-02T09:00:00.000Z',
+      lastRunAt: '2026-10-02T10:00:00.000Z',
       status: CampaignStatus.COMPLETED
     });
     expect(computeCampaignThroughputPerHour(c, { delivered: 60, sentOk: 80 })).toBe(60);

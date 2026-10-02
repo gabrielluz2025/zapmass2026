@@ -749,10 +749,10 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
   const startedAt = useMemo(() => {
     const raw =
-      campaign.campaignStartedAt || campaign.lastRunAt || campaign.createdAt;
+      campaign.prospecting?.campaignStartedAt || campaign.lastRunAt || campaign.createdAt;
     const d = new Date(raw);
     return isNaN(d.getTime()) ? null : d;
-  }, [campaign.campaignStartedAt, campaign.lastRunAt, campaign.createdAt]);
+  }, [campaign.prospecting?.campaignStartedAt, campaign.lastRunAt, campaign.createdAt]);
 
   // Pendente "real-time": fila viva no backend (queueSize por chip selecionado).
   const pendingLive = useMemo(() => {
