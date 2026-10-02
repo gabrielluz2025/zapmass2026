@@ -275,10 +275,14 @@ export function resolveCampaignDispatchSettings(
     if (typeof delaySeconds === 'number' && Number.isFinite(delaySeconds) && delaySeconds > 0) {
         const minMs = Math.max(1000, Math.floor(delaySeconds * 1000));
         // Se maxDelay fornecido e maior que min, usa faixa real; senão aplica jitter de +50%
-        const maxMs =
+        let maxMs =
             typeof delaySecondsMax === 'number' && delaySecondsMax > delaySeconds
                 ? Math.floor(delaySecondsMax * 1000)
                 : Math.floor(minMs * 1.5);
+        if (typeof delaySecondsMax === 'number' && delaySecondsMax > 0 && delaySecondsMax <= delaySeconds) {
+            maxMs = minMs;
+        }
+        if (maxMs < minMs) maxMs = minMs;
         return { ...base, minDelayMs: minMs, maxDelayMs: maxMs };
     }
     return { ...base };

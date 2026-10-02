@@ -400,10 +400,20 @@ export async function promoteTenantDelayedQueueJobs(
         return;
       }
       try {
-        await job.changeDelay(0);
+        const promoteFn = (job as { promote?: () => Promise<void> }).promote;
+        if (typeof promoteFn === 'function') {
+          await promoteFn.call(job);
+        } else {
+          await job.changeDelay(0);
+        }
         promotedDelayed += 1;
       } catch {
-        /* job removido ou ativo */
+        try {
+          await job.changeDelay(0);
+          promotedDelayed += 1;
+        } catch {
+          /* job removido ou ativo */
+        }
       }
     });
   }

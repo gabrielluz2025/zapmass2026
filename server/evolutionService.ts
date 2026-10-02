@@ -241,6 +241,7 @@ import {
     type DailyQuotaDeps,
 } from './connectionDailyQuota.js';
 import { loadCampaignProgressSeed, shouldSkipSettledCampaignEnqueue } from './campaignProgressSeed.js';
+import { countOutstandingCampaignDispatchWork } from './campaignProgressGuard.js';
 import { fullSyncIntervalMs } from '../shared/dailyFullSync.js';
 import { isEvolutionFullHistorySyncEnabled } from '../shared/chatSyncConfig.js';
 import {
@@ -6061,23 +6062,75 @@ function bumpCampaignSkip(campaignId: string | undefined) {
     }
 }
 
+async function countHeldCampaignJobsForCampaign(campaignId: string): Promise<number> {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return 0;
+    const redis = getSharedRedis();
+    if (!redis) return 0;
+    const state = campaignsById.get(cid);
+    const connIds = [...(state?.connectionIds || [])].map((id) => String(id || '').trim()).filter(Boolean);
+    let total = 0;
+    for (const connId of connIds) {
+        total += Math.max(
+            0,
+            Number(await redis.llen(`zapmass:camp-hold:${cid}:${connId}`).catch(() => 0)) || 0
+        );
+    }
+    return total;
+}
+
+/** Reconcilia contador em memória com BullMQ, PG e fila held (evita finalize com job delayed órfão). */
+async function syncCampaignPendingJobsFromQueues(campaignId: string): Promise<number> {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return 0;
+    const pendingMem = campaignPendingJobs.get(cid) || 0;
+    let bull = 0;
+    try {
+        bull = await countCampaignJobsInAllMassQueues(cid);
+    } catch {
+        bull = pendingMem;
+    }
+    let pgActive = 0;
+    if (usePostgresCampaigns()) {
+        try {
+            pgActive = campaignJobsStillActive(await countCampaignJobsByStatus(cid));
+        } catch {
+            pgActive = 0;
+        }
+    }
+    const held = await countHeldCampaignJobsForCampaign(cid);
+    const outstanding = countOutstandingCampaignDispatchWork({
+        pendingMem,
+        bullQueueJobs: bull,
+        pgActiveJobs: pgActive,
+        heldJobs: held,
+    });
+    if (outstanding > 0) campaignPendingJobs.set(cid, outstanding);
+    else campaignPendingJobs.delete(cid);
+    return outstanding;
+}
+
 async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
         const state = campaignsById.get(campaignId);
     if (!state?.isRunning) return;
 
-    let pendingJobs = campaignPendingJobs.get(campaignId) || 0;
-    if (pendingJobs <= 0) {
-        try {
-            const bullPending = await countCampaignJobsInAllMassQueues(campaignId);
-            if (bullPending > 0) {
-                campaignPendingJobs.set(campaignId, bullPending);
-                pendingJobs = bullPending;
-            }
-        } catch {
-            /* Redis indisponível — segue contador em memória */
+    const outstanding = await syncCampaignPendingJobsFromQueues(campaignId);
+    if (outstanding > 0) {
+        void saveCampaignRuntimeToRedis(campaignId);
+        if (state.ownerUid) {
+            void persistCampaignProgressToFirestore(
+                state.ownerUid,
+                campaignId,
+                state.successCount,
+                state.failCount,
+                state.processed,
+                'RUNNING'
+            ).catch(() => undefined);
         }
+        ensureCampaignWorker();
+        void reassertCampaignRunningWhenJobsQueued(campaignId, state.ownerUid).catch(() => undefined);
+        return;
     }
-    if (pendingJobs > 0) return;
 
     const openReplyFlowSessions = replyFlowEngine
         ? replyFlowEngine.countOpenSessionsForCampaign(campaignId)
@@ -8749,17 +8802,20 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0, opts?: {
         }
     } catch (err) {
         bumpQueueSize(item.connectionId, -1, item);
-        if (item.campaignId) {
-            const pending = (campaignPendingJobs.get(item.campaignId) || 1) - 1;
-            if (pending <= 0) campaignPendingJobs.delete(item.campaignId);
-            else campaignPendingJobs.set(item.campaignId, pending);
-        }
         if (isDuplicateBullmqJobError(err)) {
             log('info', 'Job de campanha já na fila — não duplica envio', {
                 campaignId: item.campaignId,
                 to: item.to,
             });
+            if (item.campaignId) {
+                void syncCampaignPendingJobsFromQueues(item.campaignId).catch(() => undefined);
+            }
             return;
+        }
+        if (item.campaignId) {
+            const pending = (campaignPendingJobs.get(item.campaignId) || 1) - 1;
+            if (pending <= 0) campaignPendingJobs.delete(item.campaignId);
+            else campaignPendingJobs.set(item.campaignId, pending);
         }
         throw err;
     } finally {
@@ -8867,6 +8923,20 @@ async function enqueueCampaignItemsBulk(
                 }
             });
         } catch (err) {
+            if (isDuplicateBullmqJobError(err)) {
+                log('info', 'Lote com job já existente na fila — ignorado para não duplicar disparo', {
+                    size: chunk.length,
+                    campaignId: chunk[0]?.item.campaignId,
+                });
+                const cid = chunk[0]?.item.campaignId;
+                if (cid) {
+                    void syncCampaignPendingJobsFromQueues(cid).catch(() => undefined);
+                }
+                for (const { item } of ready) {
+                    bumpQueueSize(item.connectionId, -1, item);
+                }
+                continue;
+            }
             for (const { item } of ready) {
                 bumpQueueSize(item.connectionId, -1, item);
                 if (item.campaignId) {
@@ -8874,13 +8944,6 @@ async function enqueueCampaignItemsBulk(
                     if (pending <= 0) campaignPendingJobs.delete(item.campaignId);
                     else campaignPendingJobs.set(item.campaignId, pending);
                 }
-            }
-            if (isDuplicateBullmqJobError(err)) {
-                log('info', 'Lote com job já existente na fila — ignorado para não duplicar disparo', {
-                    size: chunk.length,
-                    campaignId: chunk[0]?.item.campaignId,
-                });
-                continue;
             }
             throw err;
         }
@@ -13196,6 +13259,20 @@ async function reconcilePendingJobsFromRedis() {
                     restored.startedAt = Date.now();
                 }
             }
+        }
+        ensureCampaignWorker();
+        const workerConnIds = new Set<string>();
+        await forEachAllCampaignMassQueues(async (queue) => {
+            await forEachCampaignQueueJob(queue, async (job) => {
+                const data = job.data as MessageQueueItem;
+                const jobCid = String(data?.campaignId || '').trim();
+                if (!jobCid || mergedCounts.get(jobCid) == null) return;
+                const conn = String(data?.connectionId || '').trim();
+                if (conn) workerConnIds.add(conn);
+            });
+        });
+        for (const connId of workerConnIds) {
+            ensureCampaignMassWorkerForConnection(connId);
         }
     } catch (e: any) {
         log('warn', '[reconcile] Não foi possível reconciliar jobs do Redis:', { error: e?.message });

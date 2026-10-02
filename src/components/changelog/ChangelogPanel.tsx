@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.285',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Job delayed não gera mais Concluída 0 entregas: finalize só com fila Bull/PG/held vazia; pending resync; workers por chip após restart',
+      },
+      {
+        type: 'fix',
+        text: 'Antecipar atrasados usa promote(); faixa min/max de delay da campanha corrigida',
+      },
+    ],
+  },
+  {
     version: '2.3.284',
     date: '02/10/2026',
     highlights: [

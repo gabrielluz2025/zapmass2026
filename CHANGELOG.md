@@ -7,6 +7,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.285] - 2026-10-02
+
+### Corrigido
+- **Job delayed preso / Concluída 0 entregas**: `tryFinalize` só encerra campanha após sincronizar fila BullMQ, jobs ativos no Postgres, contatos em held e contador em memória — evita **Concluída** com job ainda **atrasado** na aba Filas.
+- **Contador pending**: reenfileiramento duplicado (mesmo jobId) não zera mais `campaignPendingJobs` enquanto o job continua na fila.
+- **Workers por chip**: após restart, reconciliação Redis liga workers nas filas `campaign-ch-*` que ainda têm jobs.
+- **Antecipar atrasados**: promove jobs com `promote()` (fallback `changeDelay(0)`).
+- **Intervalo min/max**: `delaySecondsMax` menor ou igual ao mínimo não inverte mais a faixa de delay.
+
 ## [2.3.284] - 2026-10-02
 
 ### Corrigido

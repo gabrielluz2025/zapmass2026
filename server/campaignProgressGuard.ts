@@ -104,3 +104,28 @@ export function applyCampaignDocCounterPatch(
   if (String(nextStatus || '').toUpperCase() === 'SCHEDULED') return incoming;
   return pickCampaignProgressToPersist(existing, incoming);
 }
+
+/** Trabalho ainda não contabilizado no runtime (Bull, PG, held, contador em memória). */
+export function countOutstandingCampaignDispatchWork(params: {
+  pendingMem: number;
+  bullQueueJobs: number;
+  pgActiveJobs: number;
+  heldJobs?: number;
+}): number {
+  return Math.max(
+    0,
+    Math.max(0, Math.floor(Number(params.pendingMem) || 0)),
+    Math.max(0, Math.floor(Number(params.bullQueueJobs) || 0)),
+    Math.max(0, Math.floor(Number(params.pgActiveJobs) || 0)),
+    Math.max(0, Math.floor(Number(params.heldJobs) || 0))
+  );
+}
+
+export function shouldDeferCampaignFinalization(params: {
+  pendingMem: number;
+  bullQueueJobs: number;
+  pgActiveJobs: number;
+  heldJobs?: number;
+}): boolean {
+  return countOutstandingCampaignDispatchWork(params) > 0;
+}

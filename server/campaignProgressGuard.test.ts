@@ -7,6 +7,8 @@ import {
   pickCampaignProgressToPersist,
   applyCampaignDocCounterPatch,
   reconcileCampaignProgressCounters,
+  countOutstandingCampaignDispatchWork,
+  shouldDeferCampaignFinalization,
 } from './campaignProgressGuard.js';
 
 describe('campaignProgressGuard', () => {
@@ -38,6 +40,41 @@ describe('campaignProgressGuard', () => {
       failedCount: 40,
       processedCount: 1240,
     });
+  });
+
+  it('outstanding work usa o maior entre memória, Bull, PG e held', () => {
+    expect(
+      countOutstandingCampaignDispatchWork({
+        pendingMem: 0,
+        bullQueueJobs: 1,
+        pgActiveJobs: 0,
+      })
+    ).toBe(1);
+    expect(
+      countOutstandingCampaignDispatchWork({
+        pendingMem: 0,
+        bullQueueJobs: 0,
+        pgActiveJobs: 2,
+        heldJobs: 1,
+      })
+    ).toBe(2);
+  });
+
+  it('shouldDeferCampaignFinalization bloqueia finalize com job delayed na fila', () => {
+    expect(
+      shouldDeferCampaignFinalization({
+        pendingMem: 0,
+        bullQueueJobs: 1,
+        pgActiveJobs: 0,
+      })
+    ).toBe(true);
+    expect(
+      shouldDeferCampaignFinalization({
+        pendingMem: 0,
+        bullQueueJobs: 0,
+        pgActiveJobs: 0,
+      })
+    ).toBe(false);
   });
 
   it('sobe o card quando os jobs no PG estão à frente do documento', () => {
