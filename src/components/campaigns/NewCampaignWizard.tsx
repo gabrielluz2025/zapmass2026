@@ -1839,12 +1839,17 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           previousMediaStorageKey?: string;
         }>
       | undefined;
+    let stageMediaPayloads: Array<{
+      stepIndex: number;
+      dataBase64: string;
+      mimeType: string;
+      fileName: string;
+      sendMediaAsDocument?: boolean;
+    }> = [];
     try {
       mediaPayload = await buildMediaPayload(campaignAttachment);
       followUpMediaPayload = await buildMediaPayload(followUpAttachment);
-      const stageMediaPayloads: NonNullable<
-        Parameters<NewCampaignWizardProps['onSubmit']>[0]['stageMediaAttachments']
-      > = [];
+      stageMediaPayloads = [];
       for (let stepIndex = 2; stepIndex < messageStages.length; stepIndex++) {
         const att = extraStageAttachments[stepIndex];
         const prepared = await buildMediaPayload(att ?? null);

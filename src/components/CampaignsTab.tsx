@@ -133,6 +133,13 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     stageConfigs?: CampaignStageConfig[];
     mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
     followUpMediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
+    stageMediaAttachments?: Array<{
+      stepIndex: number;
+      dataBase64: string;
+      mimeType: string;
+      fileName: string;
+      sendMediaAsDocument?: boolean;
+    }>;
     skipFrequencyCap?: boolean;
     frequencyCapAllowPhones?: string[];
     dailySchedule?: import('../types').CampaignDailySchedule;
@@ -421,6 +428,13 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       fileName: string;
       sendMediaAsDocument?: boolean;
     };
+    stageMediaAttachments?: Array<{
+      stepIndex: number;
+      dataBase64: string;
+      mimeType: string;
+      fileName: string;
+      sendMediaAsDocument?: boolean;
+    }>;
     optionMediaAttachments?: Array<{
       stepIndex: number;
       optionIndex: number;
