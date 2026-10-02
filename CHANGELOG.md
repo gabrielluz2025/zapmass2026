@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.288] - 2026-10-02
+
+### Corrigido
+- **Concluída com 0 entregas / 0 falhas / 100%**: o motor não finaliza mais campanha só com `processedCount` fantasma; skips passam a ser gravados (`skippedCount`) e a UI deixa de inferir «skip» sem contador — cartão vai para **Falhou** (Retomar) ou mostra aviso de limite 24 h.
+- **Socket `campaign-finished`**: respeita `skipCount` e `terminalStatus` do servidor; não zera mais o progresso quando o encerramento foi só por skip.
+- **Reparo no disparo**: campanhas já salvas como Concluída sem envio são reclassificadas ao iniciar de novo; jobs PG fantasma são reenfileirados quando aplicável.
+
 ## [2.3.287] - 2026-10-02
 
 ### Corrigido

@@ -4,6 +4,7 @@ export type CampaignCounterTriple = {
   successCount: number;
   failedCount: number;
   processedCount: number;
+  skippedCount?: number;
 };
 
 function asCount(value: unknown): number {
@@ -41,12 +42,15 @@ export function mergeCampaignCounterTriple(
 ): CampaignCounterTriple {
   const successCount = Math.max(asCount(a.successCount), asCount(b.successCount));
   const failedCount = Math.max(asCount(a.failedCount), asCount(b.failedCount));
+  const skippedCount = Math.max(asCount(a.skippedCount), asCount(b.skippedCount));
   const processedCount = Math.max(
     asCount(a.processedCount),
     asCount(b.processedCount),
-    successCount + failedCount
+    successCount + failedCount + skippedCount
   );
-  return { successCount, failedCount, processedCount };
+  const out: CampaignCounterTriple = { successCount, failedCount, processedCount };
+  if (skippedCount > 0) out.skippedCount = skippedCount;
+  return out;
 }
 
 /**
@@ -74,11 +78,12 @@ export function reconcileCampaignProgressCounters(
 }
 
 export function countersFromCampaignDoc(doc: Record<string, unknown> | null | undefined): CampaignCounterTriple {
-  if (!doc) return { successCount: 0, failedCount: 0, processedCount: 0 };
+  if (!doc) return { successCount: 0, failedCount: 0, processedCount: 0, skippedCount: 0 };
   return {
     successCount: asCount(doc.successCount),
     failedCount: asCount(doc.failedCount ?? doc.failCount),
     processedCount: asCount(doc.processedCount),
+    skippedCount: asCount(doc.skippedCount),
   };
 }
 

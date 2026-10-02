@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.288',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Campanha Concluída com 0 entregas: sem finalização fantasma, skippedCount persistido e cartão Falhou/Retomar quando não houve envio real',
+      },
+    ],
+  },
+  {
     version: '2.3.287',
     date: '02/10/2026',
     highlights: [

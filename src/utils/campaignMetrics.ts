@@ -31,6 +31,24 @@ export function getCampaignPlannedSendTotal(
  * `successCount` soma um ponto por envio concluído, não por contacto).
  */
 /** Status final ao esgotar a fila: sem entregas e só falhas → FAILED (mantém botão Retomar). */
+export function getCampaignSkippedCount(
+  campaign: Pick<Campaign, 'skippedCount'>
+): number {
+  return Math.max(0, Math.floor(Number(campaign.skippedCount) || 0));
+}
+
+/**
+ * Concluída com 100% e zero entregas/falhas/skips explícitos — contador fantasma ou job nunca enviou.
+ */
+export function isPhantomZeroOutcomeCampaign(campaign: Campaign): boolean {
+  const m = getCampaignProgressMetrics(campaign);
+  if (m.plannedSendTotal <= 0) return false;
+  if (m.ok > 0 || m.fail > 0) return false;
+  if (getCampaignSkippedCount(campaign) > 0) return false;
+  if (m.effectiveProcessed < m.plannedSendTotal) return false;
+  return true;
+}
+
 export function resolveCampaignTerminalStatus(params: {
   successCount: number;
   failCount: number;
@@ -51,8 +69,11 @@ export function reclassifyFalseCompletedCampaign(c: Campaign): Campaign {
   const ok = c.successCount ?? 0;
   const fail = c.failedCount ?? 0;
   if (ok === 0 && fail > 0) return { ...c, status: CampaignStatus.FAILED };
+  if (isPhantomZeroOutcomeCampaign(c)) {
+    return { ...c, status: CampaignStatus.FAILED };
+  }
   const planned = getCampaignPlannedSendTotal(c);
-  if (ok === 0 && fail === 0 && planned > 0) {
+  if (ok === 0 && fail === 0 && getCampaignSkippedCount(c) === 0 && planned > 0) {
     return { ...c, status: CampaignStatus.FAILED };
   }
   return c;
@@ -125,6 +146,7 @@ export function isCampaignQueueWorkComplete(c: Campaign): boolean {
   if (m.plannedSendTotal <= 0) return false;
   if (m.pending > 0) return false;
   if (m.effectiveProcessed < m.plannedSendTotal) return false;
+  if (isPhantomZeroOutcomeCampaign(c)) return false;
 
   if (isConversationalMultiStepCampaign(c)) {
     // Fila inicial (1 msg/contato) esgotada nos contadores — não deixar RUNNING com 100% e 0 entregues.
@@ -193,18 +215,28 @@ export function healStuckCampaignStatus(c: Campaign): Campaign {
       return healed;
     }
     const failTally = Math.max(m.fail, reclassified.failedCount ?? 0);
-    const impliedSkip = Math.max(0, m.effectiveProcessed - m.ok - failTally);
+    const skipTally = getCampaignSkippedCount(reclassified);
+    if (isPhantomZeroOutcomeCampaign(reclassified)) {
+      return {
+        ...healCampaignCounters(reclassified),
+        status: CampaignStatus.FAILED,
+        processedCount: m.effectiveProcessed,
+        successCount: m.ok,
+        failedCount: m.fail
+      };
+    }
     const terminal = resolveCampaignTerminalStatus({
       successCount: m.ok,
       failCount: failTally,
-      skipCount: impliedSkip,
+      skipCount: skipTally,
     });
     return {
       ...reclassified,
       status: terminal,
       processedCount: m.effectiveProcessed,
       successCount: m.ok,
-      failedCount: m.fail
+      failedCount: m.fail,
+      skippedCount: skipTally > 0 ? skipTally : reclassified.skippedCount
     };
   }
   const counters = healCampaignCounters(c);
@@ -215,6 +247,13 @@ export function healStuckCampaignStatus(c: Campaign): Campaign {
       (counters.failedCount ?? 0) > 0)
   ) {
     return { ...counters, status: CampaignStatus.RUNNING };
+  }
+  if (
+    isPhantomZeroOutcomeCampaign(counters) &&
+    counters.status !== CampaignStatus.SCHEDULED &&
+    counters.status !== CampaignStatus.DRAFT
+  ) {
+    return { ...counters, status: CampaignStatus.FAILED };
   }
   return counters;
 }

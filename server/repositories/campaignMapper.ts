@@ -35,6 +35,7 @@ export function campaignDocPayload(input: Record<string, unknown>, tenantId: str
   doc.processedCount = 0;
   doc.successCount = 0;
   doc.failedCount = 0;
+  doc.skippedCount = 0;
   return doc;
 }
 
@@ -56,6 +57,7 @@ export function rowToCampaign(row: CampaignRow): Campaign {
     processedCount: Number(raw.processedCount) || 0,
     successCount: Number(raw.successCount) || 0,
     failedCount: Number(raw.failedCount) || 0,
+    skippedCount: Number(raw.skippedCount) || 0,
     status: parseStatus(row.status || raw.status),
     selectedConnectionIds: Array.isArray(raw.selectedConnectionIds)
       ? (raw.selectedConnectionIds as string[])

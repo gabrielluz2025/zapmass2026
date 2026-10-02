@@ -170,6 +170,7 @@ import {
     normalizeFrequencyCapAllowKeys,
 } from './campaignFrequencyCapFilter.js';
 import { adjustCampaignRuntimeForEnqueue } from './campaignEnqueueProgress.js';
+import { maybeRepairPhantomZeroOutcomeCampaign } from './campaignPhantomRepair.js';
 import {
     holdRoundRobinKey,
     pickFairHeldCampaignRoundRobin,
@@ -6025,7 +6026,9 @@ function bumpCampaignProgress(
                 campaignId,
                 state.successCount,
                 state.failCount,
-                state.processed
+                state.processed,
+                undefined,
+                state.skipCount || 0
             );
         }
     }
@@ -6055,7 +6058,9 @@ function bumpCampaignSkip(campaignId: string | undefined) {
             campaignId,
             state.successCount,
             state.failCount,
-            state.processed
+            state.processed,
+            undefined,
+            state.skipCount || 0
         );
     }
     if (state.processed >= state.total) {
@@ -6164,21 +6169,34 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
         return;
     }
 
-    const impliedSkip = Math.max(
-        0,
-        (state.processed || 0) - (state.successCount || 0) - (state.failCount || 0)
-    );
-    const effectiveSkip = Math.max(state.skipCount || 0, impliedSkip);
-    const terminalStatus =
-        (state.successCount || 0) > 0
-            ? 'COMPLETED'
-            : (state.failCount || 0) > 0
-              ? 'FAILED'
-              : effectiveSkip > 0
-                ? 'COMPLETED'
-                : (state.total || 0) > 0
-                  ? 'FAILED'
-                  : 'COMPLETED';
+    const okN = state.successCount || 0;
+    const failN = state.failCount || 0;
+    const skipN = state.skipCount || 0;
+    const totalN = state.total || 0;
+    let terminalStatus: 'COMPLETED' | 'FAILED';
+    if (okN > 0) {
+        terminalStatus = 'COMPLETED';
+    } else if (failN > 0) {
+        terminalStatus = 'FAILED';
+    } else if (skipN > 0) {
+        terminalStatus = 'COMPLETED';
+    } else if (totalN === 0) {
+        terminalStatus = 'COMPLETED';
+    } else {
+        terminalStatus = 'FAILED';
+        log('warn', '[campaign] Finalização sem entrega/falha/skip explícito — marcando FAILED', {
+            campaignId,
+            processed: state.processed,
+            total: totalN,
+            outstanding,
+        });
+        emitCampaignLog(
+            'ERROR',
+            'Campanha encerrou sem nenhum envio contabilizado. Use Retomar ou copie a campanha; se persistir, verifique filas e Evolution Go.',
+            { campaignId, processed: state.processed, total: totalN },
+            state.ownerUid
+        );
+    }
 
             state.isRunning = false;
     releaseCampaignMediaFromMemory(campaignId);
@@ -6191,7 +6209,8 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
                     state.successCount,
                     state.failCount,
                     state.processed,
-                    terminalStatus
+                    terminalStatus,
+                    state.skipCount || 0
                 );
         void persistCampaignReportSnapshot(state.ownerUid, campaignId);
                 if (state.successCount === 0 && (state.skipCount || 0) > 0 && (state.failCount || 0) === 0) {
@@ -6206,6 +6225,7 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
                     successCount: state.successCount,
                     failCount: state.failCount,
                     total: state.total,
+                    processed: state.processed,
                     skipCount: state.skipCount || 0,
                     terminalStatus,
                 });
@@ -12376,6 +12396,10 @@ export async function startCampaign(
         });
     }
 
+    if (ownerUid) {
+        await maybeRepairPhantomZeroOutcomeCampaign(ownerUid, cid).catch(() => undefined);
+    }
+
     const progressSeed = await loadCampaignProgressSeed(ownerUid, cid);
     // Iniciar de novo não pode herdar pausa manual, auto-pausa ou proteção antiga.
     // Sem isso os jobs entram na fila e o worker só os adia de 3 em 3s.
@@ -12748,6 +12772,17 @@ export async function startCampaign(
                     skipCount: runtimeBeforeEnqueue.skipCount,
                     campaignId: cid,
                 });
+                if (ownerUid) {
+                    void persistCampaignProgressToFirestore(
+                        ownerUid,
+                        cid,
+                        runtimeBeforeEnqueue.successCount,
+                        runtimeBeforeEnqueue.failCount,
+                        runtimeBeforeEnqueue.processed,
+                        'RUNNING',
+                        runtimeBeforeEnqueue.skipCount
+                    );
+                }
             }
         }
 

@@ -18,7 +18,16 @@ export async function persistCampaignProgressToFirestore(
   successCount: number,
   failCount: number,
   processedCount: number,
-  status?: string
+  status?: string,
+  skippedCount?: number
 ): Promise<void> {
-  return persistCampaignProgress(ownerUid, campaignId, successCount, failCount, processedCount, status);
+  return persistCampaignProgress(
+    ownerUid,
+    campaignId,
+    successCount,
+    failCount,
+    processedCount,
+    status,
+    skippedCount
+  );
 }

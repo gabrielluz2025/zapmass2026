@@ -8,6 +8,7 @@ import {
   healStuckCampaignStatus,
   healCampaignDocument,
   resolveCampaignTerminalStatus,
+  isPhantomZeroOutcomeCampaign,
   isCampaignLikelyStartedOnServer,
   isCampaignQueueWorkComplete,
   isRunningStatusButWorkComplete,
@@ -138,13 +139,25 @@ describe('healStuckCampaignStatus', () => {
     expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.FAILED);
   });
 
-  it('não marca Falhou quando processed só reflete skip (0 entregas / 0 falhas)', () => {
+  it('marca Falhou quando processed não tem skip explícito (fantasma)', () => {
     const c = baseCampaign({
       status: CampaignStatus.RUNNING,
       totalContacts: 1,
       processedCount: 1,
       successCount: 0,
       failedCount: 0
+    });
+    expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.FAILED);
+  });
+
+  it('cura RUNNING→COMPLETED quando skip explícito (ex.: limite 24 h)', () => {
+    const c = baseCampaign({
+      status: CampaignStatus.RUNNING,
+      totalContacts: 1,
+      processedCount: 1,
+      successCount: 0,
+      failedCount: 0,
+      skippedCount: 1
     });
     expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.COMPLETED);
   });
@@ -168,6 +181,41 @@ describe('healStuckCampaignStatus', () => {
       successCount: 1
     });
     expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.COMPLETED);
+  });
+
+  it('detecta Concluída fantasma (100% sem entrega/falha/skip)', () => {
+    const c = baseCampaign({
+      status: CampaignStatus.COMPLETED,
+      totalContacts: 1,
+      processedCount: 1,
+      successCount: 0,
+      failedCount: 0
+    });
+    expect(isPhantomZeroOutcomeCampaign(c)).toBe(true);
+    expect(healCampaignDocument(c).status).toBe(CampaignStatus.FAILED);
+    const runningPhantom = baseCampaign({
+      status: CampaignStatus.RUNNING,
+      totalContacts: 1,
+      processedCount: 1,
+      successCount: 0,
+      failedCount: 0
+    });
+    expect(isCampaignQueueWorkComplete(runningPhantom)).toBe(false);
+  });
+
+  it('não marca fantasma quando há skip explícito', () => {
+    const c = baseCampaign({
+      status: CampaignStatus.COMPLETED,
+      totalContacts: 1,
+      processedCount: 1,
+      successCount: 0,
+      failedCount: 0,
+      skippedCount: 1
+    });
+    expect(isPhantomZeroOutcomeCampaign(c)).toBe(false);
+    expect(
+      resolveCampaignTerminalStatus({ successCount: 0, failCount: 0, skipCount: 1 })
+    ).toBe(CampaignStatus.COMPLETED);
   });
 
   it('resolveCampaignTerminalStatus distingue sucesso vs só falha', () => {

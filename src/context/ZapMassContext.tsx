@@ -2464,19 +2464,33 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         campaignId?: string;
         processed?: number;
         total?: number;
+        skipCount?: number;
+        terminalStatus?: CampaignStatus;
       }) => {
         resetCampaignRecipientErrorBurst(campaignRecipientErrorBurstRef);
         const { successCount, failCount, campaignId } = payload;
-        const processedCount =
-          typeof payload.processed === 'number' && !Number.isNaN(payload.processed)
-            ? payload.processed
-            : Math.max(0, (Number(successCount) || 0) + (Number(failCount) || 0));
         setCampaignStatus(prev => ({ ...prev, isRunning: false }));
         if (campaignId) {
           flushCampaignProgressToFirestore(campaignId, true);
           const uid = currentUidRef.current;
           setCampaigns((prev) => {
             const cur = prev.find((c) => c.id === campaignId);
+            const ok = Number(successCount) || 0;
+            const fail = Number(failCount) || 0;
+            const skip = Number(payload.skipCount) || 0;
+            const processedCount =
+              typeof payload.processed === 'number' && !Number.isNaN(payload.processed)
+                ? payload.processed
+                : Math.max(ok + fail + skip, cur?.processedCount ?? 0);
+            const terminalStatus =
+              payload.terminalStatus === CampaignStatus.COMPLETED ||
+              payload.terminalStatus === CampaignStatus.FAILED
+                ? payload.terminalStatus
+                : resolveCampaignTerminalStatus({
+                    successCount: ok,
+                    failCount: fail,
+                    skipCount: skip
+                  });
             const slots = cur?.weeklySchedule?.slots;
             const tz = cur?.scheduleTimeZone;
             const shouldReschedule =
@@ -2486,12 +2500,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               typeof tz === 'string' &&
               tz.length > 0;
             const nextIso = shouldReschedule ? computeNextRunIso(slots, tz, Date.now() + 45_000) : null;
-            const ok = Number(successCount) || 0;
-            const fail = Number(failCount) || 0;
-            const terminalStatus = resolveCampaignTerminalStatus({
-              successCount: ok,
-              failCount: fail
-            });
 
             if (uid) {
               if (shouldReschedule && nextIso) {
@@ -2508,7 +2516,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                   status: terminalStatus,
                   successCount,
                   failedCount: failCount,
-                  processedCount
+                  processedCount,
+                  skippedCount: skip
                 });
               }
             }
@@ -2531,7 +2540,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                 status: terminalStatus,
                 successCount,
                 failedCount: failCount,
-                processedCount
+                processedCount,
+                skippedCount: skip
               };
             });
             if (uid) syncStuckCampaignsToFirestore(next, uid);
@@ -2541,10 +2551,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
         const ok = Number(successCount) || 0;
         const fail = Number(failCount) || 0;
+        const skip = Number(payload.skipCount) || 0;
         if (fail > 0) {
           toast.success(
             `Campanha terminada: ${ok} com sucesso · ${fail} falharam. Abra «Log do disparo» ou Relatório de envios na campanha para ver cada falha.`,
             { duration: 9500, icon: '✅' }
+          );
+        } else if (ok === 0 && skip > 0) {
+          toast(
+            'Campanha encerrada sem novas entregas (contatos ignorados — ex.: limite 24 h). Marque «Incluir reenvio» ou aguarde.',
+            { duration: 9000, icon: '⚠️' }
           );
         } else {
           toast.success('Campanha finalizada!', { duration: 4500 });
@@ -2561,16 +2577,34 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         failCount: number;
         campaignId?: string;
         total?: number;
+        skipCount?: number;
+        terminalStatus?: CampaignStatus;
+        processed?: number;
       }) => {
         resetCampaignRecipientErrorBurst(campaignRecipientErrorBurstRef);
         const { successCount, failCount, campaignId } = payload;
-        const processedCount = Math.max(0, (Number(successCount) || 0) + (Number(failCount) || 0));
         setCampaignStatus(prev => ({ ...prev, isRunning: false }));
         if (campaignId) {
           flushCampaignProgressToFirestore(campaignId, true);
           const uid = currentUidRef.current;
           setCampaigns((prev) => {
             const cur = prev.find((c) => c.id === campaignId);
+            const ok = Number(successCount) || 0;
+            const fail = Number(failCount) || 0;
+            const skip = Number(payload.skipCount) || 0;
+            const processedCount =
+              typeof payload.processed === 'number' && !Number.isNaN(payload.processed)
+                ? payload.processed
+                : Math.max(ok + fail + skip, cur?.processedCount ?? 0);
+            const terminalStatus =
+              payload.terminalStatus === CampaignStatus.COMPLETED ||
+              payload.terminalStatus === CampaignStatus.FAILED
+                ? payload.terminalStatus
+                : resolveCampaignTerminalStatus({
+                    successCount: ok,
+                    failCount: fail,
+                    skipCount: skip
+                  });
             const slots = cur?.weeklySchedule?.slots;
             const tz = cur?.scheduleTimeZone;
             const shouldReschedule =
@@ -2580,12 +2614,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               typeof tz === 'string' &&
               tz.length > 0;
             const nextIso = shouldReschedule ? computeNextRunIso(slots, tz, Date.now() + 45_000) : null;
-            const ok = Number(successCount) || 0;
-            const fail = Number(failCount) || 0;
-            const terminalStatus = resolveCampaignTerminalStatus({
-              successCount: ok,
-              failCount: fail
-            });
 
             if (uid) {
               if (shouldReschedule && nextIso) {
@@ -2602,7 +2630,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                   status: terminalStatus,
                   successCount,
                   failedCount: failCount,
-                  processedCount
+                  processedCount,
+                  skippedCount: skip
                 });
               }
             }
@@ -2625,7 +2654,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                 status: terminalStatus,
                 successCount,
                 failedCount: failCount,
-                processedCount
+                processedCount,
+                skippedCount: skip
               };
             });
             if (uid) syncStuckCampaignsToFirestore(next, uid);
@@ -2635,12 +2665,23 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
         const ok = Number(successCount) || 0;
         const fail = Number(failCount) || 0;
+        const skip = Number(payload.skipCount) || 0;
         const campaignName =
           campaigns.find((c) => c.id === campaignId)?.name || 'Campanha';
         if (fail > 0) {
           toast.success(
             `Campanha terminada: ${ok} com sucesso · ${fail} falharam. Abra «Log do disparo» ou Relatório de envios na campanha para ver cada falha.`,
             { duration: 9500, icon: '✅' }
+          );
+        } else if (ok === 0 && skip > 0) {
+          toast(
+            'Campanha encerrada sem novas entregas (contatos ignorados — ex.: limite 24 h). Marque «Incluir reenvio» ou aguarde.',
+            { duration: 9000, icon: '⚠️' }
+          );
+        } else if (ok === 0 && fail === 0 && skip === 0) {
+          toast.error(
+            'Campanha encerrou sem envios contabilizados. Use Retomar ou copie a campanha; confira o log do disparo.',
+            { duration: 10000 }
           );
         } else {
           toast.success('Campanha finalizada!', { duration: 4500 });

@@ -294,6 +294,8 @@ export interface Campaign {
   processedCount: number;
   successCount: number;
   failedCount: number;
+  /** Contatos/etapas ignorados (limite 24 h, opt-out, idempotência) — distingue de falha real. */
+  skippedCount?: number;
   status: CampaignStatus;
   selectedConnectionIds: string[];
   /** Pool de chips usado no disparo — ao incluir canal no pool, as campanhas ativas redistribuem a fila. */

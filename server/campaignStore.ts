@@ -72,13 +72,20 @@ export async function persistCampaignProgress(
   successCount: number,
   failCount: number,
   processedCount: number,
-  status?: string
+  status?: string,
+  skippedCount?: number
 ): Promise<void> {
   if (!ownerUid || !campaignId) return;
-  let next = {
+  let next: {
+    successCount: number;
+    failedCount: number;
+    processedCount: number;
+    skippedCount?: number;
+  } = {
     successCount,
     failedCount: failCount,
-    processedCount
+    processedCount,
+    skippedCount: Math.max(0, Math.floor(Number(skippedCount) || 0))
   };
   const patch: Record<string, unknown> = { ...next };
   if (status) patch.status = status;
@@ -88,6 +95,7 @@ export async function persistCampaignProgress(
     patch.successCount = next.successCount;
     patch.failedCount = next.failedCount;
     patch.processedCount = next.processedCount;
+    if (next.skippedCount != null) patch.skippedCount = next.skippedCount;
     await pgMergeUpdate(ownerUid, campaignId, patch);
     return;
   }
