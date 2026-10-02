@@ -79,7 +79,7 @@ import {
     type PhonebookNameIndex,
 } from './evolutionContactName.js';
 import { buildPhoneDigitLookupKeys, normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
-import { canonicalBrazilMobileKey } from '../src/utils/brPhoneNormalize.js';
+import { canonicalBrazilMobileKey, isPlausibleBrazilWhatsAppPhone } from '../src/utils/brPhoneNormalize.js';
 import { LID_SEND_BLOCKED_MSG } from './evolutionLidResolve.js';
 import {
     ReplyFlowEngine,
@@ -325,6 +325,7 @@ import {
 } from './evolutionMessageStatus.js';
 import { isLegacyConnectionId } from '../src/utils/connectionScope.js';
 import { isUuid, tenantScopeUidsMatch } from './auth/tenantUidScopeServer.js';
+import { resolveRegisteredCampaignOwner } from './campaignRegisteredOwner.js';
 import {
     filterByConnectionScope,
     ownsConnectionForTenant as ownsConnectionForUid,
@@ -646,6 +647,14 @@ async function resolveOutboundNumberForSend(
     }
 
     if (sawLidOnly && !sawEmptyResponse) {
+        // Evolution às vezes marca @lid em número E.164 válido — em disparo em massa tentamos envio direto.
+        if (isPlausibleBrazilWhatsAppPhone(normalized)) {
+            log('warn', 'whatsappNumbers retornou @lid para número BR plausível — tentando envio direto', {
+                connectionId,
+                normalized,
+            });
+            return { number: normalized };
+        }
         return { error: LID_SEND_BLOCKED_MSG };
     }
 
@@ -3638,7 +3647,7 @@ export function getTenantCampaignRuntimeSnapshots(tenantId: string): Array<{
         paused: boolean;
     }> = [];
     for (const [campaignId, state] of campaignsById) {
-        if (state.ownerUid !== tid) continue;
+        if (!state.ownerUid || !tenantScopeUidsMatch(tid, state.ownerUid)) continue;
         out.push({
             campaignId,
             isRunning: Boolean(state.isRunning),
@@ -5008,6 +5017,7 @@ function campaignOpeningMediaAvailable(campaignId: string): boolean {
 }
 
 function resolveMediaForCampaignJob(item: MessageQueueItem): CampaignMediaPayload | null {
+    if (item.campaignId) hydrateCampaignMediaFromDiskForDispatch(item.campaignId);
     if (item.media?.base64 || item.media?.url) return item.media;
 
     let lookup = String(item.mediaLookupKey || '').trim();
@@ -5080,6 +5090,7 @@ function hydrateCampaignMediaFromDiskForDispatch(campaignId: string): void {
 }
 
 function applyCampaignMediaToQueueItem(item: MessageQueueItem, campaignId: string, stageIndex: number): void {
+    hydrateCampaignMediaFromDiskForDispatch(campaignId);
     const idx = Math.max(0, Math.floor(Number(stageIndex) || 0));
     if (!campaignStageMediaAvailable(campaignId, idx)) {
         item.sendAsMedia = false;
@@ -7001,22 +7012,15 @@ async function applyProgressSeedToRuntime(campaignId: string, ownerUid?: string)
     if (state.total < state.processed) state.total = state.processed;
 }
 
-async function resolveRegisteredCampaignOwner(
+async function resolveRegisteredCampaignOwnerForJob(
     campaignId: string,
     hintOwnerUid?: string
 ): Promise<string | null> {
-    const cid = String(campaignId || '').trim();
-    if (!cid || isCampaignDeletedByUser(cid)) return null;
-    const { getCampaignDoc, resolveCampaignTenantId } = await import('./repositories/campaignsRepository.js');
-    let owner = String(hintOwnerUid || '').trim();
-    if (!owner) owner = getCampaignOwnerUidForQueue(cid) || campaignsById.get(cid)?.ownerUid || '';
-    if (!owner) {
-        const resolved = await resolveCampaignTenantId(cid).catch(() => null);
-        if (resolved) owner = resolved;
-    }
-    if (!owner) return null;
-    const doc = await getCampaignDoc(owner, cid).catch(() => null);
-    return doc ? owner : null;
+    return resolveRegisteredCampaignOwner(campaignId, hintOwnerUid, {
+        isDeleted: isCampaignDeletedByUser,
+        ownerFromRuntime: (cid) =>
+            getCampaignOwnerUidForQueue(cid) || campaignsById.get(cid)?.ownerUid || undefined,
+    });
 }
 
 /** Jobs de campanha excluída ou sem cadastro não devem recriar runtime órfão na RAM. */
@@ -7031,11 +7035,17 @@ async function ensureCampaignJobHasRegisteredDoc(
         await job.remove().catch(() => undefined);
         return false;
     }
-    const owner = await resolveRegisteredCampaignOwner(
+    const owner = await resolveRegisteredCampaignOwnerForJob(
         cid,
         item.ownerUid || campaignsById.get(cid)?.ownerUid
     );
-    if (owner) return true;
+    if (owner) {
+        if (item.ownerUid && !tenantScopeUidsMatch(item.ownerUid, owner)) {
+            item.ownerUid = owner;
+            await job.updateData(item).catch(() => undefined);
+        }
+        return true;
+    }
     const fallbackOwner =
         item.ownerUid ||
         getCampaignOwnerUidForQueue(cid) ||
@@ -7081,7 +7091,7 @@ async function ensureCampaignRuntimeInMemory(campaignId: string, fallbackOwnerUi
     }
     const fromRedis = await loadCampaignRuntimeFromRedis(campaignId);
     const ownerHint = fromRedis?.ownerUid || fallbackOwnerUid;
-    const registeredOwner = await resolveRegisteredCampaignOwner(campaignId, ownerHint);
+    const registeredOwner = await resolveRegisteredCampaignOwnerForJob(campaignId, ownerHint);
     if (!registeredOwner) {
         markCampaignDeletedByUser(campaignId);
         clearCampaignRuntimeMemory(campaignId);
@@ -10672,7 +10682,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             if (!sendResult.ok && textPayload && isRecoverableMediaDeliveryError(detail)) {
                 emitCampaignLog(
                     'WARN',
-                    'Mídia indisponível no Evolution Go — enviando só o texto da resposta.',
+                    item.replyFlowResponse || item.nurtureFollowUp
+                        ? 'Mídia indisponível no Evolution Go — enviando só o texto da resposta.'
+                        : 'Mídia indisponível no Evolution Go — enviando só o texto da legenda (sem anexo).',
                     {
                         campaignId: item.campaignId,
                         to: item.to,
