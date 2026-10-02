@@ -56,6 +56,33 @@ describe('adaptEvolutionApiRequestToGo', () => {
         expect(r.headers.apikey).toBe('tok-test');
     });
 
+    it('mapeia sendMedia com base64 e instanceId Go', () => {
+        const validUuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+        const store = {
+            ...tokenStore,
+            getGoInstanceUuid: () => validUuid,
+        };
+        const r = adaptEvolutionApiRequestToGo(
+            {
+                method: 'post',
+                url: '/message/sendMedia/chip1',
+                data: {
+                    number: '5511999999999',
+                    base64: 'data:image/jpeg;base64,QUJD',
+                    mediatype: 'image',
+                    mimetype: 'image/jpeg',
+                    fileName: 'foto.jpg',
+                },
+                headers: {},
+            },
+            store
+        );
+        expect(r.url).toBe('/send/media');
+        expect(r.headers.instanceId).toBe(validUuid);
+        expect((r.data as { base64?: string }).base64).toBe('QUJD');
+        expect((r.data as { url?: string }).url).toBeUndefined();
+    });
+
     it('POST connect → /instance/connect com webhook', () => {
         const validUuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
         const store = {

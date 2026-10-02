@@ -236,13 +236,21 @@ export function adaptEvolutionApiRequestToGo(
         // Traduz campos Evolution API v2 → Evolution Go
         const body = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
         const mediaUrl = body.media || body.url || body.mediaUrl;
-        const base64 = body.base64 || body.mediaBase64;
+        let base64 = String(body.base64 || body.mediaBase64 || '').trim();
+        if (!base64 && typeof mediaUrl === 'string' && mediaUrl.length > 0 && !mediaUrl.startsWith('http')) {
+            base64 = mediaUrl.replace(/\s+/g, '');
+        }
+        if (base64.startsWith('data:')) {
+            const semi = base64.indexOf(';base64,');
+            if (semi >= 0) base64 = base64.slice(semi + ';base64,'.length);
+        }
         const mediaKind = String(body.mediatype || body.mediaType || 'image').trim() || 'image';
         const mime = String(body.mimetype || body.mimeType || 'application/octet-stream').trim() ||
             'application/octet-stream';
         const goMedia: Record<string, unknown> = {
             number: body.number,
             caption: body.caption ?? '',
+            delay: body.delay ?? 1200,
             // Go valida "media type" — enviar ambos os nomes de campo
             mediatype: mediaKind,
             mediaType: mediaKind,
@@ -252,13 +260,12 @@ export function adaptEvolutionApiRequestToGo(
         };
         if (typeof mediaUrl === 'string' && mediaUrl.startsWith('http')) {
             goMedia.url = mediaUrl;
-        } else if (typeof base64 === 'string' && base64.length > 0) {
+        } else if (base64.length > 0) {
             goMedia.base64 = base64;
-        } else if (typeof mediaUrl === 'string' && mediaUrl.length > 0) {
-            // Pode ser base64 direto no campo media
-            goMedia.base64 = mediaUrl;
         }
-        return { url: '/send/media', data: goMedia, headers: instH };
+        const goUuid = goUuidForConnection(tokenStore, instanceId!);
+        const mediaHeaders = goUuid ? { ...instH, instanceId: goUuid } : instH;
+        return { url: '/send/media', data: goMedia, headers: mediaHeaders };
     }
 
     if (url.includes('/chat/sendPresence/')) {

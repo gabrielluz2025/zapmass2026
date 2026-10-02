@@ -69,6 +69,7 @@ import {
     isRecoverableMediaDeliveryError,
     shouldSkipChipFailoverForMediaError,
 } from '../shared/outboundMediaRecovery.js';
+import { normalizeCampaignMediaBase64 } from '../shared/campaignMediaBase64.js';
 import { pushTenantDiagnosticEvent } from './tenantDiagnosticBuffer.js';
 import {
     createPhonebookNameIndex,
@@ -4929,12 +4930,13 @@ function ensureCampaignMediaDir(): void {
 }
 
 function saveCampaignMediaToDisk(campaignId: string, media: CampaignMediaPayload): string | null {
-    if (!media.base64) return null;
+    const b64 = normalizeCampaignMediaBase64(media.base64);
+    if (!b64) return null;
     try {
         ensureCampaignMediaDir();
         const ext = media.fileName?.split('.').pop() || 'bin';
         const filePath = path.join(CAMPAIGN_MEDIA_TEMP_DIR, `${campaignId}.${ext}`);
-        fs.writeFileSync(filePath, Buffer.from(media.base64, 'base64'));
+        fs.writeFileSync(filePath, Buffer.from(b64, 'base64'));
         const metaPath = path.join(CAMPAIGN_MEDIA_TEMP_DIR, `${campaignId}.meta.json`);
         fs.writeFileSync(
             metaPath,
@@ -5122,7 +5124,9 @@ function applyCampaignMediaToQueueItem(item: MessageQueueItem, campaignId: strin
 function persistCampaignMediaPayload(storageKey: string, payload?: CampaignMediaPayload): void {
     if (!storageKey || !payload) return;
     if (payload.base64) {
-        const diskPath = saveCampaignMediaToDisk(storageKey, payload);
+        const normalizedBase64 = normalizeCampaignMediaBase64(payload.base64);
+        if (!normalizedBase64) return;
+        const diskPath = saveCampaignMediaToDisk(storageKey, { ...payload, base64: normalizedBase64 });
         if (diskPath) {
             campaignMediaById.set(storageKey, {
                 mimeType: payload.mimeType,
@@ -5132,11 +5136,24 @@ function persistCampaignMediaPayload(storageKey: string, payload?: CampaignMedia
                 _diskPath: diskPath,
             });
         } else {
-            campaignMediaById.set(storageKey, payload);
+            campaignMediaById.set(storageKey, { ...payload, base64: normalizedBase64 });
         }
     } else if (payload.url) {
         campaignMediaById.set(storageKey, payload);
     }
+}
+
+/** Aguarda anexo aparecer no volume (API gravou via PATCH antes do socket). */
+async function waitUntilCampaignMediaSendable(storageKey: string, maxWaitMs = 4000): Promise<boolean> {
+    const key = String(storageKey || '').trim();
+    if (!key) return false;
+    const deadline = Date.now() + Math.max(500, maxWaitMs);
+    while (Date.now() < deadline) {
+        campaignMediaReady(key);
+        if (campaignMediaSendable(key)) return true;
+        await new Promise((r) => setTimeout(r, 120));
+    }
+    return campaignMediaSendable(key);
 }
 
 /** Grava anexo de abertura / etapa 2 ao editar campanha ou reiniciar disparo. */
@@ -5176,7 +5193,7 @@ export function attachReplyTriggerPhotos(
         }
         const opt = replyFlow.steps[stepIndex]?.options?.[optionIndex];
         if (!opt) continue;
-        const dataBase64 = String(raw.dataBase64 || '').trim();
+        const dataBase64 = normalizeCampaignMediaBase64(String(raw.dataBase64 || ''));
         const mimeType = String(raw.mimeType || '').trim().toLowerCase();
         if (!dataBase64 || dataBase64.length > 16_000_000 || !mimeType.startsWith('image/')) continue;
         const key = `${cid}:reply-opt:${crypto.randomBytes(6).toString('hex')}`;
@@ -8430,7 +8447,7 @@ async function sendMediaInternal(
         return { ok: false, errorDetail: `Número inválido: ${to}` };
     }
 
-    const b64 = String(base64 || '').trim();
+    const b64 = normalizeCampaignMediaBase64(base64);
     if (!b64) {
         return { ok: false, errorDetail: 'Mídia sem conteúdo (base64 vazio)' };
     }
@@ -8500,15 +8517,14 @@ async function attemptEvolutionSendMedia(
 ): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
     try {
         const directBase64 = String(opts?.base64 || '').trim();
+        const normalizedB64 = directBase64.length > 0 ? normalizeCampaignMediaBase64(directBase64) : '';
         const response = await api.post(`/message/sendMedia/${evoInst(connectionId)}`, {
             number,
             delay: 1200,
             mediatype: payload.mediatype,
             mimetype: payload.mimetype,
             caption: payload.caption,
-            ...(directBase64.length > 0
-                ? { base64: directBase64, media: directBase64 }
-                : { media: payload.media }),
+            ...(normalizedB64.length > 0 ? { base64: normalizedB64 } : { media: payload.media }),
             fileName: payload.fileName,
         }, {
             timeout: evolutionConfig.mediaUploadTimeout,
@@ -10810,10 +10826,16 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                     detail = String(sendResult.errorDetail || '');
                 }
             }
-            if (!sendResult.ok && textPayload && isRecoverableMediaDeliveryError(detail)) {
+            const allowCaptionOnlyFallback = Boolean(item.replyFlowResponse || item.nurtureFollowUp);
+            if (
+                !sendResult.ok &&
+                textPayload &&
+                isRecoverableMediaDeliveryError(detail) &&
+                allowCaptionOnlyFallback
+            ) {
                 emitCampaignLog(
                     'WARN',
-                    item.replyFlowResponse || item.nurtureFollowUp
+                    item.replyFlowResponse
                         ? 'Mídia indisponível no Evolution Go — enviando só o texto da resposta.'
                         : 'Mídia indisponível no Evolution Go — enviando só o texto da legenda (sem anexo).',
                     {
@@ -10827,6 +10849,15 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 );
                 sendResult = await sendMessageInternal(item.connectionId, sendTo, item.message);
                 detail = String(sendResult.errorDetail || '');
+            } else if (
+                !sendResult.ok &&
+                item.sendAsMedia &&
+                isRecoverableMediaDeliveryError(detail) &&
+                !allowCaptionOnlyFallback
+            ) {
+                detail =
+                    `Evolution Go não aceitou o anexo (${detail.slice(0, 120)}). ` +
+                    'Salve a campanha com a imagem de novo e dispare outra vez.';
             }
         }
         if (!sendResult.ok) {
@@ -12292,24 +12323,6 @@ export async function startCampaign(
         });
     }
 
-    const persistCampaignMediaPayload = (storageKey: string, payload?: CampaignMediaPayload) => {
-        if (!storageKey || !payload) return;
-        if (payload.base64) {
-            const diskPath = saveCampaignMediaToDisk(storageKey, payload);
-            if (diskPath) {
-                campaignMediaById.set(storageKey, {
-                    mimeType: payload.mimeType,
-                    fileName: payload.fileName,
-                    caption: payload.caption,
-                    _diskPath: diskPath,
-                } as CampaignMediaPayload & { _diskPath: string });
-            } else {
-                campaignMediaById.set(storageKey, payload);
-            }
-        } else if (payload.url) {
-            campaignMediaById.set(storageKey, payload);
-        }
-    };
     persistCampaignMediaPayload(cid, media);
     persistCampaignMediaPayload(campaignMediaStorageKey(cid, 1), followUpMedia);
 
@@ -12330,11 +12343,17 @@ export async function startCampaign(
         }
     }
 
-    if (media?.base64 && !campaignOpeningMediaAvailable(cid)) {
-        const mediaErr =
-            'Anexo da campanha não foi gravado no servidor (disco). Verifique espaço em /app/data e dispare de novo.';
-        emitCampaignLog('ERROR', mediaErr, { campaignId: cid }, ownerUid);
-        throw new Error(mediaErr);
+    const expectsOpeningMedia = Boolean(
+        normalizeCampaignMediaBase64(media?.base64) || campaignOpeningMediaAvailable(cid)
+    );
+    if (expectsOpeningMedia) {
+        const openingReady = await waitUntilCampaignMediaSendable(cid);
+        if (!openingReady) {
+            const mediaErr =
+                'Anexo da campanha não foi gravado no servidor (disco). Verifique espaço em /app/data e dispare de novo.';
+            emitCampaignLog('ERROR', mediaErr, { campaignId: cid }, ownerUid);
+            throw new Error(mediaErr);
+        }
     }
     if (followUpMedia?.base64 && !campaignMediaReady(campaignMediaStorageKey(cid, 1))) {
         log('warn', 'Follow-up media não gravou no disco — etapa 2 pode ir só com texto', { campaignId: cid });
