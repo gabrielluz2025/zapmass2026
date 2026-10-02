@@ -19,7 +19,11 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Campaign, CampaignStatus } from '../../types';
-import { getCampaignProgressMetrics, isCampaignPauseControlVisible } from '../../utils/campaignMetrics';
+import {
+  getCampaignProgressMetrics,
+  healCampaignDocument,
+  isCampaignPlayButtonVisible
+} from '../../utils/campaignMetrics';
 import {
   CAMPAIGN_REMAINING_CONTACTS_LABEL,
   CAMPAIGN_REMAINING_CONTACTS_TITLE,
@@ -540,20 +544,25 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
               </thead>
               <tbody>
                 {visible.map((camp) => {
-                  const m = getCampaignProgressMetrics(camp);
+                  const view = healCampaignDocument(camp);
+                  const m = getCampaignProgressMetrics(view);
                   const progress = m.progressPct;
                   const rate = m.successRatePct;
-                  const isRunning = camp.status === CampaignStatus.RUNNING;
-                  const isPaused = camp.status === CampaignStatus.PAUSED;
-                  const isDone = camp.status === CampaignStatus.COMPLETED;
-                  const isFailed = camp.status === CampaignStatus.FAILED;
-                  const isScheduled = camp.status === CampaignStatus.SCHEDULED;
-                  const showPauseControl = isCampaignPauseControlVisible(camp.status) && !isScheduled;
+                  const isRunning = view.status === CampaignStatus.RUNNING;
+                  const isPaused = view.status === CampaignStatus.PAUSED;
+                  const isDone = view.status === CampaignStatus.COMPLETED;
+                  const isFailed = view.status === CampaignStatus.FAILED;
+                  const isScheduled = view.status === CampaignStatus.SCHEDULED;
+                  const showPauseControl = isCampaignPlayButtonVisible(camp);
                   const isWaitingForReplies =
-                    Boolean(camp.replyFlow?.enabled) &&
-                    !isDone && !isFailed && !isScheduled &&
-                    (isRunning || isPaused ||
-                      (camp.status === CampaignStatus.DRAFT && (camp.processedCount ?? 0) > 0));
+                    view.status === CampaignStatus.WAITING_REPLY ||
+                    (Boolean(view.replyFlow?.enabled) &&
+                      !isDone &&
+                      !isFailed &&
+                      !isScheduled &&
+                      (isRunning ||
+                        isPaused ||
+                        (view.status === CampaignStatus.DRAFT && (view.processedCount ?? 0) > 0)));
                   const eta = etaForCampaign(camp);
                   return (
                     <tr
@@ -781,20 +790,25 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
   onChangeChannels,
   onDelete
 }) {
-  const m = getCampaignProgressMetrics(campaign);
+  const view = useMemo(() => healCampaignDocument(campaign), [campaign]);
+  const m = getCampaignProgressMetrics(view);
   const progress = m.progressPct;
   const rate = m.successRatePct;
-  const isRunning = campaign.status === CampaignStatus.RUNNING;
-  const isPaused = campaign.status === CampaignStatus.PAUSED;
-  const isDone = campaign.status === CampaignStatus.COMPLETED;
-  const isFailed = campaign.status === CampaignStatus.FAILED;
-  const isScheduled = campaign.status === CampaignStatus.SCHEDULED;
-  const showPauseControl = isCampaignPauseControlVisible(campaign.status) && !isScheduled;
+  const isRunning = view.status === CampaignStatus.RUNNING;
+  const isPaused = view.status === CampaignStatus.PAUSED;
+  const isDone = view.status === CampaignStatus.COMPLETED;
+  const isFailed = view.status === CampaignStatus.FAILED;
+  const isScheduled = view.status === CampaignStatus.SCHEDULED;
+  const showPauseControl = isCampaignPlayButtonVisible(campaign);
   const isWaitingForReplies =
-    Boolean(campaign.replyFlow?.enabled) &&
-    !isDone && !isFailed && !isScheduled &&
-    (isRunning || isPaused ||
-      (campaign.status === CampaignStatus.DRAFT && (campaign.processedCount ?? 0) > 0));
+    view.status === CampaignStatus.WAITING_REPLY ||
+    (Boolean(view.replyFlow?.enabled) &&
+      !isDone &&
+      !isFailed &&
+      !isScheduled &&
+      (isRunning ||
+        isPaused ||
+        (view.status === CampaignStatus.DRAFT && (view.processedCount ?? 0) > 0)));
   const spark = useMemo(() => buildSpark(campaign), [campaign]);
   const eta = etaForCampaign(campaign);
 
@@ -1110,15 +1124,16 @@ const CampaignCompactRow: React.FC<CampaignCompactRowProps> = memo(function Camp
   onEdit,
   onDelete
 }) {
-  const m = getCampaignProgressMetrics(campaign);
+  const view = useMemo(() => healCampaignDocument(campaign), [campaign]);
+  const m = getCampaignProgressMetrics(view);
   const progress = m.progressPct;
   const rate = m.successRatePct;
-  const isRunning = campaign.status === CampaignStatus.RUNNING;
-  const isPaused = campaign.status === CampaignStatus.PAUSED;
-  const isDone = campaign.status === CampaignStatus.COMPLETED;
-  const isFailed = campaign.status === CampaignStatus.FAILED;
-  const isScheduled = campaign.status === CampaignStatus.SCHEDULED;
-  const showPauseControl = isCampaignPauseControlVisible(campaign.status) && !isScheduled;
+  const isRunning = view.status === CampaignStatus.RUNNING;
+  const isPaused = view.status === CampaignStatus.PAUSED;
+  const isDone = view.status === CampaignStatus.COMPLETED;
+  const isFailed = view.status === CampaignStatus.FAILED;
+  const isScheduled = view.status === CampaignStatus.SCHEDULED;
+  const showPauseControl = isCampaignPlayButtonVisible(campaign);
   const accent = isRunning
     ? 'var(--brand-500)'
     : isPaused

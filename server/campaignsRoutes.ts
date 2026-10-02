@@ -31,6 +31,7 @@ import {
   type CampaignReportSnapshot
 } from './campaignReportSnapshot.js';
 import * as evolutionService from './evolutionService.js';
+import { toCampaignMediaPayload } from './campaignMediaPayload.js';
 import { notifyTenantDataChanged } from './tenantDataNotify.js';
 import { verifyAdHocPhonesOnWhatsApp } from './contactWhatsAppValidateService.js';
 
@@ -70,12 +71,22 @@ export function registerCampaignsDataRoutes(app: Express): void {
             },
           }
         : body;
+      const mediaAttachmentRaw = body.mediaAttachment;
+      const followUpMediaAttachmentRaw = body.followUpMediaAttachment;
+      const openingMediaCreate = toCampaignMediaPayload(mediaAttachmentRaw);
+      const followMediaCreate = toCampaignMediaPayload(followUpMediaAttachmentRaw);
+      delete bodyToSave.mediaAttachment;
+      delete bodyToSave.followUpMediaAttachment;
+
       const { id, campaign } = await createCampaign(ctx.tenantId, bodyToSave);
       if (heavy) {
         saveCampaignRecipientSnapshot(id, {
           numbers,
           recipients: snap?.recipients,
         });
+      }
+      if (openingMediaCreate || followMediaCreate) {
+        evolutionService.storeCampaignMediaForDispatch(id, openingMediaCreate, followMediaCreate);
       }
       notifyTenantDataChanged(ctx.tenantId, 'campaigns');
       return res.json({ ok: true, id, campaign: campaignForClientList(campaign) });
@@ -98,6 +109,8 @@ export function registerCampaignsDataRoutes(app: Express): void {
     if (!existing) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
 
     const patch: Record<string, unknown> = { ...raw };
+    const allowTerminalStatusHeal = patch.allowTerminalStatusHeal === true;
+    delete patch.allowTerminalStatusHeal;
     const optionMediaAttachments = patch.optionMediaAttachments;
     const optionMediaRemovals = patch.optionMediaRemovals;
     const mediaAttachmentRaw = patch.mediaAttachment;
@@ -108,10 +121,22 @@ export function registerCampaignsDataRoutes(app: Express): void {
     delete patch.followUpMediaAttachment;
     // Edição pelo wizard não deve reiniciar audiência nem contadores.
     delete patch.numbers;
-    delete patch.processedCount;
-    delete patch.successCount;
-    delete patch.failedCount;
-    delete patch.status;
+    if (!allowTerminalStatusHeal) {
+      delete patch.processedCount;
+      delete patch.successCount;
+      delete patch.failedCount;
+    }
+    const terminalHealStatus =
+      allowTerminalStatusHeal && typeof patch.status === 'string' ? String(patch.status).trim() : '';
+    const allowedHealStatuses = new Set([
+      'COMPLETED',
+      'FAILED',
+      'WAITING_REPLY',
+      'RUNNING',
+    ]);
+    if (!allowTerminalStatusHeal || !allowedHealStatuses.has(terminalHealStatus)) {
+      delete patch.status;
+    }
     delete patch.recipients;
     if ('numbers' in raw || 'recipients' in raw) {
       delete patch.scheduleStartSnapshot;
@@ -153,21 +178,8 @@ export function registerCampaignsDataRoutes(app: Express): void {
     const ok = await mergeUpdateCampaign(ctx.tenantId, id, patch);
     if (!ok) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
 
-    const toMediaPayload = (raw: unknown): { base64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean } | undefined => {
-      if (!raw || typeof raw !== 'object') return undefined;
-      const m = raw as Record<string, unknown>;
-      const dataBase64 = String(m.dataBase64 || '').trim();
-      const mimeType = String(m.mimeType || '').trim();
-      if (!dataBase64 || !mimeType) return undefined;
-      return {
-        base64: dataBase64,
-        mimeType,
-        fileName: String(m.fileName || 'anexo'),
-        ...(m.sendMediaAsDocument === true ? { sendMediaAsDocument: true } : {}),
-      };
-    };
-    const openingMedia = toMediaPayload(mediaAttachmentRaw);
-    const followMedia = toMediaPayload(followUpMediaAttachmentRaw);
+    const openingMedia = toCampaignMediaPayload(mediaAttachmentRaw);
+    const followMedia = toCampaignMediaPayload(followUpMediaAttachmentRaw);
     if (openingMedia || followMedia) {
       evolutionService.storeCampaignMediaForDispatch(id, openingMedia, followMedia);
     }
@@ -408,6 +420,23 @@ export function registerCampaignsDataRoutes(app: Express): void {
     } catch (e) {
       console.error('[api/campaigns/failed-contacts]', e);
       return res.status(500).json({ ok: false, error: 'Erro ao listar contatos falhos.' });
+    }
+  });
+
+  /** Indica se anexos já estão em disco na VPS (sem devolver base64). */
+  app.get('/api/campaigns/:id/media-attachments/status', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const campaignId = String(req.params.id || '').trim();
+    if (!campaignId) return res.status(400).json({ ok: false, error: 'ID inválido.' });
+    try {
+      const owned = await evolutionService.ensureTenantOwnsCampaign(ctx.tenantId, campaignId);
+      if (!owned) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
+      const status = evolutionService.getCampaignMediaAttachmentsStatus(campaignId);
+      return res.json({ ok: true, ...status });
+    } catch (e) {
+      console.error('[api/campaigns/media-attachments/status]', e);
+      return res.status(500).json({ ok: false, error: 'Erro ao verificar anexos.' });
     }
   });
 

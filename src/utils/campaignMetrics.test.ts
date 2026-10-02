@@ -12,7 +12,8 @@ import {
   isCampaignLikelyStartedOnServer,
   isCampaignQueueWorkComplete,
   isRunningStatusButWorkComplete,
-  mergeCampaignMetricsWithReport
+  mergeCampaignMetricsWithReport,
+  isCampaignPlayButtonVisible
 } from './campaignMetrics';
 
 const baseCampaign = (patch: Partial<Campaign> = {}): Campaign => ({
@@ -69,6 +70,20 @@ describe('campaignMetrics — fluxo conversacional', () => {
     expect(isRunningStatusButWorkComplete(c)).toBe(false);
   });
 
+  it('cura DRAFT preso com 1ª etapa enviada → WAITING_REPLY', () => {
+    const c = baseCampaign({
+      status: CampaignStatus.DRAFT,
+      replyFlow: {
+        enabled: true,
+        steps: [{ body: 'Etapa 1' }, { body: 'Etapa 2' }]
+      },
+      successCount: 1,
+      processedCount: 1,
+      totalContacts: 1
+    });
+    expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.WAITING_REPLY);
+  });
+
   it('zera failedCount inflado com 1 contato aguardando resposta', () => {
     const c = baseCampaign({
       status: CampaignStatus.WAITING_REPLY,
@@ -99,6 +114,23 @@ describe('campaignMetrics — fluxo conversacional', () => {
     expect(m.ok).toBe(1);
     expect(m.reported).toBe(1);
     expect(m.progressPct).toBe(100);
+  });
+});
+
+describe('isCampaignPlayButtonVisible', () => {
+  it('esconde Play quando a fila inicial já terminou (DRAFT curado para Concluída)', () => {
+    const c = baseCampaign({
+      status: CampaignStatus.DRAFT,
+      totalContacts: 1,
+      processedCount: 1,
+      successCount: 1
+    });
+    expect(isCampaignPlayButtonVisible(c)).toBe(false);
+  });
+
+  it('mostra Play em DRAFT sem envios (iniciar depois)', () => {
+    const c = baseCampaign({ status: CampaignStatus.DRAFT, totalContacts: 1 });
+    expect(isCampaignPlayButtonVisible(c)).toBe(true);
   });
 });
 

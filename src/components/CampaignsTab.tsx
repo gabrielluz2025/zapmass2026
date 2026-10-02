@@ -37,8 +37,17 @@ import { CampaignInsightsBanner } from './campaigns/CampaignInsightsBanner';
 import { WhatsAppRiskAcceptModal } from './legal/WhatsAppRiskAcceptModal';
 import { CampaignPreviewModal } from './campaigns/CampaignPreviewModal';
 import { CampaignChangeChannelsDialog } from './campaigns/CampaignChangeChannelsDialog';
-import { redispatchCampaign, saveCampaignEdit, updateCampaignChannels } from '../services/campaignsApi';
-import { getCampaignProgressMetrics } from '../utils/campaignMetrics';
+import {
+  apiHealCampaignTerminalState,
+  redispatchCampaign,
+  saveCampaignEdit,
+  updateCampaignChannels
+} from '../services/campaignsApi';
+import {
+  getCampaignProgressMetrics,
+  healCampaignDocument,
+  isCampaignEffectivelyDone
+} from '../utils/campaignMetrics';
 import type { Campaign } from '../types';
 
 interface CampaignsTabProps {
@@ -298,6 +307,18 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     }
 
     if (campaign.status === CampaignStatus.DRAFT || campaign.status === CampaignStatus.FAILED) {
+      const healed = healCampaignDocument(campaign);
+      if (isCampaignEffectivelyDone(healed)) {
+        const m = getCampaignProgressMetrics(healed);
+        void apiHealCampaignTerminalState(id, {
+          status: healed.status,
+          processedCount: m.effectiveProcessed,
+          successCount: m.ok,
+          failedCount: m.fail
+        });
+        toast.success('Esta campanha já foi concluída.');
+        return;
+      }
       campaignToggleInFlightRef.current = true;
       try {
         const enqueued = await redispatchCampaign(id, { mode: 'resume' });
@@ -551,14 +572,22 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     if (payload.dailySchedule?.enabled) {
       patch.dailySchedule = payload.dailySchedule;
     }
-    if (payload.mediaAttachment) {
-      patch.mediaAttachment = payload.mediaAttachment;
-    }
-    if (payload.followUpMediaAttachment) {
-      patch.followUpMediaAttachment = payload.followUpMediaAttachment;
-    }
-
     try {
+      if (payload.mediaAttachment || payload.followUpMediaAttachment) {
+        const uploadToast = 'campaign-edit-media-upload';
+        toast.loading('Enviando anexo para o servidor…', { id: uploadToast, duration: 600_000 });
+        const { uploadCampaignDispatchMedia } = await import('../services/campaignsApi');
+        await uploadCampaignDispatchMedia(
+          editId,
+          {
+            mediaAttachment: payload.mediaAttachment,
+            followUpMediaAttachment: payload.followUpMediaAttachment
+          },
+          { skipIfOnServer: true, onProgress: (label) => toast.loading(label, { id: uploadToast }) }
+        );
+        toast.dismiss(uploadToast);
+      }
+
       const result = await saveCampaignEdit(editId, patch, channelIds, {
         poolId: payload.poolId ?? null,
         channelWeights: payload.channelWeights,

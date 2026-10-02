@@ -10,6 +10,34 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.293',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Evolution Go: anexo de campanha com base64 limpo e instanceId no send/media; falha explícita em vez de “Mensagem enviada” só com legenda',
+      },
+      {
+        type: 'fix',
+        text: 'POST /api/campaigns grava anexo em campaign-media; create do wizard envia mídia junto quando cabe na API',
+      },
+    ],
+  },
+  {
+    version: '2.3.291',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Pendente com 100%: cartão reflete Concluída/Aguardando respostas e esconde Play; status terminal sincroniza na VPS',
+      },
+      {
+        type: 'fix',
+        text: 'Anexo no assistente: upload ao salvar/criar campanha (com progresso); Play só dispara se o arquivo já estiver no servidor',
+      },
+    ],
+  },
+  {
     version: '2.3.290',
     date: '02/10/2026',
     highlights: [

@@ -191,7 +191,9 @@ export function healStuckCampaignStatus(c: Campaign): Campaign {
     m.pending === 0 &&
     m.effectiveProcessed >= m.plannedSendTotal &&
     (reclassified.successCount ?? 0) > 0 &&
-    reclassified.status === CampaignStatus.RUNNING
+    (reclassified.status === CampaignStatus.RUNNING ||
+      reclassified.status === CampaignStatus.DRAFT ||
+      reclassified.status === CampaignStatus.FAILED)
   ) {
     return {
       ...healCampaignCounters(reclassified),
@@ -300,6 +302,14 @@ export function isCampaignPauseControlVisible(status: CampaignStatus): boolean {
     status === CampaignStatus.PAUSED ||
     status === CampaignStatus.FAILED
   );
+}
+
+/** Cartão: Play/Pausar com status já curado (esconde Play quando a fila inicial acabou). */
+export function isCampaignPlayButtonVisible(c: Campaign): boolean {
+  const healed = healCampaignDocument(c);
+  if (healed.status === CampaignStatus.SCHEDULED) return false;
+  if (isCampaignEffectivelyDone(healed)) return false;
+  return isCampaignPauseControlVisible(healed.status) || healed.status === CampaignStatus.DRAFT;
 }
 
 export function isCampaignPauseAction(status: CampaignStatus): boolean {

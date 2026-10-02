@@ -5251,6 +5251,19 @@ export type CampaignMediaAttachmentDto = {
     sendMediaAsDocument?: boolean;
 };
 
+export function getCampaignMediaAttachmentsStatus(campaignId: string): {
+    opening: boolean;
+    followUp: boolean;
+} {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return { opening: false, followUp: false };
+    hydrateCampaignMediaFromDiskForDispatch(cid);
+    return {
+        opening: campaignOpeningMediaAvailable(cid),
+        followUp: campaignMediaSendable(campaignMediaStorageKey(cid, 1)),
+    };
+}
+
 export function getCampaignMediaAttachmentsForRetry(campaignId: string): {
     mediaAttachment?: CampaignMediaAttachmentDto;
     followUpMediaAttachment?: CampaignMediaAttachmentDto;

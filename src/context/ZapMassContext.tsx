@@ -65,7 +65,9 @@ import {
   fetchCampaigns,
   ensureDispatchReady,
   formatDispatchUnavailableMessage,
-  uploadCampaignDispatchMedia
+  campaignMediaCanEmbedOnCreate,
+  uploadCampaignDispatchMedia,
+  apiHealCampaignTerminalState
 } from '../services/campaignsApi';
 import { getSessionIdToken } from '../utils/sessionAuth';
 import {
@@ -779,7 +781,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       campaignFirestoreHealRef.current.add(c.id);
       const healed = healCampaignDocument(c);
       const m = getCampaignProgressMetrics(healed);
-      patchCampaignPersist(uid, c.id, {
+      void apiHealCampaignTerminalState(c.id, {
         status: healed.status,
         processedCount: m.effectiveProcessed,
         successCount: m.ok,
@@ -4296,6 +4298,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           .filter((r) => r.phone.length >= 10)
       : undefined;
 
+    const embedMediaOnCreate = campaignMediaCanEmbedOnCreate({
+      mediaAttachment: options?.mediaAttachment,
+      followUpMediaAttachment: options?.followUpMediaAttachment
+    });
+
     const campaignPayload = {
       ownerUid: uid,
       name: campaignName || `Disparo ${new Date().toLocaleString()}`,
@@ -4344,7 +4351,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           ? { frequencyCapAllowPhones: options.frequencyCapAllowPhones }
           : {}),
         ...(options?.prospecting?.enabled ? { prospecting: options.prospecting } : {})
-      }
+      },
+      ...(embedMediaOnCreate && options?.mediaAttachment
+        ? { mediaAttachment: options.mediaAttachment }
+        : {}),
+      ...(embedMediaOnCreate && options?.followUpMediaAttachment
+        ? { followUpMediaAttachment: options.followUpMediaAttachment }
+        : {})
     };
 
     const campaignIdCreated = await Promise.race([
@@ -4361,11 +4374,19 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     let socketMediaAttachment = options?.mediaAttachment;
     let socketFollowUpMediaAttachment = options?.followUpMediaAttachment;
-    if (socketMediaAttachment || socketFollowUpMediaAttachment) {
-      const upload = await uploadCampaignDispatchMedia(campaignRef.id, {
-        mediaAttachment: socketMediaAttachment,
-        followUpMediaAttachment: socketFollowUpMediaAttachment
-      });
+    if (!embedMediaOnCreate && (socketMediaAttachment || socketFollowUpMediaAttachment)) {
+      const upload = await uploadCampaignDispatchMedia(
+        campaignRef.id,
+        {
+          mediaAttachment: socketMediaAttachment,
+          followUpMediaAttachment: socketFollowUpMediaAttachment
+        },
+        {
+          skipIfOnServer: true,
+          onProgress: (label) => toast.loading(label, { id: 'campaign-media-upload', duration: 600_000 })
+        }
+      );
+      toast.dismiss('campaign-media-upload');
       if (upload.uploadedViaApi) {
         socketMediaAttachment = undefined;
         socketFollowUpMediaAttachment = undefined;
@@ -4374,6 +4395,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           'Anexo grande demais para enviar pelo navegador (~18 MB após compressão). Use uma foto menor, comprima o vídeo ou aumente JSON_BODY_LIMIT_MB na VPS e dispare de novo.'
         );
       }
+    } else if (embedMediaOnCreate) {
+      socketMediaAttachment = undefined;
+      socketFollowUpMediaAttachment = undefined;
     }
 
     try {

@@ -55,22 +55,79 @@ const approxBytesFromBase64 = (base64: string): number => {
  * Grava anexo no servidor via REST (evita estourar maxHttpBufferSize do Socket.IO no start-campaign).
  * Retorna se o socket pode omitir o base64 (já está em disco na VPS).
  */
+export async function fetchCampaignMediaAttachmentsStatus(
+  campaignId: string
+): Promise<{ opening: boolean; followUp: boolean }> {
+  const path = `/api/campaigns/${encodeURIComponent(campaignId)}/media-attachments/status`;
+  const j = await apiFetchJson<{ ok?: boolean; opening?: boolean; followUp?: boolean }>(path);
+  if (j.ok === false) return { opening: false, followUp: false };
+  return { opening: j.opening === true, followUp: j.followUp === true };
+}
+
+/** Persiste status/contadores após cura local (não sobrescreve pausa/agenda). */
+export async function apiHealCampaignTerminalState(
+  campaignId: string,
+  patch: {
+    status: string;
+    processedCount?: number;
+    successCount?: number;
+    failedCount?: number;
+  }
+): Promise<void> {
+  await apiUpdateCampaign(campaignId, {
+    ...patch,
+    allowTerminalStatusHeal: true,
+  });
+}
+
+export function campaignMediaCanEmbedOnCreate(payload: {
+  mediaAttachment?: CampaignMediaAttachmentPayload;
+  followUpMediaAttachment?: CampaignMediaAttachmentPayload;
+}): boolean {
+  const parts = [payload.mediaAttachment?.dataBase64, payload.followUpMediaAttachment?.dataBase64].filter(
+    Boolean
+  ) as string[];
+  if (!parts.length) return false;
+  const approxBytes = parts.reduce((sum, b64) => sum + approxBytesFromBase64(b64), 0);
+  return approxBytes > 0 && approxBytes <= CAMPAIGN_MEDIA_API_SAFE_BYTES;
+}
+
 export async function uploadCampaignDispatchMedia(
   campaignId: string,
   payload: {
     mediaAttachment?: CampaignMediaAttachmentPayload;
     followUpMediaAttachment?: CampaignMediaAttachmentPayload;
+  },
+  opts?: { skipIfOnServer?: boolean; onProgress?: (label: string) => void }
+): Promise<{ uploadedViaApi: boolean; approxBytes: number; skippedBecauseOnServer?: boolean }> {
+  const needsOpening = Boolean(payload.mediaAttachment?.dataBase64);
+  const needsFollow = Boolean(payload.followUpMediaAttachment?.dataBase64);
+  if (!needsOpening && !needsFollow) return { uploadedViaApi: false, approxBytes: 0 };
+
+  if (opts?.skipIfOnServer) {
+    try {
+      const st = await fetchCampaignMediaAttachmentsStatus(campaignId);
+      const openingOk = !needsOpening || st.opening;
+      const followOk = !needsFollow || st.followUp;
+      if (openingOk && followOk) {
+        return { uploadedViaApi: true, approxBytes: 0, skippedBecauseOnServer: true };
+      }
+    } catch {
+      // segue com upload
+    }
   }
-): Promise<{ uploadedViaApi: boolean; approxBytes: number }> {
+
   const parts = [payload.mediaAttachment?.dataBase64, payload.followUpMediaAttachment?.dataBase64].filter(
     Boolean
   ) as string[];
   const approxBytes = parts.reduce((sum, b64) => sum + approxBytesFromBase64(b64), 0);
-  if (!parts.length) return { uploadedViaApi: false, approxBytes: 0 };
 
   if (approxBytes > CAMPAIGN_MEDIA_API_SAFE_BYTES) {
     return { uploadedViaApi: false, approxBytes };
   }
+
+  const mb = (approxBytes / (1024 * 1024)).toFixed(1);
+  opts?.onProgress?.(`Enviando anexo para o servidor (${mb} MB)…`);
 
   const timeoutMs = Math.min(900_000, Math.max(120_000, 90_000 + Math.ceil(approxBytes / 25_000)));
   const patch: Record<string, unknown> = {};

@@ -7,6 +7,18 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.291] - 2026-10-02
+
+### Corrigido
+- **Campanha Pendente com 100% / Play visível**: cartão usa status curado (Concluída ou Aguardando respostas); Play some quando a fila inicial acabou; cura persiste status terminal na VPS (`allowTerminalStatusHeal`).
+- **Cópia / edição com anexo**: mídia sobe para o servidor ao salvar no assistente (com progresso), sem reenviar no Play se já estiver em disco; disparo só enfileira.
+
+## [2.3.293] - 2026-10-02
+
+### Corrigido
+- **Campanha com imagem no Evolution Go**: base64 normalizado (sem prefixo `data:`) ao gravar em `/app/data/campaign-media` e no payload `/send/media`; header `instanceId` no Go; abertura de campanha **não** envia só legenda em silêncio quando o anexo falha — marca falha com mensagem clara.
+- **Anexo na criação**: `POST /api/campaigns` grava mídia no disco (como o PATCH); wizard embute anexo no create quando cabe no limite da API.
+
 ## [2.3.290] - 2026-10-02
 
 ### Corrigido
