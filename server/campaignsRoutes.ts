@@ -671,7 +671,8 @@ export function registerCampaignsDataRoutes(app: Express): void {
       return res.status(400).json({ ok: false, error: 'Limite de 50.000 contatos por verificação.' });
     }
     try {
-      const contacts = await evolutionService.checkFrequencyCapForPhones(ctx.tenantId, phones);
+      const batch = await evolutionService.checkFrequencyCapForPhones(ctx.tenantId, phones);
+      const contacts = batch.contacts;
       const cappedCount = contacts.filter((c) => c.capped).length;
       return res.json({
         ok: true,
@@ -679,6 +680,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
         cappedCount,
         readyCount: contacts.length - cappedCount,
         contacts,
+        degraded: batch.degraded,
       });
     } catch (e) {
       console.error('[api/campaigns/frequency-cap-check]', e);

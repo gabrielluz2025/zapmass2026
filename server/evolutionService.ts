@@ -4815,11 +4815,29 @@ export type FrequencyCapContactResult = {
     lastSentAt?: string;
 };
 
+export type FrequencyCapCheckBatch = {
+    contacts: FrequencyCapContactResult[];
+    /** Redis configurado mas leitura incompleta — UI não deve marcar «liberado» sem revalidar. */
+    degraded: boolean;
+};
+
+async function waitForRedisReadyForFreqCap(maxWaitMs = 5_000): Promise<IORedis | null> {
+    if (!getRedisUrl()?.trim()) return null;
+    const started = Date.now();
+    while (Date.now() - started < maxWaitMs) {
+        const redis = getRedisConnection();
+        if (redis?.status === 'ready') return redis;
+        await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+    const redis = getRedisConnection();
+    return redis?.status === 'ready' ? redis : null;
+}
+
 /** Pré-voo: quais contatos já receberam mensagem nas últimas 24 h. */
 export async function checkFrequencyCapForPhones(
     ownerUid: string | undefined,
     phones: string[]
-): Promise<FrequencyCapContactResult[]> {
+): Promise<FrequencyCapCheckBatch> {
     const seen = new Set<string>();
     const unique: Array<{ phone: string; phoneKey: string }> = [];
     for (const phone of phones) {
@@ -4849,11 +4867,21 @@ export async function checkFrequencyCapForPhones(
         .map((u, i) => ({ ...u, i }))
         .filter((u) => !results[u.i].capped);
 
-    const redis = getRedisConnection();
-    if (!ownerUid || !redis || redis.status !== 'ready' || needRedis.length === 0) {
-        return results;
+    const redisUrlConfigured = Boolean(getRedisUrl()?.trim());
+    if (!ownerUid || needRedis.length === 0) {
+        return { contacts: results, degraded: false };
     }
 
+    if (!redisUrlConfigured) {
+        return { contacts: results, degraded: false };
+    }
+
+    const redis = await waitForRedisReadyForFreqCap();
+    if (!redis) {
+        return { contacts: results, degraded: true };
+    }
+
+    let degraded = false;
     try {
         const keys = needRedis.map((u) => freqCapRedisKey(ownerUid, u.phoneKey));
         const CHUNK = 800;
@@ -4862,13 +4890,18 @@ export async function checkFrequencyCapForPhones(
             const slice = keys.slice(offset, offset + CHUNK);
             const part = await Promise.race([
                 redis.mget(...slice),
-                new Promise<null>((resolve) => setTimeout(() => resolve(null), 3_000)),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
             ]);
-            if (!part) break;
+            if (!part) {
+                degraded = true;
+                break;
+            }
             raws.push(...part);
         }
-        if (raws.length === 0) return results;
-        for (let k = 0; k < needRedis.length; k++) {
+        if (!degraded && raws.length === 0 && needRedis.length > 0) {
+            degraded = true;
+        }
+        for (let k = 0; k < needRedis.length && k < raws.length; k++) {
             const raw = raws[k];
             if (!raw) continue;
             const ts = Number(raw);
@@ -4882,9 +4915,9 @@ export async function checkFrequencyCapForPhones(
             };
         }
     } catch {
-        // Redis lento — devolve o que já está em memória.
+        degraded = true;
     }
-    return results;
+    return { contacts: results, degraded };
 }
 
 async function recordFrequencyCap(ownerUid: string | undefined, phone: string): Promise<void> {
@@ -12735,7 +12768,9 @@ export async function startCampaign(
         skipFrequencyCap === true ? null : normalizeFrequencyCapAllowKeys(frequencyCapAllowPhones);
     let freqCapBlockedKeys =
         ownerUid && skipFrequencyCap !== true
-            ? buildFrequencyCapBlockSet(await checkFrequencyCapForPhones(ownerUid, numbers))
+            ? buildFrequencyCapBlockSet(
+                  (await checkFrequencyCapForPhones(ownerUid, numbers)).contacts
+              )
             : new Set<string>();
     if (freqCapAllowKeys?.size) {
         freqCapBlockedKeys = applyFrequencyCapAllowList(freqCapBlockedKeys, freqCapAllowKeys);
@@ -13115,10 +13150,6 @@ export async function startCampaign(
                 () => undefined
             );
         }
-        publishOwnerEvent(ownerUid, 'campaign-error', {
-            campaignId: cid,
-            error: err?.message || 'Falha ao enfileirar mensagens da campanha.',
-        });
         throw err;
     }
 

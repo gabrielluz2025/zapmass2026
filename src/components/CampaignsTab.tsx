@@ -653,7 +653,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       setPreviewPayload(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Falha ao iniciar campanha.';
-      toast.error(msg, { duration: 9000 });
+      toast.error(msg, { id: 'campaign-bootstrap', duration: 9000 });
     } finally {
       setPreviewConfirmLoading(false);
     }

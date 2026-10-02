@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.303',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Preview disparo: limite 24 h confiável (Redis), badges 24 h/OK corretos, reenvio por checkbox e confirmação com reverificação; toast único ao bloquear',
+      },
+    ],
+  },
+  {
     version: '2.3.302',
     date: '02/10/2026',
     highlights: [

@@ -619,6 +619,8 @@ export type FrequencyCapCheckResult = {
   cappedCount: number;
   readyCount: number;
   contacts: FrequencyCapContactResult[];
+  /** Leitura Redis incompleta — não confiar em «todos liberados» até reverificar. */
+  degraded?: boolean;
 };
 
 export type CampaignRecipientWaVerifyResult = 'found' | 'corrected' | 'missing' | 'invalid_format' | 'uncertain';

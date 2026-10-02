@@ -30,8 +30,12 @@ import { hasUnresolvedCampaignTemplateTokens } from '../../../shared/campaignSpi
 import { apiPreflightCheck, apiFrequencyCapCheck, ensureDispatchReady } from '../../services/campaignsApi';
 import {
   computeDispatchableAfterFreqCap,
+  frequencyCapAllowPhonesFromTriaged,
   phoneKeyForFreqPreview,
+  triageRecipientsForFreqCap,
+  type FreqCapTriagedContact,
 } from '../../utils/campaignFrequencyCapPreview';
+import toast from 'react-hot-toast';
 import { DispatchFixPanel } from './DispatchFixPanel';
 import { useAuth } from '../../context/AuthContext';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
@@ -105,14 +109,6 @@ interface CampaignPreviewModalProps {
 
 type HealthStatus = PreviewHealthStatus;
 
-interface TriagedContact {
-  phone: string;
-  name: string;
-  vars: Record<string, string>;
-  capped: boolean;
-  lastSentAt?: string;
-}
-
 // ── componente ───────────────────────────────────────────────────────────────
 
 export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
@@ -144,11 +140,13 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   const [showChipDetails, setShowChipDetails] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [freqCapStatus, setFreqCapStatus] = useState<HealthStatus>('idle');
-  const [triagedContacts, setTriagedContacts] = useState<TriagedContact[]>([]);
+  const [triagedContacts, setTriagedContacts] = useState<FreqCapTriagedContact[]>([]);
   const [cappedCount, setCappedCount] = useState(0);
   /** Telefones no limite 24 h que o usuário marcou para reenviar. */
   const [cappedResendSelected, setCappedResendSelected] = useState<Set<string>>(() => new Set());
   const [showAllContacts, setShowAllContacts] = useState(false);
+  const [confirmRechecking, setConfirmRechecking] = useState(false);
+  const freqCapSectionRef = useRef<HTMLDivElement | null>(null);
 
   const allMessages = useMemo(() => {
     return [message, ...messageStages].filter(Boolean);
@@ -175,60 +173,80 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   /** Base grande: o check 24h no cliente trava o modal (payload + re-render). O servidor aplica o cap no envio. */
   const LARGE_FREQ_CAP_CLIENT = 1_500;
 
-  const runFrequencyCapCheck = useCallback(async () => {
-    const recipients = recipientsRef.current;
-    setFreqCapStatus('checking');
-    setCappedResendSelected(new Set());
-    const phones = recipients.map((r) => r.phone.replace(/\D/g, '')).filter((p) => p.length >= 10);
-
-    if (phones.length > LARGE_FREQ_CAP_CLIENT) {
-      setTriagedContacts(
-        recipients.slice(0, 6).map((r) => ({
-          phone: r.phone.replace(/\D/g, ''),
-          name: r.name || r.phone,
-          vars: r.vars,
-          capped: false,
-        }))
-      );
-      setCappedCount(0);
-      setFreqCapStatus('ok');
-      return;
-    }
-
-    try {
-      const res = await apiFrequencyCapCheck(phones);
-      const cappedByPhone = new Map(
-        res.contacts.map((c) => [c.phoneKey, { capped: c.capped, lastSentAt: c.lastSentAt }])
-      );
-      const triaged: TriagedContact[] = recipients.map((r) => {
-        const digits = r.phone.replace(/\D/g, '');
-        const key = digits.slice(-11);
-        const cap = cappedByPhone.get(key);
-        return {
-          phone: digits,
-          name: r.name || r.phone,
-          vars: r.vars,
-          capped: cap?.capped ?? false,
-          lastSentAt: cap?.lastSentAt,
-        };
-      });
+  const applyFrequencyCapApiResult = useCallback(
+    (
+      recipients: SampleRecipient[],
+      res: { contacts: Array<{ phoneKey: string; capped?: boolean; lastSentAt?: string }>; cappedCount: number; degraded?: boolean },
+      resetResendSelection: boolean
+    ) => {
+      const { triaged, cappedCount: cappedFromTriage } = triageRecipientsForFreqCap(recipients, res.contacts);
       setTriagedContacts(triaged);
-      setCappedCount(res.cappedCount);
+      setCappedCount(cappedFromTriage);
+      if (resetResendSelection) {
+        setCappedResendSelected(new Set());
+      }
+      const degraded = res.degraded === true;
+      setFreqCapDegraded(degraded);
+      if (degraded) {
+        setFreqCapStatus(freqCapStatusAfterCheck(false, true));
+        if (cappedFromTriage === 0) {
+          setShowAllContacts(true);
+        }
+        return;
+      }
       setFreqCapStatus('ok');
-    } catch {
-      setTriagedContacts(
-        recipients.slice(0, 6).map((r) => ({
-          phone: r.phone.replace(/\D/g, ''),
-          name: r.name || r.phone,
-          vars: r.vars,
-          capped: false,
-        }))
-      );
-      setCappedCount(0);
-      setFreqCapDegraded(true);
-      setFreqCapStatus(freqCapStatusAfterCheck(false, true));
-    }
-  }, []);
+      if (cappedFromTriage > 0) {
+        setShowAllContacts(true);
+      }
+    },
+    []
+  );
+
+  const runFrequencyCapCheck = useCallback(
+    async (opts?: { resetResendSelection?: boolean }) => {
+      const recipients = recipientsRef.current;
+      const resetResendSelection = opts?.resetResendSelection !== false;
+      setFreqCapStatus('checking');
+      if (resetResendSelection) {
+        setCappedResendSelected(new Set());
+      }
+      const phones = recipients.map((r) => r.phone.replace(/\D/g, '')).filter((p) => p.length >= 10);
+
+      if (phones.length > LARGE_FREQ_CAP_CLIENT) {
+        setTriagedContacts(
+          recipients.slice(0, 6).map((r) => ({
+            phone: r.phone.replace(/\D/g, ''),
+            name: r.name || r.phone,
+            vars: r.vars,
+            capped: false,
+          }))
+        );
+        setCappedCount(0);
+        setFreqCapDegraded(false);
+        setFreqCapStatus('ok');
+        return;
+      }
+
+      try {
+        const res = await apiFrequencyCapCheck(phones);
+        applyFrequencyCapApiResult(recipients, res, resetResendSelection);
+      } catch {
+        setTriagedContacts(
+          recipients.slice(0, 6).map((r) => ({
+            phone: r.phone.replace(/\D/g, ''),
+            name: r.name || r.phone,
+            vars: r.vars,
+            capped: false,
+          }))
+        );
+        setCappedCount(0);
+        setFreqCapDegraded(true);
+        setFreqCapStatus(freqCapStatusAfterCheck(false, true));
+        setShowAllContacts(true);
+      }
+    },
+    [applyFrequencyCapApiResult]
+  );
 
   const runHealthCheck = useCallback(async () => {
     const ids = connectionIdsRef.current;
@@ -287,8 +305,14 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       setShowAllContacts(false);
       setChipUsedLocalFallback(false);
       setChipPreflightError(null);
+      setConfirmRechecking(false);
     }
   }, [isOpen, runHealthCheck, runFrequencyCapCheck]);
+
+  useEffect(() => {
+    if (!isOpen || cappedCount <= 0) return;
+    freqCapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [isOpen, cappedCount]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -334,6 +358,12 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
     cappedInPreview.length > 0 &&
     cappedInPreview.every((c) => cappedResendSelected.has(phoneKeyForFreqPreview(c.phone)));
 
+  const freqCapBlocksDispatch =
+    triageComplete &&
+    !largeBaseSkipClientCap &&
+    contactCount > 0 &&
+    dispatchableCount <= 0;
+
   const overallHealth: HealthStatus =
     chipStatus === 'error'
       ? 'error'
@@ -341,6 +371,8 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       ? 'checking'
       : motorStatus === 'reconnecting'
       ? 'reconnecting'
+      : freqCapBlocksDispatch
+      ? 'warn'
       : chipStatus === 'ok' && (motorStatus === 'ok' || motorStatus === 'warn') && triageComplete
       ? 'ok'
       : motorStatus === 'warn' || freqCapStatus === 'warn' || freqCapStatus === 'error' || chipStatus === 'warn'
@@ -361,7 +393,66 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
     !chipsConfirmedOffline &&
     motorStatus !== 'error' &&
     dispatchableCount > 0 &&
+    freqCapStatus !== 'checking' &&
+    !confirmRechecking &&
     (isBackendConnected || chipUsedLocalFallback);
+
+  const handleConfirmDispatch = useCallback(async () => {
+    if (confirmRechecking || isLoading) return;
+    const recipients = recipientsRef.current;
+    setConfirmRechecking(true);
+    try {
+      if (recipients.length <= LARGE_FREQ_CAP_CLIENT) {
+        const phones = recipients.map((r) => r.phone.replace(/\D/g, '')).filter((p) => p.length >= 10);
+        const res = await apiFrequencyCapCheck(phones);
+        applyFrequencyCapApiResult(recipients, res, false);
+        const freshCapped = triageRecipientsForFreqCap(recipients, res.contacts).cappedCount;
+        const freshDispatchable = computeDispatchableAfterFreqCap({
+          contactCount: recipients.length,
+          cappedCount: freshCapped,
+          selectedCappedKeys: cappedResendSelected,
+          largeBaseSkipClientCap: false,
+        });
+        if (freshDispatchable <= 0) {
+          freqCapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          const msg =
+            freshCapped >= recipients.length
+              ? `Nenhum envio possível: ${freshCapped} contato(s) já receberam mensagem nas últimas 24 h. Marque quem deve reenviar na lista abaixo.`
+              : 'Nenhum contato selecionado para disparo. Marque reenvio (24 h) ou ajuste a lista.';
+          toast.error(msg, { id: 'campaign-bootstrap', duration: 9000 });
+          return;
+        }
+        const allowPhones = frequencyCapAllowPhonesFromTriaged(
+          triageRecipientsForFreqCap(recipients, res.contacts).triaged,
+          cappedResendSelected
+        );
+        onConfirm({
+          skipFrequencyCap: false,
+          frequencyCapAllowPhones: allowPhones.length > 0 ? allowPhones : undefined,
+        });
+        return;
+      }
+      const allowPhones = frequencyCapAllowPhonesFromTriaged(triagedContacts, cappedResendSelected);
+      onConfirm({
+        skipFrequencyCap: false,
+        frequencyCapAllowPhones: allowPhones.length > 0 ? allowPhones : undefined,
+      });
+    } catch {
+      toast.error(
+        'Não foi possível reverificar o limite de 24 h. Clique em Reverificar ou tente de novo em instantes.',
+        { id: 'campaign-bootstrap', duration: 9000 }
+      );
+    } finally {
+      setConfirmRechecking(false);
+    }
+  }, [
+    applyFrequencyCapApiResult,
+    cappedResendSelected,
+    confirmRechecking,
+    isLoading,
+    onConfirm,
+    triagedContacts,
+  ]);
 
   const palette = {
     ok: { bg: '#10b98115', border: '#10b98135', text: '#10b981', icon: <CheckCircle2 className="w-4 h-4" /> },
@@ -399,17 +490,9 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
         <Button
           variant="primary"
           size="sm"
-          onClick={() => {
-            const allowPhones = triagedContacts
-              .filter((c) => c.capped && cappedResendSelected.has(phoneKeyForFreqPreview(c.phone)))
-              .map((c) => c.phone);
-            onConfirm({
-              skipFrequencyCap: false,
-              frequencyCapAllowPhones: allowPhones.length > 0 ? allowPhones : undefined,
-            });
-          }}
-          loading={isLoading}
-          leftIcon={isLoading ? undefined : <Rocket className="w-4 h-4" />}
+          onClick={() => void handleConfirmDispatch()}
+          loading={isLoading || confirmRechecking}
+          leftIcon={isLoading || confirmRechecking ? undefined : <Rocket className="w-4 h-4" />}
           disabled={!canDispatch}
         >
           {launchMode === 'schedule'
@@ -504,7 +587,9 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
                 {overallHealth === 'checking' ? 'Preparando envio…' :
                  overallHealth === 'reconnecting' ? 'Sincronizando com o servidor…' :
                  overallHealth === 'ok' ? 'Tudo pronto para disparar!' :
-                 overallHealth === 'warn' ? 'Verificação incompleta — você ainda pode disparar' :
+                 freqCapBlocksDispatch
+                   ? 'Limite 24 h — marque reenvio para disparar'
+                   : overallHealth === 'warn' ? 'Verificação incompleta — confira o limite 24 h' :
                  overallHealth === 'error' ? (isAdmin ? 'Problema detectado — veja abaixo' : 'Aguarde um instante e tente novamente') :
                  'Verificação de pré-disparo'}
               </span>
@@ -615,8 +700,11 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
 
         {/* ── TRIAGEM DE CONTATOS (limite 24 h) ─────────────────────────── */}
         <div
+          ref={freqCapSectionRef}
           className="rounded-2xl overflow-hidden"
-          style={{ border: '1px solid var(--border-subtle)' }}
+          style={{
+            border: `1px solid ${cappedCount > 0 || freqCapDegraded ? '#f59e0b55' : 'var(--border-subtle)'}`,
+          }}
         >
           <div
             className="px-4 py-3 flex items-center justify-between gap-2"
@@ -641,6 +729,8 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
                   ? 'Não foi possível verificar o limite de 24 h'
                   : largeBaseSkipClientCap
                   ? `Base grande (${contactCount.toLocaleString('pt-BR')}): limite 24 h aplicado no envio`
+                  : freqCapDegraded && cappedCount === 0
+                  ? 'Limite 24 h não confirmado — reverifique antes de disparar'
                   : cappedCount > 0
                   ? `${cappedCount} no limite 24 h · ${dispatchableCount.toLocaleString('pt-BR')} no disparo`
                   : `Todos os ${contactCount} contatos liberados`}
@@ -740,12 +830,18 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
             )}
           </div>
 
-          {needsRepeatConfirm && (
+          {(needsRepeatConfirm || freqCapDegraded) && (
             <div className="mx-4 mb-3">
               <p className="text-[11px] leading-snug px-1" style={{ color: 'var(--text-3)' }}>
-                Contatos com badge <strong>24 h</strong> já receberam mensagem hoje — por padrão ficam de
-                fora. Marque na lista quem deve <strong>reenviar</strong>; os demais seguem liberados
-                normalmente.
+                {freqCapDegraded && cappedCount === 0
+                  ? 'A verificação do limite 24 h ficou incompleta (servidor/Redis). Clique em Reverificar ou confirme de novo — o sistema reaplica o limite antes de enfileirar.'
+                  : (
+                    <>
+                      Contatos com badge <strong>24 h</strong> já receberam mensagem hoje — por padrão ficam de
+                      fora. Marque na lista quem deve <strong>reenviar</strong>; os demais seguem liberados
+                      normalmente.
+                    </>
+                  )}
               </p>
             </div>
           )}

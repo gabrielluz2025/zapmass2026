@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.303] - 2026-10-02
+
+### Corrigido
+- **Preview do disparo (24 h)**: badge OK alinhado ao limite real (Redis aguarda ficar pronto); seção 24 h em destaque com badges **24 h** e checkboxes de reenvio; confirmação reverifica o cap e bloqueia com mensagem clara quando todos estão bloqueados; `frequencyCapAllowPhones` repassado no confirm.
+- **Toast triplo**: um único aviso (`campaign-bootstrap`) ao falhar o disparo por limite 24 h (sem evento duplicado no servidor).
+
 ## [2.3.302] - 2026-10-02
 
 ### Corrigido
