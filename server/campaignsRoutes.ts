@@ -785,9 +785,10 @@ export function registerCampaignsDataRoutes(app: Express): void {
       connectionId?: string;
       toNumber?: string;
       message?: string;
+      campaignId?: string;
       mediaAttachment?: unknown;
     };
-    const { connectionId, toNumber, message } = body;
+    const { connectionId, toNumber, message, campaignId } = body;
     if (!connectionId || !toNumber || !message) {
       return res.status(400).json({ ok: false, error: 'Informe connectionId, toNumber e message.' });
     }
@@ -809,7 +810,8 @@ export function registerCampaignsDataRoutes(app: Express): void {
               fileName: testMedia.fileName,
               ...(testMedia.sendMediaAsDocument ? { sendMediaAsDocument: true } : {}),
             }
-          : undefined
+          : undefined,
+        { campaignId: String(campaignId || '').trim() || undefined }
       );
       return res.json({ ok: result.ok, messageId: result.messageId, error: result.error });
     } catch (e: unknown) {

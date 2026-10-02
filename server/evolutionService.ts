@@ -16109,20 +16109,31 @@ export async function sendTestMessage(
     connectionId: string,
     toNumber: string,
     message: string,
-    media?: CampaignMediaPayload
+    media?: CampaignMediaPayload,
+    opts?: { campaignId?: string }
 ): Promise<{ ok: boolean; messageId?: string; error?: string }> {
     try {
         const caption = String(message || '').trim();
-        const b64 = media?.base64 ? normalizeCampaignMediaBase64(media.base64) : '';
-        if (b64 && media?.mimeType) {
+        let effectiveMedia = media;
+        const cid = String(opts?.campaignId || '').trim();
+        const inlineB64 = media?.base64 ? normalizeCampaignMediaBase64(media.base64) : '';
+        if (!inlineB64 && cid) {
+            hydrateCampaignMediaFromDiskForDispatch(cid);
+            const fromDisk = resolveStoredCampaignMedia(cid);
+            if (fromDisk?.base64) {
+                effectiveMedia = fromDisk;
+            }
+        }
+        const b64 = effectiveMedia?.base64 ? normalizeCampaignMediaBase64(effectiveMedia.base64) : '';
+        if (b64 && effectiveMedia?.mimeType) {
             const result = await sendMediaInternal(
                 connectionId,
                 toNumber,
                 b64,
-                media.mimeType,
-                media.fileName || 'anexo',
+                effectiveMedia.mimeType,
+                effectiveMedia.fileName || 'anexo',
                 caption,
-                media.sendMediaAsDocument ? { sendMediaAsDocument: true } : undefined
+                effectiveMedia.sendMediaAsDocument ? { sendMediaAsDocument: true } : undefined
             );
             return result.ok
                 ? { ok: true, messageId: result.messageId }

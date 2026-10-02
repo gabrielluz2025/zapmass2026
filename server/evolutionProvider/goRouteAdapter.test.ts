@@ -79,8 +79,8 @@ describe('adaptEvolutionApiRequestToGo', () => {
         );
         expect(r.url).toBe('/send/media');
         expect(r.headers.instanceId).toBe(validUuid);
+        expect((r.data as { url?: string }).url).toBe('QUJD');
         expect((r.data as { base64?: string }).base64).toBe('QUJD');
-        expect((r.data as { url?: string }).url).toBeUndefined();
     });
 
     it('POST connect → /instance/connect com webhook', () => {

@@ -1813,8 +1813,23 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     } | undefined;
     try {
       mediaAttachment = await buildCampaignAttachmentPayload(campaignAttachment, {
-        onPrepareHint: (h) => toast(h, { duration: 5000 })
+        onPrepareHint: (h) => toast(h, { duration: 5000 }),
+        campaignId: editMetaRef.current.editCampaignId,
       });
+      if (
+        !mediaAttachment &&
+        campaignAttachment?.persistedOnServer &&
+        editMetaRef.current.editCampaignId
+      ) {
+        finished = true;
+        cleanup();
+        setQuickTestBusy(false);
+        toast.error(
+          'Anexo ainda não está na VPS. Salve a campanha (passo anterior) e tente o teste de novo.',
+          { duration: 7000 }
+        );
+        return;
+      }
     } catch (err) {
       finished = true;
       cleanup();
@@ -1826,7 +1841,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       fromConnectionId: fromId,
       toPhone: quickTestPhone.trim(),
       message: testMessage,
-      ...(mediaAttachment ? { mediaAttachment } : {})
+      ...(editMetaRef.current.editCampaignId
+        ? { campaignId: editMetaRef.current.editCampaignId }
+        : {}),
+      ...(mediaAttachment ? { mediaAttachment } : {}),
     });
     })();
   };

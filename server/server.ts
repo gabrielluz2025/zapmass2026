@@ -2348,10 +2348,12 @@ const registerSocketHandlers = () => {
         toPhone,
         message,
         mediaAttachment,
+        campaignId,
       }: {
         fromConnectionId?: string;
         toPhone?: string;
         message?: string;
+        campaignId?: string;
         mediaAttachment?: {
           dataBase64?: string;
           mimeType?: string;
@@ -2386,7 +2388,8 @@ const registerSocketHandlers = () => {
                 fileName: sanitized.fileName,
                 ...(sanitized.sendMediaAsDocument ? { sendMediaAsDocument: true } : {}),
               }
-            : undefined
+            : undefined,
+          { campaignId: String(campaignId || '').trim() || undefined }
         );
         if (!result.ok) {
           socket.emit('test-dispatch-result', {

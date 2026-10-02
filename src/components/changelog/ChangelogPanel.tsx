@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.301',
+    date: '02/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Evolution Go: mídia no campo url do /send/media; teste do wizard lê anexo da VPS; pausa pós-assumir limpa ao finalizar conversa',
+      },
+    ],
+  },
+  {
     version: '2.3.300',
     date: '02/10/2026',
     highlights: [

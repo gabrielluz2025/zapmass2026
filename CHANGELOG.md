@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.301] - 2026-10-02
+
+### Corrigido
+- **Evolution Go — anexo no teste/disparo**: `goRouteAdapter` envia base64 no campo `url` (exigido pelo `/send/media` do Go); evita toast «Evolution Go não recebeu o arquivo» (`URL is required`).
+- **Teste antes de disparar**: reidrata anexo já salvo na VPS (`campaignId` + GET media-attachments); servidor lê mídia do disco quando o socket não traz base64.
+- **Assumir conversa**: ao Finalizar/Libertar, limpa pausa de disparo mesmo se a conversa não estiver em memória (telefone extraído do `conversationId`).
+
 ## [2.3.300] - 2026-10-02
 
 ### Corrigido

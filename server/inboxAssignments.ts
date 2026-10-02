@@ -454,11 +454,41 @@ export async function inboxReleaseConversation(
   return { ok: true };
 }
 
-function clearHumanManualPauseAfterInboxRelease(tenantUid: string, conversationId: string): void {
-  void import('./whatsappService.js').then(({ getConversations }) => {
-    const conv = getConversations().find((c) => c.id === conversationId);
-    if (conv) triggerHumanReleaseAutomationsResume(tenantUid, conv);
-  });
+/** Extrai telefone do id `connectionId:remoteJid` quando a conversa não está em memória. */
+export function phoneDigitsFromConversationId(conversationId: string): string {
+  const id = String(conversationId || '').trim();
+  if (!id) return '';
+  const colon = id.indexOf(':');
+  if (colon <= 0) return '';
+  const jidPart = id.slice(colon + 1);
+  const local = jidPart.split('@')[0] || jidPart;
+  return normalizePhoneDigits(local.replace(/\D/g, '') || local);
+}
+
+async function clearHumanManualPauseAfterInboxRelease(tenantUid: string, conversationId: string): Promise<void> {
+  let phoneDigits = '';
+  try {
+    const { getConversations: getEvoConversations } = await import('./evolutionService.js');
+    const evoConv = getEvoConversations().find((c) => c.id === conversationId);
+    if (evoConv) phoneDigits = normalizePhoneDigits(evoConv.contactPhone || '');
+  } catch {
+    /* ignore */
+  }
+  if (phoneDigits.length < 8) {
+    try {
+      const { getConversations } = await import('./whatsappService.js');
+      const waConv = getConversations().find((c) => c.id === conversationId);
+      if (waConv) phoneDigits = normalizePhoneDigits(waConv.contactPhone || '');
+    } catch {
+      /* ignore */
+    }
+  }
+  if (phoneDigits.length < 8) {
+    phoneDigits = phoneDigitsFromConversationId(conversationId);
+  }
+  if (phoneDigits.length < 8) return;
+  const { clearHumanManualDispatchPaused } = await import('./humanManualDispatchPause.js');
+  await clearHumanManualDispatchPaused(tenantUid, phoneDigits);
 }
 
 /** Somente testes (Vitest): repõe cache em memória. */

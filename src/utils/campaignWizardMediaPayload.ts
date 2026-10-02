@@ -1,4 +1,5 @@
 import type { CampaignMediaAttachmentPayload } from '../services/campaignsApi';
+import { fetchCampaignMediaAttachments } from '../services/campaignsApi';
 import { prepareCampaignAttachmentForSend } from './campaignMediaCompress';
 import type { CampaignAttachmentState } from '../components/campaigns/CampaignAttachmentBlock';
 
@@ -26,6 +27,8 @@ export async function buildCampaignAttachmentPayload(
   att: CampaignAttachmentState | null | undefined,
   opts?: {
     onPrepareHint?: (hint: string) => void;
+    /** Campanha já salva na VPS — busca base64 quando só há `persistedOnServer` no estado. */
+    campaignId?: string;
   }
 ): Promise<CampaignMediaAttachmentPayload | undefined> {
   if (!att) return undefined;
@@ -42,6 +45,23 @@ export async function buildCampaignAttachmentPayload(
   }
 
   if (!att.file) {
+    if (att.persistedOnServer && opts?.campaignId) {
+      try {
+        const { mediaAttachment } = await fetchCampaignMediaAttachments(opts.campaignId);
+        if (mediaAttachment?.dataBase64 && mediaAttachment.mimeType) {
+          return {
+            dataBase64: mediaAttachment.dataBase64,
+            mimeType: mediaAttachment.mimeType,
+            fileName: mediaAttachment.fileName || att.fileName || 'anexo',
+            ...(mediaAttachment.sendMediaAsDocument || att.sendAsDocument
+              ? { sendMediaAsDocument: true }
+              : {}),
+          };
+        }
+      } catch {
+        /* rede */
+      }
+    }
     if (att.persistedOnServer) return undefined;
     return undefined;
   }

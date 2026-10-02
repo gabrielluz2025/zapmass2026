@@ -258,11 +258,16 @@ export function adaptEvolutionApiRequestToGo(
             mimeType: mime,
             fileName: body.fileName || body.filename || '',
         };
+        // Evolution Go: campo `url` — http(s) ou base64 puro (não-http é decodificado como mídia).
         if (typeof mediaUrl === 'string' && mediaUrl.startsWith('http')) {
             goMedia.url = mediaUrl;
         } else if (base64.length > 0) {
+            goMedia.url = base64;
             goMedia.base64 = base64;
+            goMedia.media = base64;
         }
+        goMedia.type = mediaKind;
+        goMedia.filename = goMedia.fileName;
         const goUuid = goUuidForConnection(tokenStore, instanceId!);
         const mediaHeaders = goUuid ? { ...instH, instanceId: goUuid } : instH;
         return { url: '/send/media', data: goMedia, headers: mediaHeaders };
