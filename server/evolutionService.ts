@@ -6217,18 +6217,46 @@ function bumpCampaignSkip(campaignId: string | undefined) {
     }
 }
 
+async function resolveCampaignHeldConnectionIds(campaignId: string): Promise<string[]> {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return [];
+    const state = campaignsById.get(cid);
+    const fromRuntime = [...(state?.connectionIds || [])]
+        .map((id) => String(id || '').trim())
+        .filter(Boolean);
+    if (fromRuntime.length > 0) return fromRuntime;
+    const poolCfg = await loadCampaignPoolConfig(cid).catch(() => null);
+    const fromPool = [...(poolCfg?.connectionIds || [])]
+        .map((id) => String(id || '').trim())
+        .filter(Boolean);
+    if (fromPool.length > 0) return fromPool;
+    const redis = getSharedRedis();
+    if (!redis) return [];
+    const prefix = `zapmass:camp-hold:${cid}:`;
+    const found = new Set<string>();
+    let cursor = '0';
+    do {
+        const [next, keys] = await redis.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 100);
+        cursor = next;
+        for (const key of keys) {
+            const connId = key.slice(prefix.length);
+            if (connId) found.add(connId);
+        }
+    } while (cursor !== '0');
+    return Array.from(found);
+}
+
 async function countHeldCampaignJobsForCampaign(campaignId: string): Promise<number> {
     const cid = String(campaignId || '').trim();
     if (!cid) return 0;
     const redis = getSharedRedis();
     if (!redis) return 0;
-    const state = campaignsById.get(cid);
-    const connIds = [...(state?.connectionIds || [])].map((id) => String(id || '').trim()).filter(Boolean);
+    const connIds = await resolveCampaignHeldConnectionIds(cid);
     let total = 0;
     for (const connId of connIds) {
         total += Math.max(
             0,
-            Number(await redis.llen(`zapmass:camp-hold:${cid}:${connId}`).catch(() => 0)) || 0
+            Number(await redis.llen(heldListKey(cid, connId)).catch(() => 0)) || 0
         );
     }
     return total;
@@ -9266,8 +9294,7 @@ async function drainHeldForConnection(connectionId: string): Promise<void> {
 }
 
 async function drainHeldForCampaign(campaignId: string): Promise<void> {
-    const state = campaignsById.get(campaignId);
-    const ids = state?.connectionIds || [];
+    const ids = await resolveCampaignHeldConnectionIds(campaignId);
     for (const connectionId of ids) {
         for (let i = 0; i < CAMPAIGN_CHANNEL_WINDOW; i++) {
             const promoted = await promoteHeldCampaignJob(campaignId, connectionId);
@@ -11984,6 +12011,7 @@ export async function redispatchCampaign(
         skipFrequencyCap?: boolean;
     } = {}
 ): Promise<{ ok: boolean; enqueued: number; error?: string }> {
+    try {
     const mode = options.mode || 'failed';
     const skipFrequencyCap = options.skipFrequencyCap !== false;
 
@@ -11991,23 +12019,57 @@ export async function redispatchCampaign(
     const campaign = await getCampaign(tenantId, campaignId);
     if (!campaign) return { ok: false, enqueued: 0, error: 'Campanha não encontrada.' };
 
-    let pendingJobs = campaignPendingJobs.get(campaignId) || 0;
     const memState = campaignsById.get(campaignId);
+    let pendingJobs = campaignPendingJobs.get(campaignId) || 0;
     // Contador preso após conclusão impede reenvio — limpa quando a campanha não está mais ativa.
     if (pendingJobs > 0 && !memState?.isRunning) {
         campaignPendingJobs.delete(campaignId);
         pendingJobs = 0;
     }
-    if (pendingJobs > 0 && memState?.isRunning) {
-        // Se estiver em modo resume, checa se a fila BullMQ realmente ainda tem jobs ativos/esperando
-        const actualBullJobs = await countCampaignJobsInAllMassQueues(campaignId);
-        if (actualBullJobs <= 0) {
+
+    let actualBullJobs = 0;
+    let heldJobs = 0;
+    try {
+        actualBullJobs = await countCampaignJobsInAllMassQueues(campaignId);
+    } catch (e: unknown) {
+        log('warn', 'redispatchCampaign: falha ao contar fila BullMQ', {
+            campaignId,
+            error: (e as Error)?.message,
+        });
+    }
+    heldJobs = await countHeldCampaignJobsForCampaign(campaignId).catch(() => 0);
+    const queueWork = actualBullJobs + heldJobs;
+
+    if (campaignEnqueueInFlight.has(campaignId)) {
+        if (mode === 'resume') {
+            if (memState) {
+                pausedCampaigns.delete(campaignId);
+                memState.manualPaused = false;
+                memState.protectionPaused = false;
+                memState.isRunning = true;
+            }
+            return { ok: true, enqueued: Math.max(queueWork, pendingJobs) };
+        }
+        return {
+            ok: false,
+            enqueued: 0,
+            error: 'Campanha ainda em execução. Aguarde ou pause antes de reenviar.',
+        };
+    }
+
+    const outstandingMem = countOutstandingCampaignDispatchWork({
+        pendingMem: pendingJobs,
+        bullQueueJobs: actualBullJobs,
+        pgActiveJobs: 0,
+        heldJobs,
+    });
+
+    if (outstandingMem > 0 && memState?.isRunning) {
+        if (queueWork <= 0) {
             campaignPendingJobs.delete(campaignId);
             pendingJobs = 0;
         } else if (mode === 'resume') {
-            // Retomar com fila já montada não é erro: o play da lista chama resume e
-            // em seguida redispatch. Recusar aqui mostrava "ainda em execução" e
-            // o disparo parecia não começar. Despausa e deixa os jobs existentes seguirem.
+            // Retomar com fila já montada (Bull + held) não reenfileira dezenas de milhares de contatos.
             pausedCampaigns.delete(campaignId);
             memState.manualPaused = false;
             memState.protectionPaused = false;
@@ -12015,7 +12077,7 @@ export async function redispatchCampaign(
             memState.protectionPauseUntil = undefined;
             memState.protectionPauseMessage = undefined;
             memState.isRunning = true;
-            campaignPendingJobs.set(campaignId, actualBullJobs);
+            campaignPendingJobs.set(campaignId, queueWork);
             ensureCampaignWorker();
             void saveCampaignRuntimeToRedis(campaignId);
             void persistCampaignProgressToFirestore(
@@ -12026,13 +12088,17 @@ export async function redispatchCampaign(
                 memState.processed ?? 0,
                 'RUNNING'
             );
+            if (heldJobs > 0) {
+                await drainHeldForCampaign(campaignId);
+            }
             publishOwnerEvent(tenantId, 'campaign-resumed', { campaignId });
             void runPostResumeCampaignQueueRepair(campaignId, tenantId, false).catch(() => undefined);
             log('info', 'redispatch resume: fila já existia — retomada sem duplicar jobs', {
                 campaignId,
                 actualBullJobs,
+                heldJobs,
             });
-            return { ok: true, enqueued: actualBullJobs };
+            return { ok: true, enqueued: queueWork };
         } else {
             return { ok: false, enqueued: 0, error: 'Campanha ainda em execução. Aguarde ou pause antes de reenviar.' };
         }
@@ -12359,8 +12425,7 @@ export async function redispatchCampaign(
         const mediaErr =
             'Anexo da campanha não está no servidor (imagem/vídeo). Edite a campanha, salve o anexo de novo e retome o disparo.';
         emitCampaignLog('ERROR', mediaErr, { campaignId }, tenantId);
-        campaignEnqueueInFlight.delete(campaignId);
-        throw new Error(mediaErr);
+        return { ok: false, enqueued: 0, error: mediaErr };
     }
 
     const finishRedispatchEnqueue = async () => {
@@ -12418,6 +12483,11 @@ export async function redispatchCampaign(
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         return { ok: false, enqueued: 0, error: msg || 'Falha ao enfileirar reenvio.' };
+    }
+    } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log('error', 'redispatchCampaign: exceção não tratada', { campaignId, error: msg });
+        return { ok: false, enqueued: 0, error: msg || 'Falha ao reenviar campanha.' };
     }
 }
 

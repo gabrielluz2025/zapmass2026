@@ -111,6 +111,26 @@ export function applyCampaignDocCounterPatch(
 }
 
 /** Trabalho ainda não contabilizado no runtime (Bull, PG, held, contador em memória). */
+/** Resume in-place quando há trabalho na Bull/held — evita reenfileirar milhares de contatos. */
+export function shouldRedispatchResumeInPlace(params: {
+  mode: 'failed' | 'resume';
+  isRunning: boolean;
+  bullJobs: number;
+  heldJobs: number;
+  pendingMem: number;
+}): boolean {
+  if (params.mode !== 'resume' || !params.isRunning) return false;
+  const queueWork = params.bullJobs + params.heldJobs;
+  if (queueWork <= 0) return false;
+  const outstanding = countOutstandingCampaignDispatchWork({
+    pendingMem: params.pendingMem,
+    bullQueueJobs: params.bullJobs,
+    pgActiveJobs: 0,
+    heldJobs: params.heldJobs,
+  });
+  return outstanding > 0;
+}
+
 export function countOutstandingCampaignDispatchWork(params: {
   pendingMem: number;
   bullQueueJobs: number;

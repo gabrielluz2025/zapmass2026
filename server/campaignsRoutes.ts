@@ -594,8 +594,9 @@ export function registerCampaignsDataRoutes(app: Express): void {
       }
       return res.json({ ok: true, enqueued: result.enqueued });
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       console.error('[api/campaigns/redispatch]', e);
-      return res.status(500).json({ ok: false, error: 'Erro ao reenviar campanha.' });
+      return res.status(500).json({ ok: false, error: msg || 'Erro ao reenviar campanha.' });
     }
   });
 

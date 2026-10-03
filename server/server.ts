@@ -2267,7 +2267,6 @@ const registerSocketHandlers = () => {
           }
           userLog('ui:resume-campaign', { campaignId });
           evolutionService.resumeCampaign(campaignId, uid);
-          socket.emit('campaign-resumed', { campaignId });
         } catch (e) {
           reportSocketAsyncError('resume-campaign', e);
         }

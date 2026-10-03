@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.306',
+    date: '03/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Retomar campanha: drena fila held após restart, resume sem duplicar 27k jobs; fim do toast «Erro ao reenviar» ao clicar Play na lista pausada',
+      },
+    ],
+  },
+  {
     version: '2.3.305',
     date: '02/10/2026',
     highlights: [

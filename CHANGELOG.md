@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.306] - 2026-10-03
+
+### Corrigido
+- **Campanhas — retomar após restart**: jobs na fila **held** voltam a contar e a drenar mesmo sem `connectionIds` no runtime; `redispatch` em modo resume não tenta reenfileirar dezenas de milhares quando Bull/held já existem; exceções (ex.: mídia ausente) retornam erro claro em vez de HTTP 500 genérico; lista PAUSED deixa de chamar `/redispatch` em paralelo ao socket (toast «Erro ao reenviar campanha» + «Campanha retomada!»).
+
 ## [2.3.305] - 2026-10-02
 
 ### Corrigido

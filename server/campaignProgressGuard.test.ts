@@ -9,6 +9,7 @@ import {
   reconcileCampaignProgressCounters,
   countOutstandingCampaignDispatchWork,
   shouldDeferCampaignFinalization,
+  shouldRedispatchResumeInPlace,
 } from './campaignProgressGuard.js';
 
 describe('campaignProgressGuard', () => {
@@ -40,6 +41,36 @@ describe('campaignProgressGuard', () => {
       failedCount: 40,
       processedCount: 1240,
     });
+  });
+
+  it('shouldRedispatchResumeInPlace só quando há fila Bull ou held', () => {
+    expect(
+      shouldRedispatchResumeInPlace({
+        mode: 'resume',
+        isRunning: true,
+        bullJobs: 0,
+        heldJobs: 120,
+        pendingMem: 120,
+      })
+    ).toBe(true);
+    expect(
+      shouldRedispatchResumeInPlace({
+        mode: 'resume',
+        isRunning: true,
+        bullJobs: 0,
+        heldJobs: 0,
+        pendingMem: 50_000,
+      })
+    ).toBe(false);
+    expect(
+      shouldRedispatchResumeInPlace({
+        mode: 'failed',
+        isRunning: true,
+        bullJobs: 3,
+        heldJobs: 0,
+        pendingMem: 3,
+      })
+    ).toBe(false);
   });
 
   it('outstanding work usa o maior entre memória, Bull, PG e held', () => {

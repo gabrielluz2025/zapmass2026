@@ -291,25 +291,12 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
 
     if (campaign.status === CampaignStatus.PAUSED) {
       resumeCampaign(id);
-      const pending = getCampaignProgressMetrics(campaign).pending;
       appendAudit({
         action: 'campaign_resume',
         label: `Retomar: ${campaign.name}`,
         campaignId: id
       });
-      if (pending <= 0) return;
-
-      campaignToggleInFlightRef.current = true;
-      try {
-        const enqueued = await redispatchCampaign(id, { mode: 'resume' });
-        if (enqueued > 0) {
-          toast.success(`Fila reativada (${enqueued.toLocaleString('pt-BR')} envio(s)).`);
-        }
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Não foi possível reativar a fila.');
-      } finally {
-        campaignToggleInFlightRef.current = false;
-      }
+      // O servidor (resume-campaign) drena held/Bull e reenfileira se a fila estiver vazia — evita corrida com POST /redispatch.
       return;
     }
 
