@@ -1,3 +1,5 @@
+import { isAgentLlmAvailable, resolveAgentLlmProvider } from '../agent/agentLlmConfig.js';
+
 const SYSTEM_PROMPT = `Você é o assistente do ZapMass (painel WhatsApp em massa).
 Responda em português do Brasil, de forma curta e prática (máximo 120 palavras).
 Use apenas o contexto fornecido — não invente números ou status.
@@ -16,8 +18,7 @@ function maxOutputTokens(): number {
 }
 
 function llmEnabled(): boolean {
-  if (process.env.ASSISTANT_LLM_ENABLED === 'false') return false;
-  return !!(process.env.GEMINI_API_KEY?.trim() || process.env.GROQ_API_KEY?.trim());
+  return isAgentLlmAvailable();
 }
 
 async function callGemini(prompt: string): Promise<string | null> {
@@ -99,12 +100,10 @@ ${ctx.question.slice(0, 800)}
 
 Responda de forma útil e direta.`;
 
-  const groqFirst = !!process.env.GROQ_API_KEY?.trim();
-  if (groqFirst) {
-    const g = await callGroq(prompt);
-    if (g) return g;
-  }
-  return callGemini(prompt);
+  const provider = resolveAgentLlmProvider();
+  if (provider === 'groq') return callGroq(prompt);
+  if (provider === 'gemini') return callGemini(prompt);
+  return null;
 }
 
 export async function creativeWithLlm(question: string): Promise<string | null> {
@@ -120,10 +119,8 @@ ${question.slice(0, 600)}
 
 Escreva apenas o texto da mensagem, sem explicações longas.`;
 
-  const groqFirst = !!process.env.GROQ_API_KEY?.trim();
-  if (groqFirst) {
-    const g = await callGroq(prompt);
-    if (g) return g;
-  }
-  return callGemini(prompt);
+  const provider = resolveAgentLlmProvider();
+  if (provider === 'groq') return callGroq(prompt);
+  if (provider === 'gemini') return callGemini(prompt);
+  return null;
 }

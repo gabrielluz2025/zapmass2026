@@ -26,9 +26,20 @@ function dayKeyUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function dailyLimit(): number {
+function dailyLimitFromEnv(): number {
   const n = Number(process.env.ASSISTANT_DAILY_LIMIT ?? 20);
   return Number.isFinite(n) ? Math.min(200, Math.max(1, Math.floor(n))) : 20;
+}
+
+async function effectiveDailyLimit(): Promise<number> {
+  try {
+    const { loadAgentConfig } = await import('../agent/agentConfigLoader.js');
+    const cfg = await loadAgentConfig();
+    if (cfg.dailyLimitOverride != null) return cfg.dailyLimitOverride;
+  } catch {
+    /* ignore */
+  }
+  return dailyLimitFromEnv();
 }
 
 function cacheTtlSec(): number {
@@ -47,7 +58,7 @@ function cacheKey(tenantId: string, questionKey: string): string {
 }
 
 export async function getRemainingQuota(tenantId: string, actorId: string): Promise<number> {
-  const limit = dailyLimit();
+  const limit = await effectiveDailyLimit();
   const memKey = `${tenantId}:${actorId}`;
   const dk = dayKeyUtc();
   const mem = memoryUsage.get(memKey);
@@ -70,7 +81,7 @@ export async function consumeQuota(
   tenantId: string,
   actorId: string
 ): Promise<{ ok: true; remaining: number } | { ok: false; remaining: 0 }> {
-  const limit = dailyLimit();
+  const limit = await effectiveDailyLimit();
   const remainingBefore = await getRemainingQuota(tenantId, actorId);
   if (remainingBefore <= 0) return { ok: false, remaining: 0 };
 
@@ -131,7 +142,7 @@ export function getAssistantConfig(isPlatformAdmin = false) {
   const llmAllowed =
     isPlatformAdmin && hasKeys && process.env.ASSISTANT_LLM_ENABLED !== 'false';
   return {
-    dailyLimit: dailyLimit(),
+    dailyLimit: dailyLimitFromEnv(),
     llmEnabled: llmAllowed,
     provider: llmAllowed
       ? process.env.GROQ_API_KEY?.trim()

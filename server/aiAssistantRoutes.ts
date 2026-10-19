@@ -3,12 +3,9 @@ import rateLimit from 'express-rate-limit';
 import { isPlatformAdminDecoded } from './adminIdentity.js';
 import { requireTenant } from './httpTenant.js';
 import type { AuthPrincipal } from './auth/types.js';
-import { geminiGenerateJson, geminiGenerateText, isGeminiConfigured } from './geminiService.js';
-import {
-  buildAiAssistSystemInstruction,
-  buildAiAssistUserPrompt,
-  buildAiTenantSnapshot,
-} from './aiContextService.js';
+import { geminiGenerateJson, isGeminiConfigured } from './geminiService.js';
+import { handleAgentAssistCompat } from './agent/agentOrchestrator.js';
+import { agentGeminiConfigured, isGeminiLegacyFabEnabled } from './agent/llmProvider.js';
 
 const aiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -72,11 +69,14 @@ export function registerAiAssistantRoutes(app: Express): void {
     if (!admin) {
       return res.json({ ok: true, configured: false, admin: false, model: null });
     }
+    const legacy = isGeminiLegacyFabEnabled();
     return res.json({
       ok: true,
-      configured: isGeminiConfigured(),
+      configured: legacy,
+      geminiConfigured: agentGeminiConfigured(),
+      legacyFab: legacy,
       admin: true,
-      model: isGeminiConfigured() ? (process.env.GEMINI_MODEL || 'gemini-3.5-flash').trim() : null,
+      model: legacy ? (process.env.GEMINI_MODEL || 'gemini-3.5-flash').trim() : null
     });
   });
 
@@ -256,7 +256,7 @@ export function registerAiAssistantRoutes(app: Express): void {
   app.post('/api/ai/assist', aiLimiter, async (req: Request, res: Response) => {
     const ctx = await requireTenantPlatformAdmin(req, res);
     if (!ctx) return;
-    if (!isGeminiConfigured()) {
+    if (!agentGeminiConfigured()) {
       return res.status(503).json({ ok: false, error: 'IA não configurada.' });
     }
     const screen = typeof req.body?.screen === 'string' ? req.body.screen.slice(0, 64) : 'geral';
@@ -267,19 +267,18 @@ export function registerAiAssistantRoutes(app: Express): void {
     }
 
     try {
-      const snapshot = await buildAiTenantSnapshot(
-        ctx.tenantId,
-        ctx.principal.authUid,
+      const result = await handleAgentAssistCompat({
+        tenantId: ctx.tenantId,
+        actorId: ctx.principal.authUid,
         screen,
         question,
-        context
-      );
-      const answer = await geminiGenerateText(
-        buildAiAssistUserPrompt(screen, question, snapshot),
-        buildAiAssistSystemInstruction(screen),
-        { jsonMode: false }
-      );
-      return res.json({ ok: true, answer, dataUsed: true });
+        context,
+        isPlatformAdmin: true
+      });
+      if (!result.ok) {
+        return res.status(502).json({ ok: false, error: result.error });
+      }
+      return res.json({ ok: true, answer: result.answer, dataUsed: result.dataUsed });
     } catch (e) {
       console.error('[ai/assist]', e);
       return res.status(502).json({ ok: false, error: e instanceof Error ? e.message : 'Falha na IA.' });

@@ -1,9 +1,9 @@
 import type { Express, Request, Response } from 'express';
 import { isPlatformAdminDecoded } from './adminIdentity.js';
 import { requireTenant } from './httpTenant.js';
-import { getAssistantConfig, getRemainingQuota } from './assistant/assistantCache.js';
-import { getStarterSuggestions, handleAssistantAsk } from './assistant/assistantEngine.js';
+import { getRemainingQuota } from './assistant/assistantCache.js';
 import type { AssistantHistoryMessage } from './assistant/assistantTypes.js';
+import { getAgentStatus, handleAgentAsk } from './agent/agentOrchestrator.js';
 
 export function registerAssistantRoutes(app: Express): void {
   app.get('/api/assistant/status', async (req: Request, res: Response) => {
@@ -14,13 +14,18 @@ export function registerAssistantRoutes(app: Express): void {
       email: ctx.principal.email,
       admin: false
     });
-    const config = getAssistantConfig(isAdmin);
-    const remainingToday = await getRemainingQuota(ctx.tenantId, ctx.principal.authUid);
+    const status = await getAgentStatus({
+      tenantId: ctx.tenantId,
+      actorId: ctx.principal.authUid,
+      isPlatformAdmin: isAdmin
+    });
     return res.json({
       ok: true,
-      ...config,
-      remainingToday,
-      suggestions: getStarterSuggestions()
+      dailyLimit: status.dailyLimit,
+      remainingToday: status.remainingToday,
+      llmEnabled: status.llmEnabled,
+      provider: status.provider,
+      suggestions: status.suggestions
     });
   });
 
@@ -53,12 +58,14 @@ export function registerAssistantRoutes(app: Express): void {
         email: ctx.principal.email,
         admin: false
       });
-      const result = await handleAssistantAsk({
+      const result = await handleAgentAsk({
         tenantId: ctx.tenantId,
         actorId: ctx.principal.authUid,
         question,
         currentView,
         history,
+        mode: 'standard',
+        isPlatformAdmin: isAdmin,
         allowLlm: isAdmin
       });
 

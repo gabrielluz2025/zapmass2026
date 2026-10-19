@@ -48,6 +48,20 @@ else
   miss "MERCADOPAGO_ACCESS_TOKEN — Painel MP → Credenciais → APP_USR-..."
 fi
 
+mp_back="$(get_env MERCADOPAGO_BACK_URL)"
+if [ -n "$mp_back" ]; then
+  ok "MERCADOPAGO_BACK_URL=$mp_back"
+else
+  warn "MERCADOPAGO_BACK_URL vazio — use https://zap-mass.com (back_urls + webhook)"
+fi
+
+tier1="$(get_env MERCADOPAGO_CHANNEL_TIER_1)"
+if [ -n "$tier1" ]; then
+  ok "MERCADOPAGO_CHANNEL_TIER_1=$tier1 (checkout por canais)"
+else
+  warn "MERCADOPAGO_CHANNEL_TIER_1 vazio — servidor usa defaults de shared/channelTierPricing"
+fi
+
 rs="$(get_env RESEND_API_KEY)"
 if [ -n "$rs" ]; then
   ok "RESEND_API_KEY"

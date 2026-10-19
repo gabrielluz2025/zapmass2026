@@ -1,4 +1,5 @@
 import { apiFetchJson } from '../utils/apiFetchAuth';
+import { askAgent } from './agentApi';
 
 export type AiStatus = {
   ok: boolean;
@@ -100,10 +101,17 @@ export async function aiSuggestCampaignMessage(brief: string, current: string, s
 }
 
 export async function aiAsk(screen: string, question: string, context?: unknown) {
-  return apiFetchJson<{ ok: boolean; answer: string; dataUsed?: boolean; error?: string }>('/api/ai/assist', {
-    method: 'POST',
-    body: JSON.stringify({ screen, question, context }),
+  const res = await askAgent({
+    question,
+    screen,
+    context,
+    mode: 'admin_full',
+    scope: 'platform'
   });
+  if (!res.ok) {
+    return { ok: false as const, answer: '', error: res.error };
+  }
+  return { ok: true as const, answer: res.answer, dataUsed: res.dataUsed ?? true };
 }
 
 /** Sugere 2-3 respostas rápidas para a última mensagem recebida no chat */

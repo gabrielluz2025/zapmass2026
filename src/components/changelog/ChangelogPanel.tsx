@@ -10,6 +10,26 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.308',
+    date: '19/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Agente ZapMass sem Gemini por padrão: orquestrador determinístico, LLM opcional (Groq/Gemini), FAB legado opt-in, guia docs/AGENTE-ZAPMASS.md',
+      },
+    ],
+  },
+  {
+    version: '2.3.307',
+    date: '19/10/2026',
+    highlights: [
+      {
+        type: 'feature',
+        text: 'Agente ZapMass MVP: API /api/agent, orquestrador híbrido (tenant + admin Gemini), Creator Studio para config e conhecimento (appConfig/agent)',
+      },
+    ],
+  },
+  {
     version: '2.3.306',
     date: '03/10/2026',
     highlights: [

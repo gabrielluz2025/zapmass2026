@@ -4,6 +4,7 @@ import { Button, Card, PageShell, Badge } from '../ui';
 import { useMainLayoutNav } from '../../context/MainLayoutNavContext';
 import { useZapMassCore } from '../../context/ZapMassContext';
 import { apiUrl } from '../../utils/apiBase';
+import { AgentStudioSection } from './AgentStudioSection';
 
 type HealthJson = { status?: string; serverTime?: string; version?: string } | null;
 type VersionJson = { version?: string; startedAt?: string; environment?: string } | null;
@@ -157,6 +158,8 @@ export const CreatorStudio: React.FC = () => {
       }
     >
     <div className="max-w-4xl mx-auto space-y-4 pb-10">
+
+      <AgentStudioSection />
 
       <div className="grid sm:grid-cols-2 gap-4">
         <Card className="p-5 space-y-3">

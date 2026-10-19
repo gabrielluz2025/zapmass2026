@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Loader2, Send, Sparkles, User } from 'lucide-react';
-import { aiAsk } from '../../services/aiApi';
+import { askAgent } from '../../services/agentApi';
 import { useAiStatus } from '../../hooks/useAiStatus';
 import { getAiSuggestions } from './aiSuggestedQuestions';
 import { AiAnswerText } from './AiAnswerText';
@@ -61,7 +61,13 @@ export const AiAssistantChat: React.FC<Props> = ({
       setTurns((prev) => [...prev, userTurn]);
       setLoading(true);
       try {
-        const res = await aiAsk(screen, q, ctxOverride ?? context);
+        const res = await askAgent({
+          question: q,
+          screen,
+          context: ctxOverride ?? context,
+          mode: 'admin_full',
+          scope: 'platform'
+        });
         if (!res.ok) throw new Error(res.error || 'Falha na IA');
         setTurns((prev) => [
           ...prev,

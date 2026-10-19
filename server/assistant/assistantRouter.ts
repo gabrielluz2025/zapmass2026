@@ -24,7 +24,9 @@ const NAV_MAP: Array<{ view: string; words: string[] }> = [
   { view: 'subscription', words: ['assinatura', 'plano', 'pagamento'] },
   { view: 'settings', words: ['configuracoes', 'configuracao', 'ajustes'] },
   { view: 'help', words: ['tutorial', 'como usar', 'ajuda'] },
-  { view: 'team', words: ['funcionarios', 'equipe'] }
+  { view: 'team', words: ['funcionarios', 'equipe'] },
+  { view: 'creator', words: ['creator', 'studio', 'agente', 'config agente'] },
+  { view: 'reports', words: ['relatorio campanha', 'metricas', 'métricas', 'funil'] }
 ];
 
 export function classifyIntent(question: string): AssistantIntent {
@@ -142,7 +144,35 @@ export function classifyIntent(question: string): AssistantIntent {
       'agendar',
       'intervalo',
       'bloqueio',
-      'aquecimento'
+      'aquecimento',
+      'etiqueta',
+      'etiquetas',
+      'tag',
+      'tags',
+      'lista negra',
+      'opt out',
+      'sair',
+      'webhook',
+      'evolution',
+      'funcionario',
+      'permissao',
+      'permissão',
+      'agente zapmass',
+      'assistente zapmass'
+    ])
+  ) {
+    return 'tutorial';
+  }
+
+  if (
+    hasAny(q, [
+      'mensagens nao lidas',
+      'mensagens não lidas',
+      'nao lidas',
+      'não lidas',
+      'inbox',
+      'caixa de entrada',
+      'conversas abertas'
     ])
   ) {
     return 'tutorial';

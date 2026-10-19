@@ -222,6 +222,31 @@ export const KNOWLEDGE_CHUNKS: KnowledgeChunk[] = [
     body:
       'Em **Relatórios**, além do CSV, use o botão **PDF** para gerar um resumo imprimível (Salvar como PDF no navegador).',
     navigateTo: 'reports'
+  },
+  {
+    id: 'agent-zapmass',
+    title: 'Agente ZapMass (assistente gratuito)',
+    keywords: [
+      'agente',
+      'assistente',
+      'bot',
+      'perguntar',
+      'ia gratuita',
+      'tutorial automatico',
+      'rag',
+      'sem gemini'
+    ],
+    body:
+      'O **Agente ZapMass** (ícone do robô no painel) responde com **regras**, **dados ao vivo** da sua conta e **tutorial embutido** — sem depender de Google Gemini. Administradores podem opcionalmente ativar LLM externo (Groq/Gemini) via variáveis de ambiente; o modo padrão é **determinístico**.',
+    navigateTo: 'help'
+  },
+  {
+    id: 'tags-etiquetas',
+    title: 'Etiquetas e filtros',
+    keywords: ['etiqueta', 'etiquetas', 'tag', 'tags', 'rotulo', 'rótulo', 'segmentar'],
+    body:
+      'Em **Contatos**, use **Etiquetas** para marcar grupos (VIP, inadimplente, região). Filtre por etiqueta antes de criar campanhas ou exportar listas.',
+    navigateTo: 'contacts'
   }
 ];
 

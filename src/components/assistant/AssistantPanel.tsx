@@ -17,11 +17,11 @@ import { useAuth } from '../../context/AuthContext';
 import { useAiStatus } from '../../hooks/useAiStatus';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
 import {
-  askAssistant,
-  fetchAssistantStatus,
-  type AssistantMessage,
-  type AssistantStatus
-} from '../../services/assistantApi';
+  askAgentWithToken,
+  fetchAgentStatusWithToken,
+  type AgentMessage,
+  type AgentStatus
+} from '../../services/agentApi';
 import {
   getAssistantSuggestions,
   VIEW_LABEL_PT
@@ -80,11 +80,11 @@ export const AssistantPanel: React.FC<Props> = ({
 }) => {
   const { user } = useAuth();
   const isAdmin = isPlatformAdminUser(user);
-  const { configured: geminiConfigured } = useAiStatus();
-  const [messages, setMessages] = useState<AssistantMessage[]>([]);
+  const { configured: legacyGeminiFab } = useAiStatus();
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [status, setStatus] = useState<AssistantStatus | null>(null);
+  const [status, setStatus] = useState<AgentStatus | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -103,7 +103,7 @@ export const AssistantPanel: React.FC<Props> = ({
     if (!user) return;
     try {
       const token = await user.getIdToken();
-      const s = await fetchAssistantStatus(token);
+      const s = await fetchAgentStatusWithToken(token);
       if (s) setStatus(s);
     } catch {
       /* ignore */
@@ -143,7 +143,7 @@ export const AssistantPanel: React.FC<Props> = ({
     const question = raw.trim();
     if (!question || !user || sending) return;
 
-    const userMsg: AssistantMessage = {
+    const userMsg: AgentMessage = {
       id: `u-${Date.now()}`,
       role: 'user',
       content: question
@@ -155,7 +155,7 @@ export const AssistantPanel: React.FC<Props> = ({
     try {
       const token = await user.getIdToken();
       const history = [...messages, userMsg].slice(-6).map((m) => ({ role: m.role, content: m.content }));
-      const res = await askAssistant(token, { question, currentView, history });
+      const res = await askAgentWithToken(token, { question, currentView, history, mode: 'standard' });
 
       if (!res.ok) {
         const err = 'error' in res ? res.error : 'Erro desconhecido';
@@ -332,7 +332,7 @@ export const AssistantPanel: React.FC<Props> = ({
             </button>
           </div>
           <p className="zm-asst-foot__hint">Enter envia · Shift+Enter nova linha</p>
-          {isAdmin && geminiConfigured && onOpenGemini && (
+          {isAdmin && legacyGeminiFab && onOpenGemini && (
             <p className="zm-asst-foot__gemini">
               Para importação inteligente, mapa ou análises profundas, use o{' '}
               <button

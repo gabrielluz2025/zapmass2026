@@ -88,7 +88,7 @@ async function buildBaseAnswer(
     case 'tutorial':
     case 'unknown':
     default: {
-      const hits = searchKnowledge(question, 3);
+      const hits = await searchKnowledge(question, 3);
       const rag = formatRagAnswer(hits);
       if (rag) {
         return { answer: rag.answer, navigateTo: rag.navigateTo };

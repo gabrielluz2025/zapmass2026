@@ -129,6 +129,7 @@ import { startProspectingSilentBumpJob } from './prospecting/prospectingSilentBu
 import { startNurtureScheduler } from './nurture/nurtureScheduler.js';
 import { registerAiAssistantRoutes } from './aiAssistantRoutes.js';
 import { registerAssistantRoutes } from './assistantRoutes.js';
+import { registerAgentRoutes } from './agentRoutes.js';
 import { registerChatAutomationRoutes } from './chatAutomationRoutes.js';
 import { structuredLog } from './structuredLog.js';
 import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
@@ -426,6 +427,7 @@ registerWarmupDiagnosticsRoutes(app);
 registerDiagnosticsRoutes(app);
 registerReplyIntentRoutes(app);
 registerAiAssistantRoutes(app);
+registerAgentRoutes(app);
 registerAssistantRoutes(app);
 registerChatAutomationRoutes(app);
 

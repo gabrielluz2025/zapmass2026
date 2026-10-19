@@ -7,6 +7,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.308] - 2026-10-19
+
+### Alterado
+- **Agente ZapMass**: padrão **sem LLM externo** (`AGENT_LLM_PROVIDER=none`); admin_full e polish opcionais via Groq/Gemini; modo admin determinístico (tools + RAG); FAB Gemini legado só com `GEMINI_LEGACY_ASSISTANT=true`; documentação `docs/AGENTE-ZAPMASS.md`.
+
+## [2.3.307] - 2026-10-19
+
+### Adicionado
+- **Agente ZapMass (MVP)**: orquestrador unificado (`standard` + `admin_full` com snapshot Gemini), API `/api/agent/*`, registry de ferramentas, conhecimento mesclado (`knowledgeChunks` + overrides Firestore `appConfig/agent`), Creator Studio para config/base, front via `agentApi` (Assistente + IA).
+
 ## [2.3.306] - 2026-10-03
 
 ### Corrigido

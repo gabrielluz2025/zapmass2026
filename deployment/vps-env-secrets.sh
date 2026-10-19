@@ -3,6 +3,9 @@
 # Exemplo na VPS:
 #   MERCADOPAGO_ACCESS_TOKEN='APP_USR-...' \
 #   MERCADOPAGO_WEBHOOK_SECRET='...' \
+#   MERCADOPAGO_BACK_URL='https://zap-mass.com' \
+#   MERCADOPAGO_CHANNEL_TIER_1='149.90' \
+#   MERCADOPAGO_CHANNEL_TIER_1_ANNUAL='1529.00' \
 #   RESEND_API_KEY='re_...' \
 #   EMAIL_FROM='ZapMass <no-reply@zap-mass.com>' \
 #   bash deployment/vps-env-secrets.sh
@@ -25,8 +28,15 @@ upsert_env() {
 upsert_env MERCADOPAGO_ACCESS_TOKEN "${MERCADOPAGO_ACCESS_TOKEN:-}"
 upsert_env MERCADOPAGO_WEBHOOK_SECRET "${MERCADOPAGO_WEBHOOK_SECRET:-}"
 upsert_env MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED "${MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED:-}"
+upsert_env MERCADOPAGO_BACK_URL "${MERCADOPAGO_BACK_URL:-}"
 upsert_env MERCADOPAGO_PRICE_MONTHLY "${MERCADOPAGO_PRICE_MONTHLY:-}"
 upsert_env MERCADOPAGO_PRICE_ANNUAL "${MERCADOPAGO_PRICE_ANNUAL:-}"
+for n in 1 2 3 4 5; do
+  tier_key="MERCADOPAGO_CHANNEL_TIER_${n}"
+  tier_annual_key="MERCADOPAGO_CHANNEL_TIER_${n}_ANNUAL"
+  upsert_env "$tier_key" "${!tier_key:-}"
+  upsert_env "$tier_annual_key" "${!tier_annual_key:-}"
+done
 upsert_env RESEND_API_KEY "${RESEND_API_KEY:-}"
 upsert_env EMAIL_FROM "${EMAIL_FROM:-}"
 upsert_env EMAIL_REPLY_TO "${EMAIL_REPLY_TO:-}"

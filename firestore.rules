@@ -145,7 +145,7 @@ service cloud.firestore {
     }
 
     match /appConfig/{docId} {
-      allow read: if docId == 'global';
+      allow read: if docId == 'global' || docId == 'agent';
       allow write: if false;
     }
   }

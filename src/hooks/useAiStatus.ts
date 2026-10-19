@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { fetchAiStatus } from '../services/aiApi';
+import { fetchAgentStatus } from '../services/agentApi';
 import { isPlatformAdminUser } from '../utils/adminAccess';
 
-/** Gemini /api/ai — disponível só para administradores da plataforma. */
+/** Assistente legado /api/ai (Gemini) — opt-in via GEMINI_LEGACY_ASSISTANT; só admins. */
 export function useAiStatus() {
   const { user } = useAuth();
   const isAdmin = isPlatformAdminUser(user);
@@ -20,8 +20,8 @@ export function useAiStatus() {
     }
     setLoading(true);
     try {
-      const s = await fetchAiStatus();
-      setConfigured(!!s.configured && s.admin !== false);
+      const s = await fetchAgentStatus();
+      setConfigured(!!s.legacyGeminiFabEnabled && s.isPlatformAdmin);
       setModel(s.model);
     } catch {
       setConfigured(false);
