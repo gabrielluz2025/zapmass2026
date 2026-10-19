@@ -276,7 +276,10 @@ export function registerAiAssistantRoutes(app: Express): void {
         isPlatformAdmin: true
       });
       if (!result.ok) {
-        return res.status(502).json({ ok: false, error: result.error });
+        return res.status(502).json({
+          ok: false,
+          error: 'error' in result ? result.error : 'Falha na IA.'
+        });
       }
       return res.json({ ok: true, answer: result.answer, dataUsed: result.dataUsed });
     } catch (e) {

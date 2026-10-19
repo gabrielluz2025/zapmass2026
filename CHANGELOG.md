@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.309] - 2026-10-19
+
+### Corrigido
+- **Agente ZapMass**: narrowing TypeScript em respostas de erro (`/api/agent`, `/api/ai/assist`, front `aiApi` / `AiAssistantChat`).
+
 ## [2.3.308] - 2026-10-19
 
 ### Alterado

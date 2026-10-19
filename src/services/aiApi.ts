@@ -109,7 +109,7 @@ export async function aiAsk(screen: string, question: string, context?: unknown)
     scope: 'platform'
   });
   if (!res.ok) {
-    return { ok: false as const, answer: '', error: res.error };
+    return { ok: false as const, answer: '', error: 'error' in res ? res.error : 'Falha na IA' };
   }
   return { ok: true as const, answer: res.answer, dataUsed: res.dataUsed ?? true };
 }

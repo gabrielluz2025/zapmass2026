@@ -68,7 +68,7 @@ export const AiAssistantChat: React.FC<Props> = ({
           mode: 'admin_full',
           scope: 'platform'
         });
-        if (!res.ok) throw new Error(res.error || 'Falha na IA');
+        if (!res.ok) throw new Error('error' in res ? res.error : 'Falha na IA');
         setTurns((prev) => [
           ...prev,
           { id: `a_${Date.now()}`, role: 'assistant', text: res.answer },

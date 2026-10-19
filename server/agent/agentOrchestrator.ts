@@ -151,7 +151,13 @@ export async function handleAgentAsk(params: AgentAskParams): Promise<AgentAskRe
     allowLlm
   });
 
-  if (!result.ok) return result;
+  if (!result.ok) {
+    return {
+      ok: false,
+      error: 'error' in result ? result.error : 'Não foi possível processar sua pergunta.',
+      remainingToday: result.remainingToday
+    };
+  }
 
   return {
     ...result,
@@ -177,6 +183,6 @@ export async function handleAgentAssistCompat(params: {
     isPlatformAdmin: params.isPlatformAdmin,
     allowLlm: true
   });
-  if (!res.ok) return { ok: false, error: res.error };
+  if (!res.ok) return { ok: false, error: 'error' in res ? res.error : 'Falha na IA.' };
   return { ok: true, answer: res.answer, dataUsed: !!res.dataUsed };
 }

@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.309',
+    date: '19/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Agente ZapMass: correção de tipos em respostas de erro (API agent/assist e chat IA legado)',
+      },
+    ],
+  },
+  {
     version: '2.3.308',
     date: '19/10/2026',
     highlights: [
