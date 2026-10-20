@@ -866,7 +866,7 @@ export const ContactsTab: React.FC = () => {
   } = useZapMassCore();
   const { currentView, setCurrentView } = useAppView();
   const { segment } = useAppProfile();
-  const { configured: aiConfigured } = useAiStatus();
+  const { legacyGeminiFab: aiConfigured } = useAiStatus();
   const [aiImportLoading, setAiImportLoading] = useState(false);
   const [aiSmartImportLoading, setAiSmartImportLoading] = useState(false);
   const [aiEnrichLoading, setAiEnrichLoading] = useState(false);

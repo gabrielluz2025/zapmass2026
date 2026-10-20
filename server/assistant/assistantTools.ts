@@ -1,7 +1,10 @@
 import { vpsDataEnabled } from '../auth/dataMode.js';
 import { getZapmassPool } from '../db/postgres.js';
-import { ConnectionStatus } from '../../src/types.js';
+import { CampaignStatus, ConnectionStatus } from '../../src/types.js';
+import { conversationsPayloadForViewer } from '../conversationsEmit.js';
 import * as evolutionService from '../evolutionService.js';
+import { getConversations, resolveConnectionOwnerUid } from '../evolutionService.js';
+import { buildLeadsGeoSummary } from '../leadsGeoService.js';
 import { listCampaigns } from '../repositories/campaignsRepository.js';
 import { countContactsCached, listContacts } from '../repositories/contactsRepository.js';
 import { getUserSubscription } from '../subscriptionStore.js';
@@ -140,6 +143,119 @@ export async function getSubscriptionAnswer(tenantId: string): Promise<string> {
     subscriptionLabel(sub.status, sub.trialEndsAt as string, sub.accessEndsAt as string)
   ].filter(Boolean);
   return lines.join('\n');
+}
+
+export async function getChatConversationsAnswer(
+  tenantId: string,
+  actorId: string,
+  question: string
+): Promise<string> {
+  const scoped = conversationsPayloadForViewer(
+    tenantId,
+    actorId,
+    getConversations(),
+    resolveConnectionOwnerUid
+  );
+  const sorted = [...scoped].sort(
+    (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
+  );
+  const naoLidas = sorted.reduce((s, c) => s + (c.unreadCount || 0), 0);
+  const q = question.toLowerCase();
+  const onlyUnread = /\b(nao lida|nao lidas|não lida|pendente|sem resposta)\b/.test(q);
+  const pool = onlyUnread ? sorted.filter((c) => (c.unreadCount || 0) > 0) : sorted;
+  const recent = pool.slice(0, 8);
+  if (recent.length === 0) {
+    return onlyUnread
+      ? `**${scoped.length}** conversas no total e **nenhuma não lida** no momento.`
+      : 'Nenhuma conversa no bate-papo ainda. Conecte um chip e aguarde mensagens entrarem.';
+  }
+  const lines = recent.map(
+    (c) =>
+      `• **${(c.contactName || c.waContactName || 'Sem nome').slice(0, 60)}** — ${c.unreadCount ? `${c.unreadCount} não lida(s)` : 'lida'} — ${(c.lastMessage || '').slice(0, 80)}`
+  );
+  return (
+    `**Bate-papo:** ${scoped.length} conversa(s), **${naoLidas}** mensagem(ns) não lida(s) no total.\n\n` +
+    `**${onlyUnread ? 'Com não lidas' : 'Recentes'}:**\n${lines.join('\n')}`
+  );
+}
+
+export async function getGeoLeadsAnswer(tenantId: string, question: string): Promise<string> {
+  if (!vpsDataEnabled() || !getZapmassPool()) {
+    return 'Mapa e geo indisponíveis neste ambiente.';
+  }
+  const q = question.toLowerCase();
+  const citySummary = await buildLeadsGeoSummary(tenantId, { layer: 'city', light: true });
+  const stats = citySummary.stats;
+  const topCities = Object.entries(citySummary.byCity)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([k, n]) => `• ${k}: **${n.toLocaleString('pt-BR')}**`)
+    .join('\n');
+
+  const wantsNb = /\bbairro/.test(q);
+  if (wantsNb) {
+    const cityMatch = Object.keys(citySummary.byCity).find((c) => q.includes(c.toLowerCase().slice(0, 6)));
+    const city = cityMatch || Object.keys(citySummary.byCity).sort((a, b) => citySummary.byCity[b] - citySummary.byCity[a])[0];
+    if (city) {
+      const nb = await buildLeadsGeoSummary(tenantId, { layer: 'neighborhood', city, light: true });
+      const topNb = Object.entries(nb.byNeighborhood)
+        .filter(([, n]) => n > 0)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([k, n]) => `• ${k}: **${n.toLocaleString('pt-BR')}**`)
+        .join('\n');
+      return (
+        `**Geo — ${city}:**\n\n${topNb || '_Sem bairros mapeados nesta cidade._'}\n\n` +
+        `_Total na base: ${stats.totalContacts.toLocaleString('pt-BR')}; com bairro: ${stats.withNeighborhood.toLocaleString('pt-BR')}._`
+      );
+    }
+  }
+
+  const pctNb =
+    stats.totalContacts > 0 ? Math.round((100 * stats.withNeighborhood) / stats.totalContacts) : 0;
+  return (
+    `**Mapa / leads:** ${stats.totalContacts.toLocaleString('pt-BR')} contatos; ` +
+    `${stats.withCity.toLocaleString('pt-BR')} com cidade; ${stats.withNeighborhood.toLocaleString('pt-BR')} com bairro (**${pctNb}%**).\n\n` +
+    `**Top cidades:**\n${topCities || '_Sem dados geo._'}`
+  );
+}
+
+export async function getReportsAggregatesAnswer(tenantId: string): Promise<string> {
+  if (!vpsDataEnabled() || !getZapmassPool()) {
+    return 'Relatórios indisponíveis neste ambiente.';
+  }
+  const campaigns = await listCampaigns(tenantId);
+  if (campaigns.length === 0) {
+    return 'Ainda não há campanhas para agregar métricas. Crie uma campanha e volte em **Relatórios**.';
+  }
+  let sent = 0;
+  let failed = 0;
+  let replied = 0;
+  let withSnapshot = 0;
+  for (const c of campaigns) {
+    const snap = c.reportSnapshot;
+    if (!snap?.totals) continue;
+    withSnapshot++;
+    sent += snap.totals.sent ?? 0;
+    replied += snap.totals.replied ?? 0;
+    const rowsFailed = snap.rows?.filter((r) => r.status && !/^sent|delivered|read|replied/i.test(r.status)).length ?? 0;
+    failed += rowsFailed;
+  }
+  const running = campaigns.filter(
+    (c) => c.status === CampaignStatus.RUNNING || c.status === CampaignStatus.WAITING_REPLY
+  ).length;
+  const replyPct = sent > 0 ? Math.round((100 * replied) / sent) : 0;
+  const recent = campaigns.slice(0, 4).map((c) => {
+    const s = c.reportSnapshot?.totals;
+    const rp = s && s.sent ? Math.round((100 * (s.replied ?? 0)) / s.sent) : null;
+    return `• **${c.name || 'Sem nome'}** (${c.status}) — enviados ${s?.sent ?? 0}, respostas ${s?.replied ?? 0}${rp != null ? ` (${rp}%)` : ''}`;
+  });
+  return (
+    `**Relatórios (agregado):** ${campaigns.length} campanha(s), **${running}** ativa(s).\n\n` +
+    `Com snapshot: **${withSnapshot}**. Totais: **${sent.toLocaleString('pt-BR')}** enviados, **${failed.toLocaleString('pt-BR')}** falhas, **${replied.toLocaleString('pt-BR')}** respostas (~**${replyPct}%** sobre enviados).\n\n` +
+    `**Recentes:**\n${recent.join('\n')}`
+  );
 }
 
 export function getCreativeAnswer(question: string): { answer: string; suggestions: string[] } {

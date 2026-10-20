@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.310] - 2026-10-20
+
+### Adicionado
+- **Agente ZapMass**: UI admin unificada (`useAiStatus` via `/api/agent/status`, badge determinístico/Groq/Gemini); RAG com boost por tela (`navigateTo`/`tags`); ferramentas chat/geo/relatórios e snapshot ops; runbooks (campanha travada, chip offline, importação); histórico e quota no `admin_full`; log estruturado `agent_ask`; sugestões unificadas em `agentSuggestedQuestions.ts`.
+
 ## [2.3.309] - 2026-10-19
 
 ### Corrigido

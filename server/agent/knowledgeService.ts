@@ -68,7 +68,8 @@ function mergeOverrides(base: KnowledgeChunk[], overrides: AgentKnowledgeOverrid
       title: o.title,
       keywords: o.keywords,
       body: o.body,
-      navigateTo: o.navigateTo
+      navigateTo: o.navigateTo,
+      tags: o.tags
     });
   }
   return [...byId.values()];
@@ -98,9 +99,43 @@ function tokenize(text: string): string[] {
     .filter((t) => t.length > 2);
 }
 
-export async function searchKnowledge(question: string, limit = 3): Promise<RagHit[]> {
+const SCREEN_RAG_ALIASES: Record<string, string[]> = {
+  dashboard: ['dashboard', 'painel'],
+  contacts: ['contacts', 'contatos'],
+  'contacts-map': ['contacts-map', 'mapa', 'map'],
+  campaigns: ['campaigns', 'campanhas'],
+  connections: ['connections', 'conexoes', 'chips'],
+  chat: ['chat', 'bate-papo', 'inbox'],
+  reports: ['reports', 'relatorios'],
+  warmup: ['warmup', 'aquecimento'],
+  subscription: ['subscription', 'assinatura'],
+  settings: ['settings', 'configuracoes'],
+  help: ['help', 'tutorial'],
+  'admin-ops': ['admin-ops', 'ops', 'servidor'],
+};
+
+function screenBoostTokens(screen?: string, currentView?: string): string[] {
+  const raw = (screen || currentView || '').trim().toLowerCase();
+  if (!raw) return [];
+  const aliases = new Set<string>([raw]);
+  for (const [view, keys] of Object.entries(SCREEN_RAG_ALIASES)) {
+    if (view === raw || keys.includes(raw)) {
+      aliases.add(view);
+      for (const k of keys) aliases.add(k);
+    }
+  }
+  return [...aliases];
+}
+
+export async function searchKnowledge(
+  question: string,
+  limit = 3,
+  opts?: { screen?: string; currentView?: string }
+): Promise<RagHit[]> {
   const tokens = tokenize(question);
   if (tokens.length === 0) return [];
+
+  const screenKeys = screenBoostTokens(opts?.screen, opts?.currentView);
 
   const hits: RagHit[] = [];
   const chunks = await getAllKnowledgeChunks();
@@ -111,6 +146,14 @@ export async function searchKnowledge(question: string, limit = 3): Promise<RagH
       if (hay.includes(t)) score += 1;
       for (const kw of chunk.keywords) {
         if (kw.includes(t) || t.includes(kw)) score += 2;
+      }
+    }
+    if (screenKeys.length > 0) {
+      const nav = (chunk.navigateTo || '').toLowerCase();
+      if (nav && screenKeys.includes(nav)) score += 5;
+      for (const tag of chunk.tags || []) {
+        const tg = tag.toLowerCase();
+        if (screenKeys.includes(tg)) score += 4;
       }
     }
     if (score > 0) hits.push({ chunk, score });

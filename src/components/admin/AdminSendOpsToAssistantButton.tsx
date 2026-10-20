@@ -29,7 +29,7 @@ export const AdminSendOpsToAssistantButton: React.FC<Props> = ({ user, className
   const sendToAssistant = useCallback(async () => {
     if (!user || loading) return;
     if (!aiConfigured) {
-      toast.error('Assistente IA não configurado (GEMINI_API_KEY na VPS).');
+      toast.error('Assistente IA admin indisponível (agente desativado ou sem permissão).');
       return;
     }
     setLoading(true);
@@ -84,8 +84,8 @@ export const AdminSendOpsToAssistantButton: React.FC<Props> = ({ user, className
         onClick={() => void sendToAssistant()}
         title={
           aiConfigured
-            ? 'Coleta métricas desta aba e envia ao Assistente IA (Gemini)'
-            : 'Configure GEMINI_API_KEY na VPS'
+            ? 'Coleta métricas desta aba e envia ao Assistente IA (admin)'
+            : 'Agente admin indisponível'
         }
       >
         Enviar ao Assistente IA

@@ -44,11 +44,7 @@ pushHistorySample();
 const histTimer = setInterval(pushHistorySample, HISTORY_INTERVAL_MS);
 if (typeof (histTimer as NodeJS.Timeout).unref === 'function') (histTimer as NodeJS.Timeout).unref();
 
-export function registerAdminOpsRoutes(app: Express): void {
-  app.get('/api/admin/ops-snapshot', async (req: Request, res: Response) => {
-    const auth = await assertAdminFromBearer(req, res);
-    if (!auth) return;
-
+export async function buildAdminOpsSnapshotPayload() {
     const m = getSystemMetrics();
     const [load1, load5, load15] = os.loadavg();
     const cpus = os.cpus().length || 1;
@@ -77,8 +73,8 @@ export function registerAdminOpsRoutes(app: Express): void {
       safeSessionRef: cap.safe
     });
 
-    res.json({
-      ok: true,
+    return {
+      ok: true as const,
       at: new Date().toISOString(),
       authMode: zapmassDataProvider(),
       scopeNote:
@@ -114,7 +110,14 @@ export function registerAdminOpsRoutes(app: Express): void {
       alerts,
       history: opsHistory.map((p) => ({ ...p })),
       historyMeta: { intervalMs: HISTORY_INTERVAL_MS, maxPoints: HISTORY_MAX, windowApproxHours: 24 }
-    });
+    };
+}
+
+export function registerAdminOpsRoutes(app: Express): void {
+  app.get('/api/admin/ops-snapshot', async (req: Request, res: Response) => {
+    const auth = await assertAdminFromBearer(req, res);
+    if (!auth) return;
+    res.json(await buildAdminOpsSnapshotPayload());
   });
 
   app.get('/api/admin/vps-maintenance', async (req: Request, res: Response) => {

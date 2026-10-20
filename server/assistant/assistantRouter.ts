@@ -61,6 +61,68 @@ export function classifyIntent(question: string): AssistantIntent {
 
   if (
     hasAny(q, [
+      'mensagens nao lidas',
+      'mensagens não lidas',
+      'nao lidas',
+      'não lidas',
+      'inbox',
+      'caixa de entrada',
+      'conversas abertas',
+      'conversas nao lidas',
+      'conversas não lidas',
+      'ultima conversa',
+      'última conversa',
+      'quem escreveu',
+      'bate papo',
+      'bate-papo'
+    ]) &&
+    hasAny(q, [
+      'quantas',
+      'quantos',
+      'liste',
+      'lista',
+      'recente',
+      'pendente',
+      'conversa',
+      'conversas',
+      'mensagem',
+      'mensagens',
+      'inbox',
+      'nao lida',
+      'não lida'
+    ])
+  ) {
+    return 'data_chat';
+  }
+
+  if (
+    hasAny(q, ['bairro', 'bairros', 'mapa', 'territorio', 'território', 'geo', 'ddd', 'cidade', 'cidades', 'estado', 'uf']) &&
+    hasAny(q, ['quantos', 'quantas', 'distribu', 'concentra', 'top', 'por bairro', 'por cidade', 'sem bairro', 'sem cidade'])
+  ) {
+    return 'data_geo';
+  }
+
+  if (
+    hasAny(q, [
+      'relatorio',
+      'relatório',
+      'relatorios',
+      'relatórios',
+      'metricas',
+      'métricas',
+      'funil',
+      'desempenho',
+      'taxa de resposta',
+      'taxa de entrega',
+      'taxa de leitura',
+      'performance campanha'
+    ])
+  ) {
+    return 'data_reports';
+  }
+
+  if (
+    hasAny(q, [
       'quantos chips',
       'chips online',
       'chips offline',
@@ -159,20 +221,6 @@ export function classifyIntent(question: string): AssistantIntent {
       'permissão',
       'agente zapmass',
       'assistente zapmass'
-    ])
-  ) {
-    return 'tutorial';
-  }
-
-  if (
-    hasAny(q, [
-      'mensagens nao lidas',
-      'mensagens não lidas',
-      'nao lidas',
-      'não lidas',
-      'inbox',
-      'caixa de entrada',
-      'conversas abertas'
     ])
   ) {
     return 'tutorial';

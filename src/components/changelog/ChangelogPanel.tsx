@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.310',
+    date: '20/10/2026',
+    highlights: [
+      {
+        type: 'feature',
+        text: 'Agente ZapMass: IA admin sem depender só do Gemini legado; RAG por tela, runbooks, ferramentas chat/mapa/relatórios/ops, histórico admin_full e observabilidade',
+      },
+    ],
+  },
+  {
     version: '2.3.309',
     date: '19/10/2026',
     highlights: [

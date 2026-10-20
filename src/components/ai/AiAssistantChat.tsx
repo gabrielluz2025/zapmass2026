@@ -29,11 +29,12 @@ export const AiAssistantChat: React.FC<Props> = ({
   assistPayload,
   onAssistPayloadConsumed
 }) => {
-  const { configured, loading: statusLoading, model } = useAiStatus();
+  const { configured, loading: statusLoading, model, providerBadge } = useAiStatus();
   const [question, setQuestion] = useState('');
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [lastSource, setLastSource] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -61,14 +62,20 @@ export const AiAssistantChat: React.FC<Props> = ({
       setTurns((prev) => [...prev, userTurn]);
       setLoading(true);
       try {
+        const history = [...turns, userTurn].slice(-6).map((t) => ({
+          role: t.role,
+          content: t.text,
+        }));
         const res = await askAgent({
           question: q,
           screen,
           context: ctxOverride ?? context,
+          history,
           mode: 'admin_full',
           scope: 'platform'
         });
         if (!res.ok) throw new Error('error' in res ? res.error : 'Falha na IA');
+        setLastSource(res.source ?? null);
         setTurns((prev) => [
           ...prev,
           { id: `a_${Date.now()}`, role: 'assistant', text: res.answer },
@@ -80,8 +87,17 @@ export const AiAssistantChat: React.FC<Props> = ({
         inputRef.current?.focus();
       }
     },
-    [configured, context, loading, screen]
+    [configured, context, loading, screen, turns]
   );
+
+  const engineBadge = useMemo(() => {
+    if (lastSource === 'llm') {
+      if (providerBadge === 'groq') return 'Groq · dados ao vivo';
+      if (providerBadge === 'gemini') return 'Gemini · dados ao vivo';
+    }
+    if (lastSource === 'cache') return 'Resposta salva · determinístico';
+    return 'Determinístico · dados ao vivo';
+  }, [lastSource, providerBadge]);
 
   useEffect(() => {
     if (!assistPayload?.question || !configured || loading) return;
@@ -106,7 +122,8 @@ export const AiAssistantChat: React.FC<Props> = ({
     return (
       <div className={`zm-ai-chat zm-ai-chat--${variant}`}>
         <p className="zm-ai-not-configured">
-          IA não configurada no servidor. Adicione <code>GEMINI_API_KEY</code> no .env da VPS.
+          Assistente IA indisponível. Verifique se você é admin da plataforma e se o agente está habilitado
+          em Creator Studio.
         </p>
       </div>
     );
@@ -122,17 +139,18 @@ export const AiAssistantChat: React.FC<Props> = ({
           <div>
             <h1 className="zm-ai-chat__hero-title">Assistente IA</h1>
             <p className="zm-ai-chat__hero-sub">
-              Análises profundas com Gemini — importação, mapa, textos e perguntas abertas.
-              {model ? ` Modelo: ${model}.` : ''}
+              Modo admin: dados ao vivo + tutorial. Motor{' '}
+              <strong>{providerBadge === 'groq' ? 'Groq' : providerBadge === 'gemini' ? 'Gemini' : 'determinístico'}</strong>
+              {model ? ` (${model}).` : '.'}
             </p>
           </div>
         </header>
       )}
 
-      {turns.length === 0 && (
+      {turns.length === 0 && providerBadge !== 'deterministic' && (
         <p className="zm-ai-cost-banner">
-          <strong>Custo:</strong> cada pergunta consome a API Gemini. Para números simples (contatos, chips),
-          use o botão <strong>Assistente</strong> verde na barra — é grátis.
+          <strong>Custo:</strong> respostas com LLM externo consomem API. Para números simples, use o{' '}
+          <strong>Assistente</strong> verde — determinístico e grátis.
         </p>
       )}
 
@@ -174,7 +192,7 @@ export const AiAssistantChat: React.FC<Props> = ({
             <div className="zm-ai-bubble__body">
               {t.role === 'assistant' ? <AiAnswerText text={t.text} /> : <p>{t.text}</p>}
               {t.role === 'assistant' && (
-                <span className="zm-ai-bubble__badge">Gemini · dados ao vivo</span>
+                <span className="zm-ai-bubble__badge">{engineBadge}</span>
               )}
             </div>
           </div>

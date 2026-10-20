@@ -5,6 +5,9 @@ export type AssistantIntent =
   | 'data_campaigns'
   | 'data_connections'
   | 'data_subscription'
+  | 'data_chat'
+  | 'data_geo'
+  | 'data_reports'
   | 'creative'
   | 'navigate'
   | 'unknown';
@@ -28,6 +31,8 @@ export type KnowledgeChunk = {
   keywords: string[];
   body: string;
   navigateTo?: string;
+  /** Telas relacionadas (boost no RAG). */
+  tags?: string[];
 };
 
 export type AssistantHistoryMessage = {

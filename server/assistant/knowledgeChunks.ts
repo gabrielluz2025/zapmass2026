@@ -246,7 +246,64 @@ export const KNOWLEDGE_CHUNKS: KnowledgeChunk[] = [
     keywords: ['etiqueta', 'etiquetas', 'tag', 'tags', 'rotulo', 'rótulo', 'segmentar'],
     body:
       'Em **Contatos**, use **Etiquetas** para marcar grupos (VIP, inadimplente, região). Filtre por etiqueta antes de criar campanhas ou exportar listas.',
-    navigateTo: 'contacts'
+    navigateTo: 'contacts',
+    tags: ['contacts']
+  },
+  {
+    id: 'runbook-campaign-stuck',
+    title: 'Runbook: campanha travada',
+    keywords: [
+      'campanha travada',
+      'campanha parada',
+      'nao envia',
+      'não envia',
+      'stuck',
+      'pausada sozinha',
+      'fila parada',
+      'held',
+      'retomar campanha'
+    ],
+    body:
+      '**Campanha parada:** (1) Confira se há **chip online** em Conexões. (2) Veja status da campanha (RUNNING/PAUSED/SCHEDULED). (3) Se estava **pausada**, use **Retomar** — após restart da VPS a fila *held* pode precisar de alguns minutos. (4) Revise intervalo anti-ban e limite diário do chip. (5) Em **Relatórios → Falhas**, veja erros de entrega. Se persistir, reduza velocidade e teste com lista pequena.',
+    navigateTo: 'campaigns',
+    tags: ['campaigns', 'runbook', 'dashboard']
+  },
+  {
+    id: 'runbook-chip-offline',
+    title: 'Runbook: chip offline',
+    keywords: [
+      'chip offline',
+      'whatsapp caiu',
+      'desconectou',
+      'reconectar',
+      'qr expirou',
+      'nao conecta',
+      'não conecta',
+      'sessao caiu'
+    ],
+    body:
+      '**Chip offline:** (1) Abra **Conexões** e veja o status. (2) Toque em **Reconectar** ou **QR Code** e escaneie de novo no celular (WhatsApp aberto, internet estável). (3) Evite usar o mesmo número em outro aparelho ao mesmo tempo. (4) Se cair após deploy, aguarde 2–3 min e reconecte — reinícios da API derrubam sessões temporariamente. (5) Chip novo: use **Aquecimento** antes de campanhas grandes.',
+    navigateTo: 'connections',
+    tags: ['connections', 'runbook', 'dashboard']
+  },
+  {
+    id: 'runbook-import-failed',
+    title: 'Runbook: importação falhou',
+    keywords: [
+      'importacao falhou',
+      'importação falhou',
+      'csv erro',
+      'excel erro',
+      'nao importa',
+      'não importa',
+      'colunas erradas',
+      'telefone invalido',
+      'telefone inválido'
+    ],
+    body:
+      '**Importação com erro:** (1) CSV/Excel com coluna **telefone** (DDI+DDD+número, só dígitos). (2) Remova linhas vazias e cabeçalhos duplicados. (3) Para colar texto, use uma linha por contato. (4) Duplicados são ignorados ou mesclados — confira o preview antes de confirmar. (5) Arquivo muito grande: divida em lotes. (6) Se a tela travar, recarregue e tente lote menor; confira limite do plano.',
+    navigateTo: 'contacts',
+    tags: ['contacts', 'runbook']
   }
 ];
 

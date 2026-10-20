@@ -58,7 +58,7 @@ export const CampaignMessageComposer: React.FC<Props> = ({
   showGreetingPicker = true,
   campaignBrief = '',
 }) => {
-  const { configured: aiConfigured } = useAiStatus();
+  const { legacyGeminiFab: aiConfigured } = useAiStatus();
   const { segment } = useAppProfile();
   const [aiLoading, setAiLoading] = useState(false);
 

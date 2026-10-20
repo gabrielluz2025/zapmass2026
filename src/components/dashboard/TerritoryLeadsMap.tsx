@@ -111,7 +111,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   onNavigate,
 }) => {
   const { bulkUpdateContacts } = useZapMassCore();
-  const { configured: aiConfigured } = useAiStatus();
+  const { legacyGeminiFab: aiConfigured } = useAiStatus();
   const [aiMapLoading, setAiMapLoading] = useState(false);
   const [aiMapResult, setAiMapResult] = useState<{
     summary: string;

@@ -32,6 +32,8 @@ describe('agent MVP smoke', () => {
 
   it('tool registry inclui tenant_snapshot', () => {
     expect(AGENT_TOOLS.some((t) => t.id === 'tenant_snapshot')).toBe(true);
+    expect(AGENT_TOOLS.some((t) => t.id === 'admin_ops_snapshot')).toBe(true);
+    expect(AGENT_TOOLS.some((t) => t.id === 'chat_conversations')).toBe(true);
     expect(AGENT_TOOLS.some((t) => t.scope === 'tenant')).toBe(true);
     expect(AGENT_TOOLS.some((t) => t.scope === 'platform')).toBe(true);
   });

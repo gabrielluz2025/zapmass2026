@@ -61,6 +61,7 @@ export type AgentConfig = {
     keywords: string[];
     body: string;
     navigateTo?: string;
+    tags?: string[];
     enabled?: boolean;
   }>;
   defaultAdminMode: AgentMode;

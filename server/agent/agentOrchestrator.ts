@@ -1,5 +1,11 @@
 import { handleAssistantAsk } from '../assistant/assistantEngine.js';
-import { getRemainingQuota } from '../assistant/assistantCache.js';
+import {
+  consumeQuota,
+  getCachedAnswer,
+  getRemainingQuota,
+  setCachedAnswer
+} from '../assistant/assistantCache.js';
+import { normalizeQuestionKey, classifyIntent } from '../assistant/assistantRouter.js';
 import { loadAgentConfig } from './agentConfigLoader.js';
 import { buildAdminFullPrompt } from './toolRegistry.js';
 import {
@@ -11,8 +17,8 @@ import {
   isGeminiLegacyFabEnabled
 } from './llmProvider.js';
 import { buildAdminFullDeterministicAnswer } from './adminDeterministic.js';
-import { classifyIntent } from '../assistant/assistantRouter.js';
 import type { AgentAskParams, AgentAskResponse, AgentMode, AgentScope, AgentStatusPayload } from './types.js';
+import type { AssistantSource } from '../assistant/assistantTypes.js';
 
 function resolveMode(params: AgentAskParams, cfgDefault: AgentMode): AgentMode {
   const requested = params.mode || 'auto';
@@ -24,6 +30,28 @@ function resolveMode(params: AgentAskParams, cfgDefault: AgentMode): AgentMode {
 function resolveScope(params: AgentAskParams, mode: AgentMode): AgentScope {
   if (params.scope === 'platform' || params.scope === 'tenant') return params.scope;
   return mode === 'admin_full' ? 'platform' : 'tenant';
+}
+
+function logAgentAsk(payload: {
+  tenantId: string;
+  mode: AgentMode;
+  screen: string;
+  intent: string;
+  source: AssistantSource | 'llm' | 'tools';
+  usedLlm: boolean;
+}): void {
+  console.info(
+    JSON.stringify({
+      event: 'agent_ask',
+      tenantId: payload.tenantId.slice(0, 8),
+      mode: payload.mode,
+      screen: payload.screen,
+      intent: payload.intent,
+      source: payload.source,
+      usedLlm: payload.usedLlm,
+      at: new Date().toISOString()
+    })
+  );
 }
 
 export async function getAgentStatus(params: {
@@ -86,6 +114,35 @@ export async function handleAgentAsk(params: AgentAskParams): Promise<AgentAskRe
       return { ok: false, error: 'Escreva uma pergunta com pelo menos 2 caracteres.', remainingToday: remaining };
     }
 
+    const intent = classifyIntent(question);
+    const qKey = normalizeQuestionKey(`admin_full:${question}`);
+    const cached = await getCachedAnswer(params.tenantId, qKey);
+    const remainingBefore = await getRemainingQuota(params.tenantId, params.actorId);
+
+    if (cached) {
+      logAgentAsk({ tenantId: params.tenantId, mode, screen, intent, source: 'cache', usedLlm: false });
+      return {
+        ok: true,
+        answer: cached,
+        intent,
+        source: 'cache',
+        remainingToday: remainingBefore,
+        usedLlm: false,
+        mode: 'admin_full',
+        scope,
+        dataUsed: true
+      };
+    }
+
+    const quota = await consumeQuota(params.tenantId, params.actorId);
+    if (!quota.ok) {
+      return {
+        ok: false,
+        error: `Limite diário de perguntas atingido. Tente amanhã ou use o tutorial em **Como usar**.`,
+        remainingToday: 0
+      };
+    }
+
     try {
       let answer: string;
       let source: 'llm' | 'tools' = 'tools';
@@ -98,7 +155,8 @@ export async function handleAgentAsk(params: AgentAskParams): Promise<AgentAskRe
           tenantId: params.tenantId,
           actorId: params.actorId,
           context: params.context,
-          systemExtra: cfg.systemPromptExtra
+          systemExtra: cfg.systemPromptExtra,
+          history: params.history
         });
         answer = await generateAgentFullAnswer({ systemInstruction, userPrompt });
         source = 'llm';
@@ -114,24 +172,25 @@ export async function handleAgentAsk(params: AgentAskParams): Promise<AgentAskRe
         answer = det.answer;
       }
 
-      const remaining = await getRemainingQuota(params.tenantId, params.actorId);
+      void setCachedAnswer(params.tenantId, qKey, answer);
+      logAgentAsk({ tenantId: params.tenantId, mode, screen, intent, source, usedLlm });
+
       return {
         ok: true,
         answer,
-        intent: classifyIntent(question),
+        intent,
         source,
-        remainingToday: remaining,
+        remainingToday: quota.remaining,
         usedLlm,
         mode: 'admin_full',
         scope,
         dataUsed: true
       };
     } catch (e) {
-      const remaining = await getRemainingQuota(params.tenantId, params.actorId);
       return {
         ok: false,
         error: e instanceof Error ? e.message : 'Falha na IA.',
-        remainingToday: remaining
+        remainingToday: quota.remaining
       };
     }
   }
@@ -158,6 +217,15 @@ export async function handleAgentAsk(params: AgentAskParams): Promise<AgentAskRe
       remainingToday: result.remainingToday
     };
   }
+
+  logAgentAsk({
+    tenantId: params.tenantId,
+    mode: 'standard',
+    screen,
+    intent: result.intent,
+    source: result.source,
+    usedLlm: result.usedLlm
+  });
 
   return {
     ...result,

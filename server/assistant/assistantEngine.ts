@@ -13,7 +13,10 @@ import {
   getCampaignsAnswer,
   getConnectionsAnswer,
   getSubscriptionAnswer,
-  getCreativeAnswer
+  getCreativeAnswer,
+  getChatConversationsAnswer,
+  getGeoLeadsAnswer,
+  getReportsAggregatesAnswer
 } from './assistantTools.js';
 import { creativeWithLlm, isLlmAvailable, polishWithLlm } from './assistantLlm.js';
 
@@ -46,7 +49,9 @@ async function buildBaseAnswer(
   intent: ReturnType<typeof classifyIntent>,
   tenantId: string,
   question: string,
-  allowLlm: boolean
+  allowLlm: boolean,
+  actorId: string,
+  currentView?: string
 ): Promise<{ answer: string; navigateTo?: string; suggestions?: string[] }> {
   switch (intent) {
     case 'data_overview':
@@ -59,6 +64,12 @@ async function buildBaseAnswer(
       return { answer: await getConnectionsAnswer(tenantId), navigateTo: 'connections' };
     case 'data_subscription':
       return { answer: await getSubscriptionAnswer(tenantId), navigateTo: 'subscription' };
+    case 'data_chat':
+      return { answer: await getChatConversationsAnswer(tenantId, actorId, question), navigateTo: 'chat' };
+    case 'data_geo':
+      return { answer: await getGeoLeadsAnswer(tenantId, question), navigateTo: 'contacts-map' };
+    case 'data_reports':
+      return { answer: await getReportsAggregatesAnswer(tenantId), navigateTo: 'reports' };
     case 'navigate': {
       const view = resolveNavigateView(question);
       if (view) {
@@ -88,7 +99,7 @@ async function buildBaseAnswer(
     case 'tutorial':
     case 'unknown':
     default: {
-      const hits = await searchKnowledge(question, 3);
+      const hits = await searchKnowledge(question, 3, { currentView });
       const rag = formatRagAnswer(hits);
       if (rag) {
         return { answer: rag.answer, navigateTo: rag.navigateTo };
@@ -146,7 +157,14 @@ export async function handleAssistantAsk(params: {
   let source: AssistantAskResult['source'] = intent.startsWith('data_') ? 'tools' : 'rag';
   let usedLlm = false;
 
-  const base = await buildBaseAnswer(intent, params.tenantId, question, !!params.allowLlm);
+  const base = await buildBaseAnswer(
+    intent,
+    params.tenantId,
+    question,
+    !!params.allowLlm,
+    params.actorId,
+    params.currentView
+  );
   let answer = base.answer;
 
   const shouldPolish =

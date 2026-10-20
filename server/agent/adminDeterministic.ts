@@ -9,6 +9,9 @@ const INTENT_TOOL: Partial<Record<ReturnType<typeof classifyIntent>, string>> = 
   data_connections: 'connections',
   data_subscription: 'subscription',
   data_overview: 'overview',
+  data_chat: 'chat_conversations',
+  data_geo: 'geo_leads',
+  data_reports: 'reports_aggregates',
   creative: 'creative'
 };
 
@@ -35,14 +38,20 @@ export async function buildAdminFullDeterministicAnswer(params: {
     ''
   ];
 
-  const toolId = INTENT_TOOL[intent] ?? 'overview';
+  const screen = params.screen || 'geral';
+  const qLower = params.question.toLowerCase();
+  let toolId = INTENT_TOOL[intent] ?? 'overview';
+  if (screen === 'admin-ops' || /\b(servidor|vps|load|postgres|ops)\b/.test(qLower)) {
+    toolId = 'admin_ops_snapshot';
+  }
+
   sections.push(await runAgentTool(toolId, ctx));
 
-  if (toolId !== 'overview' && intent !== 'data_overview') {
+  if (toolId !== 'overview' && intent !== 'data_overview' && toolId !== 'admin_ops_snapshot') {
     sections.push(await runAgentTool('overview', ctx));
   }
 
-  const hits = await searchKnowledge(params.question, 3);
+  const hits = await searchKnowledge(params.question, 3, { screen });
   const rag = formatRagAnswer(hits);
   if (rag) {
     sections.push('', '**Do tutorial:**', rag.answer);
