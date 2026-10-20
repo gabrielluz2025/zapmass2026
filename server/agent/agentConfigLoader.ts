@@ -1,7 +1,13 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from '../firebaseAdmin.js';
-import type { AgentConfig, AgentKnowledgeOverride, AgentMode } from './types.js';
+import type {
+  AgentConfig,
+  AgentKnowledgeOverride,
+  AgentMode,
+  AgentOrchestratorOverride,
+  AgentScreenAgentOverride
+} from './types.js';
 
 const COLLECTION = 'appConfig';
 const DOC_ID = 'agent';
@@ -55,6 +61,62 @@ function parseMode(raw: unknown): AgentMode {
   return 'auto';
 }
 
+function parseScreenAgentOverrides(raw: unknown): AgentScreenAgentOverride[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AgentScreenAgentOverride[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+    const screenKey = typeof o.screenKey === 'string' ? o.screenKey.trim().slice(0, 64) : '';
+    if (!screenKey) continue;
+    const entry: AgentScreenAgentOverride = { screenKey };
+    if (typeof o.systemPromptExtra === 'string') {
+      entry.systemPromptExtra = clampStr(o.systemPromptExtra, 2000);
+    }
+    if (Array.isArray(o.enabledTools)) {
+      entry.enabledTools = o.enabledTools
+        .filter((t): t is string => typeof t === 'string')
+        .map((t) => t.trim().slice(0, 64))
+        .filter(Boolean)
+        .slice(0, 24);
+    }
+    if (Array.isArray(o.tags)) {
+      entry.tags = o.tags
+        .filter((t): t is string => typeof t === 'string')
+        .map((t) => t.trim().slice(0, 48))
+        .filter(Boolean)
+        .slice(0, 16);
+    }
+    if (o.enabled === false) entry.enabled = false;
+    out.push(entry);
+  }
+  return out.slice(0, 40);
+}
+
+function parseOrchestratorOverride(raw: unknown): AgentOrchestratorOverride {
+  if (!raw || typeof raw !== 'object') return {};
+  const o = raw as Record<string, unknown>;
+  const out: AgentOrchestratorOverride = {};
+  if (typeof o.systemPromptExtra === 'string') {
+    out.systemPromptExtra = clampStr(o.systemPromptExtra, 2000);
+  }
+  if (Array.isArray(o.enabledTools)) {
+    out.enabledTools = o.enabledTools
+      .filter((t): t is string => typeof t === 'string')
+      .map((t) => t.trim().slice(0, 64))
+      .filter(Boolean)
+      .slice(0, 24);
+  }
+  if (Array.isArray(o.tags)) {
+    out.tags = o.tags
+      .filter((t): t is string => typeof t === 'string')
+      .map((t) => t.trim().slice(0, 48))
+      .filter(Boolean)
+      .slice(0, 16);
+  }
+  return out;
+}
+
 export function defaultAgentConfig(): AgentConfig {
   return {
     enabled: true,
@@ -63,7 +125,9 @@ export function defaultAgentConfig(): AgentConfig {
     starterSuggestions: [...STARTER_DEFAULT],
     llmPolishEnabled: true,
     knowledgeOverrides: [],
-    defaultAdminMode: 'auto'
+    defaultAdminMode: 'auto',
+    screenAgentOverrides: [],
+    orchestratorOverride: {}
   };
 }
 
@@ -89,6 +153,12 @@ export function mergeAgentConfigPartial(raw: Record<string, unknown> | undefined
   if (typeof o.llmPolishEnabled === 'boolean') base.llmPolishEnabled = o.llmPolishEnabled;
   if (o.defaultAdminMode !== undefined) base.defaultAdminMode = parseMode(o.defaultAdminMode);
   base.knowledgeOverrides = parseKnowledgeOverrides(o.knowledgeOverrides);
+  if (o.screenAgentOverrides !== undefined) {
+    base.screenAgentOverrides = parseScreenAgentOverrides(o.screenAgentOverrides);
+  }
+  if (o.orchestratorOverride !== undefined) {
+    base.orchestratorOverride = parseOrchestratorOverride(o.orchestratorOverride);
+  }
   if (typeof o.updatedAt === 'string') base.updatedAt = o.updatedAt;
   return base;
 }
@@ -141,6 +211,14 @@ export async function saveAgentConfigMerge(partial: Partial<AgentConfig>): Promi
         : current.knowledgeOverrides,
     defaultAdminMode:
       partial.defaultAdminMode !== undefined ? parseMode(partial.defaultAdminMode) : current.defaultAdminMode,
+    screenAgentOverrides:
+      partial.screenAgentOverrides !== undefined
+        ? parseScreenAgentOverrides(partial.screenAgentOverrides)
+        : current.screenAgentOverrides,
+    orchestratorOverride:
+      partial.orchestratorOverride !== undefined
+        ? parseOrchestratorOverride(partial.orchestratorOverride)
+        : current.orchestratorOverride,
     updatedAt: new Date().toISOString()
   };
   await ref.set(next, { merge: true });
@@ -170,6 +248,12 @@ export function sanitizeAgentConfigPatch(body: unknown): Partial<AgentConfig> {
   }
   if (Array.isArray(b.knowledgeOverrides)) {
     out.knowledgeOverrides = parseKnowledgeOverrides(b.knowledgeOverrides);
+  }
+  if (Array.isArray(b.screenAgentOverrides)) {
+    out.screenAgentOverrides = parseScreenAgentOverrides(b.screenAgentOverrides);
+  }
+  if (b.orchestratorOverride !== undefined) {
+    out.orchestratorOverride = parseOrchestratorOverride(b.orchestratorOverride);
   }
   return out;
 }

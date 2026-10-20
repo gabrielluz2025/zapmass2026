@@ -8,6 +8,8 @@ import {
 import { normalizeQuestionKey, classifyIntent } from '../assistant/assistantRouter.js';
 import { buildSystemAuditAnswer } from '../assistant/assistantTools.js';
 import { getScreenAgentPersona } from '../../shared/agentScreenPersonas.js';
+import { ORCHESTRATOR_AGENT } from '../../shared/agentRegistry.js';
+import { resolveActiveAgentContext } from './agentRegistry.js';
 import { loadAgentConfig } from './agentConfigLoader.js';
 import { buildAdminFullPrompt } from './toolRegistry.js';
 import {
@@ -55,6 +57,7 @@ function logAgentAsk(payload: {
       tenantId: payload.tenantId.slice(0, 8),
       mode: payload.mode,
       screen: payload.screen,
+      orchestrator: ORCHESTRATOR_AGENT.name,
       agentPersona: persona.name,
       agentProfile: persona.profileId,
       intent: payload.intent,
@@ -70,6 +73,7 @@ function logAgentAsk(payload: {
     actorIdPrefix: payload.actorId.slice(0, 8),
     mode: payload.mode,
     screen: payload.screen,
+    orchestrator: ORCHESTRATOR_AGENT.name,
     agentPersona: persona.name,
     agentProfile: persona.profileId,
     intent: payload.intent,
@@ -91,6 +95,7 @@ async function handleAgentAskCore(params: AgentAskParams): Promise<AgentAskRespo
   const scope = resolveScope(params, mode);
   const screen = (params.screen || params.currentView || 'geral').slice(0, 64);
   const persona = getScreenAgentPersona(screen);
+  const agentCtx = resolveActiveAgentContext(cfg, screen);
   const questionPreview = params.question.trim().slice(0, 2000);
 
   if (mode === 'admin_full') {
@@ -134,8 +139,9 @@ async function handleAgentAskCore(params: AgentAskParams): Promise<AgentAskRespo
         mode: 'admin_full',
         scope,
         dataUsed: true,
-        agentPersona: persona.name,
-        agentProfile: persona.profileId
+        agentPersona: agentCtx.screenAgent.name,
+        agentProfile: agentCtx.screenAgent.profileId,
+        orchestratorName: agentCtx.orchestratorName
       };
     }
 
@@ -175,8 +181,9 @@ async function handleAgentAskCore(params: AgentAskParams): Promise<AgentAskRespo
           scope,
           dataUsed: true,
           toolsUsed: audit.toolsUsed,
-          agentPersona: persona.name,
-          agentProfile: persona.profileId
+          agentPersona: agentCtx.screenAgent.name,
+          agentProfile: agentCtx.screenAgent.profileId,
+          orchestratorName: agentCtx.orchestratorName
         };
       }
 
@@ -194,7 +201,7 @@ async function handleAgentAskCore(params: AgentAskParams): Promise<AgentAskRespo
               tenantId: params.tenantId,
               actorId: params.actorId,
               context: params.context,
-              systemExtra: cfg.systemPromptExtra,
+              systemExtra: agentCtx.combinedSystemPromptExtra,
               history: params.history
             }),
           20_000,
@@ -248,8 +255,9 @@ async function handleAgentAskCore(params: AgentAskParams): Promise<AgentAskRespo
         scope,
         dataUsed: true,
         toolsUsed,
-        agentPersona: persona.name,
-        agentProfile: persona.profileId
+        agentPersona: agentCtx.screenAgent.name,
+        agentProfile: agentCtx.screenAgent.profileId,
+        orchestratorName: agentCtx.orchestratorName
       };
     } catch (e) {
       return {
@@ -299,7 +307,10 @@ async function handleAgentAskCore(params: AgentAskParams): Promise<AgentAskRespo
     ...result,
     mode: 'standard',
     scope,
-    dataUsed: result.source === 'tools' || result.source === 'llm'
+    dataUsed: result.source === 'tools' || result.source === 'llm',
+    agentPersona: agentCtx.screenAgent.name,
+    agentProfile: agentCtx.screenAgent.profileId,
+    orchestratorName: agentCtx.orchestratorName
   };
 }
 

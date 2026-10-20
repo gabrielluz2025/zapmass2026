@@ -10,6 +10,7 @@ import {
   sanitizeAgentConfigPatch
 } from './agent/agentConfigLoader.js';
 import { getRecentAgentActivity } from './agent/agentActivityBuffer.js';
+import { buildAgentRegistry } from './agent/agentRegistry.js';
 import { getAgentStatus, handleAgentAsk } from './agent/agentOrchestrator.js';
 import { listKnowledgeForAdmin, patchKnowledgeOverrides } from './agent/knowledgeService.js';
 import type { AgentKnowledgeOverride, AgentMode, AgentScope } from './agent/types.js';
@@ -41,6 +42,13 @@ function parseScope(raw: unknown): AgentScope | undefined {
 }
 
 export function registerAgentRoutes(app: Express): void {
+  app.get('/api/agent/registry', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const cfg = await loadAgentConfig();
+    return res.json(buildAgentRegistry(cfg));
+  });
+
   app.get('/api/agent/activity', async (req: Request, res: Response) => {
     const admin = await assertAdminFromBearer(req, res);
     if (!admin) return;

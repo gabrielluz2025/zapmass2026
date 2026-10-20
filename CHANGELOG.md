@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.312] - 2026-10-20
+
+### Adicionado
+- **Multi-agente lógico**: `shared/agentRegistry.ts` + `server/agent/agentRegistry.ts` (SCREEN_AGENTS, orquestrador **ZapMass Core**), `GET /api/agent/registry`, overrides por tela (`systemPromptExtra`, `enabledTools`, tags) no Firestore.
+- **Creator Studio**: painel **Multi-agente — controle** com mapeamento tela→agente, edição por persona e feed de atividade ao vivo.
+- **Assistente (admin)**: faixa com orquestrador, persona, ferramentas e link ao painel de agentes.
+- **Doc**: seção multi-agente em `docs/AGENTE-ZAPMASS.md`.
+
 ## [2.3.311] - 2026-10-20
 
 ### Corrigido

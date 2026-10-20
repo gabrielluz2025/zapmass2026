@@ -10,6 +10,7 @@ import {
   type AgentConfig,
   type AgentMode
 } from '../../services/agentApi';
+import { AgentControlPanel } from './AgentControlPanel';
 
 const MODES: AgentMode[] = ['auto', 'standard', 'admin_full'];
 
@@ -93,6 +94,8 @@ export const AgentStudioSection: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      <AgentControlPanel />
+
       <Card className="p-5 space-y-4">
         <div className="flex items-center gap-2">
           <Bot className="w-5 h-5 text-violet-500" />

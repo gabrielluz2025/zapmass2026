@@ -11,10 +11,29 @@ export type AgentKnowledgeOverride = KnowledgeChunk & {
   enabled?: boolean;
 };
 
+export type AgentScreenAgentOverride = {
+  screenKey: string;
+  systemPromptExtra?: string;
+  enabledTools?: string[];
+  tags?: string[];
+  /** false = agente lógico desativado (fallback Guia). */
+  enabled?: boolean;
+};
+
+export type AgentOrchestratorOverride = {
+  systemPromptExtra?: string;
+  enabledTools?: string[];
+  tags?: string[];
+};
+
 export type AgentConfig = {
   enabled: boolean;
   /** Texto extra no system prompt (Gemini). */
   systemPromptExtra: string;
+  /** Overrides por tela (Creator Studio → agentes lógicos). */
+  screenAgentOverrides: AgentScreenAgentOverride[];
+  /** Overrides do meta-agente ZapMass Core. */
+  orchestratorOverride: AgentOrchestratorOverride;
   /** null = usar ASSISTANT_DAILY_LIMIT do env. */
   dailyLimitOverride: number | null;
   starterSuggestions: string[];
@@ -47,6 +66,7 @@ export type AgentAskSuccess = AssistantAskResult & {
   toolsUsed?: string[];
   agentPersona?: string;
   agentProfile?: string;
+  orchestratorName?: string;
 };
 
 export type AgentAskFailure = {

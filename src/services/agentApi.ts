@@ -29,12 +29,54 @@ export type AgentStatus = {
   suggestions: string[];
 };
 
+export type AgentScreenAgentOverride = {
+  screenKey: string;
+  systemPromptExtra?: string;
+  enabledTools?: string[];
+  tags?: string[];
+  enabled?: boolean;
+};
+
+export type AgentOrchestratorOverride = {
+  systemPromptExtra?: string;
+  enabledTools?: string[];
+  tags?: string[];
+};
+
+export type AgentRegistryPayload = {
+  ok: true;
+  orchestrator: {
+    id: string;
+    name: string;
+    tagline: string;
+    tags: string[];
+    systemPromptExtra: string;
+    enabledTools: string[];
+    defaultEnabledTools?: string[];
+  };
+  screenAgents: Array<{
+    screenKey: string;
+    profileId: string;
+    name: string;
+    tagline: string;
+    tags: string[];
+    systemPromptExtra: string;
+    enabledTools: string[];
+    enabled: boolean;
+    defaultEnabledTools?: string[];
+  }>;
+  screenAgentCount: number;
+  mappings: Array<{ screenKey: string; profileId: string; agentName: string }>;
+  availableTools: Array<{ id: string; label: string; scope: string; description: string }>;
+};
+
 export type AgentActivityEntry = {
   at: string;
   tenantIdPrefix: string;
   actorIdPrefix: string;
   mode: AgentMode;
   screen: string;
+  orchestrator?: string;
   agentPersona: string;
   agentProfile: string;
   intent: string;
@@ -60,6 +102,7 @@ export type AgentAskResponse =
       toolsUsed?: string[];
       agentPersona?: string;
       agentProfile?: string;
+      orchestratorName?: string;
     }
   | {
       ok: false;
@@ -83,8 +126,14 @@ export type AgentConfig = {
     enabled?: boolean;
   }>;
   defaultAdminMode: AgentMode;
+  screenAgentOverrides?: AgentScreenAgentOverride[];
+  orchestratorOverride?: AgentOrchestratorOverride;
   updatedAt?: string;
 };
+
+export async function fetchAgentRegistry(): Promise<AgentRegistryPayload> {
+  return apiFetchJson<AgentRegistryPayload>('/api/agent/registry');
+}
 
 export async function fetchAgentStatus(): Promise<AgentStatus> {
   return apiFetchJson<AgentStatus>('/api/agent/status');

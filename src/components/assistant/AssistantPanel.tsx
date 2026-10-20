@@ -101,6 +101,7 @@ export const AssistantPanel: React.FC<Props> = ({
     intent?: string;
     toolsUsed?: string[];
     agentPersona?: string;
+    orchestratorName?: string;
   } | null>(null);
   const [adminActivity, setAdminActivity] = useState<AgentActivityEntry[]>([]);
   const suggestions = useMemo(
@@ -200,7 +201,8 @@ export const AssistantPanel: React.FC<Props> = ({
       setLastMeta({
         intent: res.intent,
         toolsUsed: res.toolsUsed,
-        agentPersona: res.agentPersona ?? screenPersona.name
+        agentPersona: res.agentPersona ?? screenPersona.name,
+        orchestratorName: res.orchestratorName ?? 'ZapMass Core'
       });
 
       setMessages((prev) => [
@@ -254,6 +256,12 @@ export const AssistantPanel: React.FC<Props> = ({
           {isAdmin && (
             <div className="zm-asst-admin-strip">
               <div className="zm-asst-admin-strip__row">
+                <span className="zm-asst-admin-strip__label">Orquestrador</span>
+                <span className="zm-asst-admin-strip__value">
+                  {lastMeta?.orchestratorName ?? 'ZapMass Core'}
+                </span>
+              </div>
+              <div className="zm-asst-admin-strip__row">
                 <span className="zm-asst-admin-strip__label">Agente ativo</span>
                 <span className="zm-asst-admin-strip__value">
                   {lastMeta?.agentPersona ?? screenPersona.name} · {screenLabel}
@@ -294,7 +302,7 @@ export const AssistantPanel: React.FC<Props> = ({
                     onClose();
                   }}
                 >
-                  Abrir Agente no Creator Studio
+                  Abrir painel de agentes (Creator Studio)
                 </button>
               )}
             </div>

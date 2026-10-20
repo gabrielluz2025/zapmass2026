@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.312',
+    date: '20/10/2026',
+    highlights: [
+      {
+        type: 'feature',
+        text: 'Multi-agente lógico: registry (Radar, Disparador…), ZapMass Core orquestrador, painel admin no Creator Studio e GET /api/agent/registry',
+      },
+    ],
+  },
+  {
     version: '2.3.311',
     date: '20/10/2026',
     highlights: [

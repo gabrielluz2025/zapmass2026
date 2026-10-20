@@ -9,15 +9,31 @@ Assistente **próprio da plataforma**, sem depender de Google Gemini no fluxo pr
 | **assistantRouter** | Intenções determinísticas (dados, navegação, tutorial, criativo). |
 | **assistantTools** | Respostas com dados ao vivo (Postgres/Evolution): contatos, campanhas, chips, assinatura. |
 | **knowledgeService** | RAG leve: `knowledgeChunks.ts` + `docs/TUTORIAL-USUARIO-ZAPMASS.md` + overrides Firestore. |
-| **agentOrchestrator** | Um orquestrador para todas as telas (`currentView` / `screen`); modos `standard` e `admin_full`; persona por tela (`shared/agentScreenPersonas.ts`, ex.: **Radar** no Painel). |
+| **agentOrchestrator** | Um orquestrador para todas as telas (`currentView` / `screen`); modos `standard` e `admin_full`; persona por tela (`shared/agentRegistry.ts`, ex.: **Radar** no Painel). |
+| **agentRegistry** | Catálogo de agentes lógicos por aba + meta-agente **ZapMass Core**; overrides Firestore; `GET /api/agent/registry`. |
 | **toolRegistry** | Ferramentas nomeadas + snapshot JSON para admin. |
 | **llmProvider** | Só se `AGENT_LLM_PROVIDER=groq` ou `gemini` e chaves configuradas. |
 
-API: `GET/POST /api/agent/*` (status, ask, config/knowledge para admin). Admin: `GET /api/agent/activity` (buffer em memória das últimas perguntas, log `agent_ask`).
+API: `GET/POST /api/agent/*` (status, ask, registry, config/knowledge para admin). Admin: `GET /api/agent/activity` (buffer em memória das últimas perguntas, log `agent_ask`).
 
 Perguntas amplas (“valide todo o sistema”) usam intenção `system_audit`: várias ferramentas em paralelo + checklist, sem depender de LLM. Timeouts: cliente ~50s, servidor `AGENT_ASK_TIMEOUT_MS` (default 45s).
 
 UI: painel **Assistente ZapMass** (robô) → `agentApi`. Não consome Gemini por padrão.
+
+## Modelo multi-agente (lógico)
+
+Inspirado no padrão **orquestrador + sub-agentes focados** (ex.: aula Bruno Picinini — agentes com objetivo único, PEAS: performance/ambiente/sensores/atuadores; depois fazê-los “conversar” via orquestrador central):
+
+| Papel | Implementação ZapMass |
+|-------|------------------------|
+| **Orquestrador** | **ZapMass Core** — uma instância, roteia `screen`, quota, logs e combina prompts. |
+| **Sub-agentes** | Personas por aba (`SCREEN_AGENTS`: Radar, Disparador, Torre…), cada uma com `defaultEnabledTools`, tags e `systemPromptExtra` opcional. |
+| **Ferramentas** | `toolRegistry` (dados ao vivo, snapshot admin) — o orquestrador escolhe tools conforme intenção; admin pode restringir por tela no Creator Studio. |
+| **Observabilidade** | Log JSON `agent_ask` + buffer `GET /api/agent/activity`; admin vê orquestrador → persona → ferramentas no Assistente. |
+
+Não há N processos LLM separados por padrão (custo/latência): é **multi-agente lógico** — UX e configuração de equipe especializada, execução unificada no servidor.
+
+Configuração: Creator Studio → **Multi-agente — painel de controle** (`screenAgentOverrides`, `orchestratorOverride` em `appConfig/agent`).
 
 ## Manter o conhecimento de domínio
 

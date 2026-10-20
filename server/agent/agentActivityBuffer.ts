@@ -6,6 +6,7 @@ export type AgentActivityEntry = {
   actorIdPrefix: string;
   mode: AgentMode;
   screen: string;
+  orchestrator?: string;
   agentPersona: string;
   agentProfile: string;
   intent: string;
