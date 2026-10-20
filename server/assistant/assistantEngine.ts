@@ -179,9 +179,7 @@ export async function handleAssistantAsk(params: {
     !!params.allowLlm &&
     isLlmAvailable() &&
     process.env.ASSISTANT_LLM_POLISH !== 'false' &&
-    (intent === 'tutorial' || intent === 'unknown') &&
-    intent !== 'system_audit' &&
-    !intent.startsWith('data_');
+    (intent === 'tutorial' || intent === 'unknown');
 
   if (shouldPolish) {
     const polished = await polishWithLlm({

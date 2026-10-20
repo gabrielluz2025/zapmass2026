@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.313',
+    date: '20/10/2026',
+    highlights: [
+      { type: 'fix', text: 'Build CI: correção TypeScript no polish do assistantEngine' },
+    ],
+  },
+  {
     version: '2.3.312',
     date: '20/10/2026',
     highlights: [

@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.313] - 2026-10-20
+
+### Corrigido
+- **CI/build**: narrowing TypeScript em `shouldPolish` do `assistantEngine` (intenções tutorial/unknown).
+
 ## [2.3.312] - 2026-10-20
 
 ### Adicionado
