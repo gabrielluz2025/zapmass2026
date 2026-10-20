@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.314] - 2026-10-20
+
+### Corrigido
+- **Logout (Sair)**: limpeza imediata da sessão local, timeout no POST `/api/auth/logout` e bloqueio de refresh em voo que repunha o token; botão visível na sidebar (incl. menu recolhido).
+
 ## [2.3.313] - 2026-10-20
 
 ### Corrigido

@@ -221,7 +221,7 @@ export const HardGateScreen: React.FC = () => {
           type="button"
           className="mt-5 text-[12px] underline-offset-2 hover:underline"
           style={{ color: 'var(--text-3)' }}
-          onClick={() => signOut()}
+          onClick={() => void signOut()}
         >
           Sair e usar outra conta
         </button>

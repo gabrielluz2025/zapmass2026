@@ -739,7 +739,7 @@ export const SettingsTab: React.FC = () => {
               <Button variant="primary" leftIcon={<Sparkles className="w-4 h-4" />} onClick={() => goToView('subscription')}>
                 Minha assinatura
               </Button>
-              <Button variant="secondary" onClick={() => { signOut?.(); }}>
+              <Button variant="secondary" onClick={() => void signOut()}>
                 Sair da conta
               </Button>
             </div>

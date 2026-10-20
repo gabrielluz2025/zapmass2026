@@ -241,7 +241,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 type="button"
                 onClick={() => {
                   setMenuOpen(false);
-                  signOut();
+                  void signOut();
                 }}
                 className="w-full px-3.5 py-2.5 flex items-center gap-2.5 text-[13px] transition-colors"
                 style={{ color: 'var(--text-1)', background: 'transparent' }}

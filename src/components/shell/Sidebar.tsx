@@ -366,6 +366,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         )}
 
+        {collapsed && user ? (
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="flex w-full items-center justify-center py-2.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-white/5 transition-colors"
+            title="Sair da conta"
+            aria-label="Sair da conta"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        ) : null}
+
         {!collapsed && user && (() => {
           const displayName = user.displayName || user.email?.split('@')[0] || 'Usuario';
           const email = user.email || '';
@@ -397,9 +409,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <button
                 type="button"
-                onClick={signOut}
-                className="p-1 text-slate-500 hover:text-red-400 transition-colors active:scale-90 opacity-0 group-hover:opacity-100"
+                onClick={() => void signOut()}
+                className="p-1.5 rounded-md text-slate-400 hover:text-red-400 hover:bg-white/10 transition-colors active:scale-90 shrink-0"
                 title="Sair da conta"
+                aria-label="Sair da conta"
               >
                 <LogOut className="w-3.5 h-3.5" />
               </button>

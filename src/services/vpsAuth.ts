@@ -39,6 +39,8 @@ export function getVpsAuthUser(): VpsAuthUser | null {
 }
 
 function persistSession(accessToken: string, user: VpsAuthUser): void {
+  if (isLogoutInProgress()) return;
+  clearLogoutFlag();
   sessionStorage.setItem(ACCESS_KEY, accessToken);
   sessionStorage.setItem(USER_KEY, JSON.stringify(user));
 }
@@ -53,6 +55,22 @@ function markLoggedOut(): void {
     sessionStorage.setItem(LOGOUT_FLAG_KEY, String(Date.now()));
   } catch {
     /* ignore */
+  }
+}
+
+function clearLogoutFlag(): void {
+  try {
+    sessionStorage.removeItem(LOGOUT_FLAG_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function isLogoutInProgress(): boolean {
+  try {
+    return sessionStorage.getItem(LOGOUT_FLAG_KEY) != null;
+  } catch {
+    return false;
   }
 }
 
@@ -73,6 +91,7 @@ async function parseJson<T>(r: Response): Promise<T & { ok?: boolean; error?: st
 const AUTH_FETCH_TIMEOUT_MS = 25_000;
 const PROFILE_FETCH_TIMEOUT_MS = 45_000;
 const REFRESH_FETCH_TIMEOUT_MS = 12_000;
+const LOGOUT_FETCH_TIMEOUT_MS = 8_000;
 const AUTH_TIMEOUT_MESSAGE = 'O servidor demorou para responder. Tente de novo.';
 
 function isAbortError(e: unknown): boolean {
@@ -189,24 +208,32 @@ export async function vpsRefreshAccessToken(): Promise<string | null> {
     clearVpsSession();
     return null;
   }
+  if (isLogoutInProgress()) {
+    clearVpsSession();
+    return null;
+  }
   const prev = getVpsAuthUser();
   const user = data.user || prev;
   if (user) persistSession(data.accessToken, user);
-  else sessionStorage.setItem(ACCESS_KEY, data.accessToken);
+  else if (!isLogoutInProgress()) sessionStorage.setItem(ACCESS_KEY, data.accessToken);
   return data.accessToken;
 }
 
 export async function vpsLogout(): Promise<void> {
   markLoggedOut();
-  try {
-    await fetch(apiUrl('/api/auth/logout'), {
-      method: 'POST',
-      credentials: 'include'
-    });
-  } catch {
-    /* ignore */
-  }
   clearVpsSession();
+  try {
+    await fetchWithTimeout(
+      apiUrl('/api/auth/logout'),
+      {
+        method: 'POST',
+        credentials: 'include'
+      },
+      LOGOUT_FETCH_TIMEOUT_MS
+    );
+  } catch {
+    /* ignore — sessão local já foi limpa */
+  }
 }
 
 export async function vpsRequestPasswordReset(

@@ -146,13 +146,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signOut = async () => {
+    setUser(null);
     try {
       await vpsLogout();
-      setUser(null);
     } catch (err: unknown) {
       clearVpsSession();
-      clearBootstrapCache();
-      setUser(null);
       toast.error(err instanceof Error ? err.message : 'Falha ao sair.');
     } finally {
       clearBootstrapCache();

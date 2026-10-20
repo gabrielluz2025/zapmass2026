@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.314',
+    date: '20/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Sair da conta: sessão limpa na hora, logout no servidor com timeout e refresh não religa o login; ícone de sair sempre visível na sidebar',
+      },
+    ],
+  },
+  {
     version: '2.3.313',
     date: '20/10/2026',
     highlights: [
