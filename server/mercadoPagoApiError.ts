@@ -61,6 +61,11 @@ export function billingRouteErrorPayload(e: unknown): { status: number; error: s
     ) {
       return { status: 503, error: MP_TOKEN_INVALID_MSG };
     }
+    // Erros internos de configuração/parse não devem vazar para o cliente pagante.
+    if (/MERCADOPAGO_|PUBLIC_APP_URL|JSON|Unexpected token|fetch failed/i.test(e.message)) {
+      console.error('[billing] erro interno de checkout:', e.message);
+      return { status: 503, error: MP_CHECKOUT_UNAVAILABLE_MSG };
+    }
     return { status: 500, error: e.message };
   }
   return { status: 500, error: MP_CHECKOUT_UNAVAILABLE_MSG };

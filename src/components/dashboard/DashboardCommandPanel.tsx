@@ -91,7 +91,7 @@ export const DashboardCommandPanel: React.FC<Props> = (props) => {
             <span style={{ color: isBackendConnected ? 'var(--brand-400)' : '#f59e0b' }}>
               {isBackendConnected ? 'Online' : 'Reconectando'}
             </span>
-            {connectionsTotal > 0 && (
+            {connectionsTotal > 0 ? (
               <>
                 <span style={{ opacity: 0.3 }}>·</span>
                 {isBackendConnected
@@ -99,6 +99,18 @@ export const DashboardCommandPanel: React.FC<Props> = (props) => {
                   : <WifiOff className="w-3 h-3" style={{ color: '#f59e0b' }} />
                 }
                 <span>{onlineCount}/{connectionsTotal} canais</span>
+              </>
+            ) : (
+              <>
+                <span style={{ opacity: 0.3 }}>·</span>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('connections')}
+                  className="underline-offset-2 hover:underline"
+                  style={{ color: 'var(--brand-500)' }}
+                >
+                  Nenhum canal — conecte um WhatsApp
+                </button>
               </>
             )}
             <span style={{ opacity: 0.3 }}>·</span>

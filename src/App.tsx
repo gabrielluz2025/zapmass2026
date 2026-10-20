@@ -521,11 +521,17 @@ const MainLayout: React.FC = () => {
 const GateOrApp: React.FC = () => {
   const { loading: workspaceLoading } = useWorkspace();
   const { loading: profileLoading, needsSegmentOnboarding } = useAppProfile();
-  const { loading: subscriptionLoading, enforce, needsOnboardingGate } = useSubscription();
+  const {
+    loading: subscriptionLoading,
+    subscriptionFetchFailed,
+    enforce,
+    needsOnboardingGate
+  } = useSubscription();
   const [slowGate, setSlowGate] = useState(false);
   const [forceEnter, setForceEnter] = useState(false);
 
   const gateLoading = workspaceLoading || profileLoading || subscriptionLoading;
+  const subscriptionGateReady = !subscriptionLoading || subscriptionFetchFailed;
 
   useEffect(() => {
     if (!gateLoading) {
@@ -558,7 +564,7 @@ const GateOrApp: React.FC = () => {
   if (needsSegmentOnboarding) {
     return <SegmentOnboardingScreen />;
   }
-  if (enforce && needsOnboardingGate) {
+  if (enforce && needsOnboardingGate && subscriptionGateReady) {
     return <HardGateScreen />;
   }
   return (

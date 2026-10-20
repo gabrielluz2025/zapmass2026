@@ -14,9 +14,45 @@ import type { UserSubscription } from '../src/types.js';
 
 const SEGMENT_IDS = new Set(['religious', 'sales', 'collections', 'mass_broadcast', 'general']);
 
-function subscriptionToClient(doc: Record<string, unknown> | null): UserSubscription | null {
+/** Campos internos que nunca devem chegar ao navegador do cliente. */
+const SUBSCRIPTION_INTERNAL_FIELDS = [
+  'adminNote',
+  'adminNewClientNotifiedAt',
+  'mercadoPagoProcessedPaymentIds',
+  'mercadoPagoPreapprovalActivatedId',
+  'mercadoPagoPreapprovalBridgePending'
+] as const;
+
+/** Funcionário só precisa do estado de acesso do dono (sem dados de cobrança). */
+const STAFF_VISIBLE_SUBSCRIPTION_FIELDS = [
+  'status',
+  'provider',
+  'plan',
+  'blocked',
+  'manualGrant',
+  'manualAccessEndsAt',
+  'trialEndsAt',
+  'accessEndsAt',
+  'includedChannels',
+  'extraChannelSlots',
+  'freeTrialUsed'
+] as const;
+
+export function subscriptionToClient(
+  doc: Record<string, unknown> | null,
+  opts: { forStaff?: boolean } = {}
+): UserSubscription | null {
   if (!doc) return null;
-  return doc as unknown as UserSubscription;
+  if (opts.forStaff) {
+    const out: Record<string, unknown> = {};
+    for (const k of STAFF_VISIBLE_SUBSCRIPTION_FIELDS) {
+      if (doc[k] !== undefined) out[k] = doc[k];
+    }
+    return out as unknown as UserSubscription;
+  }
+  const out: Record<string, unknown> = { ...doc };
+  for (const k of SUBSCRIPTION_INTERNAL_FIELDS) delete out[k];
+  return out as unknown as UserSubscription;
 }
 
 export function registerPlatformDataRoutes(app: Express): void {
@@ -25,13 +61,15 @@ export function registerPlatformDataRoutes(app: Express): void {
   app.get('/api/subscription', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    if (ctx.principal.role === 'staff') {
-      return res.json({ ok: true, subscription: null, readOnlyForStaff: true });
-    }
+    const isStaff = ctx.principal.role === 'staff';
+    // Funcionário opera com o plano do dono (tenantId = dono): sem isto o cliente cai no HardGate de onboarding.
     const doc = await getUserSubscription(ctx.tenantId);
     return res.json({
       ok: true,
-      subscription: subscriptionToClient((doc as unknown as Record<string, unknown>) || null)
+      subscription: subscriptionToClient((doc as unknown as Record<string, unknown>) || null, {
+        forStaff: isStaff
+      }),
+      ...(isStaff ? { readOnlyForStaff: true } : {})
     });
   });
 

@@ -34,6 +34,7 @@ import { PageShell, CollapsibleSection, Badge, StatTile } from '../ui';
 import type { UserSubscription } from '../../types';
 import { apiUrl } from '../../utils/apiBase';
 import { formatMercadoPagoCheckoutError } from '../../utils/mercadopagoCheckoutError';
+import { isPlatformAdminUser } from '../../utils/adminAccess';
 
 type Plan = 'monthly' | 'annual';
 type Method = 'pix' | 'card' | 'recurring';
@@ -179,6 +180,23 @@ export const MySubscriptionTab: React.FC = () => {
     monthly: string;
     annual: string;
   } | null>(null);
+  const [mpCheckoutAvailable, setMpCheckoutAvailable] = useState<boolean | null>(null);
+  const isPlatformAdmin = isPlatformAdminUser(user);
+  useEffect(() => {
+    let alive = true;
+    fetch(apiUrl('/api/billing/mercadopago/status'))
+      .then((r) => r.json().catch(() => ({})))
+      .then((data: { checkoutAvailable?: boolean; configured?: boolean }) => {
+        if (!alive) return;
+        setMpCheckoutAvailable(Boolean(data.checkoutAvailable ?? data.configured));
+      })
+      .catch(() => {
+        if (alive) setMpCheckoutAvailable(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   useEffect(() => {
     let alive = true;
     fetchServerBillingPrices().then((p) => {
@@ -448,6 +466,25 @@ export const MySubscriptionTab: React.FC = () => {
       }
     >
     <div className="max-w-5xl mx-auto space-y-4">
+      {isPlatformAdmin && mpCheckoutAvailable === false && (
+        <div
+          className="flex items-start gap-3 rounded-xl px-4 py-3 text-[13px]"
+          style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)' }}
+        >
+          <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" style={{ color: '#d97706' }} />
+          <div style={{ color: 'var(--text-2)' }}>
+            <p className="font-bold" style={{ color: 'var(--text-1)' }}>
+              Mercado Pago não configurado no servidor
+            </p>
+            <p className="mt-1 leading-relaxed">
+              Os clientes não conseguem pagar até definir <code className="text-[12px]">MERCADOPAGO_ACCESS_TOKEN</code>{' '}
+              e a URL pública do webhook na VPS. Rode{' '}
+              <code className="text-[12px]">bash deployment/vps-check-env.sh</code> e consulte{' '}
+              <code className="text-[12px]">docs/PRE-LANCAMENTO-AUDITORIA.md</code>.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="zm-panel space-y-3">
         <p className="ui-body font-semibold">{planSnapshotLine}</p>
         {statusLabel.sub && <p className="ui-caption">{statusLabel.sub}</p>}

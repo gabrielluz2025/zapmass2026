@@ -89,10 +89,13 @@ export const workspaceInviteLimiter = rateLimit({
   message: { ok: false, error: 'Limite de pedidos excedido. Tente mais tarde.' }
 });
 
-/** Webhooks públicos — limita vandalismo volumétrico (IP efectivo atrás do trust proxy). */
+/**
+ * Webhooks Mercado Pago — limite generoso para rajadas de retentativas oficiais (vários eventos/IP).
+ * 429 aqui impede reconciliação de pagamentos; preferir validação de assinatura no handler.
+ */
 export const mercadoWebhookLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 800,
   standardHeaders: true,
   legacyHeaders: false,
   message: { ok: false, error: 'Webhook: limite temporário ultrapassado.' }

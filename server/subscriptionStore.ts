@@ -23,6 +23,12 @@ export interface UserSubscriptionDoc {
   manualAccessEndsAt?: Timestamp | string | null;
   mercadoPagoPreapprovalId?: string;
   mercadoPagoLastPaymentId?: string;
+  /** Últimos pagamentos MP já aplicados (idempotência do webhook — evita estender o acesso 2x). */
+  mercadoPagoProcessedPaymentIds?: string[];
+  /** Preapproval cujo ciclo inicial já foi concedido (evita estender a cada notificação "authorized"). */
+  mercadoPagoPreapprovalActivatedId?: string;
+  /** Ciclo inicial já concedido na autorização; o primeiro pagamento aprovado só registra, não estende. */
+  mercadoPagoPreapprovalBridgePending?: boolean;
   infinitePayReference?: string;
   trialEndsAt?: Timestamp | string | null;
   accessEndsAt?: Timestamp | string | null;

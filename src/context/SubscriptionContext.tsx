@@ -7,11 +7,17 @@ import { useAppConfig } from './AppConfigContext';
 import { formatTrialHoursLabel } from '../utils/trialCopy';
 import { isPlatformAdminUser } from '../utils/adminAccess';
 import { readBootstrapCache, writeBootstrapCache } from '../utils/bootstrapSessionCache';
+import {
+  shouldFailOpenFullAccess,
+  shouldShowOnboardingHardGate
+} from '../utils/subscriptionGateLogic';
 import type { UserSubscription } from '../types';
 
 interface SubscriptionContextValue {
   subscription: UserSubscription | null;
   loading: boolean;
+  /** Falha ao buscar assinatura (rede/servidor) — não tratar como “sem plano”. */
+  subscriptionFetchFailed: boolean;
   enforce: boolean;
   hasFullAccess: boolean;
   readOnlyMode: boolean;
@@ -29,16 +35,18 @@ const SubscriptionContext = createContext<SubscriptionContextValue>({
   readOnlyMode: false,
   readOnlyMessage: '',
   needsOnboardingGate: false,
+  subscriptionFetchFailed: false,
   applyTrialActivation: () => {},
   accessAllowed: true
 });
 
 export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user } = useAuth();
-  const { effectiveWorkspaceUid, loading: workspaceLoading } = useWorkspace();
+  const { effectiveWorkspaceUid, loading: workspaceLoading, isTeamMember } = useWorkspace();
   const { config } = useAppConfig();
   const [subscription, setSubscription] = useState<UserSubscription | null>(null);
   const [loading, setLoading] = useState(true);
+  const [subscriptionFetchFailed, setSubscriptionFetchFailed] = useState(false);
   const [optimisticTrialEndsAt, setOptimisticTrialEndsAt] = useState<string | null>(null);
 
   const enforce = import.meta.env.VITE_ENFORCE_SUBSCRIPTION === 'true';
@@ -67,6 +75,7 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
   useEffect(() => {
     if (!user) {
       setSubscription(null);
+      setSubscriptionFetchFailed(false);
       setLoading(false);
       return;
     }
@@ -86,11 +95,13 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
         const sub = await fetchSubscription();
         if (!cancelled) {
           setSubscription(sub);
+          setSubscriptionFetchFailed(false);
           if (sub) setOptimisticTrialEndsAt(null);
           writeBootstrapCache(tenantUid, { subscription: sub });
         }
       } catch (e) {
         console.error('[SubscriptionContext]', e);
+        if (!cancelled) setSubscriptionFetchFailed(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -104,10 +115,45 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
     };
   }, [user, effectiveWorkspaceUid, workspaceLoading]);
 
+  const gateInput = useMemo(
+    () => ({
+      enforce,
+      userLoggedIn: !!user,
+      isPlatformAdmin: !!user && isPlatformAdminUser(user),
+      isTeamMember,
+      workspaceLoading,
+      subscriptionLoading: loading,
+      subscriptionFetchFailed,
+      subscription: effectiveSubscription,
+      optimisticTrialEndsAt
+    }),
+    [
+      enforce,
+      user,
+      isTeamMember,
+      workspaceLoading,
+      loading,
+      subscriptionFetchFailed,
+      effectiveSubscription,
+      optimisticTrialEndsAt
+    ]
+  );
+
   const hasFullAccess = useMemo(() => {
     if (!enforce) return true;
     if (!user) return false;
     if (isPlatformAdminUser(user)) return true;
+    if (
+      shouldFailOpenFullAccess({
+        enforce,
+        userLoggedIn: true,
+        isPlatformAdmin: isPlatformAdminUser(user),
+        subscriptionFetchFailed,
+        hasSubscriptionDoc: !!effectiveSubscription
+      })
+    ) {
+      return true;
+    }
     if (!effectiveSubscription) return false;
     if (effectiveSubscription.blocked === true) return false;
     const now = Date.now();
@@ -123,13 +169,22 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
       if (accessEnd == null) return true;
       return now < accessEnd;
     }
+    // Débito automático cancelado: o período já pago continua valendo (alinhado ao servidor).
+    if (effectiveSubscription.status === 'canceled' && accessEnd != null) {
+      return now < accessEnd;
+    }
     if (effectiveSubscription.status === 'trialing' && trialEnd != null) {
       return now < trialEnd;
     }
     return false;
-  }, [enforce, user, effectiveSubscription]);
+  }, [enforce, user, effectiveSubscription, subscriptionFetchFailed]);
 
-  const readOnlyMode = enforce && !!user && !hasFullAccess && !isPlatformAdminUser(user);
+  /** Falha de rede sem doc de plano: não trata como expirado (servidor continua a validar envios). */
+  const subscriptionUnknown =
+    subscriptionFetchFailed && !effectiveSubscription;
+
+  const readOnlyMode =
+    enforce && !!user && !hasFullAccess && !isPlatformAdminUser(user) && !subscriptionUnknown;
 
   const readOnlyMessage = useMemo(() => {
     if (!readOnlyMode) return '';
@@ -138,18 +193,13 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
     return `Seu ${trialLabel} de teste terminou ou o plano expirou. Renove em Minha assinatura para voltar a enviar.`;
   }, [readOnlyMode, config?.trialHours]);
 
-  const needsOnboardingGate =
-    enforce &&
-    !!user &&
-    !workspaceLoading &&
-    !isPlatformAdminUser(user) &&
-    !effectiveSubscription &&
-    !optimisticTrialEndsAt;
+  const needsOnboardingGate = shouldShowOnboardingHardGate(gateInput);
 
   const value = useMemo(
     () => ({
       subscription: effectiveSubscription,
       loading,
+      subscriptionFetchFailed,
       enforce,
       hasFullAccess,
       readOnlyMode,
@@ -161,6 +211,7 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
     [
       effectiveSubscription,
       loading,
+      subscriptionFetchFailed,
       enforce,
       hasFullAccess,
       readOnlyMode,

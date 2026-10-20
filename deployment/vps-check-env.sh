@@ -44,8 +44,20 @@ fi
 mp="$(get_env MERCADOPAGO_ACCESS_TOKEN)"
 if [ -n "$mp" ]; then
   ok "MERCADOPAGO_ACCESS_TOKEN (len=${#mp})"
+  case "$mp" in
+    APP_USR-*) ok "token parece produção (APP_USR-…)" ;;
+    TEST-*) warn "token de TEST — checkout real usará sandbox" ;;
+    *) warn "prefixo do token não reconhecido — confira credenciais MP" ;;
+  esac
 else
   miss "MERCADOPAGO_ACCESS_TOKEN — Painel MP → Credenciais → APP_USR-..."
+fi
+
+mp_wh="$(get_env MERCADOPAGO_WEBHOOK_SECRET)"
+if [ -n "$mp_wh" ]; then
+  ok "MERCADOPAGO_WEBHOOK_SECRET (assinatura de webhooks)"
+else
+  warn "MERCADOPAGO_WEBHOOK_SECRET vazio — em produção configure em MP → Webhooks → assinatura"
 fi
 
 mp_back="$(get_env MERCADOPAGO_BACK_URL)"

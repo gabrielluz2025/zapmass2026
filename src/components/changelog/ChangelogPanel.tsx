@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.315',
+    date: '20/10/2026',
+    highlights: [
+      {
+        type: 'security',
+        text: 'Pré-lançamento: Hard Gate seguro (assinatura loading/falha), refresh deduplicado, auth 503 JSON, webhook MP tolerante a retentativas',
+      },
+      {
+        type: 'feat',
+        text: 'Auditoria em docs/PRE-LANCAMENTO-AUDITORIA.md; checklist MP na VPS; dicas no dashboard e aviso admin em Minha assinatura',
+      },
+    ],
+  },
+  {
     version: '2.3.314',
     date: '20/10/2026',
     highlights: [

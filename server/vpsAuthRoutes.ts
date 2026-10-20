@@ -180,20 +180,20 @@ export function registerVpsAuthRoutes(app: Express): void {
   });
 
   app.post('/api/auth/login', authLoginLimiter, async (req: Request, res: Response) => {
-    if (!getZapmassPool()) {
-      return res.status(503).json({ ok: false, error: 'Postgres ZapMass não disponível.' });
-    }
-    const body = req.body as { email?: unknown; password?: unknown };
-    const email = typeof body.email === 'string' ? body.email.trim() : '';
-    const password = typeof body.password === 'string' ? body.password : '';
-    if (!email.includes('@') || !password) {
-      return res.status(400).json({ ok: false, error: 'Informe e-mail e senha.' });
-    }
-    const user = await findUserByEmail(email);
-    if (!user || !(await verifyUserPassword(user, password))) {
-      return res.status(401).json({ ok: false, error: 'E-mail ou senha incorretos.' });
-    }
     try {
+      if (!getZapmassPool()) {
+        return res.status(503).json({ ok: false, error: 'Postgres ZapMass não disponível.' });
+      }
+      const body = req.body as { email?: unknown; password?: unknown };
+      const email = typeof body.email === 'string' ? body.email.trim() : '';
+      const password = typeof body.password === 'string' ? body.password : '';
+      if (!email.includes('@') || !password) {
+        return res.status(400).json({ ok: false, error: 'Informe e-mail e senha.' });
+      }
+      const user = await findUserByEmail(email);
+      if (!user || !(await verifyUserPassword(user, password))) {
+        return res.status(401).json({ ok: false, error: 'E-mail ou senha incorretos.' });
+      }
       const session = await issueSession(res, {
         sub: user.id,
         email: user.email,
@@ -218,87 +218,105 @@ export function registerVpsAuthRoutes(app: Express): void {
       const detail = e instanceof Error ? e.message : String(e);
       const configErr =
         detail.includes('ZAPMASS_JWT_SECRET') || detail.includes('POSTGRES_UNAVAILABLE');
-      return res.status(500).json({
+      const status = configErr || detail.includes('POSTGRES') ? 503 : 500;
+      return res.status(status).json({
         ok: false,
         error: configErr
           ? 'Autenticação mal configurada no servidor. Contacte o suporte.'
-          : 'Falha ao iniciar sessão.'
+          : 'Falha ao iniciar sessão. Tente novamente em instantes.'
       });
     }
   });
 
   app.post('/api/auth/refresh', async (req: Request, res: Response) => {
-    if (!getZapmassPool()) {
-      return res.status(503).json({ ok: false, error: 'Postgres indisponível.' });
-    }
-    const plain =
-      readRefreshCookie(req) ||
-      (typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : null);
-    if (!plain) {
-      return res.status(401).json({ ok: false, error: 'Sessão expirada.' });
-    }
-    let row: Awaited<ReturnType<typeof findValidRefreshToken>> = null;
     try {
-      row = await findValidRefreshToken(hashRefreshToken(plain));
-    } catch (e) {
-      console.error('[auth/refresh] Erro ao consultar refresh token:', (e as Error)?.message);
-      return res.status(503).json({ ok: false, error: 'Banco de dados temporariamente indisponível.' });
-    }
-    if (!row) {
-      return res.status(401).json({ ok: false, error: 'Sessão inválida ou expirada.' });
-    }
-    await revokeRefreshTokenHash(hashRefreshToken(plain));
+      if (!getZapmassPool()) {
+        return res.status(503).json({ ok: false, error: 'Postgres indisponível.' });
+      }
+      const plain =
+        readRefreshCookie(req) ||
+        (typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : null);
+      if (!plain) {
+        return res.status(401).json({ ok: false, error: 'Sessão expirada.' });
+      }
+      let row: Awaited<ReturnType<typeof findValidRefreshToken>> = null;
+      try {
+        row = await findValidRefreshToken(hashRefreshToken(plain));
+      } catch (e) {
+        console.error('[auth/refresh] Erro ao consultar refresh token:', (e as Error)?.message);
+        return res.status(503).json({ ok: false, error: 'Banco de dados temporariamente indisponível.' });
+      }
+      if (!row) {
+        return res.status(401).json({ ok: false, error: 'Sessão inválida ou expirada.' });
+      }
+      await revokeRefreshTokenHash(hashRefreshToken(plain));
 
-    if (row.role === 'staff') {
-      const owner = row.owner_user_id ? await findUserById(row.owner_user_id) : null;
+      if (row.role === 'staff') {
+        const owner = row.owner_user_id ? await findUserById(row.owner_user_id) : null;
+        const session = await issueSession(res, {
+          sub: row.subject_id,
+          email: owner?.email || '',
+          role: 'staff',
+          tenantUid: row.owner_user_id || row.subject_id,
+          ownerUid: row.owner_user_id || undefined
+        });
+        const user = await buildVpsUserPayload({
+          provider: 'vps',
+          authUid: row.subject_id,
+          tenantUid: row.owner_user_id || row.subject_id,
+          email: owner?.email || '',
+          role: 'staff',
+          ownerUid: row.owner_user_id || undefined
+        });
+        return res.json({ ok: true, authProvider: 'vps', role: 'staff', user, ...session });
+      }
+
+      const user = await findUserById(row.subject_id);
+      if (!user || user.disabled_at) {
+        return res.status(401).json({ ok: false, error: 'Conta desativada.' });
+      }
       const session = await issueSession(res, {
-        sub: row.subject_id,
-        email: owner?.email || '',
-        role: 'staff',
-        tenantUid: row.owner_user_id || row.subject_id,
-        ownerUid: row.owner_user_id || undefined
-      });
-      const user = await buildVpsUserPayload({
-        provider: 'vps',
-        authUid: row.subject_id,
-        tenantUid: row.owner_user_id || row.subject_id,
-        email: owner?.email || '',
-        role: 'staff',
-        ownerUid: row.owner_user_id || undefined
-      });
-      return res.json({ ok: true, authProvider: 'vps', role: 'staff', user, ...session });
-    }
-
-    const user = await findUserById(row.subject_id);
-    if (!user || user.disabled_at) {
-      return res.status(401).json({ ok: false, error: 'Conta desativada.' });
-    }
-    const session = await issueSession(res, {
-      sub: user.id,
-      email: user.email,
-      role: 'owner',
-      tenantUid: user.id
-    });
-    return res.json({
-      ok: true,
-      authProvider: 'vps',
-      user: {
-        id: user.id,
+        sub: user.id,
         email: user.email,
-        displayName: user.display_name,
-        photoUrl: resolvePhotoUrl(user.photo_url),
         role: 'owner',
         tenantUid: user.id
-      },
-      ...session
-    });
+      });
+      return res.json({
+        ok: true,
+        authProvider: 'vps',
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.display_name,
+          photoUrl: resolvePhotoUrl(user.photo_url),
+          role: 'owner',
+          tenantUid: user.id
+        },
+        ...session
+      });
+    } catch (e) {
+      console.error('[auth/refresh]', e);
+      return res.status(503).json({ ok: false, error: 'Não foi possível renovar a sessão. Tente de novo.' });
+    }
   });
 
   app.post('/api/auth/logout', async (req: Request, res: Response) => {
-    const plain = readRefreshCookie(req);
-    if (plain) await revokeRefreshTokenHash(hashRefreshToken(plain));
-    clearRefreshCookie(res);
-    return res.json({ ok: true });
+    try {
+      const plain = readRefreshCookie(req);
+      if (plain) {
+        try {
+          await revokeRefreshTokenHash(hashRefreshToken(plain));
+        } catch (e) {
+          console.error('[auth/logout] revoke:', (e as Error)?.message);
+        }
+      }
+      clearRefreshCookie(res);
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error('[auth/logout]', e);
+      clearRefreshCookie(res);
+      return res.status(503).json({ ok: false, error: 'Logout parcial — sessão local já pode ser limpa.' });
+    }
   });
 
   app.post('/api/auth/forgot-password', authForgotPasswordLimiter, async (req: Request, res: Response) => {
@@ -350,13 +368,18 @@ export function registerVpsAuthRoutes(app: Express): void {
   });
 
   app.get('/api/auth/me', async (req: Request, res: Response) => {
-    const principal = await resolveAuthPrincipal(parseBearer(req));
-    if (!principal || principal.provider !== 'vps') {
-      return res.status(401).json({ ok: false, error: 'Não autenticado.' });
+    try {
+      const principal = await resolveAuthPrincipal(parseBearer(req));
+      if (!principal || principal.provider !== 'vps') {
+        return res.status(401).json({ ok: false, error: 'Não autenticado.' });
+      }
+      const user = await buildVpsUserPayload(principal);
+      if (!user) return res.status(403).json({ ok: false, error: 'Conta indisponível.' });
+      return res.json({ ok: true, user });
+    } catch (e) {
+      console.error('[auth/me]', e);
+      return res.status(503).json({ ok: false, error: 'Perfil temporariamente indisponível.' });
     }
-    const user = await buildVpsUserPayload(principal);
-    if (!user) return res.status(403).json({ ok: false, error: 'Conta indisponível.' });
-    return res.json({ ok: true, user });
   });
 
 }

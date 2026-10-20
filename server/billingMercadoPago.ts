@@ -11,6 +11,7 @@ import {
   verifyMercadoPagoAccessTokenLive
 } from './mercadoPagoAccess.js';
 import { billingRouteErrorPayload, MercadoPagoApiError, throwIfMercadoPagoHttpError } from './mercadoPagoApiError.js';
+import { assertMercadoPagoBackUrlForCheckout } from './mercadoPagoBackUrl.js';
 import {
   CHANNEL_TIER_PRICES_ANNUAL,
   CHANNEL_TIER_PRICES_MONTHLY,
@@ -55,20 +56,9 @@ function getPrices(): { monthly: number; annual: number } {
   return { monthly, annual };
 }
 
+/** back_urls + notification_url: em produção exige URL pública (senão o webhook nunca chega). */
 function getBackUrl(): string {
-  const raw = (process.env.MERCADOPAGO_BACK_URL || '').trim();
-  const fallback = 'http://localhost:8000';
-  const candidate = raw || fallback;
-  try {
-    const u = new URL(candidate);
-    if (!u.protocol.startsWith('http')) throw new Error('invalid protocol');
-    return candidate.replace(/\/+$/, '');
-  } catch {
-    console.warn(
-      `[billing] MERCADOPAGO_BACK_URL inválido (${JSON.stringify(raw)}). Usando fallback ${fallback}.`
-    );
-    return fallback;
-  }
+  return assertMercadoPagoBackUrlForCheckout();
 }
 
 /** Checkout Pro: serviço digital sem envio — sem isto o MP pode pedir dados de entrega e manter o botão desativado. */
@@ -800,6 +790,14 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
       error: 'Rota legada descontinuada. O modelo atual usa plano por quantidade de canais.'
     });
   });
+
+  try {
+    assertMercadoPagoBackUrlForCheckout();
+  } catch (e) {
+    console.error(
+      `[billing] ${e instanceof Error ? e.message : String(e)} — o checkout responderá 503 até corrigir o .env da VPS.`
+    );
+  }
 
   try {
     const p = getPrices();

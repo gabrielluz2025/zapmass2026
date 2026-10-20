@@ -11,7 +11,8 @@ import {
   vpsLogout,
   vpsRegister,
   vpsStaffLogin,
-  vpsRefreshAccessToken
+  vpsRefreshAccessToken,
+  bindCrossTabLogoutSync
 } from '../services/vpsAuth';
 import { vpsUserToSessionUser } from '../utils/vpsSessionUser';
 import { clearBootstrapCache } from '../utils/bootstrapSessionCache';
@@ -57,6 +58,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    bindCrossTabLogoutSync();
     const boot = async () => {
       try {
         const cached = getVpsAuthUser();

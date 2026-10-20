@@ -3,15 +3,25 @@ import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import {
   extendPaidSubscription,
+  getUserSubscription,
   mergeUserSubscription,
   readAccessEndsAtDate,
   usePostgresSubscriptions,
   type SubscriptionPlan
 } from './subscriptionStore.js';
+import { userHasFullAppAccess } from './subscriptionAccess.js';
+import {
+  isPaymentAlreadyProcessed,
+  isPreapprovalAlreadyActivated,
+  shouldConsumePreapprovalBridge,
+  withProcessedPaymentId,
+  withTenantLock
+} from './subscriptionIdempotency.js';
+import { resolveMercadoPagoBackUrl } from './mercadoPagoBackUrl.js';
 import { sendPaymentConfirmationEmail } from './emailService.js';
 import { issueInvoice, isNfeEnabled } from './nfeService.js';
 import { getMercadoPagoAccessToken } from './mercadoPagoAccess.js';
-import { parseExternalReference } from './mpExternalReference.js';
+import { parseExternalReference, type ParsedMpExternalReference } from './mpExternalReference.js';
 import { mercadoWebhookLimiter } from './httpRateLimit.js';
 import { verifyMercadoPagoWebhookSignature } from './mercadoPagoWebhookSignature.js';
 import { structuredLog } from './structuredLog.js';
@@ -62,22 +72,29 @@ function assertMercadoPagoWebhookAllowed(
   return true;
 }
 
+/**
+ * Consulta a API do MP. 404/4xx "de negócio" → null (nada a fazer). Falhas transitórias (rede, 5xx, 429) e token
+ * ausente LANÇAM erro: o webhook responde 500 e o Mercado Pago reenvia — antes devolvia 200 e o pagamento se perdia.
+ */
 async function mpGetJson(path: string): Promise<Record<string, unknown> | null> {
   const token = getMercadoPagoAccessToken();
   if (!token) {
-    console.warn('[MP Webhook] MERCADOPAGO_ACCESS_TOKEN nao configurado.');
-    return null;
+    throw new Error('MERCADOPAGO_ACCESS_TOKEN nao configurado — webhook nao pode confirmar o pagamento.');
   }
   const res = await fetch(`${MP_API}${path}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) {
-    console.error('[MP Webhook] Erro API', path, res.status, await res.text());
+    const text = await res.text().catch(() => '');
+    console.error('[MP Webhook] Erro API', path, res.status, text.slice(0, 300));
+    if (res.status >= 500 || res.status === 429 || res.status === 401 || res.status === 403) {
+      throw new Error(`Mercado Pago API ${res.status} em ${path}`);
+    }
     return null;
   }
   return (await res.json()) as Record<string, unknown>;
 }
 
 function getBackUrl(): string {
-  return (process.env.MERCADOPAGO_BACK_URL || 'http://localhost:8000').trim().replace(/\/+$/, '');
+  return resolveMercadoPagoBackUrl();
 }
 
 /** Extrai o email do payer ou do tomador em payloads do MP (variados). */
@@ -183,23 +200,59 @@ async function notifyAfterPayment(params: {
   }
 }
 
-async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
+/** Pagamentos que não pertencem a um débito automático de cartão (não consomem o "bridge" do preapproval). */
+const NON_PREAPPROVAL_PAYMENT_TYPES = new Set(['bank_transfer', 'account_money', 'ticket', 'atm']);
+
+async function handleMercadoPagoPayment(
+  paymentId: string,
+  opts: { fallbackExternalReference?: string } = {}
+): Promise<void> {
   const data = await mpGetJson(`/v1/payments/${paymentId}`);
   if (!data) return;
   const status = String(data.status || '');
-  const ext = data.external_reference as string | undefined;
+  const ext = (data.external_reference as string | undefined) || opts.fallbackExternalReference;
   const parsed = parseExternalReference(ext);
   if (parsed.kind === 'none' || !parsed.uid) {
     console.warn('[MP Webhook] Pagamento sem external_reference valido.', paymentId);
     return;
   }
-  const { uid } = parsed;
+  // Serializa por tenant: created/updated chegam quase juntos e antes liam o mesmo accessEndsAt.
+  await withTenantLock(parsed.uid, () => applyMercadoPagoPayment(parsed.uid, paymentId, status, parsed, data));
+}
+
+async function applyMercadoPagoPayment(
+  uid: string,
+  paymentId: string,
+  status: string,
+  parsed: ParsedMpExternalReference,
+  data: Record<string, unknown>
+): Promise<void> {
+  const sub = await getUserSubscription(uid);
+
+  // Estorno / chargeback do último pagamento: encerra o acesso pago (antes ficava ativo até o fim do ciclo).
+  if (status === 'refunded' || status === 'charged_back') {
+    if (String(sub?.mercadoPagoLastPaymentId || '') === paymentId && sub?.status !== 'canceled') {
+      await mergeUserSubscription(uid, {
+        status: 'canceled',
+        accessEndsAt: new Date().toISOString()
+      });
+      structuredLog('warn', 'webhook.mercadopago.payment_reversed', { uid, paymentId, status });
+    }
+    return;
+  }
+
+  if (status === 'approved' && isPaymentAlreadyProcessed(sub, paymentId)) {
+    console.log('[MP Webhook] Pagamento ja processado (idempotente) — ignorado', uid, paymentId);
+    return;
+  }
+  const processedIds = withProcessedPaymentId(sub, paymentId);
 
   if (parsed.kind === 'chaddon_once' && status === 'approved') {
     await mergeUserSubscription(uid, {
       provider: 'mercadopago',
       extraChannelSlots: parsed.extraSlots,
       mercadoPagoLastPaymentId: paymentId,
+      mercadoPagoProcessedPaymentIds: processedIds,
       mercadoPagoChannelAddonOneTimePaymentId: paymentId
     });
     console.log('[MP Webhook] Canais extras (avulso) ativados', uid, parsed.extraSlots, paymentId);
@@ -221,7 +274,8 @@ async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
         plan: parsed.plan || 'monthly',
         includedChannels: toChannels,
         extraChannelSlots: Math.max(0, toChannels - 1),
-        mercadoPagoLastPaymentId: paymentId
+        mercadoPagoLastPaymentId: paymentId,
+        mercadoPagoProcessedPaymentIds: processedIds
       });
       console.log('[MP Webhook] Upgrade pro-rata de canais aplicado', uid, parsed.fromChannels, '->', toChannels);
     } else if (status === 'rejected' || status === 'cancelled') {
@@ -235,18 +289,39 @@ async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
   if (status === 'approved') {
     const billingPlan: 'monthly' | 'annual' = plan === 'annual' ? 'annual' : 'monthly';
     const channels = includedChannels ?? 1;
-    const extended = await extendPaidSubscription(uid, billingPlan, {
-      provider: 'mercadopago',
-      plan: billingPlan,
-      mercadoPagoLastPaymentId: paymentId,
-      ...(includedChannels != null
+    const tierFields =
+      includedChannels != null
         ? {
             includedChannels,
             extraChannelSlots: Math.max(0, includedChannels - 1)
           }
-        : {})
-    });
-    console.log('[MP Webhook] Assinatura ativa para', uid, paymentId);
+        : {};
+    const consumeBridge =
+      shouldConsumePreapprovalBridge(sub) &&
+      !NON_PREAPPROVAL_PAYMENT_TYPES.has(String(data.payment_type_id || ''));
+
+    let extended: { ok: boolean; wasRenewal: boolean };
+    if (consumeBridge) {
+      // A autorização do débito já concedeu o 1º ciclo: este pagamento só é registado.
+      const ok = await mergeUserSubscription(uid, {
+        provider: 'mercadopago',
+        plan: billingPlan,
+        mercadoPagoLastPaymentId: paymentId,
+        mercadoPagoProcessedPaymentIds: processedIds,
+        mercadoPagoPreapprovalBridgePending: false,
+        ...tierFields
+      });
+      extended = { ok, wasRenewal: true };
+    } else {
+      extended = await extendPaidSubscription(uid, billingPlan, {
+        provider: 'mercadopago',
+        plan: billingPlan,
+        mercadoPagoLastPaymentId: paymentId,
+        mercadoPagoProcessedPaymentIds: processedIds,
+        ...tierFields
+      });
+    }
+    console.log('[MP Webhook] Assinatura ativa para', uid, paymentId, consumeBridge ? '(1o pagamento do debito)' : '');
     if (extended.ok && !extended.wasRenewal) {
       const enqueued = enqueueProvisionAfterPaidIfNeeded({
         uid,
@@ -275,6 +350,12 @@ async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
       console.error('[MP Webhook] notifyAfterPayment falhou (nao critico):', e);
     }
   } else if (status === 'rejected' || status === 'cancelled') {
+    // Uma tentativa recusada (outro cartão, Pix expirado, upgrade) NÃO pode tirar o acesso de quem já tem
+    // período pago/teste válido — só marca past_due quando não há acesso vigente.
+    if (userHasFullAppAccess(sub, Date.now())) {
+      console.log('[MP Webhook] Pagamento nao aprovado, mas acesso vigente — status mantido', uid, status);
+      return;
+    }
     await mergeUserSubscription(uid, {
       status: 'past_due',
       provider: 'mercadopago',
@@ -283,6 +364,29 @@ async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
     });
     console.log('[MP Webhook] Pagamento nao aprovado - marcado past_due', uid, status);
   }
+}
+
+/**
+ * Cobrança recorrente (topic `subscription_authorized_payment`): resolve o pagamento real e a referência
+ * da assinatura. A idempotência por payment id evita dupla contagem com a notificação `payment` do mesmo débito.
+ */
+async function handleMercadoPagoAuthorizedPayment(authorizedPaymentId: string): Promise<void> {
+  const ap = await mpGetJson(`/authorized_payments/${authorizedPaymentId}`);
+  if (!ap) return;
+  const payment = ap.payment as Record<string, unknown> | undefined;
+  const paymentId = payment?.id != null ? String(payment.id) : '';
+  if (!paymentId) {
+    console.log('[MP Webhook] authorized_payment sem pagamento ainda', authorizedPaymentId);
+    return;
+  }
+  const preapprovalId = ap.preapproval_id != null ? String(ap.preapproval_id) : '';
+  let fallbackExternalReference: string | undefined;
+  if (preapprovalId) {
+    const pre = await mpGetJson(`/preapproval/${preapprovalId}`);
+    fallbackExternalReference =
+      typeof pre?.external_reference === 'string' ? (pre.external_reference as string) : undefined;
+  }
+  await handleMercadoPagoPayment(paymentId, { fallbackExternalReference });
 }
 
 async function handleMercadoPagoPreapproval(preapprovalId: string): Promise<void> {
@@ -295,8 +399,16 @@ async function handleMercadoPagoPreapproval(preapprovalId: string): Promise<void
     console.warn('[MP Webhook] Preapproval sem external_reference valido.', preapprovalId);
     return;
   }
-  const { uid } = parsed;
+  await withTenantLock(parsed.uid, () => applyMercadoPagoPreapproval(parsed.uid, preapprovalId, status, parsed, data));
+}
 
+async function applyMercadoPagoPreapproval(
+  uid: string,
+  preapprovalId: string,
+  status: string,
+  parsed: ParsedMpExternalReference,
+  data: Record<string, unknown>
+): Promise<void> {
   if (parsed.kind === 'chaddon_recur') {
     if (status === 'authorized') {
       await mergeUserSubscription(uid, {
@@ -320,16 +432,25 @@ async function handleMercadoPagoPreapproval(preapprovalId: string): Promise<void
     return;
   }
 
+  const sub = await getUserSubscription(uid);
   const plan = parsed.plan;
   const includedChannels =
     parsed.kind === 'tier_plan' ? Math.max(1, Math.min(5, parsed.channels)) : null;
   if (status === 'authorized') {
+    // O MP reenvia "authorized" a cada atualização da assinatura: só a primeira concede o ciclo inicial.
+    if (isPreapprovalAlreadyActivated(sub, preapprovalId)) {
+      console.log('[MP Webhook] Preapproval ja ativado (idempotente) — ignorado', uid, preapprovalId);
+      return;
+    }
     const billingPlan: 'monthly' | 'annual' = plan === 'annual' ? 'annual' : 'monthly';
     const channels = includedChannels ?? 1;
     const extended = await extendPaidSubscription(uid, billingPlan, {
       provider: 'mercadopago',
       plan: billingPlan,
       mercadoPagoPreapprovalId: preapprovalId,
+      mercadoPagoPreapprovalActivatedId: preapprovalId,
+      // O 1º pagamento aprovado depois da autorização só é registado (evita 2 períodos por 1 cobrança).
+      mercadoPagoPreapprovalBridgePending: true,
       ...(includedChannels != null
         ? {
             includedChannels,
@@ -373,6 +494,12 @@ async function handleMercadoPagoPreapproval(preapprovalId: string): Promise<void
       }
     }
   } else if (status === 'cancelled' || status === 'paused') {
+    // Ignora preapprovals antigos/abandonados: só o débito atual do cliente pode cancelar a assinatura.
+    const currentId = String(sub?.mercadoPagoPreapprovalId || '');
+    if (currentId && currentId !== preapprovalId) {
+      console.log('[MP Webhook] Preapproval antigo cancelado — assinatura atual preservada', uid, preapprovalId);
+      return;
+    }
     await mergeUserSubscription(uid, {
       status: 'canceled',
       provider: 'mercadopago',
@@ -383,15 +510,36 @@ async function handleMercadoPagoPreapproval(preapprovalId: string): Promise<void
   }
 }
 
-async function processMercadoPagoBody(body: Record<string, unknown>): Promise<void> {
-  const type = String(body.type || body.topic || '');
-  const data = body.data as { id?: string } | undefined;
-  const id = data?.id != null ? String(data.id) : '';
+function firstQueryValue(v: unknown): string {
+  if (typeof v === 'string') return v.trim();
+  if (Array.isArray(v) && typeof v[0] === 'string') return v[0].trim();
+  return '';
+}
+
+/**
+ * Aceita o formato Webhooks (`{ type, data: { id } }`) e o legado IPN (`?topic=payment&id=123`
+ * ou `?type=payment&data.id=123`) — a assinatura já tolerava query, o processamento não.
+ */
+export async function processMercadoPagoBody(
+  body: Record<string, unknown>,
+  query: Record<string, unknown> = {}
+): Promise<void> {
+  const type =
+    String(body.type || body.topic || '').trim() || firstQueryValue(query.type) || firstQueryValue(query.topic);
+  const data = body.data as { id?: string | number } | undefined;
+  const id =
+    data?.id != null
+      ? String(data.id)
+      : firstQueryValue(query['data.id']) || firstQueryValue(query.id);
   if (!id) {
     console.log('[MP Webhook] Sem data.id - ignorado.', JSON.stringify(body).slice(0, 500));
     return;
   }
   const t = type.toLowerCase();
+  if (t.includes('authorized_payment')) {
+    await handleMercadoPagoAuthorizedPayment(id);
+    return;
+  }
   if (t.includes('payment')) {
     await handleMercadoPagoPayment(id);
     return;
@@ -409,7 +557,7 @@ export function registerSubscriptionWebhooks(app: Express): void {
       const body = (req.body || {}) as Record<string, unknown>;
       if (!assertMercadoPagoWebhookAllowed(req, body, res)) return;
       console.log('[MP Webhook] Recebido:', body.type || body.topic || body.action, body.data || '');
-      await processMercadoPagoBody(body);
+      await processMercadoPagoBody(body, req.query as Record<string, unknown>);
       res.status(200).json({ ok: true });
     } catch (e) {
       console.error('[MP Webhook] Erro:', e);

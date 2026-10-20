@@ -28,6 +28,25 @@ describe('userHasFullAppAccess', () => {
     ).toBe(true);
   });
 
+  it('keeps access for canceled subscription until the paid period ends', () => {
+    expect(
+      userHasFullAppAccess({ status: 'canceled', accessEndsAt: new Date(now + 60_000) } as any, now)
+    ).toBe(true);
+    expect(
+      userHasFullAppAccess({ status: 'canceled', accessEndsAt: new Date(now - 60_000) } as any, now)
+    ).toBe(false);
+    expect(userHasFullAppAccess({ status: 'canceled' } as any, now)).toBe(false);
+    expect(
+      userHasFullAppAccess({ status: 'canceled', blocked: true, accessEndsAt: new Date(now + 60_000) } as any, now)
+    ).toBe(false);
+  });
+
+  it('denies past_due even with future accessEndsAt', () => {
+    expect(
+      userHasFullAppAccess({ status: 'past_due', accessEndsAt: new Date(now + 60_000) } as any, now)
+    ).toBe(false);
+  });
+
   it('allows trialing before trialEndsAt', () => {
     expect(
       userHasFullAppAccess(

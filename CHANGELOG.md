@@ -7,6 +7,18 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.315] - 2026-10-20
+
+### Adicionado
+- **Doc:** `docs/PRE-LANCAMENTO-AUDITORIA.md` (relatório PT, checklist MP na VPS, tabelas P0–P2).
+- **Testes:** lógica de Hard Gate / fail-open de assinatura; dedupe de refresh VPS.
+
+### Corrigido
+- **Hard Gate:** não exibe onboarding enquanto assinatura carrega; falha de fetch não trata pagante como “sem plano”.
+- **Auth:** refresh concorrente deduplicado; logout sincronizado entre abas; rotas `login`/`refresh`/`logout`/`me` com JSON 503.
+- **Mercado Pago:** rate limit do webhook ampliado para retentativas oficiais.
+- **UI:** hint no dashboard sem canais; aviso admin quando MP não está configurado.
+
 ## [2.3.314] - 2026-10-20
 
 ### Corrigido

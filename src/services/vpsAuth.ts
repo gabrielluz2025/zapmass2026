@@ -14,6 +14,11 @@ export type VpsAuthUser = {
 const ACCESS_KEY = 'zapmass_access_token';
 const USER_KEY = 'zapmass_auth_user';
 const LOGOUT_FLAG_KEY = 'zapmass_logout_flag';
+/** Sincroniza logout entre abas (sessionStorage é por aba). */
+const LOGOUT_BROADCAST_KEY = 'zapmass_logout_broadcast';
+
+let refreshInFlight: Promise<string | null> | null = null;
+let crossTabLogoutBound = false;
 
 /** Auth 100% VPS (Firebase removido do frontend). */
 export function useVpsAuth(): boolean {
@@ -51,8 +56,14 @@ export function clearVpsSession(): void {
 }
 
 function markLoggedOut(): void {
+  const ts = String(Date.now());
   try {
-    sessionStorage.setItem(LOGOUT_FLAG_KEY, String(Date.now()));
+    sessionStorage.setItem(LOGOUT_FLAG_KEY, ts);
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStorage.setItem(LOGOUT_BROADCAST_KEY, ts);
   } catch {
     /* ignore */
   }
@@ -64,11 +75,17 @@ function clearLogoutFlag(): void {
   } catch {
     /* ignore */
   }
+  try {
+    localStorage.removeItem(LOGOUT_BROADCAST_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 function isLogoutInProgress(): boolean {
   try {
-    return sessionStorage.getItem(LOGOUT_FLAG_KEY) != null;
+    if (sessionStorage.getItem(LOGOUT_FLAG_KEY) != null) return true;
+    return localStorage.getItem(LOGOUT_BROADCAST_KEY) != null;
   } catch {
     return false;
   }
@@ -78,10 +95,28 @@ function consumeLogoutFlag(): boolean {
   try {
     const hit = sessionStorage.getItem(LOGOUT_FLAG_KEY);
     if (hit) sessionStorage.removeItem(LOGOUT_FLAG_KEY);
-    return Boolean(hit);
+    if (hit) return true;
+    const broadcast = localStorage.getItem(LOGOUT_BROADCAST_KEY);
+    if (broadcast) {
+      sessionStorage.setItem(LOGOUT_FLAG_KEY, broadcast);
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }
+}
+
+/** Outra aba fez logout — limpa sessão local sem chamar o servidor. */
+export function bindCrossTabLogoutSync(): void {
+  if (crossTabLogoutBound || typeof window === 'undefined') return;
+  if (typeof window.addEventListener !== 'function') return;
+  crossTabLogoutBound = true;
+  window.addEventListener('storage', (ev) => {
+    if (ev.key !== LOGOUT_BROADCAST_KEY || !ev.newValue) return;
+    markLoggedOut();
+    clearVpsSession();
+  });
 }
 
 async function parseJson<T>(r: Response): Promise<T & { ok?: boolean; error?: string }> {
@@ -188,7 +223,7 @@ export async function vpsStaffLogin(
   return data.user;
 }
 
-export async function vpsRefreshAccessToken(): Promise<string | null> {
+async function performRefreshAccessToken(): Promise<string | null> {
   if (consumeLogoutFlag()) {
     clearVpsSession();
     return null;
@@ -217,6 +252,16 @@ export async function vpsRefreshAccessToken(): Promise<string | null> {
   if (user) persistSession(data.accessToken, user);
   else if (!isLogoutInProgress()) sessionStorage.setItem(ACCESS_KEY, data.accessToken);
   return data.accessToken;
+}
+
+/** Renova access token — pedidos concorrentes partilham a mesma Promise. */
+export async function vpsRefreshAccessToken(): Promise<string | null> {
+  bindCrossTabLogoutSync();
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = performRefreshAccessToken().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
 }
 
 export async function vpsLogout(): Promise<void> {

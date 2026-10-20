@@ -22,6 +22,9 @@ function tsToMs(v: unknown): number | null {
 /**
  * Regra alinhada a `src/context/SubscriptionContext` (hasFullAccess).
  * Usada no socket e em limites de canais.
+ *
+ * `canceled` com `accessEndsAt` no futuro mantém acesso até o fim do período já pago
+ * (cancelar o débito automático não pode cortar quem já pagou o ciclo).
  */
 export function userHasFullAppAccess(
   sub: UserSubscriptionDoc | null | undefined,
@@ -38,6 +41,9 @@ export function userHasFullAppAccess(
   const accessEnd = tsToMs(sub.accessEndsAt);
   if (sub.status === 'active') {
     if (accessEnd == null) return true;
+    return now < accessEnd;
+  }
+  if (sub.status === 'canceled' && accessEnd != null) {
     return now < accessEnd;
   }
   if (sub.status === 'trialing' && trialEnd != null) {
