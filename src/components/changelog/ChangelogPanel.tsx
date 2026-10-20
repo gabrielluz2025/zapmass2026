@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.311',
+    date: '20/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Assistente: “valide todo o sistema” responde com checklist multi-ferramenta e timeouts; admin vê persona da tela, intenção/ferramentas e atividade recente',
+      },
+    ],
+  },
+  {
     version: '2.3.310',
     date: '20/10/2026',
     highlights: [

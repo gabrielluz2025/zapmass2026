@@ -1,4 +1,5 @@
 import { classifyIntent } from '../assistant/assistantRouter.js';
+import { buildSystemAuditAnswer } from '../assistant/assistantTools.js';
 import { formatRagAnswer, searchKnowledge } from './knowledgeService.js';
 import { runAgentTool } from './toolRegistry.js';
 import type { AgentToolContext } from './types.js';
@@ -12,7 +13,8 @@ const INTENT_TOOL: Partial<Record<ReturnType<typeof classifyIntent>, string>> = 
   data_chat: 'chat_conversations',
   data_geo: 'geo_leads',
   data_reports: 'reports_aggregates',
-  creative: 'creative'
+  creative: 'creative',
+  system_audit: 'overview'
 };
 
 /** Resposta admin com ferramentas + RAG, sem API externa. */
@@ -33,6 +35,14 @@ export async function buildAdminFullDeterministicAnswer(params: {
   };
 
   const intent = classifyIntent(params.question);
+  if (intent === 'system_audit') {
+    const audit = await buildSystemAuditAnswer(params.tenantId, params.actorId);
+    return {
+      answer: `_Modo plataforma (sem LLM externo)_\n\n${audit.answer}`,
+      navigateTo: 'dashboard'
+    };
+  }
+
   const sections: string[] = [
     '_Modo plataforma (sem LLM externo)_ — dados ao vivo e documentação do sistema.',
     ''

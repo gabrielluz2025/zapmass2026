@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.311] - 2026-10-20
+
+### Corrigido
+- **Assistente ZapMass**: perguntas amplas (“valide todo o sistema”) deixam de travar em “Consultando seus dados…” — intenção `system_audit` com ferramentas em paralelo, timeouts no cliente (~50s) e servidor (`AGENT_ASK_TIMEOUT_MS`), Redis com `commandTimeout`.
+
+### Adicionado
+- **Admin plataforma**: faixa no painel Assistente com persona da tela (ex. Radar · Painel), última intenção/ferramentas e `GET /api/agent/activity` (buffer em memória do log `agent_ask`); link ao Creator Studio.
+
 ## [2.3.310] - 2026-10-20
 
 ### Adicionado

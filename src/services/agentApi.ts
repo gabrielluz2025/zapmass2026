@@ -29,6 +29,21 @@ export type AgentStatus = {
   suggestions: string[];
 };
 
+export type AgentActivityEntry = {
+  at: string;
+  tenantIdPrefix: string;
+  actorIdPrefix: string;
+  mode: AgentMode;
+  screen: string;
+  agentPersona: string;
+  agentProfile: string;
+  intent: string;
+  source: string;
+  toolsUsed: string[];
+  usedLlm: boolean;
+  questionPreview: string;
+};
+
 export type AgentAskResponse =
   | {
       ok: true;
@@ -42,6 +57,9 @@ export type AgentAskResponse =
       mode?: AgentMode;
       scope?: AgentScope;
       dataUsed?: boolean;
+      toolsUsed?: string[];
+      agentPersona?: string;
+      agentProfile?: string;
     }
   | {
       ok: false;
@@ -96,6 +114,8 @@ export async function fetchAgentStatusWithToken(token: string): Promise<AgentSta
   return (await res.json()) as AgentStatus;
 }
 
+const DEFAULT_ASK_TIMEOUT_MS = 50_000;
+
 export async function askAgentWithToken(
   token: string,
   params: {
@@ -103,15 +123,18 @@ export async function askAgentWithToken(
     currentView?: string;
     history?: Array<{ role: 'user' | 'assistant'; content: string }>;
     mode?: AgentMode;
-  }
+  },
+  opts?: { timeoutMs?: number }
 ): Promise<AgentAskResponse> {
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_ASK_TIMEOUT_MS;
   const res = await fetch(apiUrl('/api/agent/ask'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`
     },
-    body: JSON.stringify({ ...params, mode: params.mode ?? 'standard' })
+    body: JSON.stringify({ ...params, mode: params.mode ?? 'standard' }),
+    signal: AbortSignal.timeout(timeoutMs)
   });
   const data = (await res.json().catch(() => ({}))) as AgentAskResponse;
   if (!res.ok && data && 'error' in data) return data;
@@ -119,6 +142,26 @@ export async function askAgentWithToken(
     return { ok: false, error: `HTTP ${res.status}`, remainingToday: 0 };
   }
   return data;
+}
+
+export async function fetchAgentActivityAdmin(limit = 15): Promise<{
+  ok: boolean;
+  entries: AgentActivityEntry[];
+}> {
+  return apiFetchJson(`/api/agent/activity?limit=${limit}`);
+}
+
+export async function fetchAgentActivityWithToken(
+  token: string,
+  limit = 15
+): Promise<AgentActivityEntry[]> {
+  const res = await fetch(apiUrl(`/api/agent/activity?limit=${limit}`), {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(12_000)
+  });
+  if (!res.ok) return [];
+  const data = (await res.json()) as { entries?: AgentActivityEntry[] };
+  return data.entries ?? [];
 }
 
 export async function fetchAgentConfigAdmin(): Promise<{ ok: boolean; config: AgentConfig }> {

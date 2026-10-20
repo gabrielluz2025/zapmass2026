@@ -18,10 +18,13 @@ import { useAiStatus } from '../../hooks/useAiStatus';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
 import {
   askAgentWithToken,
+  fetchAgentActivityWithToken,
   fetchAgentStatusWithToken,
+  type AgentActivityEntry,
   type AgentMessage,
   type AgentStatus
 } from '../../services/agentApi';
+import { formatAgentScreenBadge, getScreenAgentPersona } from '../../../shared/agentScreenPersonas';
 import {
   getAssistantSuggestions,
   VIEW_LABEL_PT
@@ -89,6 +92,17 @@ export const AssistantPanel: React.FC<Props> = ({
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const screenLabel = VIEW_LABEL_PT[currentView || ''] || 'Painel';
+  const screenPersona = useMemo(() => getScreenAgentPersona(currentView), [currentView]);
+  const screenBadge = useMemo(
+    () => formatAgentScreenBadge(currentView, screenLabel),
+    [currentView, screenLabel]
+  );
+  const [lastMeta, setLastMeta] = useState<{
+    intent?: string;
+    toolsUsed?: string[];
+    agentPersona?: string;
+  } | null>(null);
+  const [adminActivity, setAdminActivity] = useState<AgentActivityEntry[]>([]);
   const suggestions = useMemo(
     () => getAssistantSuggestions(currentView || 'dashboard'),
     [currentView]
@@ -115,6 +129,23 @@ export const AssistantPanel: React.FC<Props> = ({
     void loadStatus();
     inputRef.current?.focus();
   }, [open, loadStatus]);
+
+  useEffect(() => {
+    if (!open || !isAdmin || !user) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await user.getIdToken();
+        const entries = await fetchAgentActivityWithToken(token, 12);
+        if (!cancelled) setAdminActivity(entries);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isAdmin, user, sending]);
 
   useEffect(() => {
     if (!open) return;
@@ -166,6 +197,12 @@ export const AssistantPanel: React.FC<Props> = ({
 
       setStatus((s) => (s ? { ...s, remainingToday: res.remainingToday } : s));
 
+      setLastMeta({
+        intent: res.intent,
+        toolsUsed: res.toolsUsed,
+        agentPersona: res.agentPersona ?? screenPersona.name
+      });
+
       setMessages((prev) => [
         ...prev,
         {
@@ -178,7 +215,12 @@ export const AssistantPanel: React.FC<Props> = ({
       ]);
     } catch (e) {
       console.error('[Assistant]', e);
-      toast.error('Não foi possível obter resposta. Tente novamente.');
+      const timedOut = e instanceof DOMException && e.name === 'TimeoutError';
+      toast.error(
+        timedOut
+          ? 'A consulta demorou demais. Tente uma pergunta mais específica ou aguarde alguns segundos.'
+          : 'Não foi possível obter resposta. Tente novamente.'
+      );
     } finally {
       setSending(false);
     }
@@ -199,13 +241,64 @@ export const AssistantPanel: React.FC<Props> = ({
               <h2 className="zm-asst-head__title">Assistente ZapMass</h2>
               <p className="zm-asst-head__sub">
                 <span className="zm-asst-badge zm-asst-badge--free">Grátis</span>{' '}
-                <span className="zm-asst-badge zm-asst-badge--screen">Tela: {screenLabel}</span>
+                <span className="zm-asst-badge zm-asst-badge--persona" title={screenPersona.tagline}>
+                  {screenBadge}
+                </span>
               </p>
             </div>
             <button type="button" className="zm-asst-close" onClick={onClose} aria-label="Fechar">
               <X className="h-4 w-4" />
             </button>
           </div>
+
+          {isAdmin && (
+            <div className="zm-asst-admin-strip">
+              <div className="zm-asst-admin-strip__row">
+                <span className="zm-asst-admin-strip__label">Agente ativo</span>
+                <span className="zm-asst-admin-strip__value">
+                  {lastMeta?.agentPersona ?? screenPersona.name} · {screenLabel}
+                </span>
+              </div>
+              {lastMeta?.intent && (
+                <div className="zm-asst-admin-strip__row">
+                  <span className="zm-asst-admin-strip__label">Última intenção</span>
+                  <span className="zm-asst-admin-strip__mono">{lastMeta.intent}</span>
+                </div>
+              )}
+              {lastMeta?.toolsUsed && lastMeta.toolsUsed.length > 0 && (
+                <div className="zm-asst-admin-strip__row">
+                  <span className="zm-asst-admin-strip__label">Ferramentas</span>
+                  <span className="zm-asst-admin-strip__mono">{lastMeta.toolsUsed.join(', ')}</span>
+                </div>
+              )}
+              {adminActivity.length > 0 && (
+                <details className="zm-asst-admin-strip__log">
+                  <summary>Atividade recente (servidor)</summary>
+                  <ul>
+                    {adminActivity.slice(0, 6).map((entry) => (
+                      <li key={`${entry.at}-${entry.questionPreview}`}>
+                        <span className="zm-asst-admin-strip__mono">{entry.agentPersona}</span>{' '}
+                        · {entry.intent}
+                        {entry.toolsUsed.length > 0 ? ` · ${entry.toolsUsed.join(', ')}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              {onNavigate && (
+                <button
+                  type="button"
+                  className="zm-asst-admin-strip__link"
+                  onClick={() => {
+                    onNavigate('creator-studio');
+                    onClose();
+                  }}
+                >
+                  Abrir Agente no Creator Studio
+                </button>
+              )}
+            </div>
+          )}
 
           {status && (
             <div className="zm-asst-quota">

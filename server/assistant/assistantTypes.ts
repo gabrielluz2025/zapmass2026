@@ -10,6 +10,7 @@ export type AssistantIntent =
   | 'data_reports'
   | 'creative'
   | 'navigate'
+  | 'system_audit'
   | 'unknown';
 
 export type AssistantSource = 'rules' | 'rag' | 'tools' | 'llm' | 'cache';
@@ -23,6 +24,9 @@ export type AssistantAskResult = {
   navigateTo?: string;
   remainingToday: number;
   usedLlm: boolean;
+  toolsUsed?: string[];
+  agentPersona?: string;
+  agentProfile?: string;
 };
 
 export type KnowledgeChunk = {

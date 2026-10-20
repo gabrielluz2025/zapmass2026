@@ -13,7 +13,9 @@ function getRedis(): IORedis | null {
     redis = new IORedis(url, {
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
-      lazyConnect: true
+      lazyConnect: true,
+      connectTimeout: 4_000,
+      commandTimeout: 4_000
     });
     redis.connect().catch(() => {
       /* memória */

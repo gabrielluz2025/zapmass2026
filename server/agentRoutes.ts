@@ -9,6 +9,7 @@ import {
   saveAgentConfigMerge,
   sanitizeAgentConfigPatch
 } from './agent/agentConfigLoader.js';
+import { getRecentAgentActivity } from './agent/agentActivityBuffer.js';
 import { getAgentStatus, handleAgentAsk } from './agent/agentOrchestrator.js';
 import { listKnowledgeForAdmin, patchKnowledgeOverrides } from './agent/knowledgeService.js';
 import type { AgentKnowledgeOverride, AgentMode, AgentScope } from './agent/types.js';
@@ -40,6 +41,15 @@ function parseScope(raw: unknown): AgentScope | undefined {
 }
 
 export function registerAgentRoutes(app: Express): void {
+  app.get('/api/agent/activity', async (req: Request, res: Response) => {
+    const admin = await assertAdminFromBearer(req, res);
+    if (!admin) return;
+    const limitRaw = Number(req.query.limit);
+    const limit = Number.isFinite(limitRaw) ? limitRaw : 20;
+    const entries = getRecentAgentActivity(limit);
+    return res.json({ ok: true, entries });
+  });
+
   app.get('/api/agent/status', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;

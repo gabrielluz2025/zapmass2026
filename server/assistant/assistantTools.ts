@@ -35,6 +35,55 @@ function subscriptionLabel(
   return 'Sem assinatura ativa — algumas ações podem estar bloqueadas.';
 }
 
+const AUDIT_TOOL_TIMEOUT_MS = 12_000;
+
+async function withToolTimeout<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  return Promise.race([
+    fn(),
+    new Promise<T>((resolve) => {
+      setTimeout(() => resolve(fallback), AUDIT_TOOL_TIMEOUT_MS);
+    })
+  ]).catch(() => fallback);
+}
+
+/** Validação ampla da conta — várias ferramentas em paralelo, sem LLM. */
+export async function buildSystemAuditAnswer(
+  tenantId: string,
+  _actorId: string
+): Promise<{ answer: string; toolsUsed: string[] }> {
+  const toolsUsed = ['overview', 'connections', 'campaigns', 'subscription'] as const;
+  const timeoutNote = (section: string) => `**${section}:** consulta demorou demais — tente de novo em instantes.`;
+
+  const [overview, connections, campaigns, subscription] = await Promise.all([
+    withToolTimeout(() => getOverviewAnswer(tenantId), timeoutNote('Resumo')),
+    withToolTimeout(() => getConnectionsAnswer(tenantId), timeoutNote('Chips')),
+    withToolTimeout(() => getCampaignsAnswer(tenantId), timeoutNote('Campanhas')),
+    withToolTimeout(() => getSubscriptionAnswer(tenantId), timeoutNote('Assinatura'))
+  ]);
+
+  const lines = [
+    '**Validação rápida do sistema (dados ao vivo):**',
+    '',
+    overview,
+    '',
+    connections,
+    '',
+    campaigns,
+    '',
+    subscription,
+    '',
+    '**Checklist manual:**',
+    '• Chips online antes de disparar campanha',
+    '• Base importada e telefones normalizados',
+    '• Intervalo entre envios respeitado (Configurações)',
+    '• Assinatura ativa em **Minha assinatura**',
+    '',
+    '_Perguntas específicas (ex.: “chips online”, “última campanha”) trazem mais detalhe._'
+  ];
+
+  return { answer: lines.join('\n'), toolsUsed: [...toolsUsed] };
+}
+
 export async function getOverviewAnswer(tenantId: string): Promise<string> {
   const lines: string[] = ['**Resumo da sua conta:**', ''];
 

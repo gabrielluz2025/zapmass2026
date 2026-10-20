@@ -9,11 +9,13 @@ Assistente **próprio da plataforma**, sem depender de Google Gemini no fluxo pr
 | **assistantRouter** | Intenções determinísticas (dados, navegação, tutorial, criativo). |
 | **assistantTools** | Respostas com dados ao vivo (Postgres/Evolution): contatos, campanhas, chips, assinatura. |
 | **knowledgeService** | RAG leve: `knowledgeChunks.ts` + `docs/TUTORIAL-USUARIO-ZAPMASS.md` + overrides Firestore. |
-| **agentOrchestrator** | Modo `standard` (todos) e `admin_full` (admin: LLM opcional ou fallback determinístico). |
+| **agentOrchestrator** | Um orquestrador para todas as telas (`currentView` / `screen`); modos `standard` e `admin_full`; persona por tela (`shared/agentScreenPersonas.ts`, ex.: **Radar** no Painel). |
 | **toolRegistry** | Ferramentas nomeadas + snapshot JSON para admin. |
 | **llmProvider** | Só se `AGENT_LLM_PROVIDER=groq` ou `gemini` e chaves configuradas. |
 
-API: `GET/POST /api/agent/*` (status, ask, config/knowledge para admin).
+API: `GET/POST /api/agent/*` (status, ask, config/knowledge para admin). Admin: `GET /api/agent/activity` (buffer em memória das últimas perguntas, log `agent_ask`).
+
+Perguntas amplas (“valide todo o sistema”) usam intenção `system_audit`: várias ferramentas em paralelo + checklist, sem depender de LLM. Timeouts: cliente ~50s, servidor `AGENT_ASK_TIMEOUT_MS` (default 45s).
 
 UI: painel **Assistente ZapMass** (robô) → `agentApi`. Não consome Gemini por padrão.
 

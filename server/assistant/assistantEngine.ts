@@ -16,8 +16,10 @@ import {
   getCreativeAnswer,
   getChatConversationsAnswer,
   getGeoLeadsAnswer,
-  getReportsAggregatesAnswer
+  getReportsAggregatesAnswer,
+  buildSystemAuditAnswer
 } from './assistantTools.js';
+import { getScreenAgentPersona } from '../../shared/agentScreenPersonas.js';
 import { creativeWithLlm, isLlmAvailable, polishWithLlm } from './assistantLlm.js';
 
 const VIEW_LABELS: Record<string, string> = {
@@ -52,10 +54,14 @@ async function buildBaseAnswer(
   allowLlm: boolean,
   actorId: string,
   currentView?: string
-): Promise<{ answer: string; navigateTo?: string; suggestions?: string[] }> {
+): Promise<{ answer: string; navigateTo?: string; suggestions?: string[]; toolsUsed?: string[] }> {
   switch (intent) {
+    case 'system_audit': {
+      const audit = await buildSystemAuditAnswer(tenantId, actorId);
+      return { answer: audit.answer, toolsUsed: audit.toolsUsed, navigateTo: 'dashboard' };
+    }
     case 'data_overview':
-      return { answer: await getOverviewAnswer(tenantId) };
+      return { answer: await getOverviewAnswer(tenantId), toolsUsed: ['overview'] };
     case 'data_contacts':
       return { answer: await getContactsAnswer(tenantId, question), navigateTo: 'contacts' };
     case 'data_campaigns':
@@ -154,8 +160,10 @@ export async function handleAssistantAsk(params: {
   }
 
   const intent = classifyIntent(question);
-  let source: AssistantAskResult['source'] = intent.startsWith('data_') ? 'tools' : 'rag';
+  let source: AssistantAskResult['source'] =
+    intent === 'system_audit' || intent.startsWith('data_') ? 'tools' : 'rag';
   let usedLlm = false;
+  const persona = getScreenAgentPersona(params.currentView);
 
   const base = await buildBaseAnswer(
     intent,
@@ -172,6 +180,7 @@ export async function handleAssistantAsk(params: {
     isLlmAvailable() &&
     process.env.ASSISTANT_LLM_POLISH !== 'false' &&
     (intent === 'tutorial' || intent === 'unknown') &&
+    intent !== 'system_audit' &&
     !intent.startsWith('data_');
 
   if (shouldPolish) {
@@ -205,6 +214,9 @@ export async function handleAssistantAsk(params: {
     suggestions: base.suggestions,
     navigateTo: base.navigateTo,
     remainingToday: quota.remaining,
-    usedLlm
+    usedLlm,
+    toolsUsed: base.toolsUsed,
+    agentPersona: persona.name,
+    agentProfile: persona.profileId
   };
 }

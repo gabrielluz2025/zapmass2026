@@ -154,6 +154,40 @@ export function classifyIntent(question: string): AssistantIntent {
 
   if (
     hasAny(q, [
+      'valide',
+      'validar',
+      'validacao',
+      'validação',
+      'verifique',
+      'verificar',
+      'audite',
+      'auditar',
+      'diagnostico',
+      'diagnóstico',
+      'checagem',
+      'checar',
+      'revise tudo',
+      'analise tudo',
+      'análise geral'
+    ]) &&
+    hasAny(q, [
+      'sistema',
+      'conta',
+      'tudo',
+      'geral',
+      'plataforma',
+      'zapmass',
+      'completo',
+      'completa',
+      'todo',
+      'toda'
+    ])
+  ) {
+    return 'system_audit';
+  }
+
+  if (
+    hasAny(q, [
       'resumo',
       'visao geral',
       'visão geral',

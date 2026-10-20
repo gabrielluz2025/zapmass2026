@@ -14,6 +14,11 @@ describe('assistantRouter', () => {
     expect(classifyIntent('sugira uma mensagem de cobrança')).toBe('creative');
   });
 
+  it('classifica validação ampla do sistema', () => {
+    expect(classifyIntent('valide todo o sistema')).toBe('system_audit');
+    expect(classifyIntent('verificar minha conta completa')).toBe('system_audit');
+  });
+
   it('resolve navegação', () => {
     expect(resolveNavigateView('ir para campanhas')).toBe('campaigns');
     expect(resolveNavigateView('abrir conexoes')).toBe('connections');

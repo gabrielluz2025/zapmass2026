@@ -44,6 +44,9 @@ export type AgentAskSuccess = AssistantAskResult & {
   mode: AgentMode;
   scope: AgentScope;
   dataUsed?: boolean;
+  toolsUsed?: string[];
+  agentPersona?: string;
+  agentProfile?: string;
 };
 
 export type AgentAskFailure = {
