@@ -1,5 +1,6 @@
 import toast from 'react-hot-toast';
 import { isApiHttpTransientError, isApiNetworkError, isApiTimeoutError } from './apiFetchAuth';
+import { isSubscriptionRequiredError } from './subscriptionRequiredFlow';
 
 export const API_OFFLINE_TOAST_ID = 'api-offline';
 
@@ -53,6 +54,7 @@ export function dismissApiOfflineToast(): void {
 
 /** Um único toast para queda de rede — vários GET em paralelo não empilham vermelho. */
 export function toastApiError(err: unknown, fallback: string): void {
+  if (isSubscriptionRequiredError(err)) return;
   if (isTransientApiError(err)) {
     scheduleApiOfflineToast();
     return;

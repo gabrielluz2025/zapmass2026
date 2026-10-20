@@ -97,6 +97,7 @@ import {
 } from '../utils/tenantDailyCache';
 import { readContactsFromIdb } from '../utils/contactsIdbCache';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
+import { emitSubscriptionRequired } from '../utils/subscriptionRequiredFlow';
 import {
   getCampaignPlannedSendTotal,
   getCampaignProgressMetrics,
@@ -1798,11 +1799,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     socket.on('subscription-required', (p: { message?: string }) => {
-      const msg =
-        typeof p?.message === 'string' && p.message.trim()
-          ? p.message
-          : 'Plano ativo ou teste valido e necessario. Abra Minha assinatura.';
-      toast.error(msg, { duration: 9000, icon: '💳' });
+      emitSubscriptionRequired(p?.message);
     });
 
     socket.on('connection-limit-reached', (p: { current?: number; max?: number; message?: string }) => {

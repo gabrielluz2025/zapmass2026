@@ -45,6 +45,10 @@ import { AiAskPanel } from './components/ai/AiAskPanel';
 import { AiAssistantTab } from './components/ai/AiAssistantTab';
 import { useAiStatus } from './hooks/useAiStatus';
 import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/openChannelExtraFlow';
+import {
+  EVENT_SUBSCRIPTION_REQUIRED,
+  type SubscriptionRequiredDetail,
+} from './utils/subscriptionRequiredFlow';
 import { readClientSurveyTokenFromWindow } from './utils/readClientSurveyTokenFromWindow';
 import { readPublicLegalPageFromWindow } from './utils/readPublicLegalPageFromWindow';
 import { lazyWithRetry } from './utils/lazyWithRetry';
@@ -350,6 +354,22 @@ const MainLayout: React.FC = () => {
     };
     window.addEventListener(EVENT_OPEN_CHANNEL_EXTRAS, go);
     return () => window.removeEventListener(EVENT_OPEN_CHANNEL_EXTRAS, go);
+  }, [setCurrentView]);
+
+  // Socket ou HTTP 402 `SUBSCRIPTION_REQUIRED` — mesmo fluxo: toast + modal Pro.
+  useEffect(() => {
+    const onSubscriptionRequired = (ev: Event) => {
+      const detail = (ev as CustomEvent<SubscriptionRequiredDetail>).detail;
+      const msg =
+        typeof detail?.message === 'string' && detail.message.trim()
+          ? detail.message.trim()
+          : 'Plano ativo ou teste válido é necessário. Abra Minha assinatura.';
+      toast.error(msg, { duration: 9000, icon: '💳' });
+      setCurrentView('subscription');
+      setUpgradeOpen(true);
+    };
+    window.addEventListener(EVENT_SUBSCRIPTION_REQUIRED, onSubscriptionRequired);
+    return () => window.removeEventListener(EVENT_SUBSCRIPTION_REQUIRED, onSubscriptionRequired);
   }, [setCurrentView]);
 
   useEffect(() => {

@@ -1,5 +1,13 @@
 import { apiUrl } from './apiBase';
 import { getSessionIdToken } from './sessionAuth';
+import {
+  SubscriptionRequiredError,
+  emitSubscriptionRequired,
+  formatSubscriptionRequiredMessage,
+  isSubscriptionRequiredHttpPayload,
+} from './subscriptionRequiredFlow';
+
+export { isSubscriptionRequiredError, SubscriptionRequiredError } from './subscriptionRequiredFlow';
 
 const DEFAULT_FETCH_TIMEOUT_MS = 18_000;
 
@@ -104,13 +112,18 @@ export async function apiFetchJson<T = Record<string, unknown>>(
           ...(init?.headers || {}),
         },
       });
-      const j = (await r.json().catch(() => ({}))) as T & { error?: string };
+      const j = (await r.json().catch(() => ({}))) as T & { error?: string; code?: string };
       if (r.status === 401 && !retried) {
         const refreshed = await getSessionIdToken(true);
         if (refreshed) {
           return apiFetchJson<T>(path, init, true);
         }
         throw new Error('Sessão expirada. Entre novamente.');
+      }
+      if (isSubscriptionRequiredHttpPayload(r.status, j)) {
+        const msg = formatSubscriptionRequiredMessage(j.error);
+        emitSubscriptionRequired(msg);
+        throw new SubscriptionRequiredError(msg);
       }
       if (!r.ok) {
         const transient = r.status === 502 || r.status === 503 || r.status === 504;

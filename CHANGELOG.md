@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.317] - 2026-10-20
+
+### Corrigido
+- **Front / plano:** respostas HTTP 402 `SUBSCRIPTION_REQUIRED` (reenvio, retomada, teste, nurture) disparam o mesmo fluxo do socket `subscription-required`: toast e modal Upgrade Pro via `apiFetchJson`.
+
 ## [2.3.316] - 2026-10-20
 
 ### Segurança / Enforcement

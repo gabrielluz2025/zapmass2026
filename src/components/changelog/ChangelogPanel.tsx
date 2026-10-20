@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.317',
+    date: '20/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'HTTP 402 SUBSCRIPTION_REQUIRED abre o modal Upgrade Pro (reenvio, retomada, teste e nurture), alinhado ao aviso do socket',
+      },
+    ],
+  },
+  {
     version: '2.3.316',
     date: '20/10/2026',
     highlights: [
