@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { requireTenant } from './httpTenant.js';
+import { requireActiveSubscriptionHttp } from './httpSubscriptionGuard.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
 import {
   cancelNurtureEnrollment,
@@ -179,6 +180,7 @@ export function registerNurtureRoutes(app: Express): void {
   app.post('/api/nurture/dispatch', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
+    if (!(await requireActiveSubscriptionHttp(ctx, res))) return;
     const body = req.body as {
       journeyId?: string;
       enrollmentIds?: string[];

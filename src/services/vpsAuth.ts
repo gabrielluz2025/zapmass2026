@@ -240,6 +240,9 @@ async function performRefreshAccessToken(): Promise<string | null> {
   );
   const data = await parseJson<{ accessToken?: string; user?: VpsAuthUser }>(r);
   if (!r.ok || !data.accessToken) {
+    // 5xx/429 = servidor ou banco indisponível (não é sessão inválida): mantém o login local para o
+    // próximo retry em vez de deslogar o cliente por um soluço de infraestrutura.
+    if (r.status >= 500 || r.status === 429) return null;
     clearVpsSession();
     return null;
   }

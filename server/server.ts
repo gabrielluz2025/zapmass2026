@@ -111,6 +111,7 @@ import { warmupLeadsGeoCache } from './leadsGeoService.js';
 import { warmupOptOutCacheAllTenants } from './contactOptOutService.js';
 import { ensureIbgeMunicipiosIndex } from './ibgeMunicipios.js';
 import { registerCampaignsDataRoutes } from './campaignsRoutes.js';
+import { createJsonErrorMiddleware, installExpressAsyncSafety } from './expressAsyncSafe.js';
 import { registerCampaignLibraryRoutes } from './campaignLibraryRoutes.js';
 import { registerPlatformDataRoutes } from './platformRoutes.js';
 import { registerProductSuggestionRoutes } from './productSuggestionRoutes.js';
@@ -184,6 +185,8 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const app = express();
+// Express 4 não captura rejeição de handler async: encaminha para next(err) → JSON 500 (ver fim do arquivo).
+installExpressAsyncSafety(app);
 app.use(securityHeadersMiddleware);
 configureTrustProxy(app);
 app.use('/public/uploads', express.static(getUploadsDir()) as any);
@@ -500,9 +503,14 @@ app.get('/api/health', async (_req, res) => {
     authProvider,
     dataProvider,
     vpsOnly: authProvider === 'vps' && dataProvider === 'vps',
-    mercadopagoConfigured: mp?.configured ?? false,
+    // `configured` vem da checagem local (token presente) — antes timeout da API do MP virava "false" e
+    // parecia que o MP não estava configurado em produção. `checkoutAvailable` só é true com validação ao vivo.
+    mercadopagoConfigured: mp?.configured ?? isMercadoPagoAccessTokenConfigured(),
     mercadopagoCheckoutAvailable: mp?.valid ?? false,
+    mercadopagoCheckoutVerified: mp != null,
     mercadopagoMode: mp?.mode ?? null,
+    mercadopagoWebhookSecretConfigured: Boolean(process.env.MERCADOPAGO_WEBHOOK_SECRET?.trim()),
+    subscriptionEnforced: subscriptionEnforceFromEnv(),
     emailConfigured: Boolean(process.env.RESEND_API_KEY?.trim())
   });
 });
@@ -880,6 +888,9 @@ if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
+
+// Último middleware HTTP: erros de rota/body-parser em JSON (nunca HTML/stack para o cliente).
+app.use(createJsonErrorMiddleware());
 
 // Métricas para UI + Prometheus (processo / contentor)
 const emitSystemAndPromMetrics = () => {
@@ -2244,7 +2255,7 @@ const registerSocketHandlers = () => {
     socket.on('pause-campaign', ({ campaignId }) => {
       void (async () => {
         try {
-          if (!(await requireActiveSubscription())) return;
+          // Pausar nunca exige assinatura: cliente com plano vencido precisa conseguir parar o que está rodando.
           if (!(await canControlActiveCampaign(campaignId))) {
             denyCrossTenant('pause-campaign', { campaignId });
             return;
@@ -2590,7 +2601,7 @@ const registerSocketHandlers = () => {
     socket.on('stop-auto-warmup', () => {
       void (async () => {
         try {
-          if (!(await requireActiveSubscription())) return;
+          // Parar nunca exige assinatura.
           userLog('warmup:auto-stop', {});
           waService.stopAutoWarmup(uid);
           socket.emit('auto-warmup-state', { active: false });

@@ -24,6 +24,7 @@ import { buildVpsUserPayload } from './auth/profilePayload.js';
 import { resolvePhotoUrl } from './auth/resolvePhotoUrl.js';
 import { notifyAdminsNewAccountRegistered } from './adminNewSignupNotify.js';
 import { requestPasswordReset, resetPasswordWithToken } from './auth/passwordResetService.js';
+import { isStaffMemberActive } from './auth/staffRepository.js';
 
 const REFRESH_COOKIE = 'zapmass_refresh';
 
@@ -249,6 +250,16 @@ export function registerVpsAuthRoutes(app: Express): void {
       if (!row) {
         return res.status(401).json({ ok: false, error: 'Sessão inválida ou expirada.' });
       }
+      if (row.role === 'staff') {
+        // Funcionário removido/revogado ou dono desativado não renova sessão (antes: refresh válido por 30 dias).
+        const stillActive = await isStaffMemberActive(row.subject_id, { fresh: true });
+        const ownerRow = row.owner_user_id ? await findUserById(row.owner_user_id) : null;
+        if (!stillActive || !ownerRow || ownerRow.disabled_at) {
+          await revokeRefreshTokenHash(hashRefreshToken(plain), { immediate: true });
+          return res.status(401).json({ ok: false, error: 'Acesso do funcionário revogado.' });
+        }
+      }
+
       await revokeRefreshTokenHash(hashRefreshToken(plain));
 
       if (row.role === 'staff') {
@@ -305,7 +316,7 @@ export function registerVpsAuthRoutes(app: Express): void {
       const plain = readRefreshCookie(req);
       if (plain) {
         try {
-          await revokeRefreshTokenHash(hashRefreshToken(plain));
+          await revokeRefreshTokenHash(hashRefreshToken(plain), { immediate: true });
         } catch (e) {
           console.error('[auth/logout] revoke:', (e as Error)?.message);
         }

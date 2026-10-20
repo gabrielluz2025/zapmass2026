@@ -1,124 +1,159 @@
 # Auditoria pré-lançamento — ZapMass
 
-**Data:** 20/10/2026  
-**Versão auditada:** 2.3.315+  
-**Escopo:** auth VPS, billing Mercado Pago, campanhas/envio, UI/UX pós-login, operações VPS.
+**Data:** 20/10/2026 · **Versão auditada/corrigida:** 2.3.315 → **2.3.316**
+**Escopo:** auth/sessão, assinatura e Hard Gate, Mercado Pago (checkout + webhooks), enforcement de plano (HTTP/socket/worker), campanhas, shell/UI, erros do servidor, scripts da VPS.
+
+> **Honestidade sobre o que foi validado:** a auditoria foi **por leitura de código + testes automatizados (vitest, typecheck)**. Nada aqui substitui QA manual na VPS com Mercado Pago real/sandbox (ver "O que NÃO foi validado").
 
 ---
 
-## Resumo executivo
+## 1. Resumo executivo
 
-O ZapMass está **pronto para lançamento controlado** com auth 100% VPS, Postgres como fonte de dados principal e billing via Mercado Pago. Os riscos mais críticos antes do go-live eram **falso hard gate de onboarding** (assinatura ainda carregando ou API indisponível), **corrida de refresh de token** entre abas/requisições, **500 não tratados** em rotas de auth e **rate limit agressivo** no webhook MP.
+O núcleo (auth VPS, Postgres, assinatura por tiers, MP) está **estruturalmente pronto**, mas havia falhas que fariam o cliente pagante perder dinheiro/acesso ou deixariam não-pagantes usar o produto:
 
-**Correções P0 aplicadas nesta release (2.3.315):** gate de assinatura seguro, dedupe de refresh, try/catch 503 nas rotas auth, limite MP webhook ampliado, testes unitários.
+| Risco | Antes | Depois (2.3.315/316) |
+|---|---|---|
+| Webhook MP duplicado/retentado | Pagamento podia ser creditado 2× (estender `accessEndsAt` em dobro); 5xx do MP virava "ignorado" e nunca era reprocessado | Idempotência por `paymentId`/`preapproval`; erro transitório → 5xx para o MP **reenviar**; lock por tenant |
+| Reembolso / chargeback | Acesso não era revogado | Revogação automática |
+| Cancelou o débito automático | Perdia acesso na hora (mesmo com ciclo pago) | Mantém acesso até `accessEndsAt` (servidor **e** cliente) |
+| Checkout em produção com `localhost` como back_url | Preferência criada com URL inválida | Falha clara (503) + log no boot |
+| Cliente sem plano via API | `redispatch`, `retry-failed`, `test-send`, `nurture/dispatch` enviavam mensagens sem checar plano | Guard HTTP 402 `SUBSCRIPTION_REQUIRED` |
+| Plano vence com fila em andamento | Jobs BullMQ já enfileirados continuavam enviando | Job entra em *hold* (não perde a fila); volta ao renovar |
+| Plano vencido e quer parar | `pause-campaign` / `stop-auto-warmup` exigiam assinatura (não conseguia parar!) | Parar/pausar nunca exige plano |
+| Funcionário demitido | Refresh token valia até 30 dias; JWT 8h sem recheck | Refresh recusado; acesso cai em ≤60s; tokens revogados |
+| Duas abas renovando sessão | 2ª aba levava 401 → logout | Janela de tolerância de 20s na rotação do refresh |
+| Soluço 5xx no `/auth/refresh` | Cliente apagava a sessão local | Só 401/403 limpam sessão |
+| Rejeição em rota `async` (Express 4) | Requisição **pendurada** até timeout + só log | JSON 500 genérico; body-parser 400/413 em JSON |
+| `/api/health` `mercadopagoConfigured:false` | Timeout da API do MP virava "não configurado" (falso negativo) | `configured` = token local; novos campos de diagnóstico |
+| Staff via `/api/subscription` | Via `adminNote`, ids internos do MP | Payload sanitizado (owner e staff) |
+| Hard Gate | Aparecia com assinatura carregando/falha de rede | Fail-open + gate só com assinatura carregada |
 
-**Pendências P2** (não bloqueiam lançamento): observabilidade de webhook MP em dashboard dedicado, testes E2E de checkout, hardening extra de enumeração de e-mail.
-
----
-
-## Tabelas por prioridade
-
-### Autenticação (VPS + JWT)
-
-| ID | Prioridade | Achado | Impacto | Status |
-|----|------------|--------|---------|--------|
-| AUTH-01 | **P0** | Hard gate podia aparecer com assinatura ainda em `loading` ou após falha de `/api/subscription` | Cliente pagante vê tela de trial/Pro indevida | **Corrigido** — `subscriptionGateLogic` + `GateOrApp` |
-| AUTH-02 | **P0** | Vários `refresh` concorrentes (401 em paralelo, boot + api) | Logout intermitente, rotação excessiva de refresh token | **Corrigido** — dedupe em `vpsRefreshAccessToken` |
-| AUTH-03 | **P0** | `login`/`refresh`/`logout`/`me` sem try/catch global | 500 HTML quebra o SPA | **Corrigido** — JSON 503 |
-| AUTH-04 | **P1** | Logout numa aba não limpava outra imediatamente | Sessão “fantasma” multi-tab | **Mitigado** — broadcast `localStorage` + listener |
-| AUTH-05 | **P2** | Rate limit login/registo adequado; staff invite OK | Abuso brute-force | Aceito — monitorar logs |
-
-### Billing / Mercado Pago
-
-| ID | Prioridade | Achado | Impacto | Status |
-|----|------------|--------|---------|--------|
-| BILL-01 | **P0** | Webhook MP limitado a 200 req/15 min/IP | Retentativas MP → 429 → assinatura não atualiza | **Corrigido** — 800/15 min + doc |
-| BILL-02 | **P1** | Admin sem aviso claro quando MP não configurado | Suporte e churn no checkout | **Corrigido** — banner em Minha assinatura (admin) |
-| BILL-03 | **P1** | Checklist MP na VPS incompleto (webhook secret) | Pagamentos sem reconciliação | **Corrigido** — `vps-check-env.sh` |
-| BILL-04 | **P2** | Assinatura webhook em produção sem secret | Spoofing teórico de eventos | Configurar `MERCADOPAGO_WEBHOOK_SECRET` |
-| BILL-05 | **P2** | Firestore ainda usado em partes legadas de subscription | Divergência VPS/Firestore em migração | Roadmap VPS-only |
-
-### Campanhas e envio
-
-| ID | Prioridade | Achado | Impacto | Status |
-|----|------------|--------|---------|--------|
-| CAMP-01 | **P1** | Enforcement de plano no servidor (`subscriptionAccess`) | Cliente read-only no front ainda pode tentar API | **OK** — servidor valida |
-| CAMP-02 | **P2** | Campanhas grandes + Evolution multi-shard | Latência QR/sync | Runbooks existentes em `deployment/` |
-| CAMP-03 | **P2** | LGPD / opt-out | Compliance operacional | Texto no Hard Gate + Configurações |
-
-### UI / UX
-
-| ID | Prioridade | Achado | Impacto | Status |
-|----|------------|--------|---------|--------|
-| UI-01 | **P1** | Dashboard sem dica quando 0 canais | Onboarding lento | **Corrigido** — link “conecte WhatsApp” |
-| UI-02 | **P1** | Spinner 14s `forceEnter` podia combinar com gate | Confusão | **Mitigado** — gate só com `subscriptionGateReady` |
-| UI-03 | **P2** | Empty states em Contatos/Campanhas | Curva de aprendizado | Melhorias incrementais |
-
-### Operações / VPS
-
-| ID | Prioridade | Achado | Impacto | Status |
-|----|------------|--------|---------|--------|
-| OPS-01 | **P0** | Secrets MP/JWT/Postgres fora do repo | Deploy quebrado | **OK** — `.env` + secrets |
-| OPS-02 | **P1** | Health `/api/health` + versão | Deploy cego | **OK** — `vps-check-env.sh` |
-| OPS-03 | **P2** | Backup Postgres cron | Perda de dados | Scripts em `deployment/backup-postgres*.sh` |
+**Veredito:** pronto para **venda controlada** *depois* de executar o checklist da seção 5 e o QA manual da seção 6. Não recomendo tráfego pago em massa antes de um pagamento real ponta a ponta na VPS.
 
 ---
 
-## Checklist billing na VPS (sem segredos)
+## 2. Tabela P0 / P1 / P2
 
-Execute na VPS (`/opt/zapmass`):
+Esforço: **S** < 2h · **M** 2–8h · **L** > 1 dia. Status: ✅ corrigido · 🟡 mitigado · ⬜ pendente.
 
-```bash
-bash deployment/vps-check-env.sh
-```
+### P0 — bloqueia venda
 
-| Variável | Obrigatório | Onde obter |
-|----------|-------------|------------|
-| `MERCADOPAGO_ACCESS_TOKEN` | Sim (checkout) | [Mercado Pago Developers](https://www.mercadopago.com.br/developers) → sua aplicação → Credenciais de produção → `APP_USR-…` |
-| `MERCADOPAGO_BACK_URL` | Recomendado | URL pública do app (ex.: `https://zap-mass.com`) — usada em `back_urls` e montagem do webhook |
-| `MERCADOPAGO_WEBHOOK_SECRET` | Produção | MP → Webhooks → assinatura secreta (validação `x-signature`) |
-| `MERCADOPAGO_CHANNEL_TIER_1` … | Opcional | IDs de plano/preapproval por tier; defaults em código se vazio |
-| `VITE_ENFORCE_SUBSCRIPTION` | Prod | `true` no build de produção |
-| `ZAPMASS_JWT_SECRET` | Sim (auth VPS) | Gerar string longa aleatória — **nunca commitar** |
-| `ZAPMASS_DATABASE_URL` | Sim | Postgres ZapMass |
+| Área | Problema | Solução | Esforço | Status |
+|---|---|---|---|---|
+| MP webhook | Pagamento processado 2× em retentativa | `server/subscriptionIdempotency.ts` (ids processados, últimos 30) + `withTenantLock` | M | ✅ |
+| MP webhook | Falha transitória do MP engolida (nunca reprocessava) | `mpGetJson` lança em 5xx/429/401/403 → webhook responde 5xx | M | ✅ |
+| MP webhook | Reembolso/chargeback não revogava acesso | Revogação em `applyMercadoPagoPayment` | S | ✅ |
+| MP webhook | IPN legado (`?topic=&id=`) e `authorized_payment` ignorados | `processMercadoPagoBody` aceita query + tópico | M | ✅ |
+| MP webhook | Rate limit 200/15min derrubava retentativas | 800/15min | S | ✅ |
+| Billing | `back_url` localhost em produção | `server/mercadoPagoBackUrl.ts` (`assertMercadoPagoBackUrlForCheckout`) | S | ✅ |
+| Assinatura | `canceled` perdia acesso do ciclo pago | `userHasFullAppAccess` (server+client) | S | ✅ |
+| Enforcement | HTTP de envio sem checagem de plano | `server/httpSubscriptionGuard.ts` em `redispatch`, `retry-failed`, `test-send`, `nurture/dispatch` | S | ✅ |
+| Enforcement | Fila já enfileirada seguia após vencer | `ownerMaySendCampaignJobs` no worker (`evolutionService.ts`), hold 120s, cache 60s, fail-open | M | ✅ |
+| Hard Gate | Gate indevido p/ pagante | `subscriptionGateLogic.ts` (v2.3.315) | M | ✅ |
+| Auth | Logout intermitente (refresh concorrente) | Dedupe no cliente + grace 20s no servidor | M | ✅ |
+| Auth | Rotas auth com 500 HTML | try/catch → JSON 503 | S | ✅ |
 
-**Webhook público:** `POST https://<seu-dominio>/api/webhooks/mercadopago`  
-**Teste rápido (sem expor token):** `GET https://<dominio>/api/billing/mercadopago/status` → `{ "checkoutAvailable": true }`
+### P1 — corrigir antes de escalar
 
-Após alterar `.env`:
+| Área | Problema | Solução | Esforço | Status |
+|---|---|---|---|---|
+| Autorização | Funcionário revogado mantinha acesso | `isStaffMemberActive` (cache 60s) em `resolveAuth` + checagem fresca no refresh + revogação de tokens | M | ✅ |
+| Auth | Reset de senha deixava refresh válido por 20s (efeito do grace) | Reset/logout usam revogação **imediata** | S | ✅ |
+| Auth | 5xx no refresh apagava sessão | `vpsAuth.ts` só limpa em 401/403 | S | ✅ |
+| Servidor | Async handler sem catch (Express 4) | `server/expressAsyncSafe.ts` + middleware JSON final + teste | M | ✅ |
+| Privacidade | `/api/subscription` vazava campos internos | `subscriptionToClient` (owner/staff) | S | ✅ |
+| Staff | Funcionário caía no HardGate | Vê assinatura do tenant, read-only | S | ✅ |
+| Socket | Pausar/parar exigia plano | Removido de `pause-campaign`/`stop-auto-warmup` | S | ✅ |
+| Health | Falso "MP não configurado" | `configured` local + `mercadopagoWebhookSecretConfigured`, `subscriptionEnforced`, `mercadopagoCheckoutVerified`; timeout 8s no `/users/me` | S | ✅ |
+| VPS | `vps-check-env.sh` marcava Firebase como FALTA em modo VPS puro; não acusava `SUBSCRIPTION_ENFORCE=0` nem back URL inválida | Script atualizado + leitura dos campos do `/api/health` | S | ✅ |
+| UI | Menu da conta sem ESC/aria, sem atalho p/ assinatura; gaveta mobile mostrava só ícones se desktop estava recolhido | `TopBar`/`Sidebar` ajustados (ESC, `aria-*`, "Minha assinatura", gaveta sempre expandida) | S | ✅ |
+| Billing | Lock de tenant é **em memória** (1 réplica) | Se escalar p/ >1 réplica: `pg_advisory_xact_lock` | M | ⬜ |
+| Billing | Formato real de `external_reference` em pagamentos de preapproval no MP | Validar em sandbox (seção 6) | S | ⬜ |
 
-```bash
-bash deployment/manual-pull-deploy.sh
-# ou fluxo CI noturno / Run workflow
-```
+### P2 — pós-lançamento
+
+| Área | Problema | Solução | Esforço |
+|---|---|---|---|
+| Teste | Sem E2E de checkout/webhook (só unit) | Playwright + MP sandbox + webhook simulado | L |
+| Auth | Troca de senha logado talvez não revogue refresh tokens (não auditado a fundo) | Revisar `vpsProfileRoutes` e usar revogação imediata | S |
+| Observabilidade | Falha de webhook MP só em log | Alerta Discord quando `checkoutAvailable:false` ou 5xx repetido | M |
+| Billing | Firestore legado ainda em partes de subscription | Migração VPS-only | L |
+| Rate limit | `trust proxy`/limiters por IP atrás de CDN | Conferir IP real | S |
+| UI | Upgrade/latência ocultos < `lg` na TopBar | CTA de plano visível no mobile | S |
+| UI | Empty states (Contatos/Campanhas) | Incremental | M |
+| Evolution | Edge cases (QR/sync multi-shard) | Runbooks já em `deployment/` | — |
 
 ---
 
-## Recomendações de UI (pós-lançamento)
+## 3. Recomendações de UI/UX
 
-1. **Primeiro login:** manter Hard Gate como boas-vindas; garantir que trial auto-start respeita `enforce`.
-2. **Dashboard:** destacar funil vazio com CTA único (campanha + canal) — parcialmente feito com hint de canais.
-3. **Minha assinatura:** estados `past_due` e cancelado com período restante — copy já alinhada ao servidor.
-4. **Admin:** Painel Ops já expõe MP; reforçar alerta Discord quando `checkoutAvailable: false`.
-5. **Mobile:** sidebar recolhida — validar touch nos CTAs de campanha.
-
----
-
-## Testes recomendados antes do tráfego real
-
-- [ ] Login → aguardar spinner → **não** ver Hard Gate se já existe assinatura ativa no Postgres/Firestore.
-- [ ] Simular falha de rede em `/api/subscription` (DevTools offline) → entrar no app sem Hard Gate; banner/read-only conforme política.
-- [ ] Checkout Pix teste (credencial TEST) em homolog.
-- [ ] Webhook MP de teste → status `active` no doc de subscription.
-- [ ] Logout em duas abas abertas → segunda aba perde sessão em ≤1 evento storage.
-- [ ] `npm run test` + `npm run typecheck` verdes no CI.
+1. **Mobile:** o botão "Upgrade" e a latência ficam escondidos abaixo de `lg`; o item "Minha assinatura" no menu da conta agora cobre o caso, mas vale um CTA fixo p/ trial expirando.
+2. **Estados de assinatura:** mostrar na tela "Minha assinatura" o texto *"Acesso até DD/MM"* para `canceled` com período restante (regra já existe no servidor).
+3. **Erro 402:** o front deve tratar `code: "SUBSCRIPTION_REQUIRED"` (HTTP) como o evento de socket `subscription-required` (abrir modal de upgrade).
+4. **Primeiro login:** Hard Gate como boas-vindas; testar fluxo com trial automático.
+5. **Acessibilidade:** continuar a varredura (foco visível, contraste no tema escuro, `aria-live` em toasts). Só foram auditados Sidebar/TopBar/AppShell.
+6. **Mensagens de erro:** nunca expor texto técnico — o middleware final já devolve mensagem genérica.
 
 ---
 
-## Referências no código
+## 4. O que NÃO foi validado (exige QA manual)
 
-- Gate assinatura: `src/utils/subscriptionGateLogic.ts`, `src/context/SubscriptionContext.tsx`, `src/App.tsx`
-- Refresh dedupe: `src/services/vpsAuth.ts`
-- Auth API: `server/vpsAuthRoutes.ts`
-- Rate limit MP: `server/httpRateLimit.ts`
-- Webhook: `server/subscriptionWebhooks.ts`
+- **Pagamento real/sandbox ponta a ponta** (Pix, cartão, assinatura recorrente, upgrade de tier, reembolso) e e-mail transacional (Resend).
+- **Formato real** dos eventos do MP: se `payment` de preapproval traz `external_reference`; formato de `/authorized_payments/{id}`.
+- **Comportamento na VPS** (Docker, Nginx, certificados, cron de deploy 02–06h BRT).
+- **Multi-réplica:** lock de tenant só em processo.
+- **Não auditados a fundo:** importação/mapa de contatos, Chat, internals de warmup, Creator Studio/Admin, agentes/IA, `evolutionService` além do portão de assinatura, cobertura de TODO/FIXME em caminhos críticos.
+- **Testes automatizados** cobrem só helpers puros e o middleware Express; **não** há teste de integração com Postgres/Redis/MP.
+
+---
+
+## 5. Checklist de go-live de billing (VPS) — sem segredos
+
+Na VPS (`/opt/zapmass`): `bash deployment/vps-check-env.sh` (agora também lê `/api/health`).
+
+| Variável | Obrigatória | Observação |
+|---|---|---|
+| `MERCADOPAGO_ACCESS_TOKEN` | Sim | Credenciais **de produção** `APP_USR-…` (não `TEST-`) |
+| `MERCADOPAGO_WEBHOOK_SECRET` | **Sim em produção** | MP → Webhooks → assinatura secreta. Sem ele o webhook é inseguro. `MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED` só para homolog |
+| `MERCADOPAGO_BACK_URL` / `PUBLIC_APP_URL` | Sim | `https://` público, **nunca** localhost (checkout recusa) |
+| `MERCADOPAGO_CHANNEL_TIER_*` | Opcional | Defaults em `shared/channelTierPricing` |
+| `SUBSCRIPTION_ENFORCE` | Não definir (ou `1`) | `0` libera o produto sem pagar |
+| `VITE_ENFORCE_SUBSCRIPTION` | `true` (build arg) | Exige **rebuild** da imagem |
+| `ZAPMASS_JWT_SECRET` | Sim | Longo e aleatório; nunca commitar |
+| `ZAPMASS_DATABASE_URL`, `ZAPMASS_AUTH_PROVIDER=vps`, `ZAPMASS_DATA_PROVIDER=vps` | Sim | Modo VPS puro |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Sim | Reset de senha e avisos |
+
+**Painel do Mercado Pago**
+- [ ] Webhook de produção: `https://<dominio>/api/webhooks/mercadopago` com eventos `payment`, `subscription_preapproval` e `subscription_authorized_payment`.
+- [ ] Segredo do painel == `MERCADOPAGO_WEBHOOK_SECRET`.
+
+**Verificação pós-deploy** (`GET /api/health`):
+`mercadopagoConfigured: true`, `mercadopagoCheckoutAvailable: true`, `mercadopagoCheckoutVerified: true`, `mercadopagoWebhookSecretConfigured: true`, `subscriptionEnforced: true`, `emailConfigured: true`.
+
+Deploy: push em `main` valida build/testes; o deploy na VPS roda na janela 02–06h BRT ou via *Run workflow* manual.
+
+---
+
+## 6. Roteiro de QA manual antes de vender
+
+1. Conta nova → trial → ver Hard Gate/onboarding corretos.
+2. Checkout Pix real de menor valor → webhook → `status: active` e `accessEndsAt` correto; reenviar o mesmo webhook (painel MP) → **não** estende de novo.
+3. Assinatura recorrente + cancelar → acesso continua até o fim do ciclo.
+4. Reembolso de teste → acesso revogado.
+5. Conta sem plano: tentar `POST /api/campaigns/:id/redispatch` → **402**; pausar campanha em andamento → funciona.
+6. Plano vencendo com campanha rodando → jobs ficam em hold e voltam após renovar.
+7. Remover funcionário logado em outra aba → em ≤60s as chamadas dele falham (401).
+8. Duas abas abertas, esperar token expirar → ambas continuam logadas; logout em uma desloga a outra.
+9. Derrubar o Postgres por alguns segundos → app não desloga clientes; recupera sozinho.
+10. `bash deployment/vps-check-env.sh` sem `FALTA`.
+
+---
+
+## 7. Referências no código
+
+- Webhook/idempotência: `server/subscriptionWebhooks.ts`, `server/subscriptionIdempotency.ts`, `server/mercadoPagoBackUrl.ts`
+- Acesso: `server/subscriptionAccess.ts`, `src/context/SubscriptionContext.tsx`, `src/utils/subscriptionGateLogic.ts`
+- Guard HTTP / worker: `server/httpSubscriptionGuard.ts`, `server/evolutionService.ts` (`ownerMaySendCampaignJobs`)
+- Auth: `server/vpsAuthRoutes.ts`, `server/auth/userRepository.ts`, `server/auth/staffRepository.ts`, `src/services/vpsAuth.ts`
+- Erros HTTP: `server/expressAsyncSafe.ts`
+- Scripts: `deployment/vps-check-env.sh`

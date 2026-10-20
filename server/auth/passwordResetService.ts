@@ -84,8 +84,8 @@ export async function adminSetUserPassword(userId: string, password: string): Pr
     password_hash
   ]);
   await pool.query(
-    `UPDATE zapmass.refresh_tokens SET revoked_at = now()
-     WHERE subject_id = $1::uuid AND revoked_at IS NULL`,
+    `UPDATE zapmass.refresh_tokens SET revoked_at = now() - interval '1 day'
+     WHERE subject_id = $1::uuid AND (revoked_at IS NULL OR revoked_at > now() - interval '1 day')`,
     [userId]
   );
 }
@@ -122,8 +122,8 @@ export async function resetPasswordWithToken(token: string, password: string): P
       password_hash
     ]);
     await client.query(
-      `UPDATE zapmass.refresh_tokens SET revoked_at = now()
-       WHERE subject_id = $1::uuid AND revoked_at IS NULL`,
+      `UPDATE zapmass.refresh_tokens SET revoked_at = now() - interval '1 day'
+       WHERE subject_id = $1::uuid AND (revoked_at IS NULL OR revoked_at > now() - interval '1 day')`,
       [row.user_id]
     );
     await client.query('COMMIT');

@@ -7,6 +7,29 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.316] - 2026-10-20
+
+### Segurança / Enforcement
+- **Plano nas rotas HTTP de envio:** `redispatch`, `retry-failed`, `test-send` e `nurture/dispatch` respondem 402 `SUBSCRIPTION_REQUIRED` sem plano (`httpSubscriptionGuard`).
+- **Fila em andamento:** jobs de campanha de conta sem plano ficam em hold (não perdem a fila) e voltam ao renovar.
+- **Pausar campanha / parar warmup** nunca exigem assinatura.
+- **Funcionário revogado:** refresh recusado, acesso cai em ≤60s e refresh tokens são revogados.
+
+### Mercado Pago / Assinatura
+- Webhooks idempotentes (pagamento/preapproval), lock por tenant, erro transitório do MP → 5xx para reenvio, IPN legado e `authorized_payment`.
+- Reembolso/chargeback revoga acesso; `canceled` mantém acesso até `accessEndsAt` (servidor e cliente).
+- Checkout recusa `back_url` localhost em produção; payload de `/api/subscription` sanitizado (owner/staff).
+- `/api/health`: `mercadopagoConfigured` não vira falso por timeout; novos campos `mercadopagoWebhookSecretConfigured`, `subscriptionEnforced`, `mercadopagoCheckoutVerified`.
+
+### Auth / Servidor
+- Rotação de refresh com tolerância de 20s (duas abas); logout e reset de senha revogam na hora; 5xx no refresh não apaga sessão local.
+- Express: rejeições de handlers `async` e erros de body-parser retornam JSON (500/400/413), sem requisição pendurada.
+
+### UI / Scripts / Doc
+- TopBar: menu da conta com ESC/aria e atalho "Minha assinatura"; Sidebar: gaveta mobile sempre expandida, ESC fecha.
+- `vps-check-env.sh`: modo VPS puro sem falso "FALTA" de Firebase, alerta de `SUBSCRIPTION_ENFORCE=0`/back URL inválida, leitura do `/api/health`.
+- `docs/PRE-LANCAMENTO-AUDITORIA.md` reescrito (P0/P1/P2, checklist de go-live, roteiro de QA).
+
 ## [2.3.315] - 2026-10-20
 
 ### Adicionado

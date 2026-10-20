@@ -10,7 +10,7 @@ import {
 import { verifyAccessToken, type AccessTokenClaims } from './auth/jwt.js';
 import type { AuthPrincipal } from './auth/types.js';
 import { findUserById } from './auth/userRepository.js';
-import { getWorkspaceMemberUidSetVps } from './auth/staffRepository.js';
+import { getWorkspaceMemberUidSetVps, isStaffMemberActive } from './auth/staffRepository.js';
 import { getWorkspaceMemberUidSet } from './inboxAssignments.js';
 
 export function parseBearer(req: Request): string | null {
@@ -73,6 +73,8 @@ async function resolveVpsPrincipal(token: string): Promise<AuthPrincipal | null>
   const claims = await verifyAccessToken(token);
   if (!claims) return null;
   if (claims.role === 'staff') {
+    // Funcionário revogado perde acesso em até 60s (cache), não só ao expirar o JWT (8h).
+    if (!(await isStaffMemberActive(claims.sub))) return null;
     return {
       provider: 'vps',
       authUid: claims.sub,

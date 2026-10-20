@@ -37,6 +37,8 @@ import {
 import { saveCampaignRecipientSnapshot } from './campaignRecipientSnapshot.js';
 import { attachEvolutionAxiosRetry } from './evolutionAxiosRetry.js';
 import { notifyTenant } from './tenantNotifyService.js';
+import { isUidTreatedAsServerAdmin, readUserSubscriptionForLimits } from './connectionLimits.js';
+import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscriptionAccess.js';
 import { getEffectiveRedisUrl } from './redisConfig.js';
 import { getSharedRedis } from './redisShared.js';
 import { redisMemoryInfo } from './redisMemory.js';
@@ -9474,6 +9476,31 @@ async function buildCampaignGuardContext(
     };
 }
 
+const SUBSCRIPTION_DISPATCH_CACHE_MS = 60_000;
+const subscriptionDispatchCache = new Map<string, { at: number; ok: boolean }>();
+
+/**
+ * Último portão antes de enviar: assinatura vencida/cancelada/bloqueada não pode continuar disparando
+ * jobs já enfileirados (a checagem de socket/HTTP só protege o INÍCIO). Cache 60s; falha de leitura = libera.
+ * Quem renova a assinatura volta a enviar sem perder a fila (job fica em hold, não é descartado).
+ */
+async function ownerMaySendCampaignJobs(ownerUid: string): Promise<boolean> {
+    if (!ownerUid || !subscriptionEnforceFromEnv()) return true;
+    const hit = subscriptionDispatchCache.get(ownerUid);
+    if (hit && Date.now() - hit.at < SUBSCRIPTION_DISPATCH_CACHE_MS) return hit.ok;
+    let ok = true;
+    try {
+        if (!(await isUidTreatedAsServerAdmin(ownerUid))) {
+            const sub = await readUserSubscriptionForLimits(ownerUid);
+            ok = userHasFullAppAccess(sub, Date.now());
+        }
+    } catch {
+        ok = true;
+    }
+    subscriptionDispatchCache.set(ownerUid, { at: Date.now(), ok });
+    return ok;
+}
+
 async function runCampaignDispatchGuard(
     item: MessageQueueItem,
     state: CampaignRuntimeState
@@ -9997,6 +10024,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     // replyFlowResponse = resposta a mensagem recebida do contato — não bloquear por chip protection
     // nem por pause manual, pois deixar o contato sem resposta quebra o fluxo.
+    if (!item.replyFlowResponse && item.campaignId && campaignStateEarly?.ownerUid) {
+        if (!(await ownerMaySendCampaignJobs(campaignStateEarly.ownerUid))) {
+            await job.moveToDelayed(Date.now() + PAUSED_CAMPAIGN_HOLD_MS, token);
+            throw new DelayedError();
+        }
+    }
     if (!item.replyFlowResponse && item.campaignId && campaignStateEarly?.ownerUid && campaignStateEarly.isRunning) {
         const guard = await runCampaignDispatchGuard(item, campaignStateEarly);
         if (guard?.action === 'pause') {

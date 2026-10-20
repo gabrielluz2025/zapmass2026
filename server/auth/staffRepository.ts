@@ -97,6 +97,31 @@ export async function staffSignInByManagerEmail(
   return { ok: true, member, ownerUserId: owner.id, ownerEmail: owner.email };
 }
 
+const STAFF_ACTIVE_TTL_MS = 60_000;
+const staffActiveCache = new Map<string, { at: number; active: boolean }>();
+
+/**
+ * Funcionário ainda ativo (não revogado)? Cache de 60s. Falha de banco = fail-open (não derruba a API;
+ * o refresh token é rechecado sem cache na renovação).
+ */
+export async function isStaffMemberActive(memberId: string, opts: { fresh?: boolean } = {}): Promise<boolean> {
+  const hit = staffActiveCache.get(memberId);
+  if (!opts.fresh && hit && Date.now() - hit.at < STAFF_ACTIVE_TTL_MS) return hit.active;
+  try {
+    const member = await findStaffMemberById(memberId);
+    const active = !!member && member.revoked_at == null;
+    staffActiveCache.set(memberId, { at: Date.now(), active });
+    return active;
+  } catch {
+    return true;
+  }
+}
+
+export function invalidateStaffActiveCache(memberId?: string): void {
+  if (memberId) staffActiveCache.delete(memberId);
+  else staffActiveCache.clear();
+}
+
 export async function findStaffMemberById(memberId: string): Promise<WorkspaceMemberRow | null> {
   const pool = getZapmassPool();
   if (!pool) return null;

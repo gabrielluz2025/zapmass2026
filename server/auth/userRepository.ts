@@ -94,9 +94,30 @@ export async function insertRefreshToken(
   );
 }
 
-export async function revokeRefreshTokenHash(tokenHash: string): Promise<void> {
+/**
+ * Janela (s) em que um refresh token JÁ ROTACIONADO ainda é aceito. Duas abas (ou boot + API) que renovam ao
+ * mesmo tempo usam o mesmo cookie: sem tolerância a segunda recebia 401 e o cliente era deslogado.
+ */
+export const REFRESH_ROTATION_GRACE_SEC = 20;
+
+/**
+ * Rotação normal (`revoked_at = now()`, dentro da janela de tolerância) ou logout explícito (`immediate`:
+ * `revoked_at` no passado distante — fora da janela, token morto na hora).
+ */
+export async function revokeRefreshTokenHash(
+  tokenHash: string,
+  opts: { immediate?: boolean } = {}
+): Promise<void> {
   const pool = getZapmassPool();
   if (!pool) return;
+  if (opts.immediate) {
+    await pool.query(
+      `UPDATE zapmass.refresh_tokens SET revoked_at = now() - interval '1 day'
+       WHERE token_hash = $1 AND (revoked_at IS NULL OR revoked_at > now() - interval '1 day')`,
+      [tokenHash]
+    );
+    return;
+  }
   await pool.query(
     `UPDATE zapmass.refresh_tokens SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL`,
     [tokenHash]
@@ -160,9 +181,11 @@ export async function findValidRefreshToken(
   }>(
     `SELECT subject_id::text, role, owner_user_id::text
      FROM zapmass.refresh_tokens
-     WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
+     WHERE token_hash = $1
+       AND expires_at > now()
+       AND (revoked_at IS NULL OR revoked_at > now() - make_interval(secs => $2::int))
      LIMIT 1`,
-    [tokenHash]
+    [tokenHash, REFRESH_ROTATION_GRACE_SEC]
   );
   return r.rows[0] ?? null;
 }

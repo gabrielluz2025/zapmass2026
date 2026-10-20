@@ -71,6 +71,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     <div className="min-h-screen flex zm-aurora-root">
       {isMobileNavOpen && (
         <div
+          aria-hidden="true"
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 lg:hidden"
           onClick={() => setIsMobileNavOpen(false)}
         />

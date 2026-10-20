@@ -159,7 +159,8 @@ export async function verifyMercadoPagoAccessTokenLive(): Promise<MercadoPagoTok
 
   try {
     const res = await fetch(`${MP_API}/users/me`, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000)
     });
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) {

@@ -164,9 +164,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onChangeView,
   isOpen = false,
   onClose,
-  collapsed = false,
+  collapsed: collapsedPref = false,
   onToggleCollapsed
 }) => {
+  // Gaveta mobile sempre expandida (antes: "recolhido" salvo no desktop deixava só ícones sem rótulo no celular).
+  const collapsed = collapsedPref && !isOpen;
+
+  useEffect(() => {
+    if (!isOpen || !onClose) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
   const { backendLinkState } = useZapMassUiSnapshot();
   const linkLabel =
     backendLinkState === 'online'
@@ -225,6 +236,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
+      aria-label="Menu principal"
       className={`zm-sidebar-aurora flex flex-col ${widthClass} h-screen fixed left-0 top-0 z-40 transition-all duration-300 ease-in-out motion-reduce:transition-none motion-reduce:duration-0 ${
         isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
       }`}
@@ -234,6 +246,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     >
 
       <button
+        type="button"
         onClick={onClose}
         className="lg:hidden absolute top-3 right-3 z-10 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
         aria-label="Fechar menu"

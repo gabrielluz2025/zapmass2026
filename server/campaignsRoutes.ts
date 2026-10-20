@@ -3,6 +3,7 @@ import type { Campaign } from '../src/types.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { requireTenant } from './httpTenant.js';
+import { requireActiveSubscriptionHttp } from './httpSubscriptionGuard.js';
 import {
   CampaignDeleteBlockedError,
   createCampaign,
@@ -499,6 +500,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
   app.post('/api/campaigns/:id/retry-failed', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
+    if (!(await requireActiveSubscriptionHttp(ctx, res))) return;
     const campaignId = String(req.params.id || '').trim();
     const body = req.body as { stepIndex?: number; connectionIds?: string[] };
     const stepIndex = typeof body.stepIndex === 'number' ? body.stepIndex : 0;
@@ -572,6 +574,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
   app.post('/api/campaigns/:id/redispatch', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
+    if (!(await requireActiveSubscriptionHttp(ctx, res))) return;
     const campaignId = String(req.params.id || '').trim();
     const body = req.body as {
       mode?: 'failed' | 'resume';
@@ -784,6 +787,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
   app.post('/api/campaigns/test-send', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
+    if (!(await requireActiveSubscriptionHttp(ctx, res))) return;
     const body = req.body as {
       connectionId?: string;
       toNumber?: string;

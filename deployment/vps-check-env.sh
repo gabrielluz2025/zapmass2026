@@ -27,19 +27,35 @@ for k in ALLOWED_ORIGINS PUBLIC_APP_URL HOST_PORT; do
   if [ -n "$v" ]; then ok "$k definido"; else miss "$k (ver .env.example)"; fi
 done
 
-if [ -f secrets/firebase-admin.json ]; then
-  ok "secrets/firebase-admin.json (Firebase Admin / Firestore / trial / billing)"
+_auth_mode="$(get_env ZAPMASS_AUTH_PROVIDER)"
+_data_mode="$(get_env ZAPMASS_DATA_PROVIDER)"
+if [ "$_auth_mode" = "vps" ] && [ "$_data_mode" = "vps" ]; then
+  echo "  INFO: modo VPS puro — Firebase (firebase-admin.json / FIREBASE_WEB_API_KEY) não é necessário"
 else
-  miss "secrets/firebase-admin.json — Console Firebase → Service accounts → Generate key → chmod 600"
+  if [ -f secrets/firebase-admin.json ]; then
+    ok "secrets/firebase-admin.json (Firebase Admin / Firestore / trial / billing)"
+  else
+    miss "secrets/firebase-admin.json — Console Firebase → Service accounts → Generate key → chmod 600"
+  fi
+
+  fb="$(get_env FIREBASE_WEB_API_KEY)"
+  vf="$(get_env VITE_FIREBASE_API_KEY)"
+  if [ -n "$fb" ] || [ -n "$vf" ]; then
+    ok "FIREBASE_WEB_API_KEY ou VITE_FIREBASE_API_KEY (login funcionário)"
+  else
+    miss "FIREBASE_WEB_API_KEY — rode: bash deployment/vps-env-bootstrap.sh"
+  fi
 fi
 
-fb="$(get_env FIREBASE_WEB_API_KEY)"
-vf="$(get_env VITE_FIREBASE_API_KEY)"
-if [ -n "$fb" ] || [ -n "$vf" ]; then
-  ok "FIREBASE_WEB_API_KEY ou VITE_FIREBASE_API_KEY (login funcionário)"
-else
-  miss "FIREBASE_WEB_API_KEY — rode: bash deployment/vps-env-bootstrap.sh"
-fi
+_enf="$(get_env SUBSCRIPTION_ENFORCE | tr '[:upper:]' '[:lower:]')"
+case "$_enf" in
+  0|false|off|no) miss "SUBSCRIPTION_ENFORCE=$_enf — em produção o acesso fica LIBERADO sem assinatura. Remova ou use 1" ;;
+  *) ok "SUBSCRIPTION_ENFORCE ativo (padrão em produção)" ;;
+esac
+_venf="$(get_env VITE_ENFORCE_SUBSCRIPTION | tr '[:upper:]' '[:lower:]')"
+case "$_venf" in
+  0|false|off|no) miss "VITE_ENFORCE_SUBSCRIPTION=$_venf — front sem gate de assinatura (precisa rebuild da imagem)" ;;
+esac
 
 mp="$(get_env MERCADOPAGO_ACCESS_TOKEN)"
 if [ -n "$mp" ]; then
@@ -62,7 +78,10 @@ fi
 
 mp_back="$(get_env MERCADOPAGO_BACK_URL)"
 if [ -n "$mp_back" ]; then
-  ok "MERCADOPAGO_BACK_URL=$mp_back"
+  case "$mp_back" in
+    *localhost*|*127.0.0.1*|http://*) miss "MERCADOPAGO_BACK_URL=$mp_back — precisa ser https público (checkout falha em produção)" ;;
+    *) ok "MERCADOPAGO_BACK_URL=$mp_back" ;;
+  esac
 else
   warn "MERCADOPAGO_BACK_URL vazio — use https://zap-mass.com (back_urls + webhook)"
 fi
@@ -108,5 +127,10 @@ echo "==> Health local:"
 code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:${HOST_PORT:-3001}/api/health 2>/dev/null || echo 000)"
 ver="$(curl -sf http://127.0.0.1:${HOST_PORT:-3001}/api/version 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)"
 echo "  /api/health → HTTP ${code}  versão=${ver:-?}  git=$(git rev-parse --short HEAD 2>/dev/null || echo ?)"
+_h="$(curl -sf --max-time 12 http://127.0.0.1:${HOST_PORT:-3001}/api/health 2>/dev/null || true)"
+for f in mercadopagoConfigured mercadopagoCheckoutAvailable mercadopagoWebhookSecretConfigured subscriptionEnforced emailConfigured; do
+  val="$(printf '%s' "$_h" | sed -n "s/.*\"$f\"[[:space:]]*:[[:space:]]*\([a-z]*\).*/\1/p" | head -1)"
+  if [ "$val" = "true" ]; then ok "health.$f=true"; else warn "health.$f=${val:-?} (esperado true para vender)"; fi
+done
 echo ""
 echo "Depois de corrigir secrets: bash deployment/manual-pull-deploy.sh"

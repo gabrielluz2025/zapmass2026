@@ -70,8 +70,19 @@ export const TopBar: React.FC<TopBarProps> = ({
         setMenuOpen(false);
       }
     };
-    if (menuOpen) document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    if (menuOpen) {
+      document.addEventListener('mousedown', handler);
+      document.addEventListener('touchstart', handler as unknown as EventListener);
+      document.addEventListener('keydown', onKey);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('touchstart', handler as unknown as EventListener);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [menuOpen]);
 
   const displayName = user?.displayName || user?.email?.split('@')[0] || 'Usuário';
@@ -85,6 +96,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       <div className="mx-auto flex w-full max-w-[1800px] items-center gap-2 min-h-[var(--topbar-h)]">
         <div className="flex min-w-0 shrink items-center gap-2 sm:gap-3">
           <button
+            type="button"
             onClick={onOpenMobileNav}
             className="lg:hidden p-2 rounded-lg transition-colors flex-shrink-0"
             style={{ color: 'var(--text-2)' }}
@@ -193,6 +205,9 @@ export const TopBar: React.FC<TopBarProps> = ({
               borderColor: 'var(--border-subtle)'
             }}
             title={email}
+            aria-label={`Menu da conta de ${displayName}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
           >
             <ProfileAvatar
               photoURL={photoURL}
@@ -210,7 +225,8 @@ export const TopBar: React.FC<TopBarProps> = ({
 
           {menuOpen && (
             <div
-              className="absolute right-0 top-full mt-2 min-w-[260px] rounded-xl overflow-hidden z-30"
+              role="menu"
+              className="absolute right-0 top-full mt-2 min-w-[min(260px,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] rounded-xl overflow-hidden z-30"
               style={{
                 background: 'var(--surface-0)',
                 border: '1px solid var(--border)',
@@ -237,8 +253,26 @@ export const TopBar: React.FC<TopBarProps> = ({
                   </p>
                 </div>
               </div>
+              {onNavigate ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onNavigate('subscription');
+                  }}
+                  className="w-full px-3.5 py-2.5 flex items-center gap-2.5 text-[13px] transition-colors"
+                  style={{ color: 'var(--text-1)', background: 'transparent' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-1)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <Zap className="w-4 h-4 text-emerald-500" />
+                  <span>Minha assinatura</span>
+                </button>
+              ) : null}
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   setMenuOpen(false);
                   void signOut();

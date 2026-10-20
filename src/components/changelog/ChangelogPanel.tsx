@@ -10,6 +10,24 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.316',
+    date: '20/10/2026',
+    highlights: [
+      {
+        type: 'security',
+        text: 'Plano exigido também nas rotas HTTP de envio e na fila já enfileirada; pausar/parar nunca exige plano; funcionário revogado perde acesso e refresh na hora',
+      },
+      {
+        type: 'fix',
+        text: 'Mercado Pago: webhooks idempotentes (sem crédito duplicado), reembolso revoga acesso, cancelado mantém acesso até o fim do ciclo; /api/health sem falso "MP não configurado"',
+      },
+      {
+        type: 'fix',
+        text: 'Auth: tolerância de 20s na rotação do refresh (2 abas), 5xx não desloga; erros async do servidor viram JSON 500; menu da conta e gaveta mobile mais acessíveis',
+      },
+    ],
+  },
+  {
     version: '2.3.315',
     date: '20/10/2026',
     highlights: [

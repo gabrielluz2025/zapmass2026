@@ -2,7 +2,12 @@ import type { Express, Request, Response } from 'express';
 import { getZapmassPool } from './db/postgres.js';
 import { vpsAuthEnabled } from './auth/authMode.js';
 import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
-import { countActiveStaffMembers, createStaffMember, findStaffMember } from './auth/staffRepository.js';
+import {
+  countActiveStaffMembers,
+  createStaffMember,
+  findStaffMember,
+  invalidateStaffActiveCache
+} from './auth/staffRepository.js';
 import { hashPassword } from './auth/password.js';
 import { getMaxStaffPasswordAccounts, sanitizeLoginSlug } from './workspaceStaffPasswordRoutes.js';
 
@@ -195,6 +200,14 @@ export function registerVpsWorkspaceStaffRoutes(app: Express): void {
           [staffAuthUid, owner.ownerUid]
         );
       }
+      invalidateStaffActiveCache(staffAuthUid);
+      await pool
+        .query(
+          `UPDATE zapmass.refresh_tokens SET revoked_at = now() - interval '1 day'
+           WHERE subject_id = $1::uuid AND (revoked_at IS NULL OR revoked_at > now() - interval '1 day')`,
+          [staffAuthUid]
+        )
+        .catch(() => undefined);
       return res.json({ ok: true });
     } catch (e) {
       console.error('[vps workspace staff DELETE]', e instanceof Error ? e.message : e);
