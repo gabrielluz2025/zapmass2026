@@ -10,6 +10,34 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.319',
+    date: '20/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Painel e Minha assinatura: cabeçalho compacto, StatCards, empty states e CTAs alinhados ao Painel do criador; CompactPageHeader + TabBar compartilhados',
+      },
+      {
+        type: 'fix',
+        text: 'PT-BR no dashboard e assinatura (Carregando…, equipe, contato)',
+      },
+    ],
+  },
+  {
+    version: '2.3.318',
+    date: '20/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Painel do criador: correção de mojibake (UTF-8) e textos em PT-BR (usuários, Carregando…)',
+      },
+      {
+        type: 'improvement',
+        text: 'Painel do criador: cabeçalho compacto, abas abaixo do título e empty state de sugestões; doc UI-PROPOSTA-CREATOR.md',
+      },
+    ],
+  },
+  {
     version: '2.3.317',
     date: '20/10/2026',
     highlights: [

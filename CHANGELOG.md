@@ -7,6 +7,25 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.319] - 2026-10-20
+
+### Melhorado
+- **UI Painel (cliente):** cabeçalho compacto (`CompactPageHeader`), KPIs com `StatCard`, CTA de zero canais e empty state de canais em destaque; largura alinhada ao AppShell.
+- **UI Minha assinatura:** mesmo padrão visual, banner MP com tokens do tema escuro, hierarquia dos planos (`ui-eyebrow`) e CTA primário de checkout na toolbar.
+- **Shell compartilhado:** `CompactPageHeader` e `TabBar` reutilizados no Painel do criador.
+
+### Corrigido
+- **PT-BR:** textos PT-PT remanescentes no Painel e na assinatura (`Carregando…`, equipe/usuário, contato).
+
+## [2.3.318] - 2026-10-20
+
+### Corrigido
+- **Encoding / PT-BR:** strings corrompidas (mojibake) no Painel do criador, toasts e `ContactsTab`; padronização `usuários`, `Carregando…`, `registrada/o`.
+
+### Melhorado
+- **UI Painel do criador:** cabeçalho compacto, abas abaixo do título (tema escuro), empty state de sugestões com ícone e copy da TopBar.
+- **Doc:** `docs/UI-PROPOSTA-CREATOR.md` (antes/depois e roadmap do shell).
+
 ## [2.3.317] - 2026-10-20
 
 ### Corrigido

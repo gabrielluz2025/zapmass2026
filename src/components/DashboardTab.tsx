@@ -60,7 +60,7 @@ import {
   BASE_CHANNEL_SLOTS,
   MAX_CHANNELS_TOTAL
 } from '../utils/connectionLimitPolicy';
-import { Card, CardHeader, Button, Badge, Modal, Textarea, Select, PageShell, CollapsibleSection, StatTile } from './ui';
+import { Card, CardHeader, Button, Badge, Modal, Textarea, Select, PageShell, CollapsibleSection, StatTile, EmptyState } from './ui';
 import { CampaignAttachmentBlock, type CampaignAttachmentState } from './campaigns/CampaignAttachmentBlock';
 import { SavedMediaLibraryPicker } from './campaigns/SavedMediaLibraryPicker';
 import { computeSendLocalDate, type BirthdayPerson } from '../utils/birthdayDispatch';
@@ -889,7 +889,7 @@ export const DashboardTab: React.FC = () => {
         </>
       }
     >
-    <div className="zm-dashboard space-y-5">
+    <div className="zm-dashboard space-y-5 max-w-5xl mx-auto w-full">
       <TenantOpsHealthCard />
       <DashboardCommandPanel
         firstName={firstName}
@@ -1390,7 +1390,7 @@ export const DashboardTab: React.FC = () => {
               <div className="flex-1 overflow-y-auto max-h-[220px] space-y-2 min-h-[6rem]">
                 {pastoralLoading ? (
                   <p className="text-[12px] py-6 text-center" style={{ color: 'var(--text-3)' }}>
-                    A carregar…
+                    Carregando…
                   </p>
                 ) : upcomingPastoralVisits.length === 0 ? (
                   <p className="text-[12px] py-6 text-center leading-relaxed" style={{ color: 'var(--text-3)' }}>
@@ -1431,10 +1431,10 @@ export const DashboardTab: React.FC = () => {
                           <Button
                             variant="ghost"
                             size="icon"
-                            title="Descarregar .ics"
+                            title="Baixar .ics"
                             onClick={() => {
                               downloadPastoralVisitIcs(v);
-                              toast.success('Ficheiro .ics descarregado.');
+                              toast.success('Arquivo .ics baixado.');
                             }}
                           >
                             <Download className="w-4 h-4" style={{ color: 'var(--text-2)' }} />
@@ -1485,33 +1485,27 @@ export const DashboardTab: React.FC = () => {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {channelSpotlight.length === 0 ? (
-              <div className="col-span-full py-10 text-center">
-                <div
-                  className="mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-3"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.12))',
-                    border: '1px solid rgba(16,185,129,0.2)'
-                  }}
-                >
-                  <Smartphone className="w-7 h-7" style={{ color: 'var(--brand-600)' }} />
-                </div>
-                <p className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
-                  Nenhum canal ativo ainda
-                </p>
-                <p className="text-[12px] mt-1 max-w-xs mx-auto" style={{ color: 'var(--text-3)' }}>
-                  Conecte seu primeiro WhatsApp na aba <strong style={{ color: 'var(--text-2)' }}>Canais</strong> para começar a enviar campanhas.
-                </p>
+              <EmptyState
+                className="col-span-full py-10 !shadow-none border border-[var(--border-subtle)]"
+                icon={<Smartphone className="w-7 h-7" style={{ color: 'var(--brand-600)' }} />}
+                title="Nenhum canal ativo ainda"
+                description={
+                  <>
+                    Conecte seu primeiro WhatsApp em <strong>Canais</strong> para começar a enviar campanhas e ver o ranking de envios aqui.
+                  </>
+                }
+                action={
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="primary"
                     size="sm"
-                    className="mt-4"
                     leftIcon={<Smartphone className="w-4 h-4" />}
                     onClick={() => setCurrentView('connections')}
                   >
                     Conectar canal
                   </Button>
-              </div>
+                }
+              />
             ) : (
                 channelSpotlight.map((row) => {
                   const conn = row.connection;

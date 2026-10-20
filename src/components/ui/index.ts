@@ -14,3 +14,6 @@ export { StatTile } from './StatTile';
 export { CollapsibleSection } from './CollapsibleSection';
 export { Skeleton } from './Skeleton';
 export { RingGauge } from './RingGauge';
+export { CompactPageHeader } from './CompactPageHeader';
+export { TabBar } from './TabBar';
+export type { TabBarItem } from './TabBar';

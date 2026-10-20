@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Loader2, Save, Shield, Users, Lock, Unlock, Clock3, Search, RefreshCw, History, Sparkles,
   TrendingUp, KeyRound, Copy, BarChart3, Lightbulb, Send, Mail, MessageCircle, CheckCircle2, XCircle, Megaphone,
@@ -7,7 +7,7 @@ import {
 import toast from 'react-hot-toast';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { useAuth } from '../../context/AuthContext';
-import { Button, Card, CardHeader, Badge, StatCard, SectionHeader, EmptyState, Modal, Textarea } from '../ui';
+import { Button, Card, CardHeader, Badge, StatCard, SectionHeader, EmptyState, Modal, Textarea, CompactPageHeader, TabBar } from '../ui';
 import { AdminAnnouncementsTab } from './AdminAnnouncementsTab';
 import { AdminAccessTab } from './access/AdminAccessTab';
 import {
@@ -23,8 +23,8 @@ function suggestionCategoryPt(code: string | undefined): string {
   const m: Record<string, string> = {
     usability: 'Telas / usabilidade',
     campaigns: 'Campanhas',
-    reports: 'RelatÃ³rios',
-    integrations: 'IntegraÃ§Ãµes',
+    reports: 'Relatórios',
+    integrations: 'Integrações',
     other: 'Outro'
   };
   if (!code) return '';
@@ -150,35 +150,35 @@ type PlatformStats = {
 };
 
 const toPtDateTime = (iso: string | null | undefined): string => {
-  if (!iso) return 'â€”';
+  if (!iso) return '—';
   try {
     return new Date(iso).toLocaleString('pt-BR');
   } catch {
-    return 'â€”';
+    return '—';
   }
 };
 
 const formatBrl = (value: number): string => {
-  if (!Number.isFinite(value)) return 'â€”';
+  if (!Number.isFinite(value)) return '—';
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
 
-/** DuraÃ§Ã£o legÃ­vel a partir de ms (tempo no app). */
+/** Duração legível a partir de ms (tempo no app). */
 const formatAppUsageMs = (ms: number): string => {
-  if (!Number.isFinite(ms) || ms <= 0) return 'â€”';
-  if (ms < 60_000) return `â‰ˆ ${Math.max(1, Math.round(ms / 1000))} s`;
+  if (!Number.isFinite(ms) || ms <= 0) return '—';
+  if (ms < 60_000) return `≈ ${Math.max(1, Math.round(ms / 1000))} s`;
   const h = Math.floor(ms / 3_600_000);
   const m = Math.floor((ms % 3_600_000) / 60_000);
   if (h > 0) return `${h}h ${m}min`;
   return `${m} min`;
 };
 
-const copyToClipboard = async (text: string, okMessage = 'Copiado para a Ã¡rea de transferÃªncia.') => {
+const copyToClipboard = async (text: string, okMessage = 'Copiado para a área de transferência.') => {
   try {
     await navigator.clipboard.writeText(text);
     toast.success(okMessage);
   } catch {
-    toast.error('NÃ£o foi possÃ­vel copiar.');
+    toast.error('Não foi possível copiar.');
   }
 };
 
@@ -199,32 +199,32 @@ const SUPPORT_SNIPPETS: Array<{ id: string; title: string; text: string }> = [
   {
     id: 'approved',
     title: 'Pagamento aprovado',
-    text: 'Seu pagamento foi aprovado e seu plano jÃ¡ foi atualizado. Se a tela ainda nÃ£o refletiu, atualize a pÃ¡gina em 10-20 segundos.'
+    text: 'Seu pagamento foi aprovado e seu plano já foi atualizado. Se a tela ainda não refletiu, atualize a página em 10-20 segundos.'
   },
   {
     id: 'pending',
     title: 'Pagamento pendente',
-    text: 'Seu pagamento estÃ¡ pendente. Assim que for confirmado pelo provedor, os canais sÃ£o liberados automaticamente.'
+    text: 'Seu pagamento está pendente. Assim que for confirmado pelo provedor, os canais são liberados automaticamente.'
   },
   {
     id: 'rejected',
     title: 'Pagamento recusado',
-    text: 'O pagamento foi recusado pelo emissor. VocÃª pode tentar outro cartÃ£o ou Pix para concluir o upgrade.'
+    text: 'O pagamento foi recusado pelo emissor. Você pode tentar outro cartão ou Pix para concluir o upgrade.'
   },
   {
     id: 'limit',
     title: 'Limite atingido',
-    text: 'VocÃª atingiu o limite de canais do seu plano atual. Abra Minha assinatura e escolha um plano com mais canais.'
+    text: 'Você atingiu o limite de canais do seu plano atual. Abra Minha assinatura e escolha um plano com mais canais.'
   },
   {
     id: 'prorata',
-    title: 'Upgrade prÃ³-rata',
-    text: 'No upgrade durante ciclo ativo, cobramos sÃ³ a diferenÃ§a proporcional ao perÃ­odo restante (prÃ³-rata).'
+    title: 'Upgrade pró-rata',
+    text: 'No upgrade durante ciclo ativo, cobramos só a diferença proporcional ao período restante (pró-rata).'
   },
   {
     id: 'no-update',
-    title: 'Sem atualizaÃ§Ã£o apÃ³s pagamento',
-    text: 'Me passe o e-mail da conta e o horÃ¡rio do pagamento para eu verificar o webhook e atualizar manualmente, se necessÃ¡rio.'
+    title: 'Sem atualização após pagamento',
+    text: 'Me passe o e-mail da conta e o horário do pagamento para eu verificar o webhook e atualizar manualmente, se necessário.'
   }
 ];
 
@@ -321,7 +321,7 @@ export const AdminPanel: React.FC = () => {
   };
 
   const authHeaders = async () => {
-    if (!user) throw new Error('FaÃ§a login.');
+    if (!user) throw new Error('Faça login.');
     const idToken = await user.getIdToken();
     return {
       'Content-Type': 'application/json',
@@ -340,11 +340,11 @@ export const AdminPanel: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao listar usuÃ¡rios.');
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao listar usuários.');
       }
       setUsers(Array.isArray(data.users) ? data.users : []);
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel carregar acessos.');
+      toast.error(e?.message || 'Não foi possível carregar acessos.');
     } finally {
       setUsersLoading(false);
     }
@@ -371,7 +371,7 @@ export const AdminPanel: React.FC = () => {
       }
       setPlatformStats(data.stats as PlatformStats);
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'NÃ£o foi possÃ­vel carregar estatÃ­sticas.');
+      toast.error(e instanceof Error ? e.message : 'Não foi possível carregar estatísticas.');
     } finally {
       setPlatformStatsLoading(false);
     }
@@ -393,11 +393,11 @@ export const AdminPanel: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar sugestÃµes.');
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar sugestões.');
       }
       setProductSuggestions(Array.isArray(data.items) ? data.items : []);
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao carregar sugestÃµes.');
+      toast.error(e instanceof Error ? e.message : 'Erro ao carregar sugestões.');
     } finally {
       setSuggestionsLoading(false);
     }
@@ -425,11 +425,11 @@ export const AdminPanel: React.FC = () => {
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar histÃ³rico.');
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar histórico.');
       }
       setRepliesByKey((prev) => ({ ...prev, [k]: Array.isArray(data.items) ? data.items : [] }));
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao carregar histÃ³rico.');
+      toast.error(e instanceof Error ? e.message : 'Erro ao carregar histórico.');
     } finally {
       setRepliesLoadingKey(null);
     }
@@ -489,16 +489,16 @@ export const AdminPanel: React.FC = () => {
         const detail =
           emailErr.length > 0
             ? emailErr
-            : 'Sem detalhe â€” verifique RESEND_API_KEY e EMAIL_FROM no servidor (Docker/.env) e os logs do Node.';
-        toast(`Resposta registada. ${detail}`, { icon: 'âš ï¸', duration: 12000, style: { maxWidth: 560 } });
+            : 'Sem detalhe — verifique RESEND_API_KEY e EMAIL_FROM no servidor (Docker/.env) e os logs do Node.';
+        toast(`Resposta registrada. ${detail}`, { icon: '⚠️', duration: 12000, style: { maxWidth: 560 } });
       } else {
-        toast(
-          'Resposta registada â€” o cliente nÃ£o tem email vinculado, entÃ£o sÃ³ o histÃ³rico ficou guardado.',
-          { icon: 'â„¹ï¸', duration: 6000 }
-        );
+        toast('Resposta registrada — o cliente não tem email vinculado, então só o histórico ficou salvo.', {
+          icon: 'ℹ️',
+          duration: 6000
+        });
       }
       const k = replyKey(replyTarget);
-      // Recarrega o histÃ³rico para refletir o novo item.
+      // Recarrega o histórico para refletir o novo item.
       await loadRepliesFor(replyTarget);
       setRepliesOpenKey(k);
       setReplyTarget(null);
@@ -603,7 +603,7 @@ export const AdminPanel: React.FC = () => {
       }
       setAuditRows(Array.isArray(data.audit) ? data.audit : []);
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel carregar auditoria.');
+      toast.error(e?.message || 'Não foi possível carregar auditoria.');
     } finally {
       setAuditLoading(false);
     }
@@ -611,7 +611,7 @@ export const AdminPanel: React.FC = () => {
 
   const handleGrantByEmail = async () => {
     if (!grantEmail.trim()) {
-      toast.error('Informe o e-mail do usuÃ¡rio.');
+      toast.error('Informe o e-mail do usuário.');
       return;
     }
     const days = Math.max(0, Math.round(Number(grantDays) || 0));
@@ -627,12 +627,12 @@ export const AdminPanel: React.FC = () => {
       });
       setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
       toast.success(
-        `Acesso liberado com ${channels} canal(is). PeÃ§a ao cliente para atualizar a pÃ¡gina (Ctrl+F5).`
+        `Acesso liberado com ${channels} canal(is). Peça ao cliente para atualizar a página (Ctrl+F5).`
       );
       setGrantEmail('');
       setGrantNote('');
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel liberar acesso.');
+      toast.error(e?.message || 'Não foi possível liberar acesso.');
     } finally {
       setAccessActionBusy(false);
     }
@@ -640,7 +640,7 @@ export const AdminPanel: React.FC = () => {
 
   const handleGrantChannelsByEmail = async () => {
     if (!grantEmail.trim()) {
-      toast.error('Informe o e-mail do usuÃ¡rio.');
+      toast.error('Informe o e-mail do usuário.');
       return;
     }
     const slots = Math.max(0, Math.min(3, Math.floor(Number(channelGrantSlots) || 0)));
@@ -661,9 +661,9 @@ export const AdminPanel: React.FC = () => {
         adminNote: grantNote.trim()
       });
       setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
-      toast.success('Canais extras liberados. PeÃ§a ao cliente para atualizar a pÃ¡gina (Ctrl+F5).');
+      toast.success('Canais extras liberados. Peça ao cliente para atualizar a página (Ctrl+F5).');
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel liberar canais extras.');
+      toast.error(e?.message || 'Não foi possível liberar canais extras.');
     } finally {
       setAccessActionBusy(false);
     }
@@ -671,7 +671,7 @@ export const AdminPanel: React.FC = () => {
 
   const handleSetIncludedChannelsByEmail = async () => {
     if (!grantEmail.trim()) {
-      toast.error('Informe o e-mail do usuÃ¡rio.');
+      toast.error('Informe o e-mail do usuário.');
       return;
     }
     const n = Math.max(1, Math.min(5, Math.floor(Number(includedChannelsGrant) || 0)));
@@ -683,9 +683,9 @@ export const AdminPanel: React.FC = () => {
         adminNote: grantNote.trim() || `Canais do plano definidos para ${n}`
       });
       setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
-      toast.success(`Plano atualizado para ${n} canal(is). PeÃ§a ao cliente para atualizar a pÃ¡gina (Ctrl+F5).`);
+      toast.success(`Plano atualizado para ${n} canal(is). Peça ao cliente para atualizar a página (Ctrl+F5).`);
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel definir os canais do plano.');
+      toast.error(e?.message || 'Não foi possível definir os canais do plano.');
     } finally {
       setAccessActionBusy(false);
     }
@@ -698,15 +698,15 @@ export const AdminPanel: React.FC = () => {
         blocked: !u.blocked
       });
       setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
-      toast.success(updated.blocked ? 'UsuÃ¡rio bloqueado.' : 'UsuÃ¡rio desbloqueado.');
+      toast.success(updated.blocked ? 'Usuário bloqueado.' : 'Usuário desbloqueado.');
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel atualizar bloqueio.');
+      toast.error(e?.message || 'Não foi possível atualizar bloqueio.');
     }
   };
 
   const handleSetPasswordByEmail = async () => {
     if (!grantEmail.trim()) {
-      toast.error('Informe o e-mail do usuÃ¡rio.');
+      toast.error('Informe o e-mail do usuário.');
       return;
     }
     if (grantPassword.trim().length < 8) {
@@ -720,10 +720,10 @@ export const AdminPanel: React.FC = () => {
         newPassword: grantPassword.trim(),
         adminNote: grantNote.trim() || 'Senha definida pelo admin (sem e-mail)'
       });
-      toast.success('Senha definida. O cliente jÃ¡ pode entrar com ela.');
+      toast.success('Senha definida. O cliente já pode entrar com ela.');
       setGrantPassword('');
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel definir a senha.');
+      toast.error(e?.message || 'Não foi possível definir a senha.');
     } finally {
       setAccessActionBusy(false);
     }
@@ -731,7 +731,7 @@ export const AdminPanel: React.FC = () => {
 
   const copyResetLinkForEmail = async (email: string) => {
     if (!email.trim()) {
-      toast.error('Informe o e-mail do usuÃ¡rio.');
+      toast.error('Informe o e-mail do usuário.');
       return;
     }
     setAccessActionBusy(true);
@@ -748,18 +748,18 @@ export const AdminPanel: React.FC = () => {
       await navigator.clipboard.writeText(data.resetUrl);
       toast.success(
         data.mailerConfigured
-          ? 'Link copiado. Se o e-mail estiver configurado, o cliente tambÃ©m recebe na caixa.'
-          : 'Link copiado (vÃ¡lido 1h). Envie no WhatsApp â€” o e-mail automÃ¡tico ainda estÃ¡ desligado.'
+          ? 'Link copiado. Se o e-mail estiver configurado, o cliente também recebe na caixa.'
+          : 'Link copiado (válido 1h). Envie no WhatsApp — o e-mail automático ainda está desligado.'
       );
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel gerar o link.');
+      toast.error(e?.message || 'Não foi possível gerar o link.');
     } finally {
       setAccessActionBusy(false);
     }
   };
 
   const setPasswordForUser = async (u: AccessUser) => {
-    const pw = window.prompt(`Nova senha para ${u.email} (mÃ­nimo 8 caracteres):`);
+    const pw = window.prompt(`Nova senha para ${u.email} (mínimo 8 caracteres):`);
     if (pw == null) return;
     if (pw.trim().length < 8) {
       toast.error('Senha deve ter ao menos 8 caracteres.');
@@ -772,9 +772,9 @@ export const AdminPanel: React.FC = () => {
         newPassword: pw.trim(),
         adminNote: 'Senha definida pelo admin (sem e-mail)'
       });
-      toast.success('Senha definida. O cliente jÃ¡ pode entrar.');
+      toast.success('Senha definida. O cliente já pode entrar.');
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel definir a senha.');
+      toast.error(e?.message || 'Não foi possível definir a senha.');
     }
   };
 
@@ -785,9 +785,9 @@ export const AdminPanel: React.FC = () => {
         manualGrant: false
       });
       setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
-      toast.success('LiberaÃ§Ã£o manual revogada.');
+      toast.success('Liberação manual revogada.');
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel revogar liberaÃ§Ã£o.');
+      toast.error(e?.message || 'Não foi possível revogar liberação.');
     }
   };
 
@@ -802,7 +802,7 @@ export const AdminPanel: React.FC = () => {
       setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
       toast.success(`Acesso estendido por +${days} dia(s).`);
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel estender acesso.');
+      toast.error(e?.message || 'Não foi possível estender acesso.');
     }
   };
 
@@ -819,7 +819,7 @@ export const AdminPanel: React.FC = () => {
       const suffix = months > 0 ? `+${months}m` : `+${days}d`;
       toast.success(`Canais extras estendidos (${suffix}).`);
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel estender canais extras.');
+      toast.error(e?.message || 'Não foi possível estender canais extras.');
     }
   };
 
@@ -832,7 +832,7 @@ export const AdminPanel: React.FC = () => {
       setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
       toast.success('Canais extras manuais revogados.');
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel revogar canais extras.');
+      toast.error(e?.message || 'Não foi possível revogar canais extras.');
     }
   };
 
@@ -846,11 +846,11 @@ export const AdminPanel: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar perfil do usuÃ¡rio.');
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar perfil do usuário.');
       }
       setInsights(data.insights as AccessUserInsights);
     } catch (e: any) {
-      toast.error(e?.message || 'NÃ£o foi possÃ­vel abrir o perfil analÃ­tico.');
+      toast.error(e?.message || 'Não foi possível abrir o perfil analítico.');
     } finally {
       setInsightsLoading(false);
     }
@@ -864,100 +864,34 @@ export const AdminPanel: React.FC = () => {
     if (user) void loadInsightsForUid(user.uid);
   };
 
+  const creatorTabs: Array<{
+    id: AdminTab;
+    label: string;
+    Icon: React.FC<{ className?: string }>;
+    activeClass: string;
+  }> = [
+    { id: 'config', label: 'Comercial', Icon: TrendingUp, activeClass: 'text-emerald-600 dark:text-emerald-400' },
+    { id: 'revenue', label: 'Ganhos', Icon: CircleDollarSign, activeClass: 'text-emerald-600 dark:text-emerald-400' },
+    { id: 'access', label: 'Acesso', Icon: Users, activeClass: 'text-sky-600 dark:text-sky-400' },
+    { id: 'announcements', label: 'Comunicados', Icon: Megaphone, activeClass: 'text-[var(--accent)]' },
+    { id: 'suggestions', label: 'Sugestões', Icon: Lightbulb, activeClass: 'text-amber-600 dark:text-amber-400' }
+  ];
+
   return (
-    <div className="max-w-5xl mx-auto px-2 sm:px-0 pb-10 space-y-8">
-      <Card variant="premium" className="overflow-hidden !p-0 border border-slate-200/80 dark:border-slate-700/80 shadow-lg shadow-slate-900/5 dark:shadow-none">
-        <div
-          className="relative p-6 sm:p-8 bg-gradient-to-br from-[var(--surface-0)] via-[var(--surface-0)] to-emerald-50/30 dark:from-slate-900 dark:via-slate-900 dark:to-emerald-950/40"
-        >
-          <div className="absolute right-0 top-0 w-64 h-64 bg-gradient-to-br from-emerald-400/10 to-transparent rounded-full blur-3xl pointer-events-none" />
-          <div className="relative flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
-            <div className="flex gap-4 min-w-0">
-              <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 ring-2 ring-emerald-500/20"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(5,150,105,0.1))',
-                  boxShadow: '0 0 0 1px color-mix(in srgb, var(--brand-500) 30%, transparent)'
-                }}
-              >
-                <Shield className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <div>
-                <h2 className="text-xl sm:text-2xl font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
-                  Painel do criador
-                </h2>
-                <p className="text-sm mt-2 max-w-2xl leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                  Ajuste preÃ§os e trial na aba <strong className="text-[var(--text-2)]">Comercial</strong>; em{' '}
-                  <strong className="text-[var(--text-2)]">Ganhos</strong> acompanhe MRR, cadastros e canais; em{' '}
-                  <strong className="text-[var(--text-2)]">Acesso</strong> libere planos e bloqueie abusos.
-                </p>
-              </div>
-            </div>
-            <div className="flex p-1 rounded-xl shrink-0 bg-slate-100/80 dark:bg-slate-800/60 ring-1 ring-slate-200/80 dark:ring-slate-700/80">
-              <button
-                type="button"
-                onClick={() => setTab('config')}
-                className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all ${
-                  tab === 'config'
-                    ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-sm ring-1 ring-slate-200/90 dark:ring-slate-600'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-              >
-                <TrendingUp className="w-3.5 h-3.5" />
-                Comercial
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab('revenue')}
-                className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all ${
-                  tab === 'revenue'
-                    ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-sm ring-1 ring-slate-200/90 dark:ring-slate-600'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-              >
-                <CircleDollarSign className="w-3.5 h-3.5" />
-                Ganhos
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab('access')}
-                className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all ${
-                  tab === 'access'
-                    ? 'bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-300 shadow-sm ring-1 ring-slate-200/90 dark:ring-slate-600'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-              >
-                <Users className="w-3.5 h-3.5" />
-                Acesso
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab('announcements')}
-                className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all ${
-                  tab === 'announcements'
-                    ? 'bg-[rgba(16,185,129,0.10)] text-[var(--accent)] shadow-sm ring-1 ring-[var(--accent)]/20'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-              >
-                <Megaphone className="w-3.5 h-3.5" />
-                Comunicados
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab('suggestions')}
-                className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all ${
-                  tab === 'suggestions'
-                    ? 'bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 shadow-sm ring-1 ring-slate-200/90 dark:ring-slate-600'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-              >
-                <Lightbulb className="w-3.5 h-3.5" />
-                SugestÃµes
-              </button>
-            </div>
-          </div>
-        </div>
-      </Card>
+    <div className="max-w-5xl mx-auto px-2 sm:px-0 pb-10 space-y-6">
+      <CompactPageHeader
+        icon={<Shield className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />}
+        title="Painel do criador"
+        subtitle="Comercial, ganhos, acessos, comunicados e feedback dos usuários — alinhado ao tema escuro do app."
+        footer={
+          <TabBar
+            items={creatorTabs}
+            activeId={tab}
+            onChange={(id) => setTab(id as AdminTab)}
+            ariaLabel="Seções do painel do criador"
+          />
+        }
+      />
 
       {tab === 'announcements' && <AdminAnnouncementsTab />}
 
@@ -988,7 +922,7 @@ export const AdminPanel: React.FC = () => {
           {platformStatsLoading && !platformStats ? (
             <div className="flex items-center justify-center py-16 gap-2" style={{ color: 'var(--text-3)' }}>
               <Loader2 className="w-5 h-5 animate-spin" />
-              A carregar estatÃ­sticasâ€¦
+              Carregando estatísticas…
             </div>
           ) : platformStats ? (
             <>
@@ -997,28 +931,28 @@ export const AdminPanel: React.FC = () => {
                   label="MRR estimado"
                   value={formatBrl(platformStats.revenue.estimatedMrrBrl)}
                   icon={<CircleDollarSign className="w-4 h-4 text-emerald-600" />}
-                  helper={`${platformStats.revenue.activeMonthlyPlans} mensais Â· ${platformStats.revenue.activeAnnualPlans} anuais`}
+                  helper={`${platformStats.revenue.activeMonthlyPlans} mensais · ${platformStats.revenue.activeAnnualPlans} anuais`}
                   accent="default"
                 />
                 <StatCard
                   label="Contas na plataforma"
                   value={platformStats.users.total}
                   icon={<Users className="w-4 h-4 text-sky-600" />}
-                  helper={`+${platformStats.users.newLast7Days} (7d) Â· +${platformStats.users.newLast30Days} (30d)`}
+                  helper={`+${platformStats.users.newLast7Days} (7d) · +${platformStats.users.newLast30Days} (30d)`}
                   accent="info"
                 />
                 <StatCard
                   label="Assinaturas ativas"
                   value={platformStats.subscriptions.active}
                   icon={<CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                  helper={`${platformStats.subscriptions.trialing} em trial Â· ${platformStats.subscriptions.manualGrant} manual`}
+                  helper={`${platformStats.subscriptions.trialing} em trial · ${platformStats.subscriptions.manualGrant} manual`}
                   accent="default"
                 />
                 <StatCard
                   label="Canais conectados"
                   value={platformStats.connections.connected}
                   icon={<Smartphone className="w-4 h-4 text-cyan-600" />}
-                  helper={`${platformStats.connections.tenantsWithConnection} contas com WhatsApp Â· ${platformStats.connections.total} total`}
+                  helper={`${platformStats.connections.tenantsWithConnection} contas com WhatsApp · ${platformStats.connections.total} total`}
                   accent="warning"
                 />
               </div>
@@ -1026,8 +960,8 @@ export const AdminPanel: React.FC = () => {
               <div className="grid lg:grid-cols-2 gap-6">
                 <Card>
                   <CardHeader
-                    title="PreÃ§os configurados (Mercado Pago)"
-                    subtitle="Valores usados no cÃ¡lculo do MRR estimado."
+                    title="Preços configurados (Mercado Pago)"
+                    subtitle="Valores usados no cálculo do MRR estimado."
                     icon={<TrendingUp className="w-4 h-4 text-emerald-600" />}
                   />
                   <div className="mt-4 space-y-2 text-sm" style={{ color: 'var(--text-2)' }}>
@@ -1037,21 +971,21 @@ export const AdminPanel: React.FC = () => {
                     <p>
                       Plano anual: <strong>{formatBrl(platformStats.revenue.priceAnnualBrl)}</strong>{' '}
                       <span className="text-xs" style={{ color: 'var(--text-3)' }}>
-                        (Ã·12 no MRR)
+                        (÷12 no MRR)
                       </span>
                     </p>
                     <p>
                       Add-ons de canal pagos: <strong>{platformStats.revenue.channelAddonSlots}</strong> slot(s)
                     </p>
                     <p className="text-xs pt-2" style={{ color: 'var(--text-3)' }}>
-                      Atualizado em {toPtDateTime(platformStats.generatedAt)}. O MRR Ã© estimativa â€” confira tambÃ©m o painel do Mercado Pago.
+                      Atualizado em {toPtDateTime(platformStats.generatedAt)}. O MRR é estimativa — confira também o painel do Mercado Pago.
                     </p>
                   </div>
                 </Card>
                 <Card>
                   <CardHeader
                     title="Resumo de assinaturas"
-                    subtitle="DistribuiÃ§Ã£o de status em todas as contas."
+                    subtitle="Distribuição de status em todas as contas."
                     icon={<BarChart3 className="w-4 h-4 text-sky-600" />}
                   />
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -1082,11 +1016,11 @@ export const AdminPanel: React.FC = () => {
               <Card>
                 <CardHeader
                   title="Cadastros recentes"
-                  subtitle="Ãšltimas 25 contas criadas â€” com plano e canais conectados."
+                  subtitle="—altimas 25 contas criadas — com plano e canais conectados."
                   icon={<Users className="w-4 h-4 text-emerald-600" />}
                 />
                 {platformStats.recentSignups.length === 0 ? (
-                  <EmptyState title="Nenhum cadastro ainda" description="Novos registos aparecerÃ£o aqui." />
+                  <EmptyState title="Nenhum cadastro ainda" description="Novos registros aparecerão aqui." />
                 ) : (
                   <div className="mt-4 overflow-x-auto">
                     <table className="w-full text-left text-[12.5px]">
@@ -1107,7 +1041,7 @@ export const AdminPanel: React.FC = () => {
                             style={{ borderColor: 'var(--border-subtle)' }}
                           >
                             <td className="py-2.5 pr-3 font-medium" style={{ color: 'var(--text-1)' }}>
-                              {row.email || 'â€”'}
+                              {row.email || '—'}
                             </td>
                             <td className="py-2.5 pr-3" style={{ color: 'var(--text-2)' }}>
                               {toPtDateTime(row.createdAt)}
@@ -1132,7 +1066,7 @@ export const AdminPanel: React.FC = () => {
                                   {row.connectionsConnected}
                                 </span>
                               ) : (
-                                'â€”'
+                                '—'
                               )}
                             </td>
                             <td className="py-2.5">
@@ -1142,7 +1076,7 @@ export const AdminPanel: React.FC = () => {
                                 style={{ color: 'var(--text-3)' }}
                                 onClick={() => void copyToClipboard(row.uid, 'UID copiado.')}
                               >
-                                {row.uid.slice(0, 8)}â€¦
+                                {row.uid.slice(0, 8)}…
                                 <Copy className="w-3 h-3" />
                               </button>
                             </td>
@@ -1155,14 +1089,14 @@ export const AdminPanel: React.FC = () => {
               </Card>
 
               <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-                Novos cadastros e assinaturas tambÃ©m chegam no sino de notificaÃ§Ãµes (categoria admin) e por e-mail, se{' '}
+                Novos cadastros e assinaturas também chegam no sino de notificações (categoria admin) e por e-mail, se{' '}
                 <code className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800/80">RESEND_API_KEY</code> estiver configurado.
               </p>
             </>
           ) : (
             <EmptyState
               title="Sem dados"
-              description="NÃ£o foi possÃ­vel carregar as estatÃ­sticas. Clique em Atualizar."
+              description="Não foi possível carregar as estatísticas. Clique em Atualizar."
             />
           )}
         </div>
@@ -1171,14 +1105,14 @@ export const AdminPanel: React.FC = () => {
       {tab === 'config' && (
         <div className="space-y-6">
           <SectionHeader
-            title="ExibiÃ§Ã£o comercial e trial"
-            description="Estes textos e nÃºmeros alimentam modais, landing e API de teste. PublicaÃ§Ã£o leva alguns segundos para replicar."
+            title="Exibição comercial e trial"
+            description="Estes textos e números alimentam modais, landing e API de teste. Publicação leva alguns segundos para replicar."
           />
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader
-                title="PreÃ§os (marketing)"
-                subtitle="O que o cliente lÃª no upgrade. Vazio cai no fallback do front."
+                title="Preços (marketing)"
+                subtitle="O que o cliente lê no upgrade. Vazio cai no fallback do front."
                 icon={<TrendingUp className="w-4 h-4 text-emerald-600" />}
               />
               <div className="mt-4 space-y-3">
@@ -1188,7 +1122,7 @@ export const AdminPanel: React.FC = () => {
                     className="ui-input mt-1"
                     value={marketingPriceMonthly}
                     onChange={(e) => setMarketingPriceMonthly(e.target.value)}
-                    placeholder="Ex.: R$ 49,90 / mÃªs"
+                    placeholder="Ex.: R$ 49,90 / mês"
                   />
                 </div>
                 <div>
@@ -1205,11 +1139,11 @@ export const AdminPanel: React.FC = () => {
             <Card>
               <CardHeader
                 title="Janela de teste"
-                subtitle="1â€“168 h. Aplicada em POST /api/billing/trial/start."
+                subtitle="1—168 h. Aplicada em POST /api/billing/trial/start."
                 icon={<Clock3 className="w-4 h-4 text-sky-600" />}
               />
               <div className="mt-4">
-                <label className="ui-eyebrow text-[10px]">DuraÃ§Ã£o (horas)</label>
+                <label className="ui-eyebrow text-[10px]">Duração (horas)</label>
                 <input
                   type="number"
                   min={1}
@@ -1223,14 +1157,14 @@ export const AdminPanel: React.FC = () => {
           </div>
           <Card>
             <CardHeader
-              title="Landing â€” bloco de teste grÃ¡tis"
-              subtitle={`Opcional; mÃ¡ximo ${LANDING_TRIAL_TITLE_MAX_CHARS} caracteres no tÃ­tulo e ${LANDING_TRIAL_BODY_MAX_CHARS} no texto. Eventos para GA4/GTM (com VITE_GA_MEASUREMENT_ID ou snippet prÃ³prio): landing_cta_click, landing_login_click, login_success, trial_started.`}
+              title="Landing — bloco de teste grátis"
+              subtitle={`Opcional; máximo ${LANDING_TRIAL_TITLE_MAX_CHARS} caracteres no título e ${LANDING_TRIAL_BODY_MAX_CHARS} no texto. Eventos para GA4/GTM (com VITE_GA_MEASUREMENT_ID ou snippet próprio): landing_cta_click, landing_login_click, login_success, trial_started.`}
               icon={<Sparkles className="w-4 h-4 text-amber-600" />}
             />
             <div className="mt-4 space-y-3">
               <div>
                 <div className="flex items-center justify-between gap-2">
-                  <label className="ui-eyebrow text-[10px]">TÃ­tulo</label>
+                  <label className="ui-eyebrow text-[10px]">Título</label>
                   <span className="text-[10px] tabular-nums" style={{ color: 'var(--text-3)' }}>
                     {landingTrialTitle.length}/{LANDING_TRIAL_TITLE_MAX_CHARS}
                   </span>
@@ -1240,7 +1174,7 @@ export const AdminPanel: React.FC = () => {
                   value={landingTrialTitle}
                   maxLength={LANDING_TRIAL_TITLE_MAX_CHARS}
                   onChange={(e) => setLandingTrialTitle(e.target.value)}
-                  placeholder="Vazio = tÃ­tulo automÃ¡tico a partir das horas"
+                  placeholder="Vazio = título automático a partir das horas"
                 />
               </div>
               <div>
@@ -1256,7 +1190,7 @@ export const AdminPanel: React.FC = () => {
                   className="ui-input mt-1 resize-y min-h-[100px]"
                   value={landingTrialBody}
                   onChange={(e) => setLandingTrialBody(e.target.value)}
-                  placeholder="Vazio = texto padrÃ£o da landing"
+                  placeholder="Vazio = texto padrão da landing"
                 />
               </div>
               <div
@@ -1264,7 +1198,7 @@ export const AdminPanel: React.FC = () => {
                 style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
               >
                 <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-                  PrÃ©-visualizaÃ§Ã£o (como na landing)
+                  Pré-visualização (como na landing)
                 </p>
                 <p className="text-[13px] font-bold leading-snug" style={{ color: 'var(--text-1)' }}>
                   {landingTrialPreview.title}
@@ -1286,7 +1220,7 @@ export const AdminPanel: React.FC = () => {
               Salvar e publicar
             </Button>
             <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-              Recomenda-se validar o modal Pro e a landing apÃ³s publicar.
+              Recomenda-se validar o modal Pro e a landing após publicar.
             </p>
           </div>
         </div>
@@ -1298,8 +1232,8 @@ export const AdminPanel: React.FC = () => {
       {tab === 'suggestions' && (
         <div className="space-y-6">
           <SectionHeader
-            title="SugestÃµes dos utilizadores"
-            description="Envios feitos pelo botÃ£o Â«SugestÃ£oÂ» na barra superior. No Firestore: cada conta em Â«usersÂ», subcoleÃ§Ã£o Â«suggestionsÂ»."
+            title="Sugestões dos usuários"
+            description="Envios feitos pelo botão «Sugestões» na barra superior. No Firestore: cada conta em «users», subcoleção «suggestions»."
           />
           <div className="flex flex-wrap items-center gap-3">
             <Button
@@ -1312,20 +1246,26 @@ export const AdminPanel: React.FC = () => {
               Atualizar lista
             </Button>
             <span className="text-xs" style={{ color: 'var(--text-3)' }}>
-              Mostrando as {productSuggestions.length} mais recentes (atÃ© 120 pedidas Ã  API).
+              Mostrando as {productSuggestions.length} mais recentes (até 120 pedidas à API).
             </span>
           </div>
 
           {suggestionsLoading && productSuggestions.length === 0 ? (
-            <Card>
-              <div className="flex items-center gap-3 py-10 justify-center">
-                <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
-              </div>
-            </Card>
+            <div
+              className="flex flex-col items-center justify-center gap-3 py-14 rounded-xl border"
+              style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}
+            >
+              <Loader2 className="w-7 h-7 animate-spin text-amber-500" />
+              <p className="text-sm" style={{ color: 'var(--text-3)' }}>
+                Carregando sugestões…
+              </p>
+            </div>
           ) : productSuggestions.length === 0 ? (
             <EmptyState
-              title="Ainda sem sugestÃµes"
-              description="Quando utilizadores enviarem texto pelo botÃ£o de sugestÃµes, aparecem aqui."
+              icon={<Lightbulb className="w-7 h-7 text-amber-500" />}
+              title="Ainda sem sugestões"
+              description="Quando usuários enviarem ideias pelo botão «Sugestões» na barra superior, elas aparecem aqui para triagem e resposta."
+              className="!py-14"
             />
           ) : (
             <div className="space-y-3">
@@ -1349,7 +1289,7 @@ export const AdminPanel: React.FC = () => {
                           ) : null}
                         </div>
                         <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-1)' }}>
-                          {row.text || 'â€”'}
+                          {row.text || '—'}
                         </p>
                       </div>
                     </div>
@@ -1364,7 +1304,7 @@ export const AdminPanel: React.FC = () => {
                         title={
                           hasEmail
                             ? 'Enviar uma resposta por email para o cliente'
-                            : 'Cliente sem email vinculado â€” nÃ£o Ã© possÃ­vel responder por email'
+                            : 'Cliente sem email vinculado — não é possível responder por email'
                         }
                         onClick={() => openReplyModal(row)}
                       >
@@ -1377,12 +1317,12 @@ export const AdminPanel: React.FC = () => {
                         leftIcon={<MessageCircle className="w-3.5 h-3.5" />}
                         onClick={() => toggleRepliesPanel(row)}
                       >
-                        {open ? 'Ocultar histÃ³rico' : 'Ver histÃ³rico'}
+                        {open ? 'Ocultar histórico' : 'Ver histórico'}
                       </Button>
                       {hasEmail ? (
                         <a
                           href={`mailto:${row.userEmail}?subject=${encodeURIComponent(
-                            'Sobre a sua sugestÃ£o no ZapMass'
+                            'Sobre a sua sugestão no ZapMass'
                           )}`}
                           className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300 hover:underline"
                           title="Abrir no cliente de email instalado (Outlook, Mail, etc.)"
@@ -1401,7 +1341,7 @@ export const AdminPanel: React.FC = () => {
                         {repliesLoading ? (
                           <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--text-3)' }}>
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            A carregar histÃ³ricoâ€¦
+                            Carregando histórico…
                           </div>
                         ) : replies.length === 0 ? (
                           <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
@@ -1422,16 +1362,16 @@ export const AdminPanel: React.FC = () => {
                                   <span className="font-semibold" style={{ color: 'var(--text-2)' }}>
                                     {rep.adminEmail || rep.adminUid || 'admin'}
                                   </span>
-                                  <span>Â·</span>
+                                  <span>·</span>
                                   <span>{toPtDateTime(rep.createdAt)}</span>
-                                  <span>Â·</span>
+                                  <span>·</span>
                                   {rep.emailSent ? (
                                     <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                                       <CheckCircle2 className="w-3 h-3" /> email enviado
                                     </span>
                                   ) : (
                                     <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                                      <XCircle className="w-3 h-3" /> sÃ³ registado (sem email)
+                                      <XCircle className="w-3 h-3" /> só registrado (sem email)
                                     </span>
                                   )}
                                 </div>
@@ -1462,10 +1402,10 @@ export const AdminPanel: React.FC = () => {
                       style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-3)' }}
                     >
                       <span>
-                        <strong style={{ color: 'var(--text-2)' }}>E-mail:</strong> {row.userEmail || 'â€”'}
+                        <strong style={{ color: 'var(--text-2)' }}>E-mail:</strong> {row.userEmail || '—'}
                       </span>
                       <span className="inline-flex items-center gap-1 font-mono">
-                        <strong style={{ color: 'var(--text-2)' }}>UID:</strong> {row.uid || 'â€”'}
+                        <strong style={{ color: 'var(--text-2)' }}>UID:</strong> {row.uid || '—'}
                         {row.uid ? (
                           <button
                             type="button"
@@ -1493,7 +1433,7 @@ export const AdminPanel: React.FC = () => {
         subtitle={
           replyTarget?.userEmail
             ? `Vai por email para ${replyTarget.userEmail}. Quando ele responder, chega no seu Reply-To.`
-            : 'O cliente desta sugestÃ£o nÃ£o tem email vinculado.'
+            : 'O cliente desta sugestão não tem email vinculado.'
         }
         icon={<Send className="w-5 h-5 text-emerald-500" />}
         size="lg"
@@ -1509,7 +1449,7 @@ export const AdminPanel: React.FC = () => {
               leftIcon={<Send className="w-4 h-4" />}
               onClick={() => void submitReply()}
             >
-              {replySending ? 'A enviarâ€¦' : 'Enviar resposta por email'}
+              {replySending ? 'Enviando…' : 'Enviar resposta por email'}
             </Button>
           </div>
         }
@@ -1521,21 +1461,21 @@ export const AdminPanel: React.FC = () => {
               style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
             >
               <p className="text-[10.5px] uppercase font-bold tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>
-                SugestÃ£o original
+                Sugestão original
               </p>
               <p className="text-[13px] whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-1)' }}>
-                {replyTarget.text || 'â€”'}
+                {replyTarget.text || '—'}
               </p>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] mt-2" style={{ color: 'var(--text-3)' }}>
                 <span>{toPtDateTime(replyTarget.createdAt)}</span>
-                {replyTarget.category ? <span>Â· {suggestionCategoryPt(replyTarget.category)}</span> : null}
-                {replyTarget.screen ? <span>Â· {replyTarget.screen}</span> : null}
+                {replyTarget.category ? <span>· {suggestionCategoryPt(replyTarget.category)}</span> : null}
+                {replyTarget.screen ? <span>· {replyTarget.screen}</span> : null}
               </div>
             </div>
 
             <div>
               <label className="text-[12.5px] font-semibold flex items-center gap-2 mb-1.5" style={{ color: 'var(--text-1)' }}>
-                A sua resposta
+                Sua resposta
                 <span className="text-[10.5px] font-normal font-mono px-1.5 py-0.5 rounded" style={{ color: 'var(--text-3)', background: 'var(--surface-2)' }}>
                   {replyText.length}/8000
                 </span>
@@ -1543,13 +1483,13 @@ export const AdminPanel: React.FC = () => {
               <Textarea
                 value={replyText}
                 onChange={(e) => setReplyText(e.target.value.slice(0, 8000))}
-                placeholder="Escreva uma resposta direta. Pode dizer o status (em estudo, planejado, jÃ¡ feito), perguntar mais detalhes ou agradecerâ€¦"
+                placeholder="Escreva uma resposta direta. Pode dizer o status (em estudo, planejado, já feito), perguntar mais detalhes ou agradecer…"
                 style={{ minHeight: '160px', fontSize: '13.5px', lineHeight: 1.55 }}
                 disabled={replySending}
                 autoFocus
               />
               <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-3)' }}>
-                Quando o cliente responder, vai cair direto no seu email ({user?.email || 'â€”'}).
+                Quando o cliente responder, vai cair direto no seu email ({user?.email || '—'}).
               </p>
             </div>
           </div>

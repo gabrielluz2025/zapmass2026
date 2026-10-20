@@ -30,7 +30,7 @@ import {
   CHANNEL_TIER_PRICES_MONTHLY,
   brl
 } from '../../constants/channelTierPricing';
-import { PageShell, CollapsibleSection, Badge, StatTile } from '../ui';
+import { PageShell, CollapsibleSection, Badge, StatTile, CompactPageHeader, Button } from '../ui';
 import type { UserSubscription } from '../../types';
 import { apiUrl } from '../../utils/apiBase';
 import { formatMercadoPagoCheckoutError } from '../../utils/mercadopagoCheckoutError';
@@ -106,7 +106,7 @@ function resolvePlanCycleLabel(sub: UserSubscription | null | undefined): string
 }
 
 /**
- * Pagina "Minha assinatura": mostra estado atual da subscricao, dias restantes,
+ * Página «Minha assinatura»: estado do plano, dias restantes,
  * permite renovar, migrar para anual ou cancelar debito automatico.
  */
 export const MySubscriptionTab: React.FC = () => {
@@ -301,15 +301,15 @@ export const MySubscriptionTab: React.FC = () => {
             <Users className="w-6 h-6" style={{ color: 'var(--brand-600)' }} />
           </div>
           <div>
-            <h1 className="text-[17px] font-extrabold" style={{ color: 'var(--text-1)' }}>
-              Membro de equipa
+            <h1 className="ui-title text-[17px]" style={{ color: 'var(--text-1)' }}>
+              Membro da equipe
             </h1>
             <p className="text-[13px] mt-2 leading-relaxed" style={{ color: 'var(--text-2)' }}>
               Esta sessão usa o <strong>plano e os dados da conta principal</strong> da organização. Pagamentos,
               Mercado Pago ou alteração de canais ficam{' '}
-              <strong>a cargo do utilizador gestor</strong>{' '}
-              <span className="font-mono text-[12px]">({short})</span>. Aqui apenas consulta o estado do plano ligado ao
-              workspace — não iniciamos cobrança com o seu utilizador para evitar erro de cobrança.
+              <strong>a cargo do usuário gestor</strong>{' '}
+              <span className="font-mono text-[12px]">({short})</span>. Aqui você só consulta o estado do plano ligado ao
+              workspace — não iniciamos cobrança com seu login para evitar cobrança indevida.
             </p>
           </div>
         </div>
@@ -437,43 +437,53 @@ export const MySubscriptionTab: React.FC = () => {
       actions={
         <div className="flex flex-wrap gap-2 justify-end">
           {subscription?.plan !== 'annual' && (
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="sm"
               onClick={() => void migrateToAnnualPix()}
               disabled={!!busy}
-              className="px-3 py-1.5 rounded-lg text-[12px] font-bold transition-opacity disabled:opacity-50"
-              style={{ background: 'var(--success)', color: '#fff' }}
             >
-              {busy === 'pix' ? '…' : 'Anual Pix'}
-            </button>
+              {busy === 'pix' ? 'Gerando Pix…' : 'Migrar anual (Pix)'}
+            </Button>
           )}
-          <button
+          <Button
             type="button"
+            variant="primary"
+            size="sm"
+            disabled={!!busy}
+            leftIcon={<Zap className="w-3.5 h-3.5" />}
             onClick={() => {
               if (showRenewCta) {
                 document.getElementById('canais-extras-whatsapp')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
               } else {
-                setUpgradeOpen(true);
+                document.getElementById('canais-extras-whatsapp')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
               }
             }}
-            disabled={!!busy}
-            className="px-3 py-1.5 rounded-lg text-[12px] font-bold"
-            style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)', color: 'var(--text-1)' }}
           >
-            {showRenewCta ? 'Renovar' : 'Assinar Pro'}
-          </button>
+            {showRenewCta ? 'Ir para checkout' : 'Assinar Pro'}
+          </Button>
         </div>
       }
     >
-    <div className="max-w-5xl mx-auto space-y-4">
+    <div className="max-w-5xl mx-auto space-y-4 pb-6">
+      <CompactPageHeader
+        icon={<Crown className="w-5 h-5 text-amber-500 dark:text-amber-400" />}
+        title="Minha assinatura"
+        subtitle="Plano ZapMass Pro, canais WhatsApp e pagamento seguro via Mercado Pago."
+      />
+
       {isPlatformAdmin && mpCheckoutAvailable === false && (
         <div
-          className="flex items-start gap-3 rounded-xl px-4 py-3 text-[13px]"
-          style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)' }}
+          className="flex items-start gap-3 rounded-xl px-4 py-3.5 text-[13px] border"
+          style={{
+            borderColor: 'color-mix(in srgb, var(--warning) 40%, var(--border-subtle))',
+            background: 'color-mix(in srgb, var(--warning) 12%, var(--surface-0))',
+          }}
         >
-          <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" style={{ color: '#d97706' }} />
+          <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
           <div style={{ color: 'var(--text-2)' }}>
-            <p className="font-bold" style={{ color: 'var(--text-1)' }}>
+            <p className="ui-title text-[14px]" style={{ color: 'var(--text-1)' }}>
               Mercado Pago não configurado no servidor
             </p>
             <p className="mt-1 leading-relaxed">
@@ -485,8 +495,14 @@ export const MySubscriptionTab: React.FC = () => {
           </div>
         </div>
       )}
-      <div className="zm-panel space-y-3">
-        <p className="ui-body font-semibold">{planSnapshotLine}</p>
+      <div
+        className="rounded-xl border px-4 sm:px-5 py-4 space-y-3"
+        style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}
+      >
+        <div>
+          <p className="ui-eyebrow mb-1">Situação do plano</p>
+          <p className="ui-body font-semibold">{planSnapshotLine}</p>
+        </div>
         {statusLabel.sub && <p className="ui-caption">{statusLabel.sub}</p>}
         {progressPct != null && (
           <div>
@@ -618,7 +634,7 @@ export const MySubscriptionTab: React.FC = () => {
                     SEU PLANO
                   </span>
                 )}
-                <p className="text-[12px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                <p className="ui-eyebrow text-[10px]">
                   {tier} canal{tier > 1 ? 'is' : ''}
                 </p>
                 <p className="text-[22px] font-extrabold mt-1 leading-none" style={{ color: 'var(--text-1)' }}>
@@ -659,10 +675,8 @@ export const MySubscriptionTab: React.FC = () => {
         <div className="zm-panel mt-4">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
             <div>
-              <p className="text-[10.5px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-                Sua escolha
-              </p>
-              <p className="text-[16px] font-extrabold mt-0.5" style={{ color: 'var(--text-1)' }}>
+              <p className="ui-eyebrow text-[10px]">Sua escolha</p>
+              <p className="ui-title text-[16px] mt-0.5" style={{ color: 'var(--text-1)' }}>
                 {upgradeTarget} canal{upgradeTarget > 1 ? 'is' : ''} ·{' '}
                 {tierPlanMode === 'annual' ? 'Anual' : 'Mensal'}
               </p>
@@ -893,7 +907,7 @@ function getStatusLabel(
   if (status === 'blocked') {
     return {
       text: 'Conta bloqueada',
-      sub: 'Entre em contacto com o suporte para rever o acesso.',
+      sub: 'Entre em contato com o suporte para revisar o acesso.',
       color: '#ef4444'
     };
   }
