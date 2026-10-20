@@ -24,7 +24,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   campaigns: { title: 'Campanhas', subtitle: 'Centro de missões, A/B, modelos e disparos' },
   contacts: { title: 'Contatos', subtitle: 'Base e listas de contatos' },
   'contacts-map': { title: 'Mapa dos contatos', subtitle: 'Atlas territorial, temperatura e campanhas por região' },
-  'ai-assistant': { title: 'Assistente IA', subtitle: 'Pergunte com dados ao vivo da sua conta' },
+  'ai-assistant': {
+    title: 'Agente ZapMass',
+    subtitle: 'Modo admin — dados ao vivo, sem API paga por padrão'
+  },
   reports: { title: 'Relatórios', subtitle: 'Análise de performance' },
   warmup: { title: 'Aquecimento', subtitle: 'Warmup dos números' },
   diagnostics: { title: 'Diagnóstico', subtitle: 'Erros recentes e pacote para suporte' },

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Minimize2, Sparkles, X } from 'lucide-react';
 import { useAiStatus } from '../../hooks/useAiStatus';
+import { ASSISTANT_LEGACY_TITLE } from '../../utils/aiAssistantBranding';
 import { useAppView } from '../../context/AppViewContext';
 import { AiAssistantChat } from './AiAssistantChat';
 import { AI_ASSIST_PAYLOAD_EVENT, type AiAssistPayload } from '../../utils/aiAssistEvents';
@@ -12,9 +13,9 @@ type Props = {
   compact?: boolean;
 };
 
-/** FAB + painel deslizante do assistente IA. */
+/** FAB legado Gemini (`GEMINI_LEGACY_ASSISTANT`) — oculto por padrão. */
 export const AiAskPanel: React.FC<Props> = ({ screen, context, placeholder, compact = false }) => {
-  const { configured, loading: statusLoading } = useAiStatus();
+  const { legacyGeminiFab, loading: statusLoading } = useAiStatus();
   const { currentView, setCurrentView } = useAppView();
   const [open, setOpen] = useState(false);
   const [assistPayload, setAssistPayload] = useState<AiAssistPayload | null>(null);
@@ -48,7 +49,7 @@ export const AiAskPanel: React.FC<Props> = ({ screen, context, placeholder, comp
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
-  if (statusLoading || !configured) return null;
+  if (statusLoading || !legacyGeminiFab) return null;
   if (currentView === 'ai-assistant') return null;
 
   if (!open) {
@@ -57,11 +58,11 @@ export const AiAskPanel: React.FC<Props> = ({ screen, context, placeholder, comp
         type="button"
         className={`zm-ai-fab${compact ? ' zm-ai-fab--compact' : ''}`}
         onClick={() => setOpen(true)}
-        title="Abrir assistente IA"
+        title="Abrir assistente legado Gemini (API paga)"
       >
         <span className="zm-ai-fab__glow" aria-hidden />
         <Sparkles className="w-4 h-4 zm-ai-fab__icon" />
-        {!compact && <span>Assistente IA</span>}
+        {!compact && <span>{ASSISTANT_LEGACY_TITLE}</span>}
       </button>
     );
   }
@@ -74,12 +75,12 @@ export const AiAskPanel: React.FC<Props> = ({ screen, context, placeholder, comp
         aria-label="Fechar assistente"
         onClick={() => setOpen(false)}
       />
-      <aside className="zm-ai-drawer" role="dialog" aria-label="Assistente IA">
+      <aside className="zm-ai-drawer" role="dialog" aria-label={ASSISTANT_LEGACY_TITLE}>
         <header className="zm-ai-drawer__head">
           <div className="zm-ai-drawer__head-main">
             <Sparkles className="w-4 h-4 text-violet-400" />
             <div>
-              <span className="zm-ai-drawer__title">Assistente IA</span>
+              <span className="zm-ai-drawer__title">{ASSISTANT_LEGACY_TITLE}</span>
               <span className="zm-ai-drawer__sub">
                 Gemini · dados ao vivo · <span className="zm-ai-drawer__cost">usa API paga</span>
               </span>

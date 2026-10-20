@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.320',
+    date: '20/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Agente ZapMass: UI admin sem Gemini/API paga por padrão; FAB legado opt-in; menu e badges Determinístico · Plataforma',
+      },
+    ],
+  },
+  {
     version: '2.3.319',
     date: '20/10/2026',
     highlights: [

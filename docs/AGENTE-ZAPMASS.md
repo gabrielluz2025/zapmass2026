@@ -18,7 +18,17 @@ API: `GET/POST /api/agent/*` (status, ask, registry, config/knowledge para admin
 
 Perguntas amplas (“valide todo o sistema”) usam intenção `system_audit`: várias ferramentas em paralelo + checklist, sem depender de LLM. Timeouts: cliente ~50s, servidor `AGENT_ASK_TIMEOUT_MS` (default 45s).
 
-UI: painel **Assistente ZapMass** (robô) → `agentApi`. Não consome Gemini por padrão.
+UI: painel **Assistente ZapMass** (robô verde, topo) → `agentApi`. Aba **Agente ZapMass** no menu Sistema (admin) → chat em tela cheia. **Sem API paga por padrão** (`AGENT_LLM_PROVIDER=none`).
+
+### Padrão vs opt-in
+
+| Modo | Onde | Custo |
+|------|------|--------|
+| **Plataforma (default)** | Assistente verde + aba Agente ZapMass | Determinístico — regras, RAG e dados ao vivo; **não** exige `GEMINI_API_KEY`. |
+| **Groq (opt-in)** | Mesmo agente, se `AGENT_LLM_PROVIDER=groq` + `GROQ_API_KEY` | API Groq — só quando você configurar no `.env`. |
+| **Gemini legado** | FAB roxo + rotas `/api/ai/*` | Só com `GEMINI_LEGACY_ASSISTANT=true` **e** chave; importação/mapa inteligente. |
+
+Na interface, rótulos **Gemini** e **usa API paga** aparecem **apenas** no modo legado. O restante mostra **Agente ZapMass** e badge **Determinístico · Plataforma**.
 
 ## Modelo multi-agente (lógico)
 

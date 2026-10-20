@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.320] - 2026-10-20
+
+### Melhorado
+- **Agente ZapMass (UX admin):** branding unificado (menu, TopBar, chat admin); badge **Determinístico · Plataforma**; Gemini e “API paga” só com `GEMINI_LEGACY_ASSISTANT`; FAB legado oculto por padrão; doc `AGENTE-ZAPMASS.md` com tabela padrão vs opt-in.
+
 ## [2.3.319] - 2026-10-20
 
 ### Melhorado

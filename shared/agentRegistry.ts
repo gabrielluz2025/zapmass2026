@@ -154,10 +154,10 @@ export const SCREEN_AGENTS: ScreenAgentSeed[] = [
   },
   {
     screenKey: 'ai-assistant',
-    profileId: 'gemini',
-    name: 'Gemini',
-    tagline: 'IA profunda (legado)',
-    tags: ['legado', 'gemini'],
+    profileId: 'admin-agent',
+    name: 'Agente ZapMass',
+    tagline: 'Modo admin — plataforma',
+    tags: ['admin', 'agente'],
     defaultEnabledTools: ['tenant_snapshot']
   }
 ];

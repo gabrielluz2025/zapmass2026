@@ -115,6 +115,6 @@ export const VIEW_LABEL_PT: Record<string, string> = {
   settings: 'Configurações',
   help: 'Como usar',
   team: 'Funcionários',
-  'ai-assistant': 'Assistente IA',
+  'ai-assistant': 'Agente ZapMass',
   'admin-ops': 'Operações servidor',
 };

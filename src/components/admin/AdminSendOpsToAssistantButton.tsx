@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Bot, ClipboardCopy, Loader2, Sparkles } from 'lucide-react';
+import { Bot, ClipboardCopy, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { SessionUser } from '../../types/sessionUser';
 import { Button } from '../ui';
@@ -29,7 +29,7 @@ export const AdminSendOpsToAssistantButton: React.FC<Props> = ({ user, className
   const sendToAssistant = useCallback(async () => {
     if (!user || loading) return;
     if (!aiConfigured) {
-      toast.error('Assistente IA admin indisponível (agente desativado ou sem permissão).');
+      toast.error('Agente ZapMass indisponível (agente desativado ou sem permissão).');
       return;
     }
     setLoading(true);
@@ -39,9 +39,10 @@ export const AdminSendOpsToAssistantButton: React.FC<Props> = ({ user, className
         screen: 'admin-ops',
         question: adminOpsAssistantQuestion(),
         context: { relatorioServidor: bundle },
-        autoSend: true
+        autoSend: true,
+        openDrawer: false
       });
-      toast.success('Relatório enviado ao Assistente IA');
+      toast.success('Relatório enviado ao Agente ZapMass');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Falha ao coletar métricas');
     } finally {
@@ -78,17 +79,17 @@ export const AdminSendOpsToAssistantButton: React.FC<Props> = ({ user, className
           loading ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
           ) : (
-            <Sparkles className="w-3.5 h-3.5" aria-hidden />
+            <Bot className="w-3.5 h-3.5" aria-hidden />
           )
         }
         onClick={() => void sendToAssistant()}
         title={
           aiConfigured
-            ? 'Coleta métricas desta aba e envia ao Assistente IA (admin)'
+            ? 'Coleta métricas desta aba e envia ao Agente ZapMass (admin)'
             : 'Agente admin indisponível'
         }
       >
-        Enviar ao Assistente IA
+        Enviar ao Agente ZapMass
       </Button>
       <Button
         type="button"

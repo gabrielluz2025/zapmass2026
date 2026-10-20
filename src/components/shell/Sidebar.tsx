@@ -23,7 +23,6 @@ import {
   UserPlus,
   Church,
   Globe2,
-  Sparkles,
   MapPin,
   Bot,
   Stethoscope,
@@ -154,9 +153,9 @@ const ADMIN_OPS_ITEM: NavItemDef = {
 
 const AI_ASSISTANT_NAV_ITEM: NavItemDef = {
   id: 'ai-assistant',
-  label: 'Assistente IA',
-  icon: Sparkles,
-  description: 'Gemini — administrador da plataforma'
+  label: 'Agente ZapMass',
+  icon: Bot,
+  description: 'Admin — motor determinístico da plataforma'
 };
 
 export const Sidebar: React.FC<SidebarProps> = ({

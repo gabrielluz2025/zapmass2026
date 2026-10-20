@@ -42,6 +42,7 @@ import { TabLoadErrorBoundary } from './components/TabLoadErrorBoundary';
 import { MainLayoutNavProvider } from './context/MainLayoutNavContext';
 import { AppViewProvider, useAppView } from './context/AppViewContext';
 import { AiAskPanel } from './components/ai/AiAskPanel';
+import { OPEN_AGENT_ASSISTANT_PAGE_EVENT } from './utils/aiAssistEvents';
 import { AiAssistantTab } from './components/ai/AiAssistantTab';
 import { useAiStatus } from './hooks/useAiStatus';
 import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/openChannelExtraFlow';
@@ -222,7 +223,7 @@ const MainLayout: React.FC = () => {
   const { user } = useAuth();
   const { readOnlyMode, readOnlyMessage, subscription, enforce, hasFullAccess } = useSubscription();
   const { currentView, setCurrentView } = useAppView();
-  const { configured: aiConfigured } = useAiStatus();
+  const { legacyGeminiFab } = useAiStatus();
   const [lightCachedViews, setLightCachedViews] = useState<string[]>([currentView]);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [trialEndedOpen, setTrialEndedOpen] = useState(false);
@@ -231,6 +232,12 @@ const MainLayout: React.FC = () => {
   const trialEndedHandledRef = useRef(false);
 
   const isAdmin = isPlatformAdminUser(user);
+
+  useEffect(() => {
+    const goAgentPage = () => setCurrentView('ai-assistant');
+    window.addEventListener(OPEN_AGENT_ASSISTANT_PAGE_EVENT, goAgentPage);
+    return () => window.removeEventListener(OPEN_AGENT_ASSISTANT_PAGE_EVENT, goAgentPage);
+  }, [setCurrentView]);
 
   // Cmd+K / Ctrl+K abre a paleta de busca global
   useEffect(() => {
@@ -523,7 +530,7 @@ const MainLayout: React.FC = () => {
       {searchOpen && (
         <GlobalSearchOverlay onNavigate={setCurrentView} onClose={() => setSearchOpen(false)} />
       )}
-      {aiConfigured && isAdmin && (
+      {legacyGeminiFab && isAdmin && (
         <div className="fixed bottom-20 right-4 z-[80] sm:bottom-6 sm:right-6 pointer-events-none">
           <div className="pointer-events-auto">
             <AiAskPanel

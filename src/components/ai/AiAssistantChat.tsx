@@ -1,7 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Loader2, Send, Sparkles, User } from 'lucide-react';
+import { Bot, Loader2, Send, User } from 'lucide-react';
 import { askAgent } from '../../services/agentApi';
 import { useAiStatus } from '../../hooks/useAiStatus';
+import {
+  ASSISTANT_ADMIN_TITLE,
+  getEngineTurnBadge,
+  getHeroMotorLabel,
+  shouldShowLlmCostBanner
+} from '../../utils/aiAssistantBranding';
 import { getAiSuggestions } from './aiSuggestedQuestions';
 import { AiAnswerText } from './AiAnswerText';
 import type { AiAssistPayload } from '../../utils/aiAssistEvents';
@@ -29,7 +35,8 @@ export const AiAssistantChat: React.FC<Props> = ({
   assistPayload,
   onAssistPayloadConsumed
 }) => {
-  const { configured, loading: statusLoading, model, providerBadge } = useAiStatus();
+  const { configured, loading: statusLoading, model, providerBadge, legacyGeminiFab } = useAiStatus();
+  const legacyGemini = !!legacyGeminiFab;
   const [question, setQuestion] = useState('');
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [loading, setLoading] = useState(false);
@@ -90,14 +97,20 @@ export const AiAssistantChat: React.FC<Props> = ({
     [configured, context, loading, screen, turns]
   );
 
-  const engineBadge = useMemo(() => {
-    if (lastSource === 'llm') {
-      if (providerBadge === 'groq') return 'Groq · dados ao vivo';
-      if (providerBadge === 'gemini') return 'Gemini · dados ao vivo';
-    }
-    if (lastSource === 'cache') return 'Resposta salva · determinístico';
-    return 'Determinístico · dados ao vivo';
-  }, [lastSource, providerBadge]);
+  const engineBadge = useMemo(
+    () => getEngineTurnBadge({ lastSource, providerBadge, legacyGeminiFab: legacyGemini }),
+    [lastSource, providerBadge, legacyGemini]
+  );
+
+  const heroMotor = useMemo(
+    () => getHeroMotorLabel(providerBadge, legacyGemini),
+    [providerBadge, legacyGemini]
+  );
+
+  const showCostBanner = useMemo(
+    () => shouldShowLlmCostBanner(providerBadge, legacyGemini),
+    [providerBadge, legacyGemini]
+  );
 
   useEffect(() => {
     if (!assistPayload?.question || !configured || loading) return;
@@ -122,8 +135,8 @@ export const AiAssistantChat: React.FC<Props> = ({
     return (
       <div className={`zm-ai-chat zm-ai-chat--${variant}`}>
         <p className="zm-ai-not-configured">
-          Assistente IA indisponível. Verifique se você é admin da plataforma e se o agente está habilitado
-          em Creator Studio.
+          {ASSISTANT_ADMIN_TITLE} indisponível. Verifique se você é admin da plataforma e se o agente está
+          habilitado em Creator Studio.
         </p>
       </div>
     );
@@ -134,23 +147,22 @@ export const AiAssistantChat: React.FC<Props> = ({
       {variant === 'page' && (
         <header className="zm-ai-chat__hero">
           <div className="zm-ai-chat__hero-icon">
-            <Sparkles className="w-6 h-6" />
+            <Bot className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="zm-ai-chat__hero-title">Assistente IA</h1>
+            <h1 className="zm-ai-chat__hero-title">{ASSISTANT_ADMIN_TITLE}</h1>
             <p className="zm-ai-chat__hero-sub">
-              Modo admin: dados ao vivo + tutorial. Motor{' '}
-              <strong>{providerBadge === 'groq' ? 'Groq' : providerBadge === 'gemini' ? 'Gemini' : 'determinístico'}</strong>
-              {model ? ` (${model}).` : '.'}
+              Modo admin: dados ao vivo + tutorial. Motor <strong>{heroMotor}</strong>
+              {model && providerBadge !== 'deterministic' ? ` (${model}).` : '.'}
             </p>
           </div>
         </header>
       )}
 
-      {turns.length === 0 && providerBadge !== 'deterministic' && (
+      {turns.length === 0 && showCostBanner && (
         <p className="zm-ai-cost-banner">
-          <strong>Custo:</strong> respostas com LLM externo consomem API. Para números simples, use o{' '}
-          <strong>Assistente</strong> verde — determinístico e grátis.
+          <strong>Custo:</strong> o modo legado Gemini consome API paga. O padrão da plataforma é{' '}
+          <strong>determinístico</strong> (sem cobrança por token).
         </p>
       )}
 
@@ -160,7 +172,7 @@ export const AiAssistantChat: React.FC<Props> = ({
             <div className="zm-ai-chat__welcome-icon">
               <Bot className="w-8 h-8" />
             </div>
-            <p className="zm-ai-chat__welcome-title">Olá! Sou seu assistente no ZapMass.</p>
+            <p className="zm-ai-chat__welcome-title">Olá! Sou o Agente ZapMass no modo admin.</p>
             <p className="zm-ai-chat__welcome-hint">
               Pergunte sobre sua base, bairros, campanhas ou conversas — ou toque numa sugestão abaixo.
             </p>
@@ -187,7 +199,7 @@ export const AiAssistantChat: React.FC<Props> = ({
             className={`zm-ai-bubble zm-ai-bubble--${t.role}`}
           >
             <div className="zm-ai-bubble__avatar" aria-hidden>
-              {t.role === 'user' ? <User className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
+              {t.role === 'user' ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
             </div>
             <div className="zm-ai-bubble__body">
               {t.role === 'assistant' ? <AiAnswerText text={t.text} /> : <p>{t.text}</p>}
@@ -201,7 +213,7 @@ export const AiAssistantChat: React.FC<Props> = ({
         {loading && (
           <div className="zm-ai-bubble zm-ai-bubble--assistant zm-ai-bubble--typing">
             <div className="zm-ai-bubble__avatar" aria-hidden>
-              <Sparkles className="w-3.5 h-3.5" />
+              <Bot className="w-3.5 h-3.5" />
             </div>
             <div className="zm-ai-bubble__body">
               <span className="zm-ai-typing">

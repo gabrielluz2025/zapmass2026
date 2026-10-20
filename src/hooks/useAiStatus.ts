@@ -1,20 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { fetchAgentStatus, type AgentStatus } from '../services/agentApi';
+import { fetchAgentStatus } from '../services/agentApi';
 import { isPlatformAdminUser } from '../utils/adminAccess';
+import { resolveProviderBadge, type AiProviderBadge } from '../utils/aiAssistantBranding';
 
-export type AiProviderBadge = 'deterministic' | 'groq' | 'gemini';
-
-function resolveProviderBadge(s: AgentStatus): AiProviderBadge {
-  if (s.provider === 'groq') return 'groq';
-  if (s.provider === 'gemini') return 'gemini';
-  return 'deterministic';
-}
+export type { AiProviderBadge };
 
 /**
- * Assistente IA admin (/api/agent, modo admin_full).
+ * Agente ZapMass admin (/api/agent, modo admin_full).
  * `configured`: admin plataforma + agente habilitado.
- * `legacyGeminiFab`: FAB legado /api/ai (importação, mapa) — GEMINI_LEGACY_ASSISTANT.
+ * `legacyGeminiFab`: FAB legado /api/ai — GEMINI_LEGACY_ASSISTANT + chave.
  */
 export function useAiStatus() {
   const { user } = useAuth();
@@ -40,7 +35,7 @@ export function useAiStatus() {
       const ok = !!s.ok && s.enabled && s.isPlatformAdmin;
       setConfigured(ok);
       setLegacyGeminiFab(!!s.legacyGeminiFabEnabled && s.isPlatformAdmin);
-      setProviderBadge(resolveProviderBadge(s));
+      setProviderBadge(resolveProviderBadge(s.provider));
       setModel(s.model);
     } catch {
       setConfigured(false);
