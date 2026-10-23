@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.346] - 2026-10-23
+
+### Melhorado
+- **Mapa de contatos:** empty state com CTAs (importar, sincronizar chip, ir para Contatos) quando não há contatos geolocalizados por DDD; handshake `contactsViewNav` abre import/sync na aba Contatos.
+
 ## [2.3.345] - 2026-10-23
 
 ### Melhorado

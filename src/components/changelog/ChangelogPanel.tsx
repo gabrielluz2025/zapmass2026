@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.346',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Mapa de contatos: empty state com import/sync/Contatos quando não há DDD geolocalizado',
+      },
+    ],
+  },
+  {
     version: '2.3.345',
     date: '23/10/2026',
     highlights: [

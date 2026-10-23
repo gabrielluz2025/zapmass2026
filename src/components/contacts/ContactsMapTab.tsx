@@ -19,10 +19,14 @@ import {
   Phone,
   ChevronDown,
   ChevronUp,
+  Upload,
+  Smartphone,
+  ArrowRight,
 } from 'lucide-react';
 import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
 import { useAppView } from '../../context/AppViewContext';
-import { PageShell, Badge, ZmFieldHelp } from '../ui';
+import { PageShell, Badge, ZmFieldHelp, EmptyState, Button } from '../ui';
+import { navigateToContacts } from '../../utils/contactsViewNav';
 import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 import { DDD_COORDINATES } from '../../utils/dddCoordinates';
 import {
@@ -175,6 +179,11 @@ export const ContactsMapTab: React.FC = () => {
 
   const topDdds = filteredDdds.slice(0, 20);
 
+  const mapStillLoading = contactsHasMore || contactsLoadingMore;
+  const noGeolocatedContacts = withDdd === 0;
+  const showMapEmpty = noGeolocatedContacts && !mapStillLoading;
+  const baseEmpty = total === 0;
+
   return (
     <PageShell
       statusStrip={
@@ -199,6 +208,61 @@ export const ContactsMapTab: React.FC = () => {
           <ZmFieldHelp content={FIELD_HELP.contactsMap} ariaLabel="Ajuda: mapa de contatos" />
         </div>
 
+        {mapStillLoading && noGeolocatedContacts && !showMapEmpty ? (
+          <div
+            className="rounded-xl px-4 py-8 text-center"
+            style={{ background: 'var(--surface)', border: '1px solid var(--border-subtle)' }}
+          >
+            <p className="text-[13px] font-medium" style={{ color: 'var(--text-2)' }}>
+              Carregando contatos para montar a distribuição por região…
+            </p>
+          </div>
+        ) : showMapEmpty ? (
+          <EmptyState
+            icon={<MapPin className="w-6 h-6" style={{ color: 'var(--brand-600)' }} />}
+            title={baseEmpty ? 'Nada para mapear ainda' : 'Nenhum contato geolocalizado'}
+            description={
+              <div className="space-y-2 text-left max-w-md mx-auto">
+                <p className="text-center">
+                  {baseEmpty
+                    ? 'Importe ou sincronize contatos com DDD brasileiro — o mapa agrupa por cidade e estado automaticamente.'
+                    : `Você tem ${total.toLocaleString('pt-BR')} contato${total !== 1 ? 's' : ''} na base, mas nenhum com DDD reconhecido para região.`}
+                </p>
+                <ul className="text-[13px] space-y-1 list-disc list-inside" style={{ color: 'var(--text-2)' }}>
+                  <li>Números no formato +55 (DDD) 9xxxx-xxxx</li>
+                  <li>Importe planilha ou sincronize nomes do chip online</li>
+                  <li>Cadastre ou corrija telefones incompletos em Contatos</li>
+                </ul>
+              </div>
+            }
+            action={
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Button
+                  variant="primary"
+                  leftIcon={<Upload className="w-4 h-4" />}
+                  onClick={() => navigateToContacts(setCurrentView, 'import')}
+                >
+                  Importar planilha
+                </Button>
+                <Button
+                  variant="secondary"
+                  leftIcon={<Smartphone className="w-4 h-4" />}
+                  onClick={() => navigateToContacts(setCurrentView, 'sync')}
+                >
+                  Sincronizar com chip
+                </Button>
+                <Button
+                  variant="ghost"
+                  leftIcon={<ArrowRight className="w-4 h-4" />}
+                  onClick={() => navigateToContacts(setCurrentView)}
+                >
+                  Ir para Contatos
+                </Button>
+              </div>
+            }
+          />
+        ) : (
+          <>
         {/* ── KPIs Rápidos ────────────────── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
@@ -500,6 +564,9 @@ export const ContactsMapTab: React.FC = () => {
               mas não nas distribuições por cidade/estado.
             </p>
           </div>
+        )}
+
+          </>
         )}
 
       </div>

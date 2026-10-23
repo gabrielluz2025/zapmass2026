@@ -90,6 +90,7 @@ import { useContactPicturePrefetch } from '../hooks/useContactPicturePrefetch';
 import { normalizeContactPersonName, parseExtraPrefixes, isSuspiciousContactName } from '../utils/contactNameNormalize';
 import { applyAddressNormalizationToContact } from '../utils/contactAddressNormalize';
 import { consumeAtlasContactsHint } from '../utils/atlasRegionLaunch';
+import { CONTACTS_OPEN_ACTION_KEY } from '../utils/contactsViewNav';
 import { getModalPortalContainer } from '../utils/domPortal';
 import { validateImportRow } from '../utils/contactImportSchema';
 import { apiFetchJson } from '../utils/apiFetchAuth';
@@ -3974,6 +3975,21 @@ export const ContactsTab: React.FC = () => {
   const openImportVcf = useCallback(() => {
     vcfInputRef.current?.click();
   }, []);
+
+  useEffect(() => {
+    try {
+      const action = sessionStorage.getItem(CONTACTS_OPEN_ACTION_KEY);
+      if (!action) return;
+      sessionStorage.removeItem(CONTACTS_OPEN_ACTION_KEY);
+      if (action === 'import') {
+        openImportXLSX();
+      } else if (action === 'sync') {
+        void openBaseChipSyncModal();
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [openImportXLSX, openBaseChipSyncModal]);
 
   // Converte os smartSegments existentes para o formato do painel (mapeia 'red' → 'rose').
   const segmentsForPanel = useMemo(() => smartSegments.map((s) => ({
