@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.350] - 2026-10-23
+
+### Melhorado
+- **Campanhas (v2.3.350):** chrome com `ZmPageHeader`, CTA «Nova campanha» + «Como funciona», KPIs glass, lista com filtros em pills, dica de próxima ação nos cards, assistente com passos PT (Público → Revisão), opções avançadas colapsáveis (pool, pesos, SpinTrax, cronograma diário) e empty state em 3 passos.
+
 ## [2.3.349] - 2026-10-23
 
 ### Melhorado

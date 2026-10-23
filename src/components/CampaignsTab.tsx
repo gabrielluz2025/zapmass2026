@@ -319,7 +319,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       try {
         const enqueued = await redispatchCampaign(id, { mode: 'resume' });
         if (enqueued > 0) {
-          toast.success(`Disparo iniciado (${enqueued.toLocaleString('pt-BR')} na fila).`);
+          toast.success(`Disparo iniciado (${enqueued.toLocaleString('pt-BR')} envio(s) pendente(s)).`);
           appendAudit({
             action: 'campaign_resume',
             label: `Iniciar: ${campaign.name}`,
@@ -875,6 +875,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           subTab={subTab}
           onSubTabChange={handleSubTabChange}
           onCreate={requestCreateFlow}
+          onOpenGuide={() => setCurrentView('help')}
           onOpenDetails={openDetails}
         >
           {subTab === 'overview' && (
@@ -1043,9 +1044,9 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
         <div className="space-y-1">
           {[
             { k: 'N', d: 'Nova campanha' },
-            { k: '1', d: 'Ir para Dashboard' },
-            { k: '2', d: 'Ir para Centro de missões' },
-            { k: '3', d: 'Ir para lista de campanhas' },
+            { k: '1', d: 'Ir para Resumo (campanhas)' },
+            { k: '2', d: 'Ir para Ao vivo' },
+            { k: '3', d: 'Ir para Lista de campanhas' },
             { k: 'T', d: 'Abrir/fechar Teste de disparo' },
             { k: '?', d: 'Mostrar esta tela de atalhos' }
           ].map((row) => (

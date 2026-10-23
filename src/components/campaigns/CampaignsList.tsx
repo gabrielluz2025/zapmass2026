@@ -34,7 +34,8 @@ import {
   CAMPAIGN_REMAINING_CONTACTS_TITLE,
 } from '../../utils/campaignQueueMetricCopy';
 import { appendAudit } from '../../utils/campaignMissionStorage';
-import { Badge, Button, Card, EmptyState, Input, Modal, Tabs } from '../ui';
+import { Badge, Button, Card, EmptyState, Input, Modal } from '../ui';
+import { getCampaignNextActionHint } from '../../utils/campaignNextActionHint';
 import { Sparkline, fmtInt } from './CampaignVisuals';
 
 interface CampaignsListProps {
@@ -51,6 +52,14 @@ interface CampaignsListProps {
 type StatusFilter = 'ALL' | 'SCHEDULED' | 'RUNNING' | 'PAUSED' | 'COMPLETED';
 type ViewMode = 'cards' | 'compact' | 'table';
 type SortKey = 'recent' | 'name' | 'progress' | 'success' | 'volume';
+
+const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
+  { id: 'ALL', label: 'Todas' },
+  { id: 'RUNNING', label: 'Ativas' },
+  { id: 'SCHEDULED', label: 'Agendadas' },
+  { id: 'PAUSED', label: 'Pausadas' },
+  { id: 'COMPLETED', label: 'Concluídas' },
+];
 
 const LS_VIEW = 'zapmass.campaigns.list.view';
 const LS_SORT = 'zapmass.campaigns.list.sort';
@@ -204,6 +213,23 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const statusCounts = useMemo(() => {
+    const counts: Record<StatusFilter, number> = {
+      ALL: campaigns.length,
+      SCHEDULED: 0,
+      RUNNING: 0,
+      PAUSED: 0,
+      COMPLETED: 0,
+    };
+    campaigns.forEach((c) => {
+      if (c.status === CampaignStatus.SCHEDULED) counts.SCHEDULED++;
+      else if (c.status === CampaignStatus.RUNNING) counts.RUNNING++;
+      else if (c.status === CampaignStatus.PAUSED) counts.PAUSED++;
+      else if (c.status === CampaignStatus.COMPLETED) counts.COMPLETED++;
+    });
+    return counts;
+  }, [campaigns]);
+
   const filtered = useMemo(() => {
     let list = campaigns;
     if (status !== 'ALL') list = list.filter((c) => c.status === status);
@@ -314,29 +340,23 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
               leftIcon={<Search className="w-4 h-4" />}
             />
           </div>
-          <Tabs
-            value={status}
-            onChange={(v) => setStatus(v as StatusFilter)}
-            items={[
-              { id: 'ALL', label: `Todas (${campaigns.length})` },
-              {
-                id: 'SCHEDULED',
-                label: `Agendadas (${campaigns.filter((c) => c.status === CampaignStatus.SCHEDULED).length})`
-              },
-              {
-                id: 'RUNNING',
-                label: `Ativas (${campaigns.filter((c) => c.status === CampaignStatus.RUNNING).length})`
-              },
-              {
-                id: 'PAUSED',
-                label: `Pausadas (${campaigns.filter((c) => c.status === CampaignStatus.PAUSED).length})`
-              },
-              {
-                id: 'COMPLETED',
-                label: `Concluídas (${campaigns.filter((c) => c.status === CampaignStatus.COMPLETED).length})`
-              }
-            ]}
-          />
+          <div className="zm-filter-pills sm:justify-end">
+            {STATUS_FILTERS.map((f) => {
+              const active = status === f.id;
+              const count = statusCounts[f.id];
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  className={`zm-filter-pill${active ? ' zm-filter-pill--active' : ''}`}
+                  onClick={() => setStatus(f.id)}
+                >
+                  {f.label}
+                  <span className="zm-filter-pill__count tabular-nums">{count}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div
@@ -839,17 +859,15 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
     : '#94a3b8';
 
   const pending = m.pending;
+  const nextHint = getCampaignNextActionHint(view, m);
 
   return (
     <div
       onClick={onOpen}
-      className="relative rounded-2xl p-3.5 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg"
+      className="relative zm-glass-card-v2 zm-glass-card-v2--pad-sm zm-glass-card-v2--hover cursor-pointer"
       style={{
-        background: 'var(--surface-0)',
-        border: selected
-          ? `1px solid ${accent}`
-          : '1px solid var(--border-subtle)',
-        boxShadow: selected ? `0 0 0 2px ${accent}40, 0 6px 16px -8px ${accent}66` : undefined
+        border: selected ? `1px solid ${accent}` : undefined,
+        boxShadow: selected ? `0 0 0 2px ${accent}40, var(--zm-shadow-glass)` : undefined
       }}
     >
       {/* Faixa superior de status */}
@@ -1080,6 +1098,14 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
           />
         </div>
       </div>
+
+      <p
+        className="text-[11px] leading-snug mb-2 flex items-start gap-1.5"
+        style={{ color: 'var(--text-2)' }}
+      >
+        <ArrowRight className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: accent }} />
+        <span>{nextHint}</span>
+      </p>
 
       {/* Rodapé: ETA / criado em */}
       <div

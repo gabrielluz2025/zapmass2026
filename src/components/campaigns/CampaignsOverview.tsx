@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { Campaign, CampaignStatus, WhatsAppConnection, ConnectionStatus } from '../../types';
 import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
-import { Badge, Button, EmptyState } from '../ui';
+import { Badge, Button, EmptyState, ZmGlassCard } from '../ui';
 import { PulseChart, fmtInt } from './CampaignVisuals';
 
 interface CampaignsOverviewProps {
@@ -142,15 +142,36 @@ export const CampaignsOverview: React.FC<CampaignsOverviewProps> = ({
         icon={<Rocket className="w-6 h-6" style={{ color: 'var(--brand-600)' }} />}
         title="Nenhuma campanha ainda"
         description={
-          <div className="space-y-3 text-left max-w-md mx-auto">
-            <p className="text-center">
-              Em poucos minutos você dispara para toda a base com intervalo anti-ban e chips em rodízio.
+          <div className="space-y-4 text-left max-w-lg mx-auto">
+            <p className="text-center text-[13px]" style={{ color: 'var(--text-2)' }}>
+              Três passos e você dispara com intervalo seguro entre mensagens e rodízio automático de canais.
             </p>
-            <ol className="text-[13px] space-y-1.5 list-decimal list-inside" style={{ color: 'var(--text-2)' }}>
-              <li>Conecte um chip WhatsApp (Conexões)</li>
-              <li>Importe ou sincronize contatos</li>
-              <li>Crie a campanha e confirme o disparo</li>
-            </ol>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {[
+                { n: '1', title: 'Conectar WhatsApp', desc: 'Aba Conexões — escaneie o QR' },
+                { n: '2', title: 'Organizar contatos', desc: 'Importe planilha ou sincronize o chip' },
+                { n: '3', title: 'Nova campanha', desc: 'Público → Mensagem → Revisão' },
+              ].map((s) => (
+                <ZmGlassCard key={s.n} padding="sm" className="text-center">
+                  <span
+                    className="inline-flex w-7 h-7 rounded-full items-center justify-center text-[12px] font-black mb-1.5"
+                    style={{
+                      background: 'color-mix(in srgb, var(--brand-500) 18%, transparent)',
+                      color: 'var(--brand-400)',
+                      border: '1px solid color-mix(in srgb, var(--brand-500) 35%, transparent)',
+                    }}
+                  >
+                    {s.n}
+                  </span>
+                  <p className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>
+                    {s.title}
+                  </p>
+                  <p className="text-[10.5px] mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>
+                    {s.desc}
+                  </p>
+                </ZmGlassCard>
+              ))}
+            </div>
           </div>
         }
         action={

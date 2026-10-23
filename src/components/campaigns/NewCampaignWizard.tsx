@@ -88,6 +88,7 @@ import {
   CampaignSpreadsheetAudience,
   type CampaignSpreadsheetRowState,
 } from './CampaignSpreadsheetAudience';
+import { CampaignWizardDisclosure } from './CampaignWizardDisclosure';
 
 type MessageStageOptionDraft = {
   id: string;
@@ -248,10 +249,10 @@ interface NewCampaignWizardProps {
 }
 
 const STEPS = [
-  { id: 1, key: 'audience', label: 'Publico', description: 'Defina para quem enviar' },
-  { id: 2, key: 'message', label: 'Mensagem', description: 'O que sera enviado' },
-  { id: 3, key: 'channels', label: 'Canais', description: 'Quais chips e timing' },
-  { id: 4, key: 'review', label: 'Revisao', description: 'Confira e dispare' }
+  { id: 1, key: 'audience', label: 'Público', description: 'Para quem enviar' },
+  { id: 2, key: 'message', label: 'Mensagem', description: 'Texto e anexos' },
+  { id: 3, key: 'channels', label: 'Envio', description: 'Canais e ritmo' },
+  { id: 4, key: 'review', label: 'Revisão', description: 'Confirme e dispare' },
 ] as const;
 
 export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
@@ -334,6 +335,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [delaySeconds, setDelaySeconds] = useState(45);
   const [delaySecondsMax, setDelaySecondsMax] = useState(90);
   const [humanizedPauses, setHumanizedPauses] = useState(true);
+  const [dispatchAdvancedOpen, setDispatchAdvancedOpen] = useState(false);
+  const [messageAdvancedOpen, setMessageAdvancedOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   /** Checklist obrigatoria antes de disparar ou agendar (passo 4). */
   const [preflightAck, setPreflightAck] = useState({
@@ -1197,6 +1200,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     if (initialDraft.initialPoolId) {
       setSelectedPoolId(initialDraft.initialPoolId);
     }
+    if (
+      initialDraft.initialChipSelectionMode === 'pool' ||
+      initialDraft.dailyScheduleEnabled ||
+      initialDraft.channelWeightMode === 'custom'
+    ) {
+      setDispatchAdvancedOpen(true);
+    }
     if (typeof initialDraft.dailyScheduleEnabled === 'boolean') {
       setDailyScheduleEnabled(initialDraft.dailyScheduleEnabled);
     }
@@ -2010,7 +2020,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     );
     if (unresolvedTemplates.length > 0) {
       toast.error(
-        'A mensagem ainda contém uma variável ou SpinTrax não resolvido. Revise o preview antes de disparar.',
+        'A mensagem ainda contém uma variável ou variação de texto não resolvida. Revise o preview antes de disparar.',
         { duration: 8000 }
       );
       return;
@@ -2247,47 +2257,43 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   return (
     <div className="max-w-7xl mx-auto pb-10">
 
-      {/* ── Cabeçalho do wizard ── */}
-      <div
-        className="rounded-2xl px-4 py-3 sm:px-5 sm:py-4 mb-5 flex flex-wrap items-center justify-between gap-3"
-        style={{
-          background: 'var(--surface-1)',
-          border: '1px solid var(--border-subtle)',
-          boxShadow: '0 1px 6px rgba(0,0,0,0.06)',
-          borderLeft: '3px solid #06B6D4',
-        }}
-      >
-        <div className="flex items-center gap-3 min-w-0">
+      <header className="zm-page-header mb-5">
+        <div className="zm-page-header__inner flex-wrap">
           <button
             type="button"
             onClick={onCancel}
-            className="flex items-center justify-center w-8 h-8 rounded-xl flex-shrink-0 transition-colors hover:bg-[var(--surface-2)]"
+            className="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0 transition-colors hover:bg-[var(--surface-2)] order-first sm:order-none"
             style={{ border: '1px solid var(--border-subtle)', color: 'var(--text-2)' }}
             aria-label="Cancelar e voltar"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <div className="min-w-0">
-            <h1 className="text-[16px] font-bold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
-              {isEditMode ? 'Editar campanha · Broadcast Studio' : 'Nova campanha · Broadcast Studio'}
+          <div className="zm-page-header__icon">
+            <Send className="w-5 h-5 text-cyan-400" />
+          </div>
+          <div className="zm-page-header__body min-w-0 flex-1">
+            <h1 className="zm-page-header__title">
+              {isEditMode ? 'Editar campanha' : 'Nova campanha'}
             </h1>
-            <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
-              {isEditMode ? 'Edite mensagem, chips e cronograma — o progresso enviado é preservado' : 'Configure passo a passo: público, mensagem, canais e revisão'}
+            <p className="zm-page-header__subtitle">
+              {isEditMode
+                ? 'Ajuste mensagem, canais e horários — quem já recebeu não entra de novo.'
+                : 'Assistente em 4 passos: público, mensagem, envio e revisão final.'}
             </p>
           </div>
+          <div className="zm-page-header__actions">
+            <span
+              className="text-[11px] font-bold px-3 py-1.5 rounded-lg tabular-nums"
+              style={{ background: 'rgba(99,102,241,0.14)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.28)' }}
+            >
+              Passo {step} de 4 · {STEPS.find((s) => s.id === step)?.label}
+            </span>
+          </div>
         </div>
-        <div
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg flex-shrink-0"
-          style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.28)' }}
-        >
-          <span className="text-[11px] font-bold" style={{ color: '#818cf8' }}>
-            Passo {step} de 4
-          </span>
-        </div>
-      </div>
+      </header>
 
       {/* ── Stepper com linha de progresso ── */}
-      <div className="mb-5 relative">
+      <div className="zm-wizard-stepper mb-5 relative">
         {/* Linha base */}
         <div
           className="absolute"
@@ -3132,6 +3138,25 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     </span>
                     </div>
                   )}
+                  <CampaignWizardDisclosure
+                    title="Opções avançadas de texto"
+                    summary="Variações automáticas (SpinTrax) e dicas de personalização"
+                    open={messageAdvancedOpen}
+                    onToggle={() => setMessageAdvancedOpen((v) => !v)}
+                  >
+                    <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-2)' }}>
+                      Use blocos como{' '}
+                      <code className="font-mono text-[11px] px-1 rounded" style={{ background: 'var(--surface-1)' }}>
+                        {'{Olá|Oi|E aí}'}
+                      </code>{' '}
+                      para cada contato receber uma variação diferente — reduz padrão repetitivo.
+                      <ZmFieldHelp content={FIELD_HELP.spinTrax} ariaLabel="Ajuda: SpinTrax" />
+                    </p>
+                    <p className="text-[11px] mt-2" style={{ color: 'var(--text-3)' }}>
+                      Insira variáveis pelos chips acima do editor (<strong>nome</strong>, cidade, etc.) ou cole blocos
+                      SpinTrax direto no texto.
+                    </p>
+                  </CampaignWizardDisclosure>
                   </div>
             </Card>
           )}
@@ -3143,13 +3168,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h3 className="ui-title text-[15px] flex items-center gap-1.5">
-                      Chips do WhatsApp
+                      Canais de envio
                       <ZmFieldHelp content={FIELD_HELP.connectionPool} ariaLabel="Ajuda: seleção de chips" />
                     </h3>
                     <p className="ui-subtitle text-[12.5px]">
                       {isEditMode
-                        ? 'Troque o pool ou os chips. Offline também pode entrar — o disparo usa os que estiverem online.'
-                        : 'Escolha quais canais vão participar do disparo.'}
+                        ? 'Troque os chips. Offline também pode entrar — o disparo usa os que estiverem online.'
+                        : 'Marque os WhatsApps que vão enviar esta campanha.'}
                     </p>
                   </div>
                   <Badge variant="neutral">
@@ -3158,94 +3183,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   </Badge>
                 </div>
 
-                {/* Alternância manual / pool */}
-                <div className="flex gap-2 mb-3">
-                  {[
-                    { id: 'manual', label: 'Chips individuais' },
-                    { id: 'pool', label: `Pool${availablePools.length > 0 ? ` (${availablePools.length})` : ''}` },
-                  ].map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setChipSelectionMode(opt.id as 'manual' | 'pool')}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition"
-                      style={{
-                        background: chipSelectionMode === opt.id ? 'rgba(16,185,129,0.15)' : 'var(--surface-1)',
-                        border: `1.5px solid ${chipSelectionMode === opt.id ? 'rgba(16,185,129,0.4)' : 'var(--border-subtle)'}`,
-                        color: chipSelectionMode === opt.id ? 'var(--emerald, #10b981)' : 'var(--text-2)',
-                      }}
-                    >
-                      {opt.id === 'pool' ? <Layers className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Seletor de pool */}
-                {chipSelectionMode === 'pool' && (
-                  <div className="mb-3">
-                    {availablePools.length === 0 ? (
-                      <div
-                        className="rounded-lg px-4 py-3 text-center"
-                        style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                      >
-                        <Layers className="w-5 h-5 mx-auto mb-1.5" style={{ color: 'var(--text-3)' }} />
-                        <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                          Nenhum pool criado ainda.
-                        </p>
-                        <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                          Crie um pool na aba <strong>Conexões → Pools de Chips</strong> e volte aqui.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {availablePools.map((pool) => {
-                          const onlineCount = pool.connectionIds.filter((id) =>
-                            onlineConnections.some((c) => c.id === id)
-                          ).length;
-                          const isSel = selectedPoolId === pool.id;
-                          return (
-                            <label
-                              key={pool.id}
-                              className="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition"
-                              style={{
-                                background: isSel ? 'rgba(16,185,129,0.08)' : 'var(--surface-1)',
-                                border: `1.5px solid ${isSel ? 'rgba(16,185,129,0.4)' : 'var(--border-subtle)'}`,
-                              }}
-                            >
-                              <input
-                                type="radio"
-                                name="selectedPool"
-                                checked={isSel}
-                                onChange={() => setSelectedPoolId(pool.id)}
-                                className="sr-only"
-                              />
-                              <div
-                                className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
-                                style={isSel ? { background: '#10b981' } : { border: '2px solid var(--border-strong)' }}
-                              >
-                                {isSel && <span className="w-1.5 h-1.5 rounded-full bg-white block" />}
-                              </div>
-                              <Layers className="w-4 h-4 flex-shrink-0" style={{ color: '#10b981' }} />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-[13px] font-bold" style={{ color: 'var(--text)' }}>
-                                  {pool.name}
-                                </p>
-                                <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                                  {pool.connectionIds.length} chip{pool.connectionIds.length !== 1 ? 's' : ''} ·{' '}
-                                  <span style={{ color: onlineCount > 0 ? '#10b981' : '#ef4444' }}>
-                                    {onlineCount} online
-                                  </span>
-                                  {' · '}{pool.strategy === 'round_robin' ? 'Rodízio' : pool.strategy === 'weighted' ? 'Pesos' : 'Prioridade'}
-                                  {' · '}⚡ Failover automático
-                                </p>
-                              </div>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                {chipSelectionMode === 'pool' && !dispatchAdvancedOpen && (
+                  <p
+                    className="text-[11.5px] mb-3 rounded-lg px-3 py-2"
+                    style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', color: 'var(--text-2)' }}
+                  >
+                    Esta campanha usa um <strong>grupo de chips</strong> (pool). Abra <strong>Opções avançadas</strong> abaixo
+                    para editar.
+                  </p>
                 )}
 
                 {chipSelectionMode === 'manual' && (
@@ -3446,80 +3391,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 );
               })()}
 
-              {getConnectedSelectedIds().length > 1 && onlineConnections.length > 0 && (
-                <Card>
-                  <div className="mb-3">
-                    <h3 className="ui-title text-[15px]">Carga por canal</h3>
-                    <p className="ui-subtitle text-[12.5px]">
-                      Defina a proporção entre os chips selecionados. Ex.: pesos 3 e 1 ≈ 75% e 25% dos destinos ao longo
-                      da fila.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {(['equal', 'custom'] as const).map((m) => {
-                      const sel = channelWeightMode === m;
-                      return (
-                        <button
-                          key={m}
-                          type="button"
-                          onClick={() => setChannelWeightMode(m)}
-                          className="text-[12px] font-semibold px-3 py-2 rounded-lg border transition-colors"
-                          style={{
-                            borderColor: sel ? 'rgba(16,185,129,0.45)' : 'var(--border-subtle)',
-                            background: sel ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
-                            color: 'var(--text-1)'
-                          }}
-                        >
-                          {m === 'equal' ? 'Igual entre todos' : 'Pesos livres'}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {channelWeightMode === 'custom' && (
-                    <div className="space-y-2">
-                      {onlineConnections
-                        .filter((c) => selectedConnectionIds.includes(c.id))
-                        .map((conn) => (
-                          <div key={conn.id} className="flex items-center gap-3 flex-wrap">
-                            <span className="text-[12.5px] font-medium min-w-[120px] truncate" style={{ color: 'var(--text-1)' }}>
-                              {conn.name}
-                            </span>
-                            <label className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-3)' }}>
-                              Peso
-                              <ZmFieldHelp content={FIELD_HELP.channelWeight} ariaLabel="Ajuda: peso do chip" />
-                              <input
-                                type="number"
-                                min={1}
-                                max={100}
-                                className="w-16 rounded-lg border px-2 py-1 text-[13px]"
-                                style={{
-                                  borderColor: 'var(--border)',
-                                  background: 'var(--surface-0)',
-                                  color: 'var(--text-1)'
-                                }}
-                                value={channelWeightsById[conn.id] ?? 1}
-                                onChange={(e) =>
-                                  setChannelWeightsById((prev) => ({
-                                    ...prev,
-                                    [conn.id]: Number(e.target.value) || 1
-                                  }))
-                                }
-                              />
-                            </label>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </Card>
-              )}
-
               <Card>
                 {/* Header */}
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h3 className="ui-title text-[15px] flex items-center gap-1.5">
-                      Intervalo Anti-Ban
-                      <ZmFieldHelp content={FIELD_HELP.antiBanInterval} ariaLabel="Ajuda: intervalo anti-ban" />
+                      Intervalo entre mensagens
+                      <ZmFieldHelp content={FIELD_HELP.antiBanInterval} ariaLabel="Ajuda: intervalo entre envios" />
                     </h3>
                     <p className="ui-subtitle text-[12px] mt-0.5">
                       Atraso aleatório entre envios — quanto maior e mais variado, menor o risco de bloqueio.
@@ -3627,8 +3505,179 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               </div>
               </Card>
 
+              <CampaignWizardDisclosure
+                open={dispatchAdvancedOpen}
+                onToggle={() => setDispatchAdvancedOpen((v) => !v)}
+                summary="Grupos de chips, pesos por canal e envio fracionado em vários dias"
+              >
+                <div>
+                  <p className="text-[12px] font-semibold mb-2 flex items-center gap-1.5" style={{ color: 'var(--text-1)' }}>
+                    Origem dos chips
+                    <ZmFieldHelp content={FIELD_HELP.connectionPool} ariaLabel="Ajuda: pool de chips" />
+                  </p>
+                  <div className="flex gap-2 mb-3">
+                    {[
+                      { id: 'manual', label: 'Chips individuais' },
+                      { id: 'pool', label: `Grupo (pool)${availablePools.length > 0 ? ` · ${availablePools.length}` : ''}` },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setChipSelectionMode(opt.id as 'manual' | 'pool')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition"
+                        style={{
+                          background: chipSelectionMode === opt.id ? 'rgba(16,185,129,0.15)' : 'var(--surface-1)',
+                          border: `1.5px solid ${chipSelectionMode === opt.id ? 'rgba(16,185,129,0.4)' : 'var(--border-subtle)'}`,
+                          color: chipSelectionMode === opt.id ? 'var(--emerald, #10b981)' : 'var(--text-2)',
+                        }}
+                      >
+                        {opt.id === 'pool' ? <Layers className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {chipSelectionMode === 'pool' && (
+                    <div className="mb-4">
+                      {availablePools.length === 0 ? (
+                        <div
+                          className="rounded-lg px-4 py-3 text-center"
+                          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                        >
+                          <Layers className="w-5 h-5 mx-auto mb-1.5" style={{ color: 'var(--text-3)' }} />
+                          <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                            Nenhum grupo criado ainda.
+                          </p>
+                          <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                            Crie em <strong>Conexões → Pools de chips</strong> e volte aqui.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {availablePools.map((pool) => {
+                            const onlineCount = pool.connectionIds.filter((id) =>
+                              onlineConnections.some((c) => c.id === id)
+                            ).length;
+                            const isSel = selectedPoolId === pool.id;
+                            return (
+                              <label
+                                key={pool.id}
+                                className="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition"
+                                style={{
+                                  background: isSel ? 'rgba(16,185,129,0.08)' : 'var(--surface-1)',
+                                  border: `1.5px solid ${isSel ? 'rgba(16,185,129,0.4)' : 'var(--border-subtle)'}`,
+                                }}
+                              >
+                                <input
+                                  type="radio"
+                                  name="selectedPool"
+                                  checked={isSel}
+                                  onChange={() => setSelectedPoolId(pool.id)}
+                                  className="sr-only"
+                                />
+                                <div
+                                  className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
+                                  style={isSel ? { background: '#10b981' } : { border: '2px solid var(--border-strong)' }}
+                                >
+                                  {isSel && <span className="w-1.5 h-1.5 rounded-full bg-white block" />}
+                                </div>
+                                <Layers className="w-4 h-4 flex-shrink-0" style={{ color: '#10b981' }} />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[13px] font-bold" style={{ color: 'var(--text)' }}>
+                                    {pool.name}
+                                  </p>
+                                  <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                                    {pool.connectionIds.length} chip{pool.connectionIds.length !== 1 ? 's' : ''} ·{' '}
+                                    <span style={{ color: onlineCount > 0 ? '#10b981' : '#ef4444' }}>
+                                      {onlineCount} online
+                                    </span>
+                                    {' · '}
+                                    {pool.strategy === 'round_robin'
+                                      ? 'Rodízio'
+                                      : pool.strategy === 'weighted'
+                                      ? 'Pesos'
+                                      : 'Prioridade'}
+                                  </p>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {getConnectedSelectedIds().length > 1 && onlineConnections.length > 0 && (
+                  <Card>
+                    <div className="mb-3">
+                      <h3 className="ui-title text-[15px]">Carga por canal</h3>
+                      <p className="ui-subtitle text-[12.5px]">
+                        Proporção entre chips — ex.: pesos 3 e 1 ≈ 75% e 25% dos envios.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {(['equal', 'custom'] as const).map((m) => {
+                        const sel = channelWeightMode === m;
+                        return (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => setChannelWeightMode(m)}
+                            className="text-[12px] font-semibold px-3 py-2 rounded-lg border transition-colors"
+                            style={{
+                              borderColor: sel ? 'rgba(16,185,129,0.45)' : 'var(--border-subtle)',
+                              background: sel ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
+                              color: 'var(--text-1)',
+                            }}
+                          >
+                            {m === 'equal' ? 'Igual entre todos' : 'Pesos personalizados'}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {channelWeightMode === 'custom' && (
+                      <div className="space-y-2">
+                        {onlineConnections
+                          .filter((c) => selectedConnectionIds.includes(c.id))
+                          .map((conn) => (
+                            <div key={conn.id} className="flex items-center gap-3 flex-wrap">
+                              <span
+                                className="text-[12.5px] font-medium min-w-[120px] truncate"
+                                style={{ color: 'var(--text-1)' }}
+                              >
+                                {conn.name}
+                              </span>
+                              <label className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-3)' }}>
+                                Peso
+                                <ZmFieldHelp content={FIELD_HELP.channelWeight} ariaLabel="Ajuda: peso do chip" />
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={100}
+                                  className="w-16 rounded-lg border px-2 py-1 text-[13px]"
+                                  style={{
+                                    borderColor: 'var(--border)',
+                                    background: 'var(--surface-0)',
+                                    color: 'var(--text-1)',
+                                  }}
+                                  value={channelWeightsById[conn.id] ?? 1}
+                                  onChange={(e) =>
+                                    setChannelWeightsById((prev) => ({
+                                      ...prev,
+                                      [conn.id]: Number(e.target.value) || 1,
+                                    }))
+                                  }
+                                />
+                              </label>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </Card>
+                )}
+
               {/* Cronograma de Envio Diário Fracionado */}
-              <Card className="mt-4">
+              <Card className="mt-0">
                 {/* ── Toggle header ── */}
                 <div className="flex items-center justify-between p-1 cursor-pointer" onClick={() => {
                   const next = !dailyScheduleEnabled;
@@ -4047,13 +4096,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   );
                 })()}
               </Card>
+              </CampaignWizardDisclosure>
             </>
           )}
 
           {/* STEP 4: Review */}
           {step === 4 && (
             <Card>
-              <h3 className="ui-title text-[15px] mb-1">{isEditMode ? 'Revisão e salvar' : 'Revisao final'}</h3>
+              <h3 className="ui-title text-[15px] mb-1">{isEditMode ? 'Revisão e salvar' : 'Revisão final'}</h3>
               <p className="ui-subtitle text-[12.5px] mb-4">
                 {isEditMode
                   ? 'Confira mensagem, chips e cronograma. Salvar não reenvia quem já recebeu.'
@@ -4087,8 +4137,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   className="mb-5 p-4 rounded-xl space-y-3"
                   style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
                 >
-                  <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                  <p className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: 'var(--text-2)' }}>
                     Quando enviar
+                    <ZmFieldHelp content={FIELD_HELP.campaignSchedule} ariaLabel="Ajuda: agendamento" />
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <button

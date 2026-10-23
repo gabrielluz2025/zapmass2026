@@ -19,6 +19,8 @@ export const FIELD_HELP = {
     'Alternativa ao QR: informe o número com DDI (5511…) e digite o código de 8 dígitos que aparece no celular.',
   campaignAudience:
     'Quem recebe a campanha: lista salva, filtros da base ou números colados manualmente. Revise duplicados antes de disparar.',
+  campaignSchedule:
+    'Escolha disparar agora ou reservar horários na semana. O fuso segue o relógio do seu navegador — ideal para não enviar de madrugada.',
   replyFlow:
     'Fluxo por respostas: cada etapa só avança quando o contato manda a palavra-gatilho (ex.: QUERO). Ideal para funis e opt-in.',
   spinTrax:

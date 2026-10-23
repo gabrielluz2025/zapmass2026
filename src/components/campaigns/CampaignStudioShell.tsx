@@ -7,6 +7,7 @@ import React, { useMemo } from 'react';
 import {
   AlertTriangle,
   BarChart3,
+  BookOpen,
   CheckCircle2,
   LayoutGrid,
   Loader2,
@@ -20,7 +21,7 @@ import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
 import { DispatchFixPanel } from './DispatchFixPanel';
 import { useDispatchHealth } from './useDispatchHealth';
 import { useAuth } from '../../context/AuthContext';
-import { PageShell, StatTile, Badge, ZmPageHeader } from '../ui';
+import { PageShell, Badge, ZmPageHeader, Button, ZmGlassCard, ZmMetricCard } from '../ui';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
 
 export type CampaignStudioTab = 'overview' | 'mission' | 'campaigns' | 'create';
@@ -39,6 +40,7 @@ interface Props {
   subTab: CampaignStudioTab;
   onSubTabChange: (tab: CampaignStudioTab) => void;
   onCreate: () => void;
+  onOpenGuide?: () => void;
   onOpenDetails: (id: string) => void;
   children: React.ReactNode;
 }
@@ -49,6 +51,7 @@ export const CampaignStudioShell: React.FC<Props> = ({
   subTab,
   onSubTabChange,
   onCreate,
+  onOpenGuide,
   onOpenDetails,
   children,
 }) => {
@@ -86,10 +89,10 @@ export const CampaignStudioShell: React.FC<Props> = ({
     health?.reachable === false || health?.kind === 'network' ? ('network' as const) : ('redis' as const);
 
   const nav: NavItem[] = [
-    { id: 'overview', label: 'Painel', hint: 'Métricas e pulso', icon: <BarChart3 className="w-4 h-4" /> },
-    { id: 'mission', label: 'Operações', hint: 'Controle ao vivo', icon: <LayoutGrid className="w-4 h-4" /> },
-    { id: 'campaigns', label: 'Campanhas', hint: 'Lista e calendário', icon: <Send className="w-4 h-4" />, badge: String(stats.total) },
-    { id: 'create', label: 'Nova', hint: 'Assistente', icon: <Sparkles className="w-4 h-4" /> },
+    { id: 'overview', label: 'Resumo', hint: 'Visão do dia', icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'mission', label: 'Ao vivo', hint: 'Missões e testes', icon: <LayoutGrid className="w-4 h-4" /> },
+    { id: 'campaigns', label: 'Lista', hint: 'Todas as campanhas', icon: <Send className="w-4 h-4" />, badge: String(stats.total) },
+    { id: 'create', label: 'Nova', hint: 'Assistente passo a passo', icon: <Sparkles className="w-4 h-4" /> },
   ];
 
   return (
@@ -106,28 +109,43 @@ export const CampaignStudioShell: React.FC<Props> = ({
         </>
       }
     >
-    <div className="flex flex-col gap-4 pb-24 lg:pb-10 max-w-6xl mx-auto w-full">
+    <div className="zm-camp-section flex flex-col gap-4 pb-24 lg:pb-10">
       <ZmPageHeader
         icon={<Send className="w-5 h-5 text-violet-400" />}
         title="Campanhas"
-        subtitle={
-          isAdmin
-            ? 'Centro de missões, modelos, calendário e disparos — motor Redis e chips em tempo real.'
-            : 'Centro de missões, modelos, calendário e disparos — acompanhe chips e envios em tempo real.'
-        }
+        subtitle="Crie disparos, acompanhe o progresso e use modelos prontos — do público à revisão final, em linguagem simples."
         actions={
-          <button
-            type="button"
-            onClick={onCreate}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-[12px] font-bold text-white transition-transform hover:scale-[1.02]"
-            style={{
-              background: 'linear-gradient(135deg, var(--brand-500), var(--brand-600))',
-              boxShadow: 'var(--zm-glow-brand-soft)',
-            }}
-          >
-            <Plus className="w-4 h-4" />
-            Nova campanha
-          </button>
+          <>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              leftIcon={<Plus className="w-3.5 h-3.5" />}
+              onClick={onCreate}
+            >
+              Nova campanha
+            </Button>
+            {onOpenGuide ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                leftIcon={<BookOpen className="w-3.5 h-3.5" />}
+                onClick={onOpenGuide}
+              >
+                Como funciona
+              </Button>
+            ) : null}
+          </>
+        }
+        footer={
+          isAdmin ? (
+            <div className="px-4 sm:px-5 py-2.5">
+              <p className="text-[11px] font-medium" style={{ color: 'var(--text-3)' }}>
+                Admin: diagnóstico de fila e Redis disponível abaixo — clientes não veem estes detalhes.
+              </p>
+            </div>
+          ) : undefined
         }
       />
 
@@ -195,7 +213,7 @@ export const CampaignStudioShell: React.FC<Props> = ({
       {/* ── Área principal ── */}
       <div className="flex-1 min-w-0 space-y-4">
         {/* Saúde do motor — compacto */}
-        <div className="zm-panel space-y-3">
+        <ZmGlassCard padding="md" className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             {isAdmin ? (
               <>
@@ -255,19 +273,27 @@ export const CampaignStudioShell: React.FC<Props> = ({
           {healthUi === 'reconnecting' && (
             <p className="ui-caption">Nova verificação em andamento — mantendo último status estável.</p>
           )}
-        </div>
+        </ZmGlassCard>
 
         {/* KPIs */}
-        <div className="zm-stat-grid">
-          <StatTile label="Em execução" value={stats.running.length} />
-          <StatTile label="Agendadas" value={stats.scheduled.length} />
-          <StatTile label="Enviadas (total)" value={stats.sentToday.toLocaleString('pt-BR')} />
-          <StatTile label="Canais online" value={stats.onlineChips.length} warn={stats.onlineChips.length === 0} />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <ZmMetricCard label="Em execução" value={String(stats.running.length)} accent="emerald" />
+          <ZmMetricCard label="Agendadas" value={String(stats.scheduled.length)} accent="cyan" />
+          <ZmMetricCard
+            label="Entregues (total)"
+            value={stats.sentToday.toLocaleString('pt-BR')}
+            accent="violet"
+          />
+          <ZmMetricCard
+            label="Canais online"
+            value={`${stats.onlineChips.length}/${connections.length}`}
+            accent={stats.onlineChips.length === 0 ? 'amber' : 'emerald'}
+          />
         </div>
 
         {/* Missões ativas — compacto */}
         {stats.running.length > 0 && (
-          <div className="zm-panel space-y-2">
+          <ZmGlassCard padding="md" className="space-y-2">
             <p className="ui-overline">Ao vivo agora</p>
             {stats.running.slice(0, 2).map((c) => {
               const m = getCampaignProgressMetrics(c);
@@ -293,7 +319,7 @@ export const CampaignStudioShell: React.FC<Props> = ({
                 </button>
               );
             })}
-          </div>
+          </ZmGlassCard>
         )}
 
         {/* Conteúdo da sub-aba */}

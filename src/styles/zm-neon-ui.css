@@ -211,6 +211,72 @@
     var(--zm-glow-brand-soft);
 }
 
+/* ── Campanhas: filtros e assistente ── */
+.zm-camp-section {
+  max-width: 72rem;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+}
+
+.zm-filter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.zm-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-0) 70%, transparent);
+  color: var(--text-2);
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.zm-filter-pill:hover {
+  border-color: color-mix(in srgb, var(--brand-500) 28%, var(--border-subtle));
+  color: var(--text-1);
+}
+
+.zm-filter-pill--active {
+  border-color: color-mix(in srgb, var(--brand-500) 45%, transparent);
+  background: color-mix(in srgb, var(--brand-500) 14%, transparent);
+  color: var(--brand-400);
+  box-shadow: var(--zm-glow-brand-soft);
+}
+
+.zm-filter-pill__count {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-1);
+  color: var(--text-3);
+}
+
+.zm-filter-pill--active .zm-filter-pill__count {
+  background: color-mix(in srgb, var(--brand-500) 22%, transparent);
+  color: var(--brand-300, var(--brand-400));
+}
+
+.zm-wizard-stepper {
+  padding: 14px 16px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--zm-glass-border);
+  background: var(--zm-surface-glass);
+  box-shadow: var(--zm-shadow-glass);
+  backdrop-filter: blur(var(--zm-glass-blur));
+}
+
 .zm-metric-card__top {
   display: flex;
   align-items: flex-start;
