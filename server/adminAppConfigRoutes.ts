@@ -72,6 +72,7 @@ type AdminUserInsights = {
   email: string;
   accountCreatedAt: string | null;
   lastSignInAt: string | null;
+  loginProviders: string[];
   firstActivityAt: string | null;
   daysSinceFirstActivity: number;
   counts: {
@@ -308,6 +309,13 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       const email = userRec?.email || '';
       const accountCreatedAt = userRec?.metadata?.creationTime ? new Date(userRec.metadata.creationTime).toISOString() : null;
       const lastSignInAt = userRec?.metadata?.lastSignInTime ? new Date(userRec.metadata.lastSignInTime).toISOString() : null;
+      const loginProviders = Array.from(
+        new Set(
+          (userRec?.providerData || [])
+            .map((p) => String(p?.providerId || '').trim())
+            .filter(Boolean)
+        )
+      );
 
       const db = getFirestore(adminApp);
       // Isolamento estrito por conta: insights admin usam apenas users/{uid}/...
@@ -395,6 +403,7 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         email,
         accountCreatedAt,
         lastSignInAt,
+        loginProviders,
         firstActivityAt,
         daysSinceFirstActivity,
         counts: {

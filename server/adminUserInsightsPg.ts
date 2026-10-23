@@ -12,6 +12,7 @@ export type AdminUserInsightsPayload = {
   email: string;
   accountCreatedAt: string | null;
   lastSignInAt: string | null;
+  loginProviders: string[];
   firstActivityAt: string | null;
   daysSinceFirstActivity: number;
   counts: {
@@ -78,8 +79,13 @@ export async function loadAdminUserInsightsPg(uid: string): Promise<AdminUserIns
   const tenantId = resolvePostgresTenantId(String(uid || '').trim());
   if (!tenantId) return null;
 
-  const userR = await pool.query<{ email: string; created_at: Date }>(
-    `SELECT email, created_at FROM zapmass.users WHERE id = $1::uuid LIMIT 1`,
+  const userR = await pool.query<{
+    email: string;
+    created_at: Date;
+    google_sub: string | null;
+    password_hash: string | null;
+  }>(
+    `SELECT email, created_at, google_sub, password_hash FROM zapmass.users WHERE id = $1::uuid LIMIT 1`,
     [tenantId]
   );
   const userRow = userR.rows[0];
@@ -163,6 +169,9 @@ export async function loadAdminUserInsightsPg(uid: string): Promise<AdminUserIns
   }
 
   const accountCreatedAt = userRow.created_at?.toISOString?.() ?? null;
+  const loginProviders: string[] = [];
+  if (userRow.google_sub) loginProviders.push('google.com');
+  if (userRow.password_hash) loginProviders.push('password');
   const firstActivityMsCandidates = [
     ...lists.map((l) => asEpoch(l.createdAt)),
     ...campaigns.map((c) => asEpoch(c.createdAt)),
@@ -179,6 +188,7 @@ export async function loadAdminUserInsightsPg(uid: string): Promise<AdminUserIns
     email: userRow.email,
     accountCreatedAt,
     lastSignInAt: null,
+    loginProviders,
     firstActivityAt,
     daysSinceFirstActivity,
     counts: {

@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.339',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Centro de acessos: painel Resumo/Métricas profissional (StatCards, cobrança, login, skeleton, barras de uso)',
+      },
+    ],
+  },
+  {
     version: '2.3.338',
     date: '23/10/2026',
     highlights: [

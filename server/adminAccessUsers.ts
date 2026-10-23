@@ -18,6 +18,8 @@ export type AdminUserAccessRow = {
   plan: string | null;
   blocked: boolean;
   manualGrant: boolean;
+  manualGrantKind?: 'bonus' | 'paid_external' | null;
+  mercadoPagoPreapprovalId?: string | null;
   trialEndsAt: string | null;
   accessEndsAt: string | null;
   manualAccessEndsAt: string | null;
@@ -106,6 +108,14 @@ export function docToAdminAccessRow(
     plan: typeof data?.plan === 'string' ? data.plan : null,
     blocked: data?.blocked === true,
     manualGrant: data?.manualGrant === true,
+    manualGrantKind:
+      data?.manualGrantKind === 'paid_external' || data?.manualGrantKind === 'bonus'
+        ? data.manualGrantKind
+        : null,
+    mercadoPagoPreapprovalId:
+      typeof data?.mercadoPagoPreapprovalId === 'string' && String(data.mercadoPagoPreapprovalId).trim()
+        ? String(data.mercadoPagoPreapprovalId).trim()
+        : null,
     trialEndsAt: tsToIso(data?.trialEndsAt),
     accessEndsAt: tsToIso(data?.accessEndsAt),
     manualAccessEndsAt: tsToIso(data?.manualAccessEndsAt),

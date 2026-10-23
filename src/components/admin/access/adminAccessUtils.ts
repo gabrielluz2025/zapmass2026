@@ -6,6 +6,8 @@ export type AccessUser = {
   plan: string | null;
   blocked: boolean;
   manualGrant: boolean;
+  manualGrantKind?: 'bonus' | 'paid_external' | null;
+  mercadoPagoPreapprovalId?: string | null;
   trialEndsAt: string | null;
   accessEndsAt: string | null;
   manualAccessEndsAt: string | null;
@@ -32,6 +34,8 @@ export type AccessUserInsights = {
   email: string;
   accountCreatedAt: string | null;
   lastSignInAt: string | null;
+  /** Ex.: google.com, password (Firebase / inferência VPS). */
+  loginProviders?: string[];
   firstActivityAt: string | null;
   daysSinceFirstActivity: number;
   counts: {
@@ -106,10 +110,46 @@ export const formatAccessProviderLabel = (provider: string): string | null => {
   if (NULLISH_LABELS.has(p)) return null;
   if (p === 'mercadopago') return 'Mercado Pago';
   if (p === 'infinitepay') return 'InfinitePay';
-  if (p === 'google') return 'Google';
+  if (p === 'google' || p === 'google.com') return 'Google';
   if (p === 'password' || p === 'email') return 'E-mail';
   return provider.trim();
 };
+
+export const formatAccessPlanLabel = (plan: string | null | undefined): string => {
+  const p = (plan || '').trim().toLowerCase();
+  if (!p || NULLISH_LABELS.has(p)) return 'Sem plano definido';
+  if (p === 'monthly') return 'Mensal';
+  if (p === 'annual') return 'Anual';
+  return plan!.trim();
+};
+
+/** Rótulo amigável para métodos de login (não confundir com provedor de cobrança). */
+export function formatLoginProvidersLabel(
+  loginProviders: string[] | undefined,
+  subscriptionProvider?: string
+): string {
+  const rawIds = (loginProviders?.length ? loginProviders : []).map((id) => String(id || '').trim()).filter(Boolean);
+  if (rawIds.length === 0) {
+    const sub = formatAccessProviderLabel(subscriptionProvider || '');
+    if (sub === 'Google' || sub === 'E-mail') return sub;
+    return 'Não informado';
+  }
+  const labels = rawIds
+    .map((id) => {
+      const n = id.toLowerCase();
+      if (n === 'google.com') return formatAccessProviderLabel('google');
+      if (n === 'password') return formatAccessProviderLabel('password');
+      return formatAccessProviderLabel(id);
+    })
+    .filter((x): x is string => Boolean(x));
+  const unique = [...new Set(labels)];
+  return unique.length > 0 ? unique.join(' · ') : 'Não informado';
+}
+
+export function formatExpiryDisplay(iso: string | null | undefined, emptyHint: string): string {
+  if (!iso) return emptyHint;
+  return toPtDateTime(iso);
+}
 
 export const formatAppUsageMs = (ms: number): string => {
   if (!Number.isFinite(ms) || ms <= 0) return '—';

@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.339] - 2026-10-23
+
+### Melhorado
+- **Centro de acessos — painel da conta:** abas Resumo e Métricas com StatCards, prazos Trial/Pago/Manual com textos úteis (fim dos «—»), tipo de cobrança (MP / bônus / manual cobrado), login Google/e-mail, data de criação, skeleton ao carregar insights, barras de uso e entrega de campanhas.
+
+### Técnico
+- **API:** `access-user-insights` expõe `loginProviders`; listagem admin inclui `manualGrantKind` e `mercadoPagoPreapprovalId` para classificação de cobrança no painel.
+
 ## [2.3.338] - 2026-10-23
 
 ### Melhorado

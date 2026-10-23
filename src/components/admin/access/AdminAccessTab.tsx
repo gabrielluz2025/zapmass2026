@@ -6,10 +6,8 @@ import {
   Clock3,
   Copy,
   Download,
-  History,
   KeyRound,
   LayoutList,
-  Lightbulb,
   Link2,
   Loader2,
   Lock,
@@ -25,7 +23,8 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../context/AuthContext';
-import { Button, Card, CardHeader, EmptyState, Modal, SectionHeader, StatCard, TabBar } from '../../ui';
+import { Button, Card, CardHeader, Modal, SectionHeader, StatCard, TabBar } from '../../ui';
+import { AccessAccountDetailPanel } from './AccessAccountDetailPanel';
 import { apiUrl } from '../../../utils/apiBase';
 import { apiFetchJson } from '../../../utils/apiFetchAuth';
 import { DirectoryAccountList, sortAccessUsers, type DirectorySort } from './DirectoryAccountList';
@@ -35,8 +34,6 @@ import {
   type AccessUser,
   type AccessUserInsights,
   accessExpirySlices,
-  formatAppUsageMs,
-  toPtDateTime,
   userInitial
 } from './adminAccessUtils';
 
@@ -121,63 +118,6 @@ const FieldLabel: React.FC<{ htmlFor?: string; children: React.ReactNode; hint?:
     ) : null}
   </div>
 );
-
-const Metric: React.FC<{ label: string; value: number; accent?: string }> = ({ label, value, accent }) => (
-  <div
-    className="rounded-xl border p-3 transition-transform hover:scale-[1.02]"
-    style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
-  >
-    <p className="text-[10px] uppercase font-bold tracking-wide" style={{ color: 'var(--text-3)' }}>
-      {label}
-    </p>
-    <p className="text-[20px] font-extrabold leading-tight tabular-nums" style={{ color: accent || 'var(--text-1)' }}>
-      {value}
-    </p>
-  </div>
-);
-
-const AccessTimeline: React.FC<{ user: AccessUser }> = ({ user }) => {
-  const now = Date.now();
-  const slices = accessExpirySlices(user);
-  return (
-    <div className="space-y-2">
-      {slices.map((s) => {
-        const active = s.ms > now;
-        const expired = s.ms > 0 && s.ms <= now;
-        const open = !s.at && s.key === 'manual' && user.manualGrant;
-        return (
-          <div
-            key={s.key}
-            className="flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors"
-            style={{
-              borderColor: active ? 'color-mix(in srgb, var(--brand-500) 35%, transparent)' : 'var(--border-subtle)',
-              background: active ? 'color-mix(in srgb, var(--brand-500) 6%, var(--surface-1))' : 'var(--surface-1)'
-            }}
-          >
-            <div
-              className={`w-2 h-2 rounded-full shrink-0 ${active ? 'bg-emerald-500 animate-pulse' : expired ? 'bg-slate-500' : open ? 'bg-sky-500' : 'bg-slate-600'}`}
-            />
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-semibold" style={{ color: 'var(--text-1)' }}>
-                {s.label}
-              </p>
-              <p className="text-[10px] truncate" style={{ color: 'var(--text-3)' }}>
-                {open ? 'Sem data de expiração' : toPtDateTime(s.at)}
-              </p>
-            </div>
-            {active && s.ms ? (
-              <span className="text-[10px] font-bold tabular-nums text-emerald-500">
-                {Math.ceil((s.ms - now) / 86400000)}d
-              </span>
-            ) : expired ? (
-              <span className="text-[10px] text-slate-500">Expirado</span>
-            ) : null}
-          </div>
-        );
-      })}
-    </div>
-  );
-};
 
 const ActionSection: React.FC<{ title: string; description?: string; children: React.ReactNode }> = ({
   title,
@@ -432,6 +372,7 @@ export const AdminAccessTab: React.FC = () => {
     setDetailTab('resumo');
     setSelectedNewPassword('');
     setExtraChannelSlots(String(u.manualExtraChannelSlots ?? 0));
+    setInsights(null);
     void loadInsightsForUid(u.uid);
   };
 
@@ -1058,143 +999,15 @@ export const AdminAccessTab: React.FC = () => {
                 />
               </div>
 
-              <div className="p-4 max-h-[min(62vh,560px)] overflow-y-auto space-y-4">
-                {detailTab === 'resumo' && (
-                  <>
-                    <div
-                      className="rounded-xl border p-4 space-y-3"
-                      style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
-                    >
-                      <p className="ui-eyebrow">Linha do tempo</p>
-                      <AccessTimeline user={selectedUser} />
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[12px]">
-                      <div className="rounded-xl border p-3.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                        <span className="ui-eyebrow block mb-1">Plano</span>
-                        <p className="font-semibold text-[14px]" style={{ color: 'var(--text-1)' }}>
-                          {selectedUser.plan || '—'}
-                        </p>
-                      </div>
-                      <div className="rounded-xl border p-3.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                        <span className="ui-eyebrow block mb-1">Provedor de login</span>
-                        <p className="font-semibold text-[14px] capitalize" style={{ color: 'var(--text-1)' }}>
-                          {selectedUser.provider}
-                        </p>
-                      </div>
-                    </div>
-                    {selectedUser.adminNote ? (
-                      <p className="text-[11px] p-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-200/90">
-                        <Lightbulb className="w-3 h-3 inline mr-1" />
-                        {selectedUser.adminNote}
-                      </p>
-                    ) : null}
-                    <div
-                      className="rounded-xl border p-4"
-                      style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
-                    >
-                      <p className="ui-eyebrow mb-3 flex items-center gap-1.5">
-                        <History className="w-3.5 h-3.5" /> Auditoria recente
-                      </p>
-                      {auditLoading ? (
-                        <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                          Carregando…
-                        </p>
-                      ) : filteredAudit.length === 0 ? (
-                        <EmptyState
-                          title="Sem registros"
-                          description="Ações admin nesta conta aparecerão aqui."
-                          className="!py-6 !px-2"
-                        />
-                      ) : (
-                        <ul className="space-y-2">
-                          {filteredAudit.map((r) => (
-                            <li key={r.id} className="text-[11px] border-l-2 border-cyan-500/40 pl-2.5 py-0.5">
-                              <span className="text-cyan-400 font-medium">{r.action}</span>
-                              <span className="text-slate-500"> · {toPtDateTime(r.createdAt)}</span>
-                              {r.note ? <p className="italic text-slate-400 mt-0.5">“{r.note}”</p> : null}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                {detailTab === 'metricas' && (
-                  <>
-                    {insightsLoading ? (
-                      <div className="py-10 flex justify-center">
-                        <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-                      </div>
-                    ) : !insights || insights.uid !== selectedUser.uid ? (
-                      <EmptyState title="Métricas indisponíveis" description="Tente selecionar a conta novamente." className="!py-8" />
-                    ) : (
-                      <>
-                        <div
-                          className="rounded-xl border p-3"
-                          style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
-                        >
-                          <p className="text-[10px] uppercase mb-1" style={{ color: 'var(--text-3)' }}>
-                            Uso estimado no app
-                          </p>
-                          <p className="text-2xl font-extrabold tabular-nums">{formatAppUsageMs(insights.usage?.totalActiveMs ?? 0)}</p>
-                          <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>
-                            Última atividade: {toPtDateTime(insights.usage?.lastActiveAt)}
-                          </p>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <Metric label="Contatos" value={insights.counts.contactsTotal} />
-                          <Metric label="Válidos" value={insights.counts.contactsValid} accent="#34d399" />
-                          <Metric label="Campanhas" value={insights.counts.campaignsTotal} />
-                          <Metric label="Conexões" value={insights.counts.connectionsTotal} accent="#38bdf8" />
-                          <Metric label="Online" value={insights.counts.connectionsConnected} accent="#34d399" />
-                          <Metric label="Listas" value={insights.counts.contactLists} />
-                        </div>
-                        <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)' }}>
-                          <p className="text-[10px] uppercase font-bold mb-2" style={{ color: 'var(--text-3)' }}>
-                            Entrega campanhas
-                          </p>
-                          <div className="grid grid-cols-2 gap-2 text-[11px] mb-2">
-                            <span>
-                              Alvo <strong>{insights.campaignTotals.targeted}</strong>
-                            </span>
-                            <span className="text-emerald-400">
-                              OK <strong>{insights.campaignTotals.success}</strong>
-                            </span>
-                            <span className="text-red-400">
-                              Falhas <strong>{insights.campaignTotals.failed}</strong>
-                            </span>
-                            <span>
-                              Proc. <strong>{insights.campaignTotals.processed}</strong>
-                            </span>
-                          </div>
-                          {insights.campaignTotals.targeted > 0 && (
-                            <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
-                                style={{
-                                  width: `${Math.min(100, Math.round((100 * insights.campaignTotals.success) / Math.max(1, insights.campaignTotals.targeted)))}%`
-                                }}
-                              />
-                            </div>
-                          )}
-                        </div>
-                        {insights.recentCampaigns.length > 0 && (
-                          <ul className="space-y-1.5">
-                            {insights.recentCampaigns.map((c) => (
-                              <li key={c.id} className="text-[11px] flex justify-between gap-2 border-b border-slate-800/50 pb-1">
-                                <span className="truncate font-medium">{c.name}</span>
-                                <span className="text-slate-500 shrink-0">{c.status}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </>
-                    )}
-                  </>
-                )}
-
-                {detailTab === 'acoes' && (
+              <div className="p-4 max-h-[min(62vh,560px)] overflow-y-auto">
+                <AccessAccountDetailPanel
+                  user={selectedUser}
+                  detailTab={detailTab}
+                  insights={insights}
+                  insightsLoading={insightsLoading}
+                  auditLoading={auditLoading}
+                  auditRows={filteredAudit}
+                  acoesContent={
                   <div className="space-y-4">
                     <ActionSection title="Status da conta" description="Bloqueio impede login imediato; revogar manual remove liberação administrativa.">
                       <div className="flex flex-wrap gap-2">
@@ -1385,7 +1198,8 @@ export const AdminAccessTab: React.FC = () => {
                       </p>
                     </ActionSection>
                   </div>
-                )}
+                  }
+                />
               </div>
             </>
           )}
