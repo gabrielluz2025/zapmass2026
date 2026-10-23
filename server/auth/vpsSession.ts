@@ -29,7 +29,7 @@ export function readRefreshCookie(req: Request): string | null {
 
 export function setRefreshCookie(res: Response, value: string, maxAgeMs: number): void {
   const flags = vpsAuthCookieBaseFlags();
-  res.setHeader(
+  res.append(
     'Set-Cookie',
     `${REFRESH_COOKIE}=${encodeURIComponent(value)}; Max-Age=${Math.floor(maxAgeMs / 1000)}; ${flags}`
   );
@@ -37,7 +37,7 @@ export function setRefreshCookie(res: Response, value: string, maxAgeMs: number)
 
 export function clearRefreshCookie(res: Response): void {
   const flags = vpsAuthCookieBaseFlags();
-  res.setHeader('Set-Cookie', `${REFRESH_COOKIE}=; Max-Age=0; ${flags}`);
+  res.append('Set-Cookie', `${REFRESH_COOKIE}=; Max-Age=0; ${flags}`);
 }
 
 export async function issueVpsSession(

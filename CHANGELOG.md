@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.329] - 2026-10-23
+
+### Corrigido
+- **Login Google (apex/app):** conclusão OAuth prioriza `POST /api/auth/refresh`; fragment `#zapmass_at=` persistido em sessionStorage (React Strict Mode); limpa flag de logout local; cookie refresh via `Set-Cookie` append; log quando cookie refresh ausente.
+
 ## [2.3.328] - 2026-10-23
 
 ### Corrigido

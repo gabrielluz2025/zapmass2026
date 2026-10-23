@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.329',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Login Google: refresh antes do fragment, stash #zapmass_at= no Strict Mode, limpa flag logout e cookie refresh append',
+      },
+    ],
+  },
+  {
     version: '2.3.328',
     date: '23/10/2026',
     highlights: [

@@ -170,6 +170,7 @@ export function registerVpsAuthRoutes(app: Express): void {
         readRefreshCookie(req) ||
         (typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : null);
       if (!plain) {
+        console.warn('[auth/refresh] Cookie zapmass_refresh ausente (origem provável: host/cookie bloqueado ou callback sem Set-Cookie).');
         return res.status(401).json({ ok: false, error: 'Sessão expirada.' });
       }
       let row: Awaited<ReturnType<typeof findValidRefreshToken>> = null;

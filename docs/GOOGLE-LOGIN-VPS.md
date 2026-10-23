@@ -112,7 +112,7 @@ curl -sI 'https://zap-mass.com/api/auth/google/start' | grep -i location
 # Na URL decodificada, confira redirect_uri=https%3A%2F%2Fzap-mass.com%2Fapi%2Fauth%2Fgoogle%2Fcallback
 ```
 
-Se o login Google concluir no Google mas a landing mostrar *«Não foi possível concluir o login com Google»* **sem** `?google_error=` na URL (só `?google_login=1`), o callback provavelmente OK mas o **`POST /api/auth/refresh`** falhou (cookie de sessão). Causas comuns: apex/www diferentes, ou secret `GOCSPX-` errado (aí costuma falhar antes, com `google_error=failed`). Veja logs: `docker logs … 2>&1 | grep 'auth/google/callback'`.
+Se o login Google concluir no Google mas a landing mostrar *«Não foi possível concluir o login com Google»* **sem** `?google_error=` na URL (só `?google_login=1`), o callback provavelmente OK mas o **`POST /api/auth/refresh`** falhou (cookie de sessão) e o fallback **`#zapmass_at=`** também (veja consola: `[auth] Google OAuth return`). Causas comuns: apex/www diferentes, build antigo com `VITE_API_ORIGIN` cross-host errado, flag de logout local (`zapmass_logout_broadcast`), ou secret `GOCSPX-` errado (aí costuma falhar antes, com `google_error=failed`). Logs servidor: `docker logs … 2>&1 | grep -E 'auth/google/callback|auth/refresh'`.
 
 ## 6. Migração
 

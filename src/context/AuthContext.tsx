@@ -15,7 +15,9 @@ import {
   bindCrossTabLogoutSync,
   vpsStartGoogleLogin,
   consumeGoogleLoginFragmentToken,
-  vpsBootstrapSessionFromAccessToken
+  vpsBootstrapSessionFromAccessToken,
+  prepareForGoogleOAuthCallback,
+  clearGoogleLoginFragmentStash
 } from '../services/vpsAuth';
 import { vpsUserToSessionUser } from '../utils/vpsSessionUser';
 import { clearBootstrapCache } from '../utils/bootstrapSessionCache';
@@ -55,6 +57,9 @@ const AuthContext = createContext<AuthContextValue>({
 
 const socialUnavailable =
   'Entre com e-mail e senha. Login social não está disponível nesta instalação.';
+
+/** Evita corrida React Strict Mode (dois mounts consomem o hash OAuth). */
+let googleLoginFinishInFlight: Promise<void> | null = null;
 
 const googleLoginErrorMessages: Record<string, string> = {
   cancelled: 'Login com Google cancelado.',
@@ -120,18 +125,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (params.get('google_login') !== '1') return;
 
     const finish = async () => {
+      prepareForGoogleOAuthCallback();
+      const fragmentToken = consumeGoogleLoginFragmentToken();
       try {
-        const fragmentToken = consumeGoogleLoginFragmentToken();
-        let token: string | null = fragmentToken;
-        if (fragmentToken) {
+        // Cookie HttpOnly (callback) é o caminho principal; fragment é fallback.
+        let token: string | null = await vpsRefreshAccessToken();
+        if (!token && fragmentToken) {
           const bootstrapped = await vpsBootstrapSessionFromAccessToken(fragmentToken);
           if (bootstrapped) token = fragmentToken;
-          else token = null;
         }
         if (!token) {
-          token = await vpsRefreshAccessToken();
-        }
-        if (!token) {
+          console.warn('[auth] Google OAuth return: refresh e bootstrap falharam', {
+            hadFragment: !!fragmentToken
+          });
           toast.error('Não foi possível concluir o login com Google. Tente novamente.');
           return;
         }
@@ -142,12 +148,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } catch {
         toast.error(googleLoginErrorMessages.failed);
       } finally {
+        clearGoogleLoginFragmentStash();
         params.delete('google_login');
         const qs = params.toString();
         window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`);
       }
     };
-    void finish();
+    if (!googleLoginFinishInFlight) {
+      googleLoginFinishInFlight = finish().finally(() => {
+        googleLoginFinishInFlight = null;
+      });
+    }
+    void googleLoginFinishInFlight;
   }, []);
 
   const signInWithGoogle = async () => {

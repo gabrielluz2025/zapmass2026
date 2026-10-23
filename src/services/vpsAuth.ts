@@ -48,16 +48,57 @@ export async function fetchVpsAuthConfig(): Promise<VpsAuthConfig> {
   }
 }
 
-/** Lê access token de curta duração no fragment (#zapmass_at=…) após redirect Google. */
+const GOOGLE_OAUTH_AT_STASH = 'zapmass_google_oauth_at';
+
+/** Extrai JWT do fragment `#zapmass_at=…` (evita URLSearchParams truncar valores atípicos). */
+export function parseGoogleLoginFragmentAccessToken(raw: string): string | null {
+  const trimmed = raw.replace(/^#/, '').trim();
+  if (!trimmed) return null;
+  const prefix = 'zapmass_at=';
+  if (trimmed.startsWith(prefix)) {
+    try {
+      return decodeURIComponent(trimmed.slice(prefix.length));
+    } catch {
+      return null;
+    }
+  }
+  return new URLSearchParams(trimmed).get('zapmass_at');
+}
+
+/** Remove flag de logout local para não bloquear refresh/bootstrap após redirect OAuth. */
+export function prepareForGoogleOAuthCallback(): void {
+  clearLogoutFlag();
+}
+
+/** Lê access token do fragment (#zapmass_at=…) após redirect Google; persiste em sessionStorage (Strict Mode). */
 export function consumeGoogleLoginFragmentToken(): string | null {
   if (typeof window === 'undefined') return null;
   const raw = window.location.hash.replace(/^#/, '');
-  if (!raw) return null;
-  const token = new URLSearchParams(raw).get('zapmass_at');
-  if (!token) return null;
-  const path = `${window.location.pathname}${window.location.search}`;
-  window.history.replaceState({}, '', path);
-  return token;
+  if (raw) {
+    const parsed = parseGoogleLoginFragmentAccessToken(raw);
+    if (parsed) {
+      try {
+        sessionStorage.setItem(GOOGLE_OAUTH_AT_STASH, parsed);
+      } catch {
+        /* ignore */
+      }
+      const path = `${window.location.pathname}${window.location.search}`;
+      window.history.replaceState({}, '', path);
+    }
+  }
+  try {
+    return sessionStorage.getItem(GOOGLE_OAUTH_AT_STASH);
+  } catch {
+    return null;
+  }
+}
+
+export function clearGoogleLoginFragmentStash(): void {
+  try {
+    sessionStorage.removeItem(GOOGLE_OAUTH_AT_STASH);
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Redireciona o browser para o início do OAuth Google (servidor VPS). */
