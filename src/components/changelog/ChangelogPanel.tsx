@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.351',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Assistente Nova campanha: público guiado, prévia explicativa, toasts PT ao avançar e rodapé com passo + rascunho',
+      },
+    ],
+  },
+  {
     version: '2.3.350',
     date: '23/10/2026',
     highlights: [

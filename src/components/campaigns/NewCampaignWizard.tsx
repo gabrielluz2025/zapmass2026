@@ -246,6 +246,8 @@ interface NewCampaignWizardProps {
   onAutosave?: (draft: CampaignWizardDraft) => void;
   /** Campanhas ativas — aviso de cota compartilhada no mesmo chip. */
   campaigns?: Campaign[];
+  /** Atalho para aba Conexões (prévia / passo Envio). */
+  onConnectChannel?: () => void;
 }
 
 const STEPS = [
@@ -264,7 +266,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   initialDraft,
   onDraftConsumed,
   onAutosave,
-  campaigns = []
+  campaigns = [],
+  onConnectChannel
 }) => {
   /** Conversas globais (socket) — usadas só para calcular temperatura. Tomadas via contexto isolado para evitar prop-drilling pesado e caching deferred. */
   const conversations = useZapMassConversations();
@@ -1648,6 +1651,106 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     !isSubmitting &&
     scheduleOk;
 
+  const explainAudienceBlock = (): string | null => {
+    if (isEditMode) return null;
+    if (campaignKind === 'prospecting') {
+      if (eligibleContacts.length === 0) {
+        return 'Nenhum contato elegível na base (todos com opt-out ou sem telefone). Cadastre contatos na aba Contatos.';
+      }
+      return null;
+    }
+    if (sendMode === 'list') {
+      if (!selectedListId) return 'Escolha uma lista de contatos para continuar.';
+      if (selectedListNumbers.length === 0) {
+        return 'Esta lista não tem números válidos para envio. Importe contatos na aba Contatos ou escolha outra lista.';
+      }
+      return null;
+    }
+    if (sendMode === 'manual') {
+      if (manualNumbersForSend.length === 0) {
+        return 'Cole pelo menos um número com DDI (ex.: 5511999999999), um por linha.';
+      }
+      return null;
+    }
+    if (sendMode === 'spreadsheet') {
+      if (!spreadsheetWaVerified) return 'Importe a planilha e conclua a validação no WhatsApp antes de avançar.';
+      if (spreadsheetNumbersForSend.length === 0) return 'Nenhum número válido na planilha. Revise o arquivo e importe de novo.';
+      return null;
+    }
+    if (filteredNumbers.length === 0) {
+      return 'Ajuste os filtros até aparecer pelo menos um contato — ou marque contatos manualmente na grade.';
+    }
+    return null;
+  };
+
+  const explainMessageBlock = (): string | null => {
+    if (!flowModeChosen) return 'Escolha o tipo: disparo único ou fluxo por respostas.';
+    if (!name.trim()) return 'Dê um nome à campanha (só você vê) para organizar na lista depois.';
+    if (messageStages.some((s) => !s.body.trim())) {
+      return 'Escreva o texto de cada etapa da mensagem antes de avançar.';
+    }
+    if (!replyFlowGatesOk) {
+      return 'No fluxo por respostas, preencha gatilhos, respostas automáticas e mensagem para resposta inválida.';
+    }
+    if (!stageCountOk) {
+      return campaignFlowMode === 'reply'
+        ? 'Configure pelo menos a abertura e as regras de resposta do fluxo.'
+        : 'Adicione as etapas de mensagem necessárias para este modo.';
+    }
+    if (
+      campaignKind === 'prospecting' &&
+      campaignFlowMode !== 'reply' &&
+      (prospectingSilentBody.trim().length === 0 ||
+        prospectingResponderSteps.filter((s) => s.body.trim().length > 0).length < 2)
+    ) {
+      return 'Em prospecção, preencha o lembrete para silenciosos e ao menos duas mensagens do plano de resposta.';
+    }
+    return null;
+  };
+
+  const explainChannelsBlock = (): string | null => {
+    if (canGoFromChannels) return null;
+    if (connections.length === 0) {
+      return 'Cadastre um chip na aba Conexões e escaneie o QR antes de continuar.';
+    }
+    return 'Marque pelo menos um WhatsApp online na lista acima — ou conecte um chip na aba Conexões.';
+  };
+
+  const advanceBlockHint =
+    step === 1 && !isEditMode && !canGoFromAudience
+      ? explainAudienceBlock()
+      : step === 2 && !canGoFromMessage
+      ? explainMessageBlock()
+      : step === 3 && !canGoFromChannels
+      ? explainChannelsBlock()
+      : null;
+
+  const previewAudienceSummary = useMemo((): string => {
+    if (campaignKind === 'prospecting') {
+      return `${eligibleContacts.length.toLocaleString('pt-BR')} contatos elegíveis (prospecção)`;
+    }
+    if (sendMode === 'list') {
+      if (!selectedList) return 'Lista — escolha abaixo';
+      return `${selectedList.name} · ${numbers.length.toLocaleString('pt-BR')} válidos`;
+    }
+    if (sendMode === 'filter') {
+      return `Filtros · ${numbers.length.toLocaleString('pt-BR')} selecionados`;
+    }
+    if (sendMode === 'spreadsheet') {
+      return spreadsheetFileLabel
+        ? `Planilha · ${numbers.length.toLocaleString('pt-BR')} números`
+        : `Planilha · ${numbers.length.toLocaleString('pt-BR')} números`;
+    }
+    return `Manual · ${numbers.length.toLocaleString('pt-BR')} números`;
+  }, [
+    campaignKind,
+    eligibleContacts.length,
+    sendMode,
+    selectedList,
+    numbers.length,
+    spreadsheetFileLabel
+  ]);
+
   useEffect(() => {
     if (step !== 4) return;
     setPreflightAck({ audience: false, messages: false, responsibility: false });
@@ -1860,12 +1963,33 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     })();
   };
 
-  const handleNextStep = async () => {
-    if (step === 1) {
-      if (numbers.length === 0 && !isEditMode) {
-        toast.error('Selecione pelo menos um contato antes de avançar.');
+  const tryAdvanceStep = () => {
+    if (step === 1 && !isEditMode) {
+      const block = explainAudienceBlock();
+      if (block) {
+        toast.error(block);
         return;
       }
+    }
+    if (step === 2) {
+      const block = explainMessageBlock();
+      if (block) {
+        toast.error(block);
+        return;
+      }
+    }
+    if (step === 3) {
+      const block = explainChannelsBlock();
+      if (block) {
+        toast.error(block);
+        return;
+      }
+    }
+    void handleNextStep();
+  };
+
+  const handleNextStep = async () => {
+    if (step === 1) {
       if (isEditMode && numbers.length === 0) {
         setStep(2);
         return;
@@ -2413,13 +2537,15 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   {
                     id: 'standard' as const,
                     label: 'Campanha comum',
-                    desc: 'Lista, filtros ou números manuais — disparo único ou fluxo por respostas.',
+                    desc: 'Lista, filtros ou números — disparo único ou fluxo por respostas.',
+                    help: FIELD_HELP.campaignKindStandard,
                     accent: '#10b981'
                   },
                   {
                     id: 'prospecting' as const,
                     label: 'Prospecção da base',
-                    desc: 'Toda a base (sem opt-out): quem responde entra no plano semanal; silenciosos recebem lembrete.',
+                    desc: 'Base inteira com follow-up automático para quem não responde.',
+                    help: FIELD_HELP.campaignKindProspecting,
                     accent: '#6366f1'
                   }
                 ].map((k) => {
@@ -2446,8 +2572,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         boxShadow: isSel ? `0 6px 20px ${k.accent}22` : 'none'
                       }}
                     >
-                      <p className="text-[13.5px] font-bold" style={{ color: 'var(--text-1)' }}>
+                      <p className="text-[13.5px] font-bold flex items-center gap-1.5" style={{ color: 'var(--text-1)' }}>
                         {k.label}
+                        <ZmFieldHelp content={k.help} ariaLabel={`Ajuda: ${k.label}`} />
                       </p>
                       <p className="text-[11.5px] mt-1 leading-snug" style={{ color: 'var(--text-3)' }}>
                         {k.desc}
@@ -2469,13 +2596,29 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
               {campaignKind !== 'prospecting' && (
               <>
+              <div
+                className="mb-4 rounded-xl px-3.5 py-2.5 text-[12px] leading-snug flex items-center gap-2"
+                style={{
+                  background: 'rgba(16,185,129,0.08)',
+                  border: '1px solid rgba(16,185,129,0.22)',
+                  color: 'var(--text-2)'
+                }}
+              >
+                <Sparkles className="w-4 h-4 shrink-0" style={{ color: '#10b981' }} />
+                <span>
+                  <strong style={{ color: 'var(--text-1)' }}>Recomendado para iniciantes:</strong> comece por{' '}
+                  <strong>Lista de contatos</strong> — você vê quantos números válidos existem antes de disparar.
+                </span>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
                 {[
                   {
                     id: 'list' as const,
                     label: 'Lista de contatos',
                     icon: Users,
-                    desc: 'Use uma lista já criada e organizada na sua base',
+                    desc: 'Listas que você já organizou na base',
+                    help: FIELD_HELP.campaignAudienceList,
                     badge: 'Recomendado',
                     badgeColor: '#10b981',
                     badgeBg: 'rgba(16,185,129,0.12)',
@@ -2486,7 +2629,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     id: 'filter' as const,
                     label: 'Por filtros',
                     icon: Filter,
-                    desc: 'Segmente por cidade, DDD, cargo ou outro critério',
+                    desc: 'Cidade, DDD, cargo…',
+                    help: FIELD_HELP.campaignAudienceFilter,
                     badge: 'Avançado',
                     badgeColor: '#06B6D4',
                     badgeBg: 'rgba(99,102,241,0.12)',
@@ -2497,7 +2641,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     id: 'manual' as const,
                     label: 'Números manuais',
                     icon: Phone,
-                    desc: 'Cole uma lista de números avulsos diretamente',
+                    desc: 'Cole números avulsos',
+                    help: FIELD_HELP.campaignAudienceManual,
                     badge: 'Rápido',
                     badgeColor: '#f59e0b',
                     badgeBg: 'rgba(245,158,11,0.12)',
@@ -2508,7 +2653,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     id: 'spreadsheet' as const,
                     label: 'Planilha (.xlsx)',
                     icon: FileSpreadsheet,
-                    desc: 'Baixe o modelo, importe e valide números no WhatsApp',
+                    desc: 'Modelo XLSX + validação WA',
+                    help: FIELD_HELP.campaignAudienceSpreadsheet,
                     badge: 'Importar',
                     badgeColor: '#8b5cf6',
                     badgeBg: 'rgba(139,92,246,0.12)',
@@ -2552,10 +2698,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       </div>
                       {/* Texto */}
                       <div>
-                        <p className="text-[13.5px] font-bold leading-tight" style={{ color: 'var(--text-1)' }}>
+                        <p className="text-[13.5px] font-bold leading-tight flex items-center gap-1" style={{ color: 'var(--text-1)' }}>
                           {m.label}
+                          <ZmFieldHelp content={m.help} ariaLabel={`Ajuda: ${m.label}`} />
                         </p>
-                        <p className="text-[12px] mt-1 leading-snug" style={{ color: 'var(--text-3)' }}>
+                        <p className="text-[11.5px] mt-1 leading-snug" style={{ color: 'var(--text-3)' }}>
                           {m.desc}
                         </p>
                       </div>
@@ -2572,7 +2719,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               </div>
 
               {sendMode === 'list' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
                   {contactLists.map((list) => {
                     const isSel = selectedListId === list.id;
                     const count = list.count || list.contactIds.length || 0;
@@ -2581,10 +2728,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         key={list.id}
                         type="button"
                         onClick={() => setSelectedListId(list.id)}
-                        className="text-left p-3.5 rounded-xl transition-all"
+                        className="text-left p-4 rounded-xl transition-all"
                         style={{
                           background: isSel ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
-                          border: isSel ? '1.5px solid rgba(16,185,129,0.25)' : '1.5px solid var(--border-subtle)'
+                          border: isSel ? '2px solid var(--brand-500)' : '1.5px solid var(--border-subtle)',
+                          boxShadow: isSel ? '0 6px 20px rgba(16,185,129,0.18)' : 'none',
+                          transform: isSel ? 'translateY(-1px)' : 'none'
                         }}
                       >
                         <div className="flex items-center justify-between mb-1.5">
@@ -2886,15 +3035,26 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
               {sendMode === 'list' && selectedList && (
                 <div
-                  className="mt-4 rounded-lg px-3 py-2.5"
-                  style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                  className="mt-4 rounded-xl px-4 py-3 space-y-1"
+                  style={{
+                    background: selectedListNumbers.length > 0 ? 'rgba(16,185,129,0.06)' : 'rgba(245,158,11,0.08)',
+                    border: `1px solid ${selectedListNumbers.length > 0 ? 'rgba(16,185,129,0.25)' : 'rgba(245,158,11,0.35)'}`
+                  }}
                 >
-                  <div className="flex items-center justify-between text-[12px]">
-                    <span style={{ color: 'var(--text-3)' }}>Numeros validos</span>
-                    <span className="font-semibold" style={{ color: 'var(--brand-600)' }}>
-                      {selectedListNumbers.length}
+                  <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+                    Resumo — {selectedList.name}
+                  </p>
+                  <div className="flex items-center justify-between text-[12.5px]">
+                    <span style={{ color: 'var(--text-2)' }}>Contatos válidos para envio</span>
+                    <span className="font-bold tabular-nums text-[14px]" style={{ color: 'var(--brand-600)' }}>
+                      {selectedListNumbers.length.toLocaleString('pt-BR')}
                     </span>
                   </div>
+                  {selectedListNumbers.length === 0 && !isEditMode && (
+                    <p className="text-[11.5px] pt-1 leading-relaxed" style={{ color: '#b45309' }}>
+                      {advanceBlockHint || 'Adicione contatos a esta lista ou escolha outra antes de avançar.'}
+                    </p>
+                  )}
                   {invalidSelectedListCount > 0 && (
                     <div className="flex items-center justify-between text-[12px] mt-1">
                       <span style={{ color: 'var(--text-3)' }}>Contatos ignorados</span>
@@ -2933,14 +3093,20 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <MessageSquare className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="ui-title text-[15px] mb-0.5">Qual a mensagem?</h3>
+                  <h3 className="ui-title text-[15px] mb-0.5 flex items-center gap-1.5">
+                    Qual a mensagem?
+                    <ZmFieldHelp content={FIELD_HELP.campaignAudience} ariaLabel="Ajuda: etapa mensagem" />
+                  </h3>
                   <p className="ui-subtitle text-[12px]">{messageStepHint}</p>
                 </div>
               </div>
 
               <div className="cw-msg-section cw-msg-name-row">
                 <div>
-                  <p className="cw-msg-section-title">Nome da campanha</p>
+                  <p className="cw-msg-section-title flex items-center gap-1.5">
+                    Nome da campanha
+                    <ZmFieldHelp content={FIELD_HELP.campaignWizardName} ariaLabel="Ajuda: nome da campanha" />
+                  </p>
               <Input
                     placeholder="Ex: Promoção Janeiro — Base VIP"
                 value={name}
@@ -3063,6 +3229,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     estimateLabel={estimateLabel}
                     flowMode={campaignFlowMode}
                     replyPreview={replyPreviewMeta}
+                    audienceSummary={previewAudienceSummary}
+                    onConnectChannel={onConnectChannel}
                   />
                         </div>
 
@@ -3223,6 +3391,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
                       Conecte pelo menos um canal antes de iniciar o disparo.
                     </p>
+                    {onConnectChannel ? (
+                      <Button type="button" variant="secondary" size="sm" className="mt-3" onClick={onConnectChannel}>
+                        Ir para Conexões
+                      </Button>
+                    ) : null}
                   </div>
                 ) : chipSelectionMode === 'manual' ? (
                   /* lista de chips — só renderiza quando modo manual */
@@ -4103,7 +4276,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           {/* STEP 4: Review */}
           {step === 4 && (
             <Card>
-              <h3 className="ui-title text-[15px] mb-1">{isEditMode ? 'Revisão e salvar' : 'Revisão final'}</h3>
+              <h3 className="ui-title text-[15px] mb-1 flex items-center gap-1.5">
+                {isEditMode ? 'Revisão e salvar' : 'Revisão final'}
+                <ZmFieldHelp content={FIELD_HELP.campaignWizardReview} ariaLabel="Ajuda: revisão final" />
+              </h3>
               <p className="ui-subtitle text-[12.5px] mb-4">
                 {isEditMode
                   ? 'Confira mensagem, chips e cronograma. Salvar não reenvia quem já recebeu.'
@@ -4488,36 +4664,29 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               {step > 1 ? 'Voltar' : 'Cancelar'}
             </Button>
 
-            <div className="flex items-center gap-3">
-              {/* Dots de progresso */}
-              <div className="hidden sm:flex items-center gap-1.5">
-                {STEPS.map((s) => (
-                  <div
-                    key={s.id}
-                    className="rounded-full transition-all"
-                    style={{
-                      width: step === s.id ? 20 : 6,
-                      height: 6,
-                      background: step > s.id
-                        ? 'var(--brand-500)'
-                        : step === s.id
-                        ? 'var(--brand-500)'
-                        : 'var(--border-subtle)'
-                    }}
-                  />
-                ))}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 min-w-0 flex-1 justify-end">
+              <div className="hidden md:flex flex-col items-end text-right min-w-0 flex-1 px-2">
+                <span className="text-[12px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                  {STEPS.find((s) => s.id === step)?.label}
+                </span>
+                <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-3)' }}>
+                  Passo {step} de 4
+                  {onAutosave ? ' · rascunho salvo automaticamente' : ''}
+                </span>
+                {advanceBlockHint ? (
+                  <span className="text-[10.5px] mt-0.5 leading-snug max-w-[280px]" style={{ color: '#b45309' }}>
+                    {advanceBlockHint}
+                  </span>
+                ) : null}
               </div>
 
               {step < 4 ? (
                 <Button
                   variant="primary"
                   rightIcon={<ChevronRight className="w-4 h-4" />}
-                  disabled={
-                    (step === 1 && !isEditMode && !canGoFromAudience) ||
-                    (step === 2 && !canGoFromMessage) ||
-                    (step === 3 && !canGoFromChannels)
-                  }
-                  onClick={() => setStep((step + 1) as 1 | 2 | 3 | 4)}
+                  disabled={checkingDuplicates}
+                  loading={checkingDuplicates}
+                  onClick={() => tryAdvanceStep()}
                 >
                   Avançar
                 </Button>
@@ -4550,6 +4719,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               estimateLabel={estimateLabel}
               flowMode={campaignFlowMode}
               replyPreview={replyPreviewMeta}
+              audienceSummary={previewAudienceSummary}
+              onConnectChannel={onConnectChannel}
             />
           </div>
         </div>
@@ -4659,7 +4830,22 @@ const WizardLivePreview: React.FC<{
     followUpBody?: string;
     menuOptions?: Array<{ trigger: string; reply: string }>;
   };
-}> = ({ displayName, bodies, numbersCount, chipsCount, delaySeconds, delaySecondsMax, humanizedPauses, estimateLabel, flowMode, replyPreview }) => {
+  audienceSummary?: string;
+  onConnectChannel?: () => void;
+}> = ({
+  displayName,
+  bodies,
+  numbersCount,
+  chipsCount,
+  delaySeconds,
+  delaySecondsMax,
+  humanizedPauses,
+  estimateLabel,
+  flowMode,
+  replyPreview,
+  audienceSummary,
+  onConnectChannel
+}) => {
   const initial = (displayName || 'C').charAt(0).toUpperCase();
   const isReplyFlow = flowMode === 'reply' && bodies.length > 0;
   const openingBody = bodies[0];
@@ -4807,14 +4993,44 @@ const WizardLivePreview: React.FC<{
               <p className="text-[10.5px] font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-3)' }}>
                 Resumo
               </p>
+              {audienceSummary ? (
+                <p className="text-[11px] mb-2 leading-snug" style={{ color: 'var(--text-2)' }}>
+                  {audienceSummary}
+                </p>
+              ) : null}
         <SummaryRow label="Contatos" value={numbersCount.toLocaleString('pt-BR')} accent="var(--text-1)" />
               <SummaryRow
                 label="Chips"
           value={String(chipsCount)}
           accent={chipsCount > 0 ? 'var(--brand-600)' : 'var(--text-3)'}
         />
+              {chipsCount === 0 ? (
+                <p className="text-[10.5px] leading-snug pt-0.5" style={{ color: 'var(--text-3)' }}>
+                  Nenhum chip selecionado ainda — escolha canais no passo <strong>Envio</strong>.
+                  {onConnectChannel ? (
+                    <>
+                      {' '}
+                      <button
+                        type="button"
+                        className="font-semibold underline underline-offset-2"
+                        style={{ color: 'var(--brand-600)' }}
+                        onClick={onConnectChannel}
+                      >
+                        Conectar canal
+                      </button>
+                    </>
+                  ) : null}
+                </p>
+              ) : null}
         <SummaryRow label="Intervalo" value={`${delaySeconds}s–${delaySecondsMax > delaySeconds ? delaySecondsMax : delaySeconds * 2}s${humanizedPauses ? ' 🛡️' : ''}`} accent="#f59e0b" />
-        {numbersCount > 0 && <SummaryRow label="Estimativa" value={estimateLabel} accent="#3b82f6" />}
+        {numbersCount > 0 && chipsCount > 0 && (
+          <SummaryRow label="Estimativa" value={estimateLabel} accent="#3b82f6" />
+        )}
+        {numbersCount > 0 && chipsCount === 0 ? (
+          <p className="text-[10.5px] pt-0.5" style={{ color: 'var(--text-3)' }}>
+            A estimativa de tempo aparece depois que você selecionar chips no passo Envio.
+          </p>
+        ) : null}
       </div>
     </div>
   );

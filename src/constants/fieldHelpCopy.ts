@@ -19,6 +19,22 @@ export const FIELD_HELP = {
     'Alternativa ao QR: informe o número com DDI (5511…) e digite o código de 8 dígitos que aparece no celular.',
   campaignAudience:
     'Quem recebe a campanha: lista salva, filtros da base ou números colados manualmente. Revise duplicados antes de disparar.',
+  campaignAudienceList:
+    'Escolha uma lista já criada na aba Contatos. É o caminho mais simples: você vê quantos números válidos existem antes de disparar.',
+  campaignAudienceFilter:
+    'Combine cidade, DDD, cargo e outros campos para montar um segmento dinâmico. Ideal quando a base é grande e você não quer manter listas fixas.',
+  campaignAudienceManual:
+    'Cole números avulsos (DDI + DDD). Útil para testes rápidos ou listas de fora do CRM — sem variáveis extras além do telefone.',
+  campaignAudienceSpreadsheet:
+    'Baixe o modelo XLSX, preencha e importe. Você pode validar no WhatsApp antes de avançar — bom para bases de eventos ou parceiros.',
+  campaignKindStandard:
+    'Campanha clássica: você escolhe lista, filtros ou números, escreve a mensagem e dispara (ou agenda) uma vez.',
+  campaignKindProspecting:
+    'Varre a base inteira (exceto opt-out): quem responde entra no plano de follow-up; quem fica em silêncio recebe lembretes semanais automáticos.',
+  campaignWizardName:
+    'Nome interno só para você achar a campanha depois — contatos não veem. Ex.: «Promoção VIP — março».',
+  campaignWizardReview:
+    'Última checagem antes do disparo: público, mensagem, chips e horário. Use o teste rápido para enviar ao seu número.',
   campaignSchedule:
     'Escolha disparar agora ou reservar horários na semana. O fuso segue o relógio do seu navegador — ideal para não enviar de madrugada.',
   replyFlow:

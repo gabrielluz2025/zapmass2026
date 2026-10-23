@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.351] - 2026-10-23
+
+### Melhorado
+- **Campanhas — assistente (v2.3.351):** passo Público mais didático (banner para iniciantes, ajuda (i) por tipo de campanha e de público, resumo com contagem e bloqueio amigável se lista vazia); prévia lateral explica chips zerados e link para Conexões; validação ao avançar com toasts em PT; rodapé com nome do passo e dica de rascunho automático.
+
 ## [2.3.350] - 2026-10-23
 
 ### Melhorado

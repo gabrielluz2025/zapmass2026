@@ -855,6 +855,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           }}
           onSubmit={handleSubmitCampaign}
           campaigns={campaigns}
+          onConnectChannel={() => setCurrentView('connections')}
         />
       ) : viewState === 'details' && activeCampaign ? (
         <CampaignDetails
