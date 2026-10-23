@@ -6,6 +6,7 @@ cd "$ROOT"
 [ -f .env ] || { echo "Sem .env em $ROOT"; exit 1; }
 
 ORIGINS=(
+  "https://app.zap-mass.com"
   "https://zap-mass.com"
   "https://www.zap-mass.com"
   "https://zap.mass.com"

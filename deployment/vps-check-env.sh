@@ -135,6 +135,13 @@ case "$_google_login" in
           else
             warn "PUBLIC_APP_URL=$_pub mas ALLOWED_ORIGINS não lista https://app.zap-mass.com — login Google pode falhar no refresh"
           fi
+          _vite="$(get_env VITE_API_ORIGIN)"
+          _red="$(get_env GOOGLE_OAUTH_REDIRECT_URI)"
+          if [ -z "$_vite" ] && [ -n "$_red" ]; then
+            warn "VITE_API_ORIGIN vazio com painel em app — rode bash deployment/google-app-login-configurar.sh e rebuild (manual-pull-deploy)"
+          elif [ -n "$_vite" ]; then
+            ok "VITE_API_ORIGIN=$_vite (build do front → API)"
+          fi
           ;;
       esac
     fi

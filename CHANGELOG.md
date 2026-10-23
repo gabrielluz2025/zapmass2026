@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.327] - 2026-10-23
+
+### Corrigido
+- **Login Google (app.zap-mass.com):** `VITE_API_ORIGIN` passa no build Docker/Swarm; deploy infere API apex quando painel e callback OAuth estão em hosts diferentes; script `google-app-login-configurar.sh` e checagens em `vps-check-env`.
+
 ## [2.3.326] - 2026-10-23
 
 ### Corrigido

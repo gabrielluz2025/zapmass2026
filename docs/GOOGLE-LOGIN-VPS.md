@@ -42,7 +42,16 @@ Corrija no `.env`, rode `bash deployment/vps-check-env.sh` e redeploy.
 
 ## 2. Variáveis na VPS (`.env`)
 
-**Recomendado:** script interativo na VPS (não ecoa o secret):
+**Painel em `app.zap-mass.com` (recomendado ZapMass):**
+
+```bash
+cd /opt/zapmass
+git pull origin main
+bash deployment/google-app-login-configurar.sh   # .env + nginx + VITE_API_ORIGIN
+bash deployment/manual-pull-deploy.sh            # rebuild obrigatório
+```
+
+**Só credenciais Google (apex):**
 
 ```bash
 cd /opt/zapmass
@@ -67,7 +76,7 @@ GOOGLE_OAUTH_REDIRECT_URI=https://zap-mass.com/api/auth/google/callback
 
 Garanta também **`ALLOWED_ORIGINS`** com as origens do navegador (ex.: `https://app.zap-mass.com,https://zap-mass.com,https://www.zap-mass.com`).
 
-Se o front em **app** chamar a API no **apex**, defina no build `VITE_API_ORIGIN=https://zap-mass.com` (ver `env.production.template`) **ou** sirva API e SPA no mesmo host (nginx em app).
+Se o front em **app** chamar a API no **apex**, defina `VITE_API_ORIGIN=https://zap-mass.com` no `.env` e faça **rebuild** (`manual-pull-deploy`). O deploy infere este valor quando `PUBLIC_APP_URL` e `GOOGLE_OAUTH_REDIRECT_URI` têm hosts diferentes. Sem `VITE_API_ORIGIN` no bundle Docker, o refresh após Google falha com o toast «Não foi possível concluir o login».
 
 Reinicie o container/serviço Node após alterar o `.env` (ou use o deploy oferecido pelo script).
 

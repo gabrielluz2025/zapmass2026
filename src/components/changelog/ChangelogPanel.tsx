@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.327',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Login Google app: VITE_API_ORIGIN no build Docker, script google-app-login-configurar.sh e inferência no deploy',
+      },
+    ],
+  },
+  {
     version: '2.3.326',
     date: '23/10/2026',
     highlights: [

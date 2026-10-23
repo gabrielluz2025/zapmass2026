@@ -50,6 +50,9 @@ VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo ?)"
 export VITE_GIT_REF
 echo "==> VITE_GIT_REF=${VITE_GIT_REF} (commit deste deploy)"
 
+# shellcheck source=deployment/infer-vite-api-origin.sh
+. "$(dirname "$0")/infer-vite-api-origin.sh"
+
 # Repassa VITE_*, MERCADOPAGO_*, ZAPMASS_*, TRUST_PROXY, WWEBJS_WEB_VERSION_URL… (ver .env.example)
 if [ -f .env ]; then
   while IFS='=' read -r k v; do
@@ -66,6 +69,10 @@ if [ -f .env ]; then
     esac
   # Aceitar também `export VAR=...` (sem isso o grep não apanha a linha e o Swarm fica sem MERCADOPAGO/FIREBASE/etc.).
   done < <(grep -E '^[[:space:]]*(export[[:space:]]+)?(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*|ZAPMASS_[A-Z0-9_]*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS|WA_SYNC_CONV_EMIT_EVERY|WA_FULL_INBOX_SYNC|WA_CHAT_ARCHIVE|ENSURE_SWAP_ON_DEPLOY|BUILDKIT_MAX_PARALLELISM|SWAP_SIZE_MB|SUBSCRIPTION_ENFORCE|ADMIN_EMAILS|FIREBASE_WEB_API_KEY|MAX_STAFF_PASSWORD_ACCOUNTS|WWEBJS_WEB_VERSION_URL|TRUST_PROXY|TRUST_PROXY_HOPS|EVOLUTION_[A-Z0-9_]*|CONFIG_SESSION_PHONE_[A-Z0-9_]*|EVOLUTION_IMAGE|EVOLUTION_SERVER_URL|EVOLUTION_QRCODE_LIMIT|EVOLUTION_LOG_LEVEL|WPP_LID_MODE|CHAT_INBOX_PAGINATION|CHAT_INBOX_PAGE_SIZE|POSTGRES_PASSWORD|RESEND_API_KEY|EMAIL_FROM|EMAIL_REPLY_TO|SUGGESTION_NOTIFY_EMAIL|NEW_CLIENT_NOTIFY_EMAIL|PUBLIC_APP_URL|ALLOWED_ORIGINS|SWARM_ENABLED|REDIS_URL|GEMINI_API_KEY|GEMINI_MODEL|PRUNE_[A-Z0-9_]*|DEPLOY_SKIP_CLIENTS|CAMPAIGN_WORKER_[A-Z0-9_]*)=' .env | sed -E 's/^[[:space:]]*export[[:space:]]+//' || true)
+  infer_vite_api_origin_if_needed
+  if [ -n "${VITE_API_ORIGIN:-}" ]; then
+    echo "==> VITE_API_ORIGIN=${VITE_API_ORIGIN} (embutido no build Vite — login Google cross-host)"
+  fi
   if [ -n "${MERCADOPAGO_ACCESS_TOKEN:-}" ]; then
     echo "==> MERCADOPAGO_ACCESS_TOKEN presente (prefixo ${MERCADOPAGO_ACCESS_TOKEN:0:14}…; len=${#MERCADOPAGO_ACCESS_TOKEN})"
     mkdir -p secrets
@@ -379,6 +386,7 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
       --build-arg VITE_GA_MEASUREMENT_ID="${VITE_GA_MEASUREMENT_ID:-}" \
       --build-arg VITE_USE_VPS_AUTH="${VITE_USE_VPS_AUTH:-}" \
       --build-arg VITE_USE_VPS_DATA="${VITE_USE_VPS_DATA:-}" \
+      --build-arg VITE_API_ORIGIN="${VITE_API_ORIGIN:-}" \
       .; then
       _build_ok=1
       break
