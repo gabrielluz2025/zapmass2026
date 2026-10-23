@@ -39,6 +39,11 @@ for n in 1 2 3 4 5; do
   upsert_env "$tier_key" "${!tier_key:-}"
   upsert_env "$tier_annual_key" "${!tier_annual_key:-}"
 done
+upsert_env ZAPMASS_GOOGLE_LOGIN "${ZAPMASS_GOOGLE_LOGIN:-}"
+upsert_env GOOGLE_OAUTH_CLIENT_ID "${GOOGLE_OAUTH_CLIENT_ID:-}"
+upsert_env GOOGLE_OAUTH_CLIENT_SECRET "${GOOGLE_OAUTH_CLIENT_SECRET:-}"
+upsert_env GOOGLE_OAUTH_REDIRECT_URI "${GOOGLE_OAUTH_REDIRECT_URI:-}"
+upsert_env GOOGLE_OAUTH_APP_REDIRECT_URI "${GOOGLE_OAUTH_APP_REDIRECT_URI:-}"
 upsert_env RESEND_API_KEY "${RESEND_API_KEY:-}"
 upsert_env EMAIL_FROM "${EMAIL_FROM:-}"
 upsert_env EMAIL_REPLY_TO "${EMAIL_REPLY_TO:-}"

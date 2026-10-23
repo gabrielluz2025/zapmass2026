@@ -11,7 +11,11 @@ export type UserRow = {
   display_name: string | null;
   photo_url: string | null;
   disabled_at: Date | null;
+  google_sub: string | null;
 };
+
+const USER_SELECT =
+  'id::text, email, email_normalized, password_hash, display_name, photo_url, disabled_at, google_sub';
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -22,8 +26,7 @@ export async function findUserByEmail(email: string): Promise<UserRow | null> {
   if (!pool) return null;
   const norm = normalizeEmail(email);
   const r = await pool.query<UserRow>(
-    `SELECT id::text, email, email_normalized, password_hash, display_name, photo_url, disabled_at
-     FROM zapmass.users WHERE email_normalized = $1 LIMIT 1`,
+    `SELECT ${USER_SELECT} FROM zapmass.users WHERE email_normalized = $1 LIMIT 1`,
     [norm]
   );
   return r.rows[0] ?? null;
@@ -39,8 +42,7 @@ export async function findUserById(id: string): Promise<UserRow | null> {
   const pool = getZapmassPool();
   if (!pool) return null;
   const r = await pool.query<UserRow>(
-    `SELECT id::text, email, email_normalized, password_hash, display_name, photo_url, disabled_at
-     FROM zapmass.users WHERE id = $1::uuid LIMIT 1`,
+    `SELECT ${USER_SELECT} FROM zapmass.users WHERE id = $1::uuid LIMIT 1`,
     [id]
   );
   const user = r.rows[0] ?? null;
@@ -66,8 +68,75 @@ export async function createUserWithPassword(
   const r = await pool.query<UserRow>(
     `INSERT INTO zapmass.users (id, email, email_normalized, password_hash, display_name)
      VALUES ($1::uuid, $2, $3, $4, $5)
-     RETURNING id::text, email, email_normalized, password_hash, display_name, photo_url, disabled_at`,
+     RETURNING ${USER_SELECT}`,
     [id, email.trim(), norm, password_hash, displayName?.trim() || null]
+  );
+  return r.rows[0]!;
+}
+
+export async function findUserByGoogleSub(googleSub: string): Promise<UserRow | null> {
+  const pool = getZapmassPool();
+  if (!pool) return null;
+  const r = await pool.query<UserRow>(
+    `SELECT ${USER_SELECT} FROM zapmass.users WHERE google_sub = $1 LIMIT 1`,
+    [googleSub]
+  );
+  return r.rows[0] ?? null;
+}
+
+export async function linkGoogleSubToUser(
+  userId: string,
+  googleSub: string,
+  opts?: { displayName?: string; photoUrl?: string }
+): Promise<UserRow> {
+  const pool = getZapmassPool();
+  if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+
+  const existingSub = await findUserByGoogleSub(googleSub);
+  if (existingSub && existingSub.id !== userId) {
+    throw new Error('GOOGLE_SUB_CONFLICT');
+  }
+
+  const displayName = opts?.displayName?.trim() || null;
+  const photoUrl = opts?.photoUrl?.trim() || null;
+
+  const r = await pool.query<UserRow>(
+    `UPDATE zapmass.users SET
+       google_sub = $2,
+       display_name = COALESCE(display_name, $3),
+       photo_url = COALESCE(photo_url, $4)
+     WHERE id = $1::uuid
+     RETURNING ${USER_SELECT}`,
+    [userId, googleSub, displayName, photoUrl]
+  );
+  const row = r.rows[0];
+  if (!row) throw new Error('USER_NOT_FOUND');
+  invalidateUserByIdCache(userId);
+  return row;
+}
+
+export async function createUserFromGoogle(opts: {
+  email: string;
+  googleSub: string;
+  displayName?: string;
+  photoUrl?: string;
+}): Promise<UserRow> {
+  const pool = getZapmassPool();
+  if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+  const norm = normalizeEmail(opts.email);
+  const id = randomUUID();
+  const r = await pool.query<UserRow>(
+    `INSERT INTO zapmass.users (id, email, email_normalized, google_sub, display_name, photo_url)
+     VALUES ($1::uuid, $2, $3, $4, $5, $6)
+     RETURNING ${USER_SELECT}`,
+    [
+      id,
+      opts.email.trim(),
+      norm,
+      opts.googleSub,
+      opts.displayName?.trim() || null,
+      opts.photoUrl?.trim() || null
+    ]
   );
   return r.rows[0]!;
 }
@@ -132,7 +201,7 @@ export async function updateUserDisplayName(
   if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
   const r = await pool.query<UserRow>(
     `UPDATE zapmass.users SET display_name = $2 WHERE id = $1::uuid
-     RETURNING id::text, email, email_normalized, password_hash, display_name, photo_url, disabled_at`,
+     RETURNING ${USER_SELECT}`,
     [userId, displayName.trim() || null]
   );
   return r.rows[0] ?? null;

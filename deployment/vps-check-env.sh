@@ -86,6 +86,51 @@ else
   warn "MERCADOPAGO_BACK_URL vazio — use https://zap-mass.com (back_urls + webhook)"
 fi
 
+_google_login="$(get_env ZAPMASS_GOOGLE_LOGIN | tr '[:upper:]' '[:lower:]')"
+case "$_google_login" in
+  1|true|yes|on)
+    ok "ZAPMASS_GOOGLE_LOGIN ativo"
+    g_id="$(get_env GOOGLE_OAUTH_CLIENT_ID)"
+    g_sec="$(get_env GOOGLE_OAUTH_CLIENT_SECRET)"
+    g_red="$(get_env GOOGLE_OAUTH_REDIRECT_URI)"
+    if [ -n "$g_id" ]; then
+      case "$g_id" in
+        *apps.googleusercontent.com*) ok "GOOGLE_OAUTH_CLIENT_ID (formato Google)" ;;
+        *) warn "GOOGLE_OAUTH_CLIENT_ID não parece Client ID Google (*.apps.googleusercontent.com)" ;;
+      esac
+    else
+      miss "GOOGLE_OAUTH_CLIENT_ID — GCP → Credenciais → OAuth 2.0"
+    fi
+    if [ -n "$g_sec" ]; then
+      if [ "$g_sec" = "$g_id" ]; then
+        miss "GOOGLE_OAUTH_CLIENT_SECRET igual ao CLIENT_ID — use o secret GOCSPX- do GCP, não o Client ID"
+      elif [[ "$g_sec" == *".apps.googleusercontent.com"* ]]; then
+        miss "GOOGLE_OAUTH_CLIENT_SECRET parece Client ID — copie «Chave secreta do cliente» (GOCSPX-…)"
+      else
+        ok "GOOGLE_OAUTH_CLIENT_SECRET (len=${#g_sec})"
+        case "$g_sec" in
+          GOCSPX-*) ok "secret com prefixo GOCSPX- (esperado)" ;;
+          *) warn "secret sem prefixo GOCSPX- — confira se não colou o Client ID" ;;
+        esac
+      fi
+    else
+      miss "GOOGLE_OAUTH_CLIENT_SECRET — GCP → Chave secreta do cliente (GOCSPX-…)"
+    fi
+    if [ -n "$g_red" ]; then
+      case "$g_red" in
+        *localhost*|http://127.0.0.1*) ok "GOOGLE_OAUTH_REDIRECT_URI=$g_red (dev)" ;;
+        http://*) miss "GOOGLE_OAUTH_REDIRECT_URI=$g_red — produção exige https" ;;
+        *) ok "GOOGLE_OAUTH_REDIRECT_URI=$g_red" ;;
+      esac
+    else
+      miss "GOOGLE_OAUTH_REDIRECT_URI — ex.: https://zap-mass.com/api/auth/google/callback"
+    fi
+    ;;
+  *)
+    echo "  INFO: login Google desligado (ZAPMASS_GOOGLE_LOGIN≠1). Ativar: bash deployment/google-oauth-configurar.sh"
+    ;;
+esac
+
 tier1="$(get_env MERCADOPAGO_CHANNEL_TIER_1)"
 if [ -n "$tier1" ]; then
   ok "MERCADOPAGO_CHANNEL_TIER_1=$tier1 (checkout por canais)"

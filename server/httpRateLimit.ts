@@ -35,6 +35,15 @@ export const authLoginLimiter = rateLimit({
   message: { ok: false, error: 'Muitas tentativas de login. Aguarde alguns minutos.' }
 });
 
+/** Início e callback OAuth Google (por IP). */
+export const authGoogleOAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Muitas tentativas de login com Google. Aguarde alguns minutos.' }
+});
+
 /** Verificação de e-mail (login vs cadastro) — limita enumeração por IP. */
 export const authEmailStepLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

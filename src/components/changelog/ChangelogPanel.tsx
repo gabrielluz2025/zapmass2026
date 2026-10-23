@@ -10,6 +10,26 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.324',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Login Google na VPS: script google-oauth-configurar.sh, validação GOCSPX vs Client ID e vps-check-env',
+      },
+    ],
+  },
+  {
+    version: '2.3.323',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'feature',
+        text: 'Login com Google na VPS (OAuth + PKCE, sem Firebase): botão na landing, sessão JWT igual ao e-mail',
+      },
+    ],
+  },
+  {
     version: '2.3.322',
     date: '23/10/2026',
     highlights: [

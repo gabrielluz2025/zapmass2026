@@ -7,6 +7,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.324] - 2026-10-23
+
+### Melhorado
+- **Login Google (VPS):** validação de `GOOGLE_OAUTH_CLIENT_SECRET` (rejeita secret = Client ID); script `deployment/google-oauth-configurar.sh`; checagens em `vps-check-env.sh`; doc com erro comum GOCSPX vs Client ID.
+
+## [2.3.323] - 2026-10-23
+
+### Adicionado
+- **Login Google (VPS):** OAuth 2.0 com PKCE no servidor (`/api/auth/google/start` e `/callback`), coluna `google_sub`, flag `ZAPMASS_GOOGLE_LOGIN`, botão «Continuar com Google» na landing e doc `docs/GOOGLE-LOGIN-VPS.md`.
+
 ## [2.3.322] - 2026-10-23
 
 ### Melhorado

@@ -98,7 +98,7 @@ export const AdminAnnouncementsTab: React.FC = () => {
     <div className="space-y-6">
       <SectionHeader
         title="Comunicados globais"
-        description="Avisos de manutenção ou informações importantes para todos os utilizadores. Podem aparecer na faixa superior e no sino de notificações."
+        description="Avisos de manutenção ou informações importantes para todos os usuários. Podem aparecer na faixa superior e no sino de notificações."
       />
 
       {current?.active && (

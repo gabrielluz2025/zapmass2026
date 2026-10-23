@@ -12,7 +12,8 @@ import {
   vpsRegister,
   vpsStaffLogin,
   vpsRefreshAccessToken,
-  bindCrossTabLogoutSync
+  bindCrossTabLogoutSync,
+  vpsStartGoogleLogin
 } from '../services/vpsAuth';
 import { vpsUserToSessionUser } from '../utils/vpsSessionUser';
 import { clearBootstrapCache } from '../utils/bootstrapSessionCache';
@@ -53,6 +54,17 @@ const AuthContext = createContext<AuthContextValue>({
 const socialUnavailable =
   'Entre com e-mail e senha. Login social não está disponível nesta instalação.';
 
+const googleLoginErrorMessages: Record<string, string> = {
+  cancelled: 'Login com Google cancelado.',
+  email_unverified: 'O Google não confirmou seu e-mail. Use outra conta ou entre com senha.',
+  disabled_account: 'Esta conta está desativada. Contacte o suporte.',
+  link_conflict: 'Esta conta Google já está ligada a outro utilizador.',
+  state: 'Sessão OAuth expirada. Tente entrar com Google novamente.',
+  disabled: 'Login com Google não está ativo nesta instalação.',
+  postgres: 'Serviço temporariamente indisponível. Tente mais tarde.',
+  failed: 'Não foi possível entrar com Google. Tente de novo ou use e-mail e senha.'
+};
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,8 +98,48 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     void boot();
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get('google_error');
+    if (params.get('google_login') === 'error' && err) {
+      toast.error(googleLoginErrorMessages[err] || googleLoginErrorMessages.failed);
+      params.delete('google_login');
+      params.delete('google_error');
+      const qs = params.toString();
+      window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`);
+      return;
+    }
+    if (params.get('google_login') !== '1') return;
+
+    const finish = async () => {
+      try {
+        const token = await vpsRefreshAccessToken();
+        if (!token) {
+          toast.error('Não foi possível concluir o login com Google. Tente novamente.');
+          return;
+        }
+        const v = getVpsAuthUser();
+        setUser(v ? vpsUserToSessionUser(v) : null);
+        trackLoginSuccess('google');
+        toast.success('Login com Google realizado com sucesso.');
+      } catch {
+        toast.error(googleLoginErrorMessages.failed);
+      } finally {
+        params.delete('google_login');
+        const qs = params.toString();
+        window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`);
+      }
+    };
+    void finish();
+  }, []);
+
   const signInWithGoogle = async () => {
-    toast.error(socialUnavailable);
+    try {
+      vpsStartGoogleLogin(window.location.href);
+    } catch {
+      toast.error(socialUnavailable);
+    }
   };
 
   const signInWithFacebook = async () => {

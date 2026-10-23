@@ -6,17 +6,13 @@ import {
   createUserWithPassword,
   findUserByEmail,
   findUserById,
-  insertRefreshToken,
   revokeRefreshTokenHash,
   findValidRefreshToken,
   verifyUserPassword
 } from './auth/userRepository.js';
 import {
   accessTokenTtlSec,
-  hashRefreshToken,
-  newRefreshTokenPlain,
-  refreshTokenTtlMs,
-  signAccessToken
+  hashRefreshToken
 } from './auth/jwt.js';
 import { authRegisterLimiter, authLoginLimiter, authEmailStepLimiter, authForgotPasswordLimiter, authResetPasswordLimiter } from './httpRateLimit.js';
 import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
@@ -25,85 +21,18 @@ import { resolvePhotoUrl } from './auth/resolvePhotoUrl.js';
 import { notifyAdminsNewAccountRegistered } from './adminNewSignupNotify.js';
 import { requestPasswordReset, resetPasswordWithToken } from './auth/passwordResetService.js';
 import { isStaffMemberActive } from './auth/staffRepository.js';
-
-const REFRESH_COOKIE = 'zapmass_refresh';
-
-function readRefreshCookie(req: Request): string | null {
-  const raw = req.headers.cookie || '';
-  for (const part of raw.split(';')) {
-    const [k, ...rest] = part.trim().split('=');
-    if (k === REFRESH_COOKIE) {
-      try {
-        return decodeURIComponent(rest.join('='));
-      } catch {
-        return rest.join('=');
-      }
-    }
-  }
-  return null;
-}
-
-function setRefreshCookie(res: Response, value: string, maxAgeMs: number): void {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  res.setHeader(
-    'Set-Cookie',
-    `${REFRESH_COOKIE}=${encodeURIComponent(value)}; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAgeMs / 1000)}${secure}`
-  );
-}
-
-function clearRefreshCookie(res: Response): void {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  res.setHeader(
-    'Set-Cookie',
-    `${REFRESH_COOKIE}=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0${secure}`
-  );
-}
+import {
+  clearRefreshCookie,
+  issueVpsSession,
+  readRefreshCookie
+} from './auth/vpsSession.js';
+import { isGoogleLoginEnabled, registerGoogleOAuthRoutes } from './auth/googleOAuth.js';
 
 async function issueSession(
   res: Response,
-  claims: {
-    sub: string;
-    email: string;
-    role: 'owner' | 'staff';
-    tenantUid: string;
-    ownerUid?: string;
-  }
+  claims: Parameters<typeof issueVpsSession>[1]
 ): Promise<{ accessToken: string; expiresIn: number }> {
-  const pool = getZapmassPool();
-  if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
-
-  const accessToken = await signAccessToken({
-    sub: claims.sub,
-    email: claims.email,
-    role: claims.role,
-    tenantUid: claims.tenantUid,
-    ownerUid: claims.ownerUid
-  });
-
-  const refreshPlain = newRefreshTokenPlain();
-  const tokenHash = hashRefreshToken(refreshPlain);
-  const expiresAt = new Date(Date.now() + refreshTokenTtlMs());
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await insertRefreshToken(client, {
-      subjectId: claims.sub,
-      tokenHash,
-      role: claims.role,
-      ownerUserId: claims.role === 'staff' ? claims.tenantUid : null,
-      expiresAt
-    });
-    await client.query('COMMIT');
-  } catch (e) {
-    await client.query('ROLLBACK');
-    throw e;
-  } finally {
-    client.release();
-  }
-
-  setRefreshCookie(res, refreshPlain, refreshTokenTtlMs());
-  return { accessToken, expiresIn: accessTokenTtlSec() };
+  return issueVpsSession(res, claims);
 }
 
 export function registerVpsAuthRoutes(app: Express): void {
@@ -118,8 +47,11 @@ export function registerVpsAuthRoutes(app: Express): void {
       dataProvider,
       vpsOnly: authProvider === 'vps' && dataProvider === 'vps',
       postgres: !!getZapmassPool(),
+      googleLoginEnabled: isGoogleLoginEnabled()
     });
   });
+
+  registerGoogleOAuthRoutes(app);
 
   app.post('/api/auth/email-step', authEmailStepLimiter, async (req: Request, res: Response) => {
     if (!getZapmassPool()) {

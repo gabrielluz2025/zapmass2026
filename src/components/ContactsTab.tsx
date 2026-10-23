@@ -1652,7 +1652,7 @@ export const ContactsTab: React.FC = () => {
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
     ws['!cols'] = buildContactExportColWidths(religiousExtras);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'SeleÃ§Ã£o');
+    XLSX.utils.book_append_sheet(wb, ws, 'Seleção');
     XLSX.writeFile(wb, `contatos_selecionados_${new Date().toISOString().slice(0, 10)}.xlsx`);
     toast.success(`${selected.length} contato(s) exportado(s).`);
   };
@@ -2906,7 +2906,7 @@ export const ContactsTab: React.FC = () => {
     const nextIds = mergeContactsIntoListIds(list.contactIds || [], validIds, contacts);
     const added = nextIds.length - (list.contactIds?.length || 0);
     if (added === 0) {
-      toast.error('Nenhum contato novo para incluir (jÃ¡ estÃ£o na lista ou invÃ¡lidos).');
+      toast.error('Nenhum contato novo para incluir (já estão na lista ou inválidos).');
       return;
     }
     try {

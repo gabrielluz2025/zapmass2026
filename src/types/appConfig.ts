@@ -21,7 +21,7 @@ export interface AppConfigGlobal {
   landingTrialTitle: string;
   /** Se vazio, o cliente usa texto padrao da landing. */
   landingTrialBody: string;
-  /** Aviso global (manutenção, etc.) — visível a todos os utilizadores. */
+  /** Aviso global (manutenção, etc.) — visível a todos os usuários. */
   systemAnnouncement?: SystemAnnouncement | null;
 }
 

@@ -34,7 +34,11 @@ import { resolveLandingTrialCopy } from '../utils/landingTrialResolved';
 import { trackLandingEvent } from '../utils/marketingEvents';
 import { formatTrialHoursLabel } from '../utils/trialCopy';
 import { resolveEmailAuthStep } from '../utils/emailAuthFlow';
-import { vpsRequestPasswordReset, vpsResetPasswordWithToken } from '../services/vpsAuth';
+import {
+  fetchVpsAuthConfig,
+  vpsRequestPasswordReset,
+  vpsResetPasswordWithToken
+} from '../services/vpsAuth';
 import { clearTrialSessionFlags, landingCtaStartsTrial, setTrialSessionForManager } from '../utils/trialSession';
 import {
   WHATSAPP_META_CLOUD_OVERVIEW,
@@ -90,9 +94,11 @@ const QuickAuthPanel: React.FC<{
   startTrialAfterLogin,
   initialResetToken = null
 }) => {
-  const { signInWithEmailPassword, signUpWithEmailPassword, signInWithStaffCredentials } = useAuth();
+  const { signInWithEmailPassword, signUpWithEmailPassword, signInWithStaffCredentials, signInWithGoogle } =
+    useAuth();
 
   const [step, setStep]       = useState<QAPStep>('main');
+  const [googleLoginEnabled, setGoogleLoginEnabled] = useState(false);
   const [busy, setBusy]       = useState(false);
   const [email, setEmail]     = useState('');
   const [password, setPass]   = useState('');
@@ -114,6 +120,16 @@ const QuickAuthPanel: React.FC<{
       setTimeout(() => passRef.current?.focus(), 80);
     }
   }, [initialResetToken]);
+
+  useEffect(() => {
+    let alive = true;
+    void fetchVpsAuthConfig().then((cfg) => {
+      if (alive) setGoogleLoginEnabled(!!cfg.googleLoginEnabled);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const goBack = () => { setStep('main'); setPass(''); setConfirm(''); setForgotSent(false); };
 
@@ -351,6 +367,49 @@ const QuickAuthPanel: React.FC<{
           <p style={{ fontSize: 12.5, color: D.text2, margin: '4px 0 0' }}>
             Informe seu e-mail. Se já tiver conta, pedimos só a senha; se for novo, criamos com teste grátis.
           </p>
+
+          {googleLoginEnabled ? (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  if (startTrialAfterLogin) setTrialSessionForManager('trial');
+                  clearTrialSessionFlags();
+                  void signInWithGoogle();
+                }}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  borderRadius: 12,
+                  border: `1px solid ${D.borderMd}`,
+                  background: '#fff',
+                  color: '#1f2937',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: busy ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 10,
+                  opacity: busy ? 0.6 : 1
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
+                  <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.273 36 24 36c-5.522 0-10-4.478-10-10s4.478-10 10-10c2.635 0 5.015 1.007 6.812 2.648l6.016-6.016C33.436 9.378 28.972 7 24 7 13.507 7 5 15.507 5 26s8.507 19 19 19 19-8.507 19-19c0-1.341-.138-2.65-.389-3.917z" />
+                  <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c2.635 0 5.015 1.007 6.812 2.648l6.016-6.016C33.436 9.378 28.972 7 24 7 16.318 7 9.656 11.337 6.306 14.691z" />
+                  <path fill="#4CAF50" d="M24 45c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 36.091 26.715 37 24 37c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 45 24 45z" />
+                  <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.07 12.07 0 0 1-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" />
+                </svg>
+                Continuar com Google
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '2px 0' }}>
+                <div style={{ flex: 1, height: 1, background: D.border }} />
+                <span style={{ fontSize: 11, color: D.text3, fontWeight: 600 }}>ou</span>
+                <div style={{ flex: 1, height: 1, background: D.border }} />
+              </div>
+            </>
+          ) : null}
 
           {/* Email field */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

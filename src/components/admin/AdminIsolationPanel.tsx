@@ -225,7 +225,7 @@ export const AdminIsolationPanel: React.FC<{ user: SessionUser | null }> = ({ us
   return (
     <CollapsibleSection
       id="admin-isolation-panel"
-      title="Isolamento entre utilizadores"
+      title="Isolamento entre usuários"
       summary={health.label}
       defaultOpen={(data?.orphanCount ?? 0) > 0 || (data?.conversations?.orphanCount ?? 0) > 0}
       actions={

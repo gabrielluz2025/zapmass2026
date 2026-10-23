@@ -25,6 +25,38 @@ export function useVpsAuth(): boolean {
   return true;
 }
 
+export type VpsAuthConfig = {
+  ok?: boolean;
+  googleLoginEnabled?: boolean;
+};
+
+let authConfigCache: { at: number; value: VpsAuthConfig | null } | null = null;
+const AUTH_CONFIG_TTL_MS = 60_000;
+
+export async function fetchVpsAuthConfig(): Promise<VpsAuthConfig> {
+  const hit = authConfigCache;
+  if (hit && Date.now() - hit.at < AUTH_CONFIG_TTL_MS && hit.value) {
+    return hit.value;
+  }
+  try {
+    const r = await fetchWithTimeout(apiUrl('/api/auth/config'), {}, 8_000);
+    const data = (await r.json().catch(() => ({}))) as VpsAuthConfig;
+    authConfigCache = { at: Date.now(), value: data };
+    return data;
+  } catch {
+    return { ok: false, googleLoginEnabled: false };
+  }
+}
+
+/** Redireciona o browser para o início do OAuth Google (servidor VPS). */
+export function vpsStartGoogleLogin(returnTo?: string): void {
+  const q =
+    returnTo && returnTo.startsWith('http')
+      ? `?returnTo=${encodeURIComponent(returnTo)}`
+      : '';
+  window.location.assign(apiUrl(`/api/auth/google/start${q}`));
+}
+
 export function getVpsAccessToken(): string | null {
   try {
     return sessionStorage.getItem(ACCESS_KEY);
