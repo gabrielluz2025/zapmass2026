@@ -10,6 +10,11 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.340',
+    date: '23/10/2026',
+    highlights: [{ type: 'fix', text: 'Build CI: tipagem painel Centro de acessos e loginProviders' }],
+  },
+  {
     version: '2.3.339',
     date: '23/10/2026',
     highlights: [

@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.340] - 2026-10-23
+
+### Corrigido
+- **CI:** tipagem do painel de acessos (`insightsReady`) e `loginProviders` na API insights.
+
 ## [2.3.339] - 2026-10-23
 
 ### Melhorado

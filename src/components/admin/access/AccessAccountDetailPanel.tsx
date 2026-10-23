@@ -265,11 +265,13 @@ export const AccessAccountDetailPanel: React.FC<AccessAccountDetailPanelProps> =
             <div>
               <span className="ui-eyebrow block mb-1">Conta criada</span>
               <p className="font-semibold text-[14px]" style={{ color: 'var(--text-1)' }}>
-                {insightsReady?.accountCreatedAt ? toPtDateTime(insightsReady.accountCreatedAt) : 'Data não disponível'}
+                {insightsReady && insights.accountCreatedAt
+                  ? toPtDateTime(insights.accountCreatedAt)
+                  : 'Data não disponível'}
               </p>
-              {insightsReady?.lastSignInAt ? (
+              {insightsReady && insights.lastSignInAt ? (
                 <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
-                  Último login: {toPtDateTime(insightsReady.lastSignInAt)}
+                  Último login: {toPtDateTime(insights.lastSignInAt)}
                 </p>
               ) : null}
             </div>

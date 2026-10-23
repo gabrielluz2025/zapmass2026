@@ -309,8 +309,8 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       const email = userRec?.email || '';
       const accountCreatedAt = userRec?.metadata?.creationTime ? new Date(userRec.metadata.creationTime).toISOString() : null;
       const lastSignInAt = userRec?.metadata?.lastSignInTime ? new Date(userRec.metadata.lastSignInTime).toISOString() : null;
-      const loginProviders = Array.from(
-        new Set(
+      const loginProviders: string[] = Array.from(
+        new Set<string>(
           (userRec?.providerData || [])
             .map((p) => String(p?.providerId || '').trim())
             .filter(Boolean)
