@@ -15,6 +15,14 @@ vi.mock('./sessionAuth', () => ({
   getSessionIdToken: (...args: unknown[]) => getSessionIdToken(...args),
 }));
 
+const getVpsAccessToken = vi.fn((): string | null => 'test-token');
+const vpsProbeAccessToken = vi.fn(async () => true);
+
+vi.mock('../services/vpsAuth', () => ({
+  getVpsAccessToken: () => getVpsAccessToken(),
+  vpsProbeAccessToken: (...args: unknown[]) => vpsProbeAccessToken(...args),
+}));
+
 describe('isSubscriptionRequiredHttpPayload', () => {
   it('reconhece 402 com code SUBSCRIPTION_REQUIRED', () => {
     expect(isSubscriptionRequiredHttpPayload(402, { code: 'SUBSCRIPTION_REQUIRED', error: 'Sem plano' })).toBe(true);
@@ -47,6 +55,10 @@ describe('apiFetchJson subscription guard', () => {
   afterEach(() => {
     getSessionIdToken.mockReset();
     getSessionIdToken.mockResolvedValue('test-token');
+    getVpsAccessToken.mockReset();
+    getVpsAccessToken.mockReturnValue('test-token');
+    vpsProbeAccessToken.mockReset();
+    vpsProbeAccessToken.mockResolvedValue(true);
     vi.unstubAllGlobals();
     vi.resetModules();
   });
@@ -115,5 +127,40 @@ describe('apiFetchJson subscription guard', () => {
     expect(a).toEqual({ ok: true, users: [] });
     expect(b).toEqual({ ok: true, users: [] });
     expect(forceRefreshCalls).toBe(1);
+  });
+
+  it('401 com refresh falho não acusa sessão expirada se /api/auth/me ainda responde', async () => {
+    getSessionIdToken.mockImplementation(async (forceRefresh?: boolean) => {
+      if (forceRefresh) return null;
+      return 'still-valid';
+    });
+    getVpsAccessToken.mockReturnValue('still-valid');
+    vpsProbeAccessToken.mockResolvedValue(true);
+
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, error: 'Token expirado' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const { apiFetchJson, SESSION_EXPIRED_MESSAGE } = await import('./apiFetchAuth');
+    await expect(apiFetchJson('/api/contacts/count')).rejects.toSatisfy(
+      (err: unknown) => err instanceof Error && err.message === 'Token expirado' && err.message !== SESSION_EXPIRED_MESSAGE
+    );
+  });
+
+  it('403 admin não dispara refresh e lança ApiForbiddenError', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, error: 'Acesso restrito a administradores.' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const { apiFetchJson, ApiForbiddenError } = await import('./apiFetchAuth');
+    await expect(apiFetchJson('/api/admin/access-users')).rejects.toBeInstanceOf(ApiForbiddenError);
+    expect(getSessionIdToken).toHaveBeenCalledWith(false);
+    expect(getSessionIdToken).not.toHaveBeenCalledWith(true);
   });
 });

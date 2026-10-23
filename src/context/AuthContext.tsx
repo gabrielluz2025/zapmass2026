@@ -21,6 +21,7 @@ import {
 } from '../services/vpsAuth';
 import { vpsUserToSessionUser } from '../utils/vpsSessionUser';
 import { clearBootstrapCache } from '../utils/bootstrapSessionCache';
+import { beginAuthSessionBootstrap, endAuthSessionBootstrap } from '../utils/sessionExpiryFlow';
 
 interface AuthContextValue {
   user: SessionUser | null;
@@ -92,6 +93,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (cached) {
           setUser(vpsUserToSessionUser(cached));
           setLoading(false);
+          beginAuthSessionBootstrap();
           void vpsRefreshAccessToken()
             .then((token) => {
               if (!token) {
@@ -103,10 +105,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             })
             .catch(() => {
               if (!getVpsAuthUser()) setUser(null);
+            })
+            .finally(() => {
+              endAuthSessionBootstrap();
             });
           return;
         }
-        await vpsRefreshAccessToken();
+        beginAuthSessionBootstrap();
+        try {
+          await vpsRefreshAccessToken();
+        } finally {
+          endAuthSessionBootstrap();
+        }
         const v = getVpsAuthUser();
         setUser(v ? vpsUserToSessionUser(v) : null);
       } catch {

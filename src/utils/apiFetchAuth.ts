@@ -1,11 +1,15 @@
 import { apiUrl } from './apiBase';
 import { getSessionIdToken } from './sessionAuth';
+import { getVpsAccessToken, vpsProbeAccessToken } from '../services/vpsAuth';
 import {
   SubscriptionRequiredError,
   emitSubscriptionRequired,
   formatSubscriptionRequiredMessage,
   isSubscriptionRequiredHttpPayload,
 } from './subscriptionRequiredFlow';
+import { ApiForbiddenError, SESSION_EXPIRED_MESSAGE } from './sessionExpiryFlow';
+
+export { SESSION_EXPIRED_MESSAGE, ApiForbiddenError, isSessionExpiredMessage } from './sessionExpiryFlow';
 
 export { isSubscriptionRequiredError, SubscriptionRequiredError } from './subscriptionRequiredFlow';
 
@@ -99,6 +103,19 @@ async function refreshSessionAfter401(): Promise<string | null> {
   return refreshAfter401InFlight;
 }
 
+async function sessionStillAlive(): Promise<boolean> {
+  const cached = getVpsAccessToken();
+  if (!cached) return false;
+  return vpsProbeAccessToken(cached);
+}
+
+async function throwIfSessionDead(fallbackError?: string): Promise<never> {
+  if (await sessionStillAlive()) {
+    throw new Error(fallbackError || 'Não autorizado.');
+  }
+  throw new Error(SESSION_EXPIRED_MESSAGE);
+}
+
 /** GET/POST autenticados com Bearer; caminhos passam por `apiUrl`. Renova token uma vez em 401. */
 export async function apiFetchJson<T = Record<string, unknown>>(
   path: string,
@@ -107,7 +124,9 @@ export async function apiFetchJson<T = Record<string, unknown>>(
 ): Promise<T> {
   // Após 401, o token já foi renovado — usar cache (nunca forçar 2.º refresh em paralelo).
   const token = await getSessionIdToken(false);
-  if (!token) throw new Error('Sessão expirada. Entre novamente.');
+  if (!token) {
+    await throwIfSessionDead();
+  }
 
   const method = methodOf(init);
   const extraRetries = init?.retries ?? (method === 'GET' || method === 'HEAD' ? 4 : 0);
@@ -125,12 +144,18 @@ export async function apiFetchJson<T = Record<string, unknown>>(
         },
       });
       const j = (await r.json().catch(() => ({}))) as T & { error?: string; code?: string };
+      if (r.status === 403) {
+        throw new ApiForbiddenError(
+          typeof j.error === 'string' && j.error.trim() ? j.error : 'Sem permissão para esta ação.'
+        );
+      }
       if (r.status === 401 && !retried) {
         const refreshed = await refreshSessionAfter401();
         if (refreshed) {
           return apiFetchJson<T>(path, init, true);
         }
-        throw new Error('Sessão expirada. Entre novamente.');
+        const apiMsg = typeof j.error === 'string' && j.error.trim() ? j.error : undefined;
+        await throwIfSessionDead(apiMsg);
       }
       if (isSubscriptionRequiredHttpPayload(r.status, j)) {
         const msg = formatSubscriptionRequiredMessage(j.error);

@@ -310,6 +310,30 @@ export async function vpsStaffLogin(
   return data.user;
 }
 
+/** Confirma se o Bearer ainda é aceito em `/api/auth/me` (sessão viva). */
+export async function vpsProbeAccessToken(token: string): Promise<boolean> {
+  if (!token.trim()) return false;
+  try {
+    const r = await fetchWithTimeout(
+      apiUrl('/api/auth/me'),
+      {
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${token}` }
+      },
+      REFRESH_FETCH_TIMEOUT_MS
+    );
+    if (!r.ok) return false;
+    const data = await parseJson<{ user?: VpsAuthUser }>(r);
+    return Boolean(data.user);
+  } catch {
+    return false;
+  }
+}
+
+export function isAccessTokenRefreshInFlight(): boolean {
+  return refreshInFlight != null;
+}
+
 async function performRefreshAccessToken(): Promise<string | null> {
   try {
     if (consumeLogoutFlag()) {
@@ -332,6 +356,10 @@ async function performRefreshAccessToken(): Promise<string | null> {
       // próximo retry em vez de deslogar o cliente por um soluço de infraestrutura.
       if (r.status >= 500 || r.status === 429) return null;
       if (googleOAuthEstablishInFlight > 0) return null;
+      const existing = getVpsAccessToken();
+      if (existing && (await vpsProbeAccessToken(existing))) {
+        return existing;
+      }
       clearVpsSession();
       return null;
     }

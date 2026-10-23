@@ -1,6 +1,12 @@
 import toast from 'react-hot-toast';
 import { isApiHttpTransientError, isApiNetworkError, isApiTimeoutError } from './apiFetchAuth';
 import { isSubscriptionRequiredError } from './subscriptionRequiredFlow';
+import { isAccessTokenRefreshInFlight } from '../services/vpsAuth';
+import {
+  GLOBAL_SESSION_TOAST_ID,
+  isAuthSessionBootstrapActive,
+  isSessionExpiredMessage
+} from './sessionExpiryFlow';
 
 export const API_OFFLINE_TOAST_ID = 'api-offline';
 
@@ -60,6 +66,11 @@ export function toastApiError(err: unknown, fallback: string): void {
     return;
   }
   const msg = err instanceof Error && err.message.trim() ? err.message : fallback;
+  if (isSessionExpiredMessage(msg)) {
+    if (isAuthSessionBootstrapActive() || isAccessTokenRefreshInFlight()) return;
+    toast.error(msg || fallback, { id: GLOBAL_SESSION_TOAST_ID });
+    return;
+  }
   toast.error(msg || fallback);
 }
 
@@ -82,6 +93,15 @@ export function installApiErrorToastGuard(): void {
       typeof message === 'string' ? message : message instanceof Error ? message.message : '';
     if (text && GO_UUID_TOAST_RE.test(text)) {
       return original(GO_UUID_TOAST_MESSAGE, { ...opts, id: opts?.id || 'go-invalid-uuid' });
+    }
+    if (text && isSessionExpiredMessage(text)) {
+      if (isAuthSessionBootstrapActive() || isAccessTokenRefreshInFlight()) {
+        return GLOBAL_SESSION_TOAST_ID;
+      }
+      return original(message as never, {
+        ...opts,
+        id: opts?.id ?? GLOBAL_SESSION_TOAST_ID
+      });
     }
     return original(message as never, opts);
   }) as typeof toast.error;

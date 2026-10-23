@@ -74,7 +74,8 @@ import { getSessionIdToken } from '../utils/sessionAuth';
 import {
   isTransientApiError,
   scheduleApiOfflineToast,
-  dismissApiOfflineToast
+  dismissApiOfflineToast,
+  toastApiError
 } from '../utils/toastApiError';
 import { useWorkspace } from './WorkspaceContext';
 import { filterConnectionsForViewer, ownsConnectionForUid } from '../utils/connectionScope';
@@ -1024,10 +1025,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         // Base já na tela (IndexedDB/cache): retry silencioso — não assustar todas as abas.
         if (!haveLocal) scheduleApiOfflineToast();
       } else {
-        toast.error(
-          err instanceof Error ? err.message : 'Falha ao carregar contatos.',
-          { id: 'contacts-sync-error', duration: 6000 }
-        );
+        toastApiError(err, 'Falha ao carregar contatos.');
       }
     } finally {
       if (currentUidRef.current === requestUid) setContactsLoadingMore(false);

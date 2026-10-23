@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.343] - 2026-10-23
+
+### Corrigido
+- **Sessão — toast falso no painel:** após login, 401 pontual ou refresh cookie falho já não dispara «Sessão expirada» se `/api/auth/me` ainda valida o Bearer; refresh não apaga token vivo; 403 admin distingue de sessão; toast deduplicado e suprimido durante bootstrap de auth; sync de contatos usa o mesmo guard.
+
 ## [2.3.342] - 2026-10-23
 
 ### Melhorado

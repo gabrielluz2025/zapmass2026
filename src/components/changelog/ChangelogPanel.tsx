@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.343',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Painel pós-login: fim do toast falso «Sessão expirada» (probe /api/auth/me, 403 vs 401, bootstrap e dedupe)',
+      },
+    ],
+  },
+  {
     version: '2.3.342',
     date: '23/10/2026',
     highlights: [
