@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.338',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Comunicados e Sugestões (criador): UI refinada, apiFetchJson e triagem com filtros',
+      },
+      {
+        type: 'fix',
+        text: 'Respostas a sugestões na VPS: Postgres + email; fim da sessão expirada ao publicar comunicado',
+      },
+    ],
+  },
+  {
     version: '2.3.337',
     date: '23/10/2026',
     highlights: [

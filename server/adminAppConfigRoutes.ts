@@ -19,7 +19,14 @@ import {
   listAdminAccessAudit,
   putAdminAccessUser
 } from './adminAccessUsers.js';
-import { loadAdminUserInsightsPg, listAdminProductSuggestionsPg } from './adminUserInsightsPg.js';
+import {
+  insertAdminProductSuggestionReplyPg,
+  listAdminProductSuggestionRepliesPg,
+  listAdminProductSuggestionsPg,
+  loadAdminProductSuggestionPg,
+  loadAdminUserInsightsPg,
+  patchAdminProductSuggestionStatusPg
+} from './adminUserInsightsPg.js';
 import { buildAdminPlatformStats } from './adminPlatformStats.js';
 
 function summarizeCommercialChanges(
@@ -449,12 +456,18 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         userEmail: string;
         screen: string;
         category: string;
+        status: string;
+        replyCount: number;
+        lastRepliedAt: string | null;
+        lastRepliedBy: string;
         createdAt: string | null;
       };
 
       const mapDoc = (d: FirebaseFirestore.QueryDocumentSnapshot): SuggestionItem => {
         const uid = (d.ref.parent.parent as { id?: string } | undefined)?.id || '';
         const raw = d.data();
+        const replyCount =
+          typeof raw?.replyCount === 'number' && Number.isFinite(raw.replyCount) ? raw.replyCount : 0;
         return {
           id: d.id,
           uid,
@@ -462,6 +475,10 @@ export function registerAdminAppConfigRoutes(app: Express): void {
           userEmail: typeof raw?.userEmail === 'string' ? raw.userEmail : '',
           screen: typeof raw?.screen === 'string' ? raw.screen : '',
           category: typeof raw?.category === 'string' ? raw.category : '',
+          status: typeof raw?.status === 'string' ? raw.status : 'received',
+          replyCount,
+          lastRepliedAt: tsToIso(raw?.lastRepliedAt),
+          lastRepliedBy: typeof raw?.lastRepliedBy === 'string' ? raw.lastRepliedBy : '',
           createdAt: tsToIso(raw?.createdAt)
         };
       };
@@ -558,7 +575,8 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         }
 
         if (vpsDataEnabled() && getZapmassPool()) {
-          return res.json({ ok: true, items: [] });
+          const items = await listAdminProductSuggestionRepliesPg(uid, id);
+          return res.json({ ok: true, items });
         }
 
         const adminApp = getFirebaseAdmin();
@@ -603,17 +621,59 @@ export function registerAdminAppConfigRoutes(app: Express): void {
    * Cria uma resposta a uma sugestão e envia email para o cliente (best-effort).
    * Body: { text: string }
    */
+  app.patch('/api/admin/product-suggestions/:uid/:id', async (req: Request, res: Response) => {
+    try {
+      const auth = await assertAdminFromBearer(req, res);
+      if (!auth) return;
+
+      const uid = String(req.params.uid || '').trim();
+      const id = String(req.params.id || '').trim();
+      if (!uid || !id) {
+        return res.status(400).json({ ok: false, error: 'Parâmetros uid/id obrigatórios.' });
+      }
+
+      const status = typeof req.body?.status === 'string' ? req.body.status.trim().toLowerCase() : '';
+      if (!status) {
+        return res.status(400).json({ ok: false, error: 'Informe status.' });
+      }
+
+      if (vpsDataEnabled() && getZapmassPool()) {
+        const ok = await patchAdminProductSuggestionStatusPg(uid, id, status);
+        if (!ok) {
+          return res.status(404).json({ ok: false, error: 'Sugestão não encontrada ou status inválido.' });
+        }
+        return res.json({ ok: true, status });
+      }
+
+      const adminApp = getFirebaseAdmin();
+      if (!adminApp) {
+        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+      }
+      const allowed = new Set(['received', 'reviewing', 'planned', 'done', 'declined']);
+      if (!allowed.has(status)) {
+        return res.status(400).json({ ok: false, error: 'Status inválido.' });
+      }
+      const db = getFirestore(adminApp);
+      const sugRef = db.collection('users').doc(uid).collection('suggestions').doc(id);
+      const sugSnap = await sugRef.get();
+      if (!sugSnap.exists) {
+        return res.status(404).json({ ok: false, error: 'Sugestão não encontrada.' });
+      }
+      await sugRef.set({ status }, { merge: true });
+      return res.json({ ok: true, status });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[api/admin/product-suggestions][PATCH]', msg);
+      return res.status(500).json({ ok: false, error: msg });
+    }
+  });
+
   app.post(
     '/api/admin/product-suggestions/:uid/:id/reply',
     async (req: Request, res: Response) => {
       try {
         const auth = await assertAdminFromBearer(req, res);
         if (!auth) return;
-
-        const adminApp = getFirebaseAdmin();
-        if (!adminApp) {
-          return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
-        }
 
         const uid = String(req.params.uid || '').trim();
         const id = String(req.params.id || '').trim();
@@ -629,28 +689,47 @@ export function registerAdminAppConfigRoutes(app: Express): void {
           return res.status(400).json({ ok: false, error: 'Texto demasiado longo (limite 8000).' });
         }
 
-        const db = getFirestore(adminApp);
-        const sugRef = db.collection('users').doc(uid).collection('suggestions').doc(id);
-        const sugSnap = await sugRef.get();
-        if (!sugSnap.exists) {
-          return res.status(404).json({ ok: false, error: 'Sugestão não encontrada.' });
-        }
-        const sug = sugSnap.data() || {};
-        const recipient = typeof sug.userEmail === 'string' ? sug.userEmail : '';
-        const originalText = typeof sug.text === 'string' ? sug.text : '';
-        const originalCategory = typeof sug.category === 'string' ? sug.category : '';
-        const originalScreen = typeof sug.screen === 'string' ? sug.screen : '';
-        const originalCreatedAtRaw = sug.createdAt;
-        const originalCreatedAt =
-          originalCreatedAtRaw instanceof Timestamp
-            ? originalCreatedAtRaw.toDate()
-            : originalCreatedAtRaw && typeof (originalCreatedAtRaw as Timestamp)?.toDate === 'function'
-              ? (originalCreatedAtRaw as Timestamp).toDate()
-              : null;
+        let recipient = '';
+        let originalText = '';
+        let originalCategory = '';
+        let originalScreen = '';
+        let originalCreatedAt: Date | null = null;
 
-        // Envia o email primeiro (best-effort) — assim, se a Resend rejeitar
-        // (ex.: domínio do remetente não verificado), gravamos `emailSent=false`
-        // mas mantemos o histórico para o admin tentar de novo.
+        if (vpsDataEnabled() && getZapmassPool()) {
+          const sug = await loadAdminProductSuggestionPg(uid, id);
+          if (!sug) {
+            return res.status(404).json({ ok: false, error: 'Sugestão não encontrada.' });
+          }
+          recipient = sug.userEmail;
+          originalText = sug.text;
+          originalCategory = sug.category;
+          originalScreen = sug.screen;
+          originalCreatedAt = sug.createdAt ? new Date(sug.createdAt) : null;
+        } else {
+          const adminApp = getFirebaseAdmin();
+          if (!adminApp) {
+            return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+          }
+          const db = getFirestore(adminApp);
+          const sugRef = db.collection('users').doc(uid).collection('suggestions').doc(id);
+          const sugSnap = await sugRef.get();
+          if (!sugSnap.exists) {
+            return res.status(404).json({ ok: false, error: 'Sugestão não encontrada.' });
+          }
+          const sug = sugSnap.data() || {};
+          recipient = typeof sug.userEmail === 'string' ? sug.userEmail : '';
+          originalText = typeof sug.text === 'string' ? sug.text : '';
+          originalCategory = typeof sug.category === 'string' ? sug.category : '';
+          originalScreen = typeof sug.screen === 'string' ? sug.screen : '';
+          const originalCreatedAtRaw = sug.createdAt;
+          originalCreatedAt =
+            originalCreatedAtRaw instanceof Timestamp
+              ? originalCreatedAtRaw.toDate()
+              : originalCreatedAtRaw && typeof (originalCreatedAtRaw as Timestamp)?.toDate === 'function'
+                ? (originalCreatedAtRaw as Timestamp).toDate()
+                : null;
+        }
+
         let emailSent = false;
         let emailError: string | undefined;
         if (recipient && /@/.test(recipient)) {
@@ -678,24 +757,40 @@ export function registerAdminAppConfigRoutes(app: Express): void {
           }
         }
 
-        await sugRef.collection('replies').add({
-          text,
-          adminEmail: auth.email,
-          adminUid: auth.uid,
-          emailSent,
-          ...(emailError ? { emailError } : {}),
-          createdAt: FieldValue.serverTimestamp()
-        });
-
-        // Marca a própria sugestão como respondida (útil para listar não-respondidas).
-        await sugRef.set(
-          {
-            lastRepliedAt: FieldValue.serverTimestamp(),
-            lastRepliedBy: auth.email,
-            replyCount: FieldValue.increment(1)
-          },
-          { merge: true }
-        );
+        if (vpsDataEnabled() && getZapmassPool()) {
+          await insertAdminProductSuggestionReplyPg({
+            tenantId: uid,
+            suggestionId: id,
+            text,
+            adminEmail: auth.email,
+            adminUid: auth.uid,
+            emailSent,
+            emailError
+          });
+        } else {
+          const adminApp = getFirebaseAdmin();
+          if (!adminApp) {
+            return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+          }
+          const db = getFirestore(adminApp);
+          const sugRef = db.collection('users').doc(uid).collection('suggestions').doc(id);
+          await sugRef.collection('replies').add({
+            text,
+            adminEmail: auth.email,
+            adminUid: auth.uid,
+            emailSent,
+            ...(emailError ? { emailError } : {}),
+            createdAt: FieldValue.serverTimestamp()
+          });
+          await sugRef.set(
+            {
+              lastRepliedAt: FieldValue.serverTimestamp(),
+              lastRepliedBy: auth.email,
+              replyCount: FieldValue.increment(1)
+            },
+            { merge: true }
+          );
+        }
 
         return res.json({ ok: true, emailSent, recipient, emailError });
       } catch (e: unknown) {

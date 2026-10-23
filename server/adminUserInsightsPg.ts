@@ -207,6 +207,20 @@ export type AdminProductSuggestionRow = {
   userEmail: string;
   screen: string;
   category: string;
+  status: string;
+  replyCount: number;
+  lastRepliedAt: string | null;
+  lastRepliedBy: string;
+  createdAt: string | null;
+};
+
+export type AdminProductSuggestionReplyRow = {
+  id: string;
+  text: string;
+  adminEmail: string;
+  adminUid: string;
+  emailSent: boolean;
+  emailError: string;
   createdAt: string | null;
 };
 
@@ -221,9 +235,17 @@ export async function listAdminProductSuggestionsPg(limit: number): Promise<Admi
     text: string;
     screen: string;
     category: string;
+    status: string;
+    reply_count: number;
+    last_replied_at: Date | null;
+    last_replied_by: string;
     created_at: Date;
   }>(
-    `SELECT id::text, tenant_id::text, email, text, screen, category, created_at
+    `SELECT id::text, tenant_id::text, email, text, screen, category,
+            COALESCE(status, 'received') AS status,
+            COALESCE(reply_count, 0) AS reply_count,
+            last_replied_at, COALESCE(last_replied_by, '') AS last_replied_by,
+            created_at
      FROM zapmass.product_suggestions
      ORDER BY created_at DESC
      LIMIT $1`,
@@ -236,6 +258,163 @@ export async function listAdminProductSuggestionsPg(limit: number): Promise<Admi
     userEmail: row.email,
     screen: row.screen,
     category: row.category,
+    status: row.status || 'received',
+    replyCount: Number(row.reply_count) || 0,
+    lastRepliedAt: row.last_replied_at ? row.last_replied_at.toISOString() : null,
+    lastRepliedBy: row.last_replied_by || '',
     createdAt: row.created_at.toISOString()
   }));
+}
+
+export async function loadAdminProductSuggestionPg(
+  tenantId: string,
+  suggestionId: string
+): Promise<AdminProductSuggestionRow | null> {
+  const pool = getZapmassPool();
+  if (!pool) return null;
+  const r = await pool.query<{
+    id: string;
+    tenant_id: string;
+    email: string;
+    text: string;
+    screen: string;
+    category: string;
+    status: string;
+    reply_count: number;
+    last_replied_at: Date | null;
+    last_replied_by: string;
+    created_at: Date;
+  }>(
+    `SELECT id::text, tenant_id::text, email, text, screen, category,
+            COALESCE(status, 'received') AS status,
+            COALESCE(reply_count, 0) AS reply_count,
+            last_replied_at, COALESCE(last_replied_by, '') AS last_replied_by,
+            created_at
+     FROM zapmass.product_suggestions
+     WHERE tenant_id = $1::uuid AND id = $2::uuid
+     LIMIT 1`,
+    [tenantId, suggestionId]
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    uid: row.tenant_id,
+    text: row.text,
+    userEmail: row.email,
+    screen: row.screen,
+    category: row.category,
+    status: row.status || 'received',
+    replyCount: Number(row.reply_count) || 0,
+    lastRepliedAt: row.last_replied_at ? row.last_replied_at.toISOString() : null,
+    lastRepliedBy: row.last_replied_by || '',
+    createdAt: row.created_at.toISOString()
+  };
+}
+
+export async function listAdminProductSuggestionRepliesPg(
+  tenantId: string,
+  suggestionId: string
+): Promise<AdminProductSuggestionReplyRow[]> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const r = await pool.query<{
+    id: string;
+    text: string;
+    admin_email: string;
+    admin_uid: string;
+    email_sent: boolean;
+    email_error: string;
+    created_at: Date;
+  }>(
+    `SELECT r.id::text, r.text, r.admin_email, r.admin_uid, r.email_sent,
+            COALESCE(r.email_error, '') AS email_error, r.created_at
+     FROM zapmass.product_suggestion_replies r
+     INNER JOIN zapmass.product_suggestions s ON s.id = r.suggestion_id
+     WHERE s.tenant_id = $1::uuid AND s.id = $2::uuid
+     ORDER BY r.created_at ASC
+     LIMIT 50`,
+    [tenantId, suggestionId]
+  );
+  return r.rows.map((row) => ({
+    id: row.id,
+    text: row.text,
+    adminEmail: row.admin_email,
+    adminUid: row.admin_uid,
+    emailSent: row.email_sent === true,
+    emailError: row.email_error || '',
+    createdAt: row.created_at.toISOString()
+  }));
+}
+
+export async function insertAdminProductSuggestionReplyPg(params: {
+  tenantId: string;
+  suggestionId: string;
+  text: string;
+  adminEmail: string;
+  adminUid: string;
+  emailSent: boolean;
+  emailError?: string;
+}): Promise<void> {
+  const pool = getZapmassPool();
+  if (!pool) throw new Error('Postgres indisponível.');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const exists = await client.query(
+      `SELECT id FROM zapmass.product_suggestions WHERE tenant_id = $1::uuid AND id = $2::uuid FOR UPDATE`,
+      [params.tenantId, params.suggestionId]
+    );
+    if (exists.rowCount === 0) {
+      throw new Error('Sugestão não encontrada.');
+    }
+    await client.query(
+      `INSERT INTO zapmass.product_suggestion_replies
+         (suggestion_id, text, admin_email, admin_uid, email_sent, email_error)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6)`,
+      [
+        params.suggestionId,
+        params.text,
+        params.adminEmail,
+        params.adminUid,
+        params.emailSent,
+        (params.emailError || '').slice(0, 500)
+      ]
+    );
+    await client.query(
+      `UPDATE zapmass.product_suggestions
+          SET reply_count = COALESCE(reply_count, 0) + 1,
+              last_replied_at = now(),
+              last_replied_by = $3,
+              status = CASE WHEN status = 'received' THEN 'reviewing' ELSE status END,
+              updated_at = now()
+        WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+      [params.tenantId, params.suggestionId, params.adminEmail]
+    );
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+const SUGGESTION_STATUSES = new Set(['received', 'reviewing', 'planned', 'done', 'declined']);
+
+export async function patchAdminProductSuggestionStatusPg(
+  tenantId: string,
+  suggestionId: string,
+  status: string
+): Promise<boolean> {
+  if (!SUGGESTION_STATUSES.has(status)) return false;
+  const pool = getZapmassPool();
+  if (!pool) return false;
+  const r = await pool.query(
+    `UPDATE zapmass.product_suggestions
+        SET status = $3, updated_at = now()
+      WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+    [tenantId, suggestionId, status]
+  );
+  return (r.rowCount ?? 0) > 0;
 }

@@ -7,6 +7,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.338] - 2026-10-23
+
+### Melhorado
+- **Painel do criador — Comunicados:** chamadas via `apiFetchJson` (fim do toast falso «Sessão expirada»), pré-visualização da faixa, validação e contadores, card do ativo/expirado e rodapé fixo de publicação.
+- **Painel do criador — Sugestões:** aba dedicada com StatCards, filtros (novas / em análise / respondidas), triagem «Marcar em análise» e UI alinhada às demais abas; texto atualizado (Postgres na VPS, sem referência ao Firestore).
+
+### Corrigido
+- **API admin sugestões (VPS):** histórico e envio de respostas por email passam a persistir em Postgres (`product_suggestion_replies`); PATCH de status para triagem.
+
 ## [2.3.337] - 2026-10-23
 
 ### Corrigido
