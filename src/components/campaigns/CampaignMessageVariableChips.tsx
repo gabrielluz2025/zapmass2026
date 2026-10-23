@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { WIZARD_CAMPAIGN_VARS_FICHA, WIZARD_CAMPAIGN_VARS_PRIMARY } from '../../utils/campaignMessageVariables';
+import { ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 import { useAppProfile } from '../../context/AppProfileContext';
 
 export type CampaignMessageVariableChipsDensity = 'full' | 'compact';
@@ -51,7 +53,10 @@ export const CampaignMessageVariableChips: React.FC<Props> = ({
           />
         </button>
       ) : (
-        <p className="cw-vars-group-label">Variáveis rápidas</p>
+        <p className="cw-vars-group-label inline-flex items-center gap-1.5">
+          Variáveis rápidas
+          <ZmFieldHelp content={FIELD_HELP.spinTrax} ariaLabel="Ajuda: variáveis e SpinTrax" />
+        </p>
       )}
       <div className="cw-vars-body">
         <p className="cw-vars-group-label">Principais</p>

@@ -49,7 +49,8 @@ import {
 } from '../utils/whatsappRiskStorage';
 import { apiUrl } from '../utils/apiBase';
 import toast from 'react-hot-toast';
-import { Badge, Button, Card, Input, PageShell, CollapsibleSection } from './ui';
+import { Badge, Button, Card, Input, PageShell, CollapsibleSection, ZmFieldHelp, ZmFieldLabel } from './ui';
+import { FIELD_HELP } from '../constants/fieldHelpCopy';
 import { WorkspaceTeamSection } from './settings/WorkspaceTeamSection';
 import { SupportBotSettingsPanel } from './settings/SupportBotSettingsPanel';
 import { AccountProfileEditor } from './settings/AccountProfileEditor';
@@ -414,7 +415,10 @@ export const SettingsTab: React.FC = () => {
                 <Zap className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />
               </div>
               <div>
-                <h2 className="ui-title text-[15px]">Intervalo entre mensagens</h2>
+                <h2 className="ui-title text-[15px] flex items-center gap-1.5">
+                  Intervalo entre mensagens
+                  <ZmFieldHelp content={FIELD_HELP.antiBanInterval} ariaLabel="Ajuda: intervalo entre mensagens" />
+                </h2>
                 <p className="ui-subtitle text-[12.5px]">Quanto maior a variação, mais humano o padrão fica.</p>
               </div>
             </div>
@@ -433,7 +437,10 @@ export const SettingsTab: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[11.5px] uppercase tracking-wide font-semibold" style={{ color: 'var(--text-3)' }}>Mínimo</span>
+                      <span className="text-[11.5px] uppercase tracking-wide font-semibold inline-flex items-center gap-1" style={{ color: 'var(--text-3)' }}>
+                        Mínimo
+                        <ZmFieldHelp content={FIELD_HELP.minDelaySettings} ariaLabel="Ajuda: delay mínimo" />
+                      </span>
                       <span className="text-[13px] font-bold tabular-nums" style={{ color: 'var(--text-1)' }}>{minDelay}s</span>
                     </div>
                     <input type="range" min="5" max="60" value={minDelay}
@@ -442,7 +449,10 @@ export const SettingsTab: React.FC = () => {
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[11.5px] uppercase tracking-wide font-semibold" style={{ color: 'var(--text-3)' }}>Máximo</span>
+                      <span className="text-[11.5px] uppercase tracking-wide font-semibold inline-flex items-center gap-1" style={{ color: 'var(--text-3)' }}>
+                        Máximo
+                        <ZmFieldHelp content={FIELD_HELP.maxDelaySettings} ariaLabel="Ajuda: delay máximo" />
+                      </span>
                       <span className="text-[13px] font-bold tabular-nums" style={{ color: 'var(--text-1)' }}>{maxDelay}s</span>
                     </div>
                     <input type="range" min="10" max="120" value={maxDelay}
@@ -458,10 +468,14 @@ export const SettingsTab: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label className="flex items-center gap-2 text-[13px] font-semibold mb-2" style={{ color: 'var(--text-1)' }}>
+                  <ZmFieldLabel
+                    className="mb-2"
+                    help={FIELD_HELP.dailyLimitPerChip}
+                    helpAriaLabel="Ajuda: limite diário por chip"
+                  >
                     <Smartphone className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} />
                     Limite diário por chip
-                  </label>
+                  </ZmFieldLabel>
                   <Input
                     type="number"
                     value={dailyLimit}
@@ -475,9 +489,9 @@ export const SettingsTab: React.FC = () => {
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <label className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                    <ZmFieldLabel help={FIELD_HELP.sleepMode} helpAriaLabel="Ajuda: silêncio noturno">
                       Modo silêncio noturno
-                    </label>
+                    </ZmFieldLabel>
                     <button
                       type="button"
                       role="switch"

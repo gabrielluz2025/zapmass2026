@@ -14,7 +14,8 @@ import type { DiagnosticsBundle } from '../../shared/diagnosticsBundle';
 import { APP_VERSION } from '../config/appVersion';
 import { useZapMassCore } from '../context/ZapMassContext';
 import { fetchDiagnosticsExport, fetchDiagnosticsRecent } from '../services/diagnosticsApi';
-import { Button } from './ui';
+import { Button, ZmFieldHelp } from './ui';
+import { FIELD_HELP } from '../constants/fieldHelpCopy';
 
 function downloadJson(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
@@ -106,6 +107,7 @@ export const DiagnosticsTab: React.FC = () => {
         <h1 className="flex items-center gap-2 text-xl font-bold" style={{ color: 'var(--text-1)' }}>
           <Stethoscope className="w-6 h-6 text-emerald-500" />
           Diagnóstico
+          <ZmFieldHelp content={FIELD_HELP.diagnosticsExport} ariaLabel="Ajuda: diagnóstico" />
         </h1>
         <p className="text-[13px] mt-1" style={{ color: 'var(--text-3)' }}>
           Erros recentes, estado dos chips e pacote exportável para suporte ou IA (sem senhas).

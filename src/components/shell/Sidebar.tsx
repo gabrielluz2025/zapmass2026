@@ -110,12 +110,6 @@ const navGroups: NavGroup[] = [
         icon: Stethoscope,
         description: 'Erros recentes e pacote para suporte'
       },
-      {
-        id: 'dispatch-queue',
-        label: 'Fila de disparo',
-        icon: Layers,
-        description: 'Inspecionar e limpar fila BullMQ por chip e campanha'
-      },
       { id: 'support-bot', label: 'Atendimento', icon: Bot, description: 'Bot automático e handoff humano' },
       { id: 'nurture-journey', label: 'Jornada', icon: BookOpen, description: 'Nutrição de leads quentes' }
     ]
@@ -149,6 +143,13 @@ const ADMIN_OPS_ITEM: NavItemDef = {
   label: 'Servidor & alertas',
   icon: Server,
   description: 'RAM, fila e integrações'
+};
+
+const DISPATCH_QUEUE_ITEM: NavItemDef = {
+  id: 'dispatch-queue',
+  label: 'Fila de disparo',
+  icon: Layers,
+  description: 'Inspecionar fila BullMQ (admin)'
 };
 
 const AI_ASSISTANT_NAV_ITEM: NavItemDef = {
@@ -211,7 +212,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             items: [AI_ASSISTANT_NAV_ITEM, ...gr.items, ADMIN_NAV_ITEM]
           };
         }
-        if (gr.label === 'Operações') return { ...gr, items: [...gr.items, ADMIN_OPS_ITEM] };
+        if (gr.label === 'Operações') {
+          return { ...gr, items: [...gr.items, ADMIN_OPS_ITEM, DISPATCH_QUEUE_ITEM] };
+        }
         return gr;
       });
     }

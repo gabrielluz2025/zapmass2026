@@ -1,5 +1,7 @@
 import React from 'react';
 import { GitBranch, MessageSquare, Zap } from 'lucide-react';
+import { ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 
 export type CampaignFlowMode = 'single' | 'sequential' | 'reply';
 
@@ -46,7 +48,10 @@ export const CampaignFlowModePicker: React.FC<Props> = ({ mode, onChange, hidden
     <div className="cw-msg-section">
       <div className="flex items-center gap-2 mb-3">
         <Zap className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />
-        <p className="cw-msg-section-title mb-0">Tipo de campanha</p>
+        <p className="cw-msg-section-title mb-0 inline-flex items-center gap-1.5">
+          Tipo de campanha
+          <ZmFieldHelp content={FIELD_HELP.replyFlow} ariaLabel="Ajuda: tipo de campanha" />
+        </p>
       </div>
       <div className="cw-flow-pick-grid" role="group" aria-label="Tipo de campanha">
         {visibleModes.map((m) => {

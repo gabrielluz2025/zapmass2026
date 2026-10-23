@@ -21,3 +21,4 @@ export { ZmMetricCard } from './ZmMetricCard';
 export type { ZmMetricAccent } from './ZmMetricCard';
 export { TabBar } from './TabBar';
 export type { TabBarItem } from './TabBar';
+export { ZmFieldHelp, ZmFieldLabel } from './ZmFieldHelp';

@@ -103,7 +103,7 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
       },
       {
         type: 'tip',
-        text: 'Itens como Painel do criador, Servidor & alertas e Estúdio só aparecem para administradores — ignore se não os vir.',
+        text: 'Itens como Painel do criador, Servidor & alertas, Fila de disparo (BullMQ) e Estúdio só aparecem para administradores — ignore se não os vir.',
       },
     ],
   },

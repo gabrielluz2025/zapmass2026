@@ -3,6 +3,8 @@ import {
   Plus, Trash2, Pencil, Check, X, Layers, Wifi, WifiOff, RefreshCw, Shield, Zap, ArrowRight
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 import { ConnectionStatus, WhatsAppConnection } from '../../types';
 import {
   ConnectionPool,
@@ -138,8 +140,9 @@ export const ConnectionPoolsPanel: React.FC<ConnectionPoolsPanelProps> = ({ conn
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-[15px] font-bold" style={{ color: 'var(--text)' }}>
+          <h3 className="text-[15px] font-bold inline-flex items-center gap-1.5" style={{ color: 'var(--text)' }}>
             Pools de Chips
+            <ZmFieldHelp content={FIELD_HELP.connectionPool} ariaLabel="Ajuda: pools de chips" />
           </h3>
           <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-2)' }}>
             Agrupe chips para usar em campanhas. Se incluir um canal num pool que já dispara, as mensagens pendentes passam a ser divididas com ele.

@@ -30,7 +30,8 @@ import {
   CHANNEL_TIER_PRICES_MONTHLY,
   brl
 } from '../../constants/channelTierPricing';
-import { PageShell, CollapsibleSection, Badge, StatTile, CompactPageHeader, Button } from '../ui';
+import { PageShell, CollapsibleSection, Badge, StatTile, CompactPageHeader, Button, ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 import type { UserSubscription } from '../../types';
 import { apiUrl } from '../../utils/apiBase';
 import { mercadoPagoAdminSetupHint, type MpCheckoutIssue } from '../../utils/mercadopagoCheckoutError';
@@ -560,7 +561,12 @@ export const MySubscriptionTab: React.FC = () => {
       </div>
 
       <CollapsibleSection
-        title="Escolha seu plano"
+        title={
+          <span className="inline-flex items-center gap-1.5">
+            Escolha seu plano
+            <ZmFieldHelp content={FIELD_HELP.channelExtras} ariaLabel="Ajuda: planos e canais" />
+          </span>
+        }
         summary={`${upgradeTarget} canal(is) · ${tierPlanMode === 'annual' ? 'Anual' : 'Mensal'}`}
         defaultOpen
         actions={

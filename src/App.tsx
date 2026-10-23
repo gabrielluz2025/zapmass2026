@@ -239,6 +239,14 @@ const MainLayout: React.FC = () => {
     return () => window.removeEventListener(OPEN_AGENT_ASSISTANT_PAGE_EVENT, goAgentPage);
   }, [setCurrentView]);
 
+  /** Rotas só admin — URL salva ou atalho não deve expor painel técnico a clientes pagantes. */
+  useEffect(() => {
+    if (!user) return;
+    if (isAdmin) return;
+    const blocked = new Set(['admin', 'admin-ops', 'dispatch-queue', 'ai-assistant', 'creator-studio']);
+    if (blocked.has(currentView)) setCurrentView('dashboard');
+  }, [user, isAdmin, currentView, setCurrentView]);
+
   // Cmd+K / Ctrl+K abre a paleta de busca global
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -421,6 +429,9 @@ const MainLayout: React.FC = () => {
       case 'diagnostics':
         return <DiagnosticsTab />;
       case 'dispatch-queue':
+        if (!isPlatformAdminUser(user)) {
+          return <ConnectionsTab />;
+        }
         return <DispatchQueueTab />;
       case 'settings':
         return <SettingsTab />;

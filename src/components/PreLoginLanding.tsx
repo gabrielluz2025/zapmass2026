@@ -1055,23 +1055,28 @@ export const PreLoginLanding: React.FC = () => {
             </p>
 
             {/* CTA row */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 36 }}>
-              <button
-                type="button"
-                onClick={() => openAuth('hero_primary')}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 8,
-                  padding: '14px 28px', borderRadius: 14,
-                  background: `linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)`,
-                  boxShadow: `0 16px 36px ${D.greenGlow}`,
-                  fontSize: 15, fontWeight: 700, color: '#fff', border: 'none', cursor: 'pointer',
-                  transition: 'transform 0.15s, box-shadow 0.15s'
-                }}
-                className="hover:scale-[1.02] active:scale-[0.98]"
-              >
-                Começar grátis agora
-                <ArrowRight size={17} />
-              </button>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 36, alignItems: 'flex-start' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => openAuth('hero_primary')}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    padding: '14px 28px', borderRadius: 14,
+                    background: `linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)`,
+                    boxShadow: `0 16px 36px ${D.greenGlow}`,
+                    fontSize: 15, fontWeight: 700, color: '#fff', border: 'none', cursor: 'pointer',
+                    transition: 'transform 0.15s, box-shadow 0.15s'
+                  }}
+                  className="hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  Começar grátis agora
+                  <ArrowRight size={17} />
+                </button>
+                <p style={{ margin: 0, fontSize: 12, color: D.text3, lineHeight: 1.45, paddingLeft: 2 }}>
+                  Teste completo · sem cartão · cancele quando quiser
+                </p>
+              </div>
               <a
                 href="#planos"
                 onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'hero_plans' })}

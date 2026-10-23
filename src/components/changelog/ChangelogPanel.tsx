@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.344',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Preparação comercial: menu/URL só-admin (Fila BullMQ, Painel do criador, Servidor), ZmFieldHelp em campanhas/conexões/assinatura e CTA da landing',
+      },
+    ],
+  },
+  {
     version: '2.3.343',
     date: '23/10/2026',
     highlights: [

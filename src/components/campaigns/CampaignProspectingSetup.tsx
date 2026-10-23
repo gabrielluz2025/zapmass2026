@@ -1,7 +1,8 @@
 import React from 'react';
 import { Calendar, MessageSquare, Plus, Trash2 } from 'lucide-react';
 import type { CampaignProspectingResponderStep } from '../../types';
-import { Button, Input, Textarea } from '../ui';
+import { Button, Input, Textarea, ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 
 const WEEKDAYS = [
   { value: 0, label: 'Domingo' },
@@ -128,8 +129,9 @@ export const CampaignProspectingSetup: React.FC<Props> = ({
         />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
           <div>
-            <label className="text-[11px] font-medium block mb-1" style={{ color: 'var(--text-3)' }}>
+            <label className="text-[11px] font-medium flex items-center gap-1 mb-1" style={{ color: 'var(--text-3)' }}>
               Semanas de insistência
+              <ZmFieldHelp content={FIELD_HELP.silentBump} ariaLabel="Ajuda: semanas de insistência" />
             </label>
             <Input
               type="number"

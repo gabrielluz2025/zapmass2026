@@ -59,7 +59,8 @@ import {
   type TempStats
 } from '../../utils/contactTemperature';
 import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
-import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
+import { Badge, Button, Card, Input, SectionHeader, Textarea, ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { CampaignReplyFlowEditor } from './CampaignReplyFlowEditor';
 import { CampaignFlowModePicker, type CampaignFlowMode } from './CampaignFlowModePicker';
@@ -2382,8 +2383,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <Users className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-[15px] font-bold leading-tight" style={{ color: 'var(--text-1)' }}>
+                  <h3 className="text-[15px] font-bold leading-tight flex items-center gap-1.5" style={{ color: 'var(--text-1)' }}>
                     Para quem vamos enviar?
+                    <ZmFieldHelp content={FIELD_HELP.campaignAudience} ariaLabel="Ajuda: público da campanha" />
                   </h3>
                   <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-3)' }}>
                     Escolha a estratégia de público para esta campanha
@@ -3140,7 +3142,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               <Card>
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <h3 className="ui-title text-[15px]">Chips do WhatsApp</h3>
+                    <h3 className="ui-title text-[15px] flex items-center gap-1.5">
+                      Chips do WhatsApp
+                      <ZmFieldHelp content={FIELD_HELP.connectionPool} ariaLabel="Ajuda: seleção de chips" />
+                    </h3>
                     <p className="ui-subtitle text-[12.5px]">
                       {isEditMode
                         ? 'Troque o pool ou os chips. Offline também pode entrar — o disparo usa os que estiverem online.'
@@ -3481,6 +3486,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                             </span>
                             <label className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-3)' }}>
                               Peso
+                              <ZmFieldHelp content={FIELD_HELP.channelWeight} ariaLabel="Ajuda: peso do chip" />
                               <input
                                 type="number"
                                 min={1}
@@ -3511,7 +3517,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 {/* Header */}
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="ui-title text-[15px]">Intervalo Anti-Ban</h3>
+                    <h3 className="ui-title text-[15px] flex items-center gap-1.5">
+                      Intervalo Anti-Ban
+                      <ZmFieldHelp content={FIELD_HELP.antiBanInterval} ariaLabel="Ajuda: intervalo anti-ban" />
+                    </h3>
                     <p className="ui-subtitle text-[12px] mt-0.5">
                       Atraso aleatório entre envios — quanto maior e mais variado, menor o risco de bloqueio.
                     </p>
@@ -3590,8 +3599,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   onClick={() => setHumanizedPauses(v => !v)}
                 >
                   <div>
-                    <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                    <p className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: 'var(--text-1)' }}>
                       Pausas humanizadas
+                      <ZmFieldHelp content={FIELD_HELP.humanizedPauses} ariaLabel="Ajuda: pausas humanizadas" />
                     </p>
                     <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
                       A cada ~30 msgs, faz uma pausa extra de 2–5 min para simular comportamento humano

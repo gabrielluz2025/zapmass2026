@@ -9,7 +9,8 @@ import { useAuth } from '../context/AuthContext';
 import { ConnectionStatus, WarmupChipStats } from '../types';
 import { brazilDayKey } from '../utils/channelDispatchInsights';
 import toast from 'react-hot-toast';
-import { Badge, Button, Card, EmptyState, Modal, PageShell } from './ui';
+import { Badge, Button, Card, EmptyState, Modal, PageShell, ZmFieldHelp } from './ui';
+import { FIELD_HELP } from '../constants/fieldHelpCopy';
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────
 interface WarmupChannel {
@@ -551,7 +552,10 @@ export const WarmupTab: React.FC = () => {
         >
           <div className="flex items-center gap-1.5">
             <Timer className="w-4 h-4" style={{ color: 'var(--text-3)' }} />
-            <span className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>Intervalo base entre rodadas:</span>
+            <span className="text-[12px] font-semibold inline-flex items-center gap-1" style={{ color: 'var(--text-2)' }}>
+              Intervalo base entre rodadas:
+              <ZmFieldHelp content={FIELD_HELP.warmup} ariaLabel="Ajuda: aquecimento" />
+            </span>
           </div>
           <div className="flex items-center gap-1.5">
             {[5, 10, 15, 30, 60].map((min) => (

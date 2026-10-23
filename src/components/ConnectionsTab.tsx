@@ -965,7 +965,7 @@ export const ConnectionsTab: React.FC = () => {
               ? `Nada encontrado para "${searchTerm}". Ajuste sua busca ou limpe o filtro.`
               : filterStatus !== 'ALL'
               ? 'Nenhuma conexão corresponde ao filtro selecionado no momento.'
-              : 'Conecte um número WhatsApp para começar a disparar com segurança.'
+              : 'Conecte um número WhatsApp, escaneie o QR no celular e volte aqui para ver o chip online — depois crie sua primeira campanha.'
           }
           action={
             !searchTerm && filterStatus === 'ALL' ? (

@@ -7,6 +7,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.344] - 2026-10-23
+
+### Preparação comercial v2.3.344+
+
+### Melhorado
+- **Gating admin:** Fila de disparo (BullMQ) e rotas técnicas (`admin`, `admin-ops`, `ai-assistant`, `creator-studio`) ocultas no menu e bloqueadas por URL para clientes; redirecionamento ao Painel.
+- **Ajuda contextual:** componentes `ZmFieldHelp` / `ZmFieldLabel` + textos em `fieldHelpCopy` — tooltips (i) em Configurações, assistente de campanha, conexões, assinatura, aquecimento e diagnóstico.
+- **UX conversão:** landing com microcopy sob o CTA principal; empty state de Conexões com próximo passo claro; tutorial atualizado sobre itens só-admin.
+
 ## [2.3.343] - 2026-10-23
 
 ### Corrigido

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, QrCode, Smartphone, Loader2, CheckCircle2, KeyRound, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { ZmFieldHelp } from './ui';
+import { FIELD_HELP } from '../constants/fieldHelpCopy';
 import { useZapMassCore } from '../context/ZapMassContext';
 import { getSessionIdToken } from '../utils/sessionAuth';
 import { apiUrl } from '../utils/apiBase';
@@ -464,7 +466,10 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
           
           {step === 'naming' && (
             <div className="w-full">
-              <label htmlFor="connectionName" className="block text-sm font-medium text-gray-700 mb-2">Nome da Sessão</label>
+              <label htmlFor="connectionName" className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-2">
+                Nome da Sessão
+                <ZmFieldHelp content={FIELD_HELP.chipName} ariaLabel="Ajuda: nome do chip" />
+              </label>
               <input 
                 id="connectionName"
                 name="connectionName"
@@ -482,13 +487,16 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
               />
               <p className="text-xs text-gray-500 mt-2">Dê um nome para identificar este chip.</p>
 
-              <button
-                type="button"
-                onClick={() => setShowProxy((v) => !v)}
-                className="mt-4 text-xs font-medium text-emerald-700 hover:text-emerald-800"
-              >
-                {showProxy ? '− Ocultar proxy (opcional)' : '+ Proxy por chip (opcional)'}
-              </button>
+              <div className="mt-4 flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowProxy((v) => !v)}
+                  className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
+                >
+                  {showProxy ? '− Ocultar proxy (opcional)' : '+ Proxy por chip (opcional)'}
+                </button>
+                <ZmFieldHelp content={FIELD_HELP.chipProxy} ariaLabel="Ajuda: proxy por chip" />
+              </div>
 
               {showProxy && (
                 <div className="mt-3 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
