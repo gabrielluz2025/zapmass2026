@@ -59,7 +59,15 @@ function normalizePayload(raw: unknown): AppConfigGlobal {
     trialHours,
     landingTrialTitle: clampLandingTrialTitle(typeof o.landingTrialTitle === 'string' ? o.landingTrialTitle : ''),
     landingTrialBody: clampLandingTrialBody(typeof o.landingTrialBody === 'string' ? o.landingTrialBody : ''),
-    systemAnnouncement: parseAnnouncement(o.systemAnnouncement)
+    systemAnnouncement: parseAnnouncement(o.systemAnnouncement),
+    commercialUpdatedAt:
+      typeof o.commercialUpdatedAt === 'string' && o.commercialUpdatedAt.trim()
+        ? o.commercialUpdatedAt.trim()
+        : undefined,
+    commercialUpdatedBy:
+      typeof o.commercialUpdatedBy === 'string' && o.commercialUpdatedBy.trim()
+        ? o.commercialUpdatedBy.trim()
+        : undefined
   };
 }
 

@@ -6,13 +6,12 @@ import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { assertAdminFromBearer, adminEmailSet } from './adminAuth.js';
 import {
-  clampLandingTrialBodyInput,
-  clampLandingTrialTitleInput,
   defaultAppConfig,
-  loadAppConfig,
-  saveAppConfigMerge,
+  loadAppConfigGlobal,
   type AppConfigGlobal
 } from './appConfigStore.js';
+import { validateCommercialConfigPartial } from '../shared/commercialConfigValidation.js';
+import { recordCommercialConfigAudit } from './adminCommercialConfigAudit.js';
 import { loadMergedUserInsightData } from './insightMerge.js';
 import { sendSuggestionReplyEmail } from './emailService.js';
 import {
@@ -23,20 +22,42 @@ import {
 import { loadAdminUserInsightsPg, listAdminProductSuggestionsPg } from './adminUserInsightsPg.js';
 import { buildAdminPlatformStats } from './adminPlatformStats.js';
 
-function sanitizePutBody(body: unknown): Partial<AppConfigGlobal> {
-  if (!body || typeof body !== 'object') return {};
-  const b = body as Record<string, unknown>;
-  const out: Partial<AppConfigGlobal> = {};
-  if (typeof b.marketingPriceMonthly === 'string') out.marketingPriceMonthly = b.marketingPriceMonthly;
-  if (typeof b.marketingPriceAnnual === 'string') out.marketingPriceAnnual = b.marketingPriceAnnual;
-  if (typeof b.landingTrialTitle === 'string') out.landingTrialTitle = clampLandingTrialTitleInput(b.landingTrialTitle);
-  if (typeof b.landingTrialBody === 'string') out.landingTrialBody = clampLandingTrialBodyInput(b.landingTrialBody);
-  if (typeof b.trialHours === 'number' && Number.isFinite(b.trialHours)) out.trialHours = b.trialHours;
-  else if (typeof b.trialHours === 'string' && b.trialHours.trim()) {
-    const n = Number(b.trialHours);
-    if (Number.isFinite(n)) out.trialHours = n;
+function summarizeCommercialChanges(
+  before: AppConfigGlobal,
+  after: AppConfigGlobal
+): string {
+  const parts: string[] = [];
+  if (before.marketingPriceMonthly !== after.marketingPriceMonthly) {
+    parts.push(`mensal: "${before.marketingPriceMonthly || '(vazio)'}" → "${after.marketingPriceMonthly || '(vazio)'}"`);
   }
-  return out;
+  if (before.marketingPriceAnnual !== after.marketingPriceAnnual) {
+    parts.push(`anual: "${before.marketingPriceAnnual || '(vazio)'}" → "${after.marketingPriceAnnual || '(vazio)'}"`);
+  }
+  if (before.trialHours !== after.trialHours) {
+    parts.push(`trial: ${before.trialHours}h → ${after.trialHours}h`);
+  }
+  if (before.landingTrialTitle !== after.landingTrialTitle) {
+    parts.push('título landing alterado');
+  }
+  if (before.landingTrialBody !== after.landingTrialBody) {
+    parts.push('texto landing alterado');
+  }
+  return parts.length ? parts.join('; ') : 'publicação comercial (sem diff detectado)';
+}
+
+function parseCommercialPutBody(body: unknown): ReturnType<typeof validateCommercialConfigPartial> {
+  if (!body || typeof body !== 'object') {
+    return { ok: false, errors: { form: 'Corpo inválido.' } };
+  }
+  const b = body as Record<string, unknown>;
+  const partial: Record<string, unknown> = {};
+  if (typeof b.marketingPriceMonthly === 'string') partial.marketingPriceMonthly = b.marketingPriceMonthly;
+  if (typeof b.marketingPriceAnnual === 'string') partial.marketingPriceAnnual = b.marketingPriceAnnual;
+  if (typeof b.landingTrialTitle === 'string') partial.landingTrialTitle = b.landingTrialTitle;
+  if (typeof b.landingTrialBody === 'string') partial.landingTrialBody = b.landingTrialBody;
+  if (typeof b.trialHours === 'number' && Number.isFinite(b.trialHours)) partial.trialHours = b.trialHours;
+  else if (typeof b.trialHours === 'string' && b.trialHours.trim()) partial.trialHours = b.trialHours;
+  return validateCommercialConfigPartial(partial);
 }
 
 type AdminUserInsights = {
@@ -120,11 +141,25 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         loadAppConfigGlobal(),
         loadSystemAnnouncementPg()
       ]);
-      return res.json({ ok: true, config: { ...config, systemAnnouncement } });
+      const { commercialUpdatedAt: _a, commercialUpdatedBy: _b, ...publicConfig } = config;
+      return res.json({ ok: true, config: { ...publicConfig, systemAnnouncement } });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[api/app-config]', msg);
       return res.json({ ok: true, config: defaultAppConfig() });
+    }
+  });
+
+  app.get('/api/admin/app-config', async (req: Request, res: Response) => {
+    try {
+      const auth = await assertAdminFromBearer(req, res);
+      if (!auth) return;
+      const config = await loadAppConfigGlobal();
+      return res.json({ ok: true, config });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[api/admin/app-config][GET]', msg);
+      return res.status(500).json({ ok: false, error: msg });
     }
   });
 
@@ -133,12 +168,20 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       const auth = await assertAdminFromBearer(req, res);
       if (!auth) return;
 
-      const partial = sanitizePutBody(req.body);
-      if (Object.keys(partial).length === 0) {
-        return res.status(400).json({ ok: false, error: 'Nenhum campo valido no corpo da requisicao.' });
+      const parsed = parseCommercialPutBody(req.body);
+      if (parsed.ok === false) {
+        const first =
+          parsed.errors.form ||
+          parsed.errors.trialHours ||
+          parsed.errors.marketingPriceMonthly ||
+          'Dados comerciais inválidos.';
+        return res.status(400).json({ ok: false, error: first, fieldErrors: parsed.errors });
       }
       const { saveAppConfigGlobal } = await import('./appConfigStore.js');
-      const config = await saveAppConfigGlobal(partial);
+      const before = await loadAppConfigGlobal();
+      const config = await saveAppConfigGlobal(parsed.data, { updatedBy: auth.email });
+      const note = summarizeCommercialChanges(before, config);
+      void recordCommercialConfigAudit(auth, note);
       console.log('[api/admin/app-config] atualizado por', auth.email);
       return res.json({ ok: true, config });
     } catch (e: unknown) {

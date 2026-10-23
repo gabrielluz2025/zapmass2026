@@ -23,6 +23,9 @@ export interface AppConfigGlobal {
   landingTrialBody: string;
   /** Aviso global (manutenção, etc.) — visível a todos os usuários. */
   systemAnnouncement?: SystemAnnouncement | null;
+  /** Última publicação comercial (só painel admin / GET admin). */
+  commercialUpdatedAt?: string;
+  commercialUpdatedBy?: string;
 }
 
 export const DEFAULT_APP_CONFIG: AppConfigGlobal = {

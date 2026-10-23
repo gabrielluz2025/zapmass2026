@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.336',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Comercial (criador): validação, preços MP read-only, trial com avisos, rascunho/publicação e última alteração',
+      },
+      {
+        type: 'improvement',
+        text: 'API admin app-config: GET dedicado, validação server-side e auditoria de mudanças comerciais',
+      },
+    ],
+  },
+  {
     version: '2.3.335',
     date: '23/10/2026',
     highlights: [

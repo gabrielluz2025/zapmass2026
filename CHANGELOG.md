@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.336] - 2026-10-23
+
+### Melhorado
+- **Painel do criador — Comercial:** UI alinhada às abas Ganhos/Acessos (cabeçalho, badges de rascunho, validação inline, rodapé fixo); card somente leitura dos preços Mercado Pago com alerta se marketing divergir; aviso de trial curto e texto de impacto; pré-visualização ao digitar; toasts deduplicados; última publicação (data/autor); auditoria VPS em `update-commercial-config`.
+
+### Técnico
+- **API:** `GET /api/admin/app-config`; `PUT /api/admin/app-config` valida horas (1–168), limites de landing e sanitiza textos de preço; metadados `commercialUpdatedAt/By` ocultos no `GET /api/app-config` público.
+
 ## [2.3.335] - 2026-10-23
 
 ### Melhorado

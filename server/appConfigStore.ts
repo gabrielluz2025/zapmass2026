@@ -4,6 +4,7 @@ import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { loadAppConfigPg, saveAppConfigPg } from './repositories/appConfigRepository.js';
+import { sanitizeMarketingPriceLabel } from '../shared/commercialConfigValidation.js';
 
 /** Espelha `src/types/appConfig.ts` (mantenha campos alinhados). */
 export interface AppConfigGlobal {
@@ -12,6 +13,9 @@ export interface AppConfigGlobal {
   trialHours: number;
   landingTrialTitle: string;
   landingTrialBody: string;
+  /** Metadados da última publicação comercial (painel admin). */
+  commercialUpdatedAt?: string;
+  commercialUpdatedBy?: string;
 }
 
 const COLLECTION = 'appConfig';
@@ -53,8 +57,12 @@ export function mergeAppConfigPartial(raw: Record<string, unknown> | undefined):
     if (Number.isFinite(n)) trialHours = clampTrialHours(n);
   }
   return {
-    marketingPriceMonthly: typeof o.marketingPriceMonthly === 'string' ? o.marketingPriceMonthly : '',
-    marketingPriceAnnual: typeof o.marketingPriceAnnual === 'string' ? o.marketingPriceAnnual : '',
+    marketingPriceMonthly: sanitizeMarketingPriceLabel(
+      typeof o.marketingPriceMonthly === 'string' ? o.marketingPriceMonthly : ''
+    ),
+    marketingPriceAnnual: sanitizeMarketingPriceLabel(
+      typeof o.marketingPriceAnnual === 'string' ? o.marketingPriceAnnual : ''
+    ),
     trialHours,
     landingTrialTitle: clampLandingStr(
       typeof o.landingTrialTitle === 'string' ? o.landingTrialTitle : '',
@@ -63,7 +71,15 @@ export function mergeAppConfigPartial(raw: Record<string, unknown> | undefined):
     landingTrialBody: clampLandingStr(
       typeof o.landingTrialBody === 'string' ? o.landingTrialBody : '',
       LANDING_TRIAL_BODY_MAX
-    )
+    ),
+    commercialUpdatedAt:
+      typeof o.commercialUpdatedAt === 'string' && o.commercialUpdatedAt.trim()
+        ? o.commercialUpdatedAt.trim()
+        : undefined,
+    commercialUpdatedBy:
+      typeof o.commercialUpdatedBy === 'string' && o.commercialUpdatedBy.trim()
+        ? o.commercialUpdatedBy.trim()
+        : undefined
   };
 }
 
@@ -102,13 +118,20 @@ export async function loadAppConfigGlobal(): Promise<AppConfigGlobal> {
   return merged;
 }
 
-export async function saveAppConfigGlobal(partial: Partial<AppConfigGlobal>): Promise<AppConfigGlobal> {
+export async function saveAppConfigGlobal(
+  partial: Partial<AppConfigGlobal>,
+  opts?: { updatedBy?: string }
+): Promise<AppConfigGlobal> {
   const current = await loadAppConfigGlobal();
   const next: AppConfigGlobal = {
     marketingPriceMonthly:
-      partial.marketingPriceMonthly !== undefined ? partial.marketingPriceMonthly : current.marketingPriceMonthly,
+      partial.marketingPriceMonthly !== undefined
+        ? sanitizeMarketingPriceLabel(partial.marketingPriceMonthly)
+        : current.marketingPriceMonthly,
     marketingPriceAnnual:
-      partial.marketingPriceAnnual !== undefined ? partial.marketingPriceAnnual : current.marketingPriceAnnual,
+      partial.marketingPriceAnnual !== undefined
+        ? sanitizeMarketingPriceLabel(partial.marketingPriceAnnual)
+        : current.marketingPriceAnnual,
     trialHours: partial.trialHours !== undefined ? clampTrialHours(partial.trialHours) : current.trialHours,
     landingTrialTitle:
       partial.landingTrialTitle !== undefined
@@ -117,14 +140,16 @@ export async function saveAppConfigGlobal(partial: Partial<AppConfigGlobal>): Pr
     landingTrialBody:
       partial.landingTrialBody !== undefined
         ? clampLandingStr(partial.landingTrialBody, LANDING_TRIAL_BODY_MAX)
-        : current.landingTrialBody
+        : current.landingTrialBody,
+    commercialUpdatedAt: opts?.updatedBy ? new Date().toISOString() : current.commercialUpdatedAt,
+    commercialUpdatedBy: opts?.updatedBy ?? current.commercialUpdatedBy
   };
   if (usePostgresAppConfig()) {
     await saveAppConfigPg(next);
   } else {
     const admin = getFirebaseAdmin();
     if (admin) {
-      await saveAppConfigMerge(getFirestore(admin), partial);
+      await saveAppConfigMerge(getFirestore(admin), partial, opts);
       return loadAppConfigGlobal();
     }
   }
@@ -144,15 +169,23 @@ export async function loadAppConfig(db: Firestore): Promise<AppConfigGlobal> {
   return merged;
 }
 
-export async function saveAppConfigMerge(db: Firestore, partial: Partial<AppConfigGlobal>): Promise<AppConfigGlobal> {
+export async function saveAppConfigMerge(
+  db: Firestore,
+  partial: Partial<AppConfigGlobal>,
+  opts?: { updatedBy?: string }
+): Promise<AppConfigGlobal> {
   const ref = db.collection(COLLECTION).doc(DOC_ID);
   const snap = await ref.get();
   const current = snap.exists ? mergeAppConfigPartial(snap.data() as Record<string, unknown>) : defaultAppConfig();
   const next: AppConfigGlobal = {
     marketingPriceMonthly:
-      partial.marketingPriceMonthly !== undefined ? partial.marketingPriceMonthly : current.marketingPriceMonthly,
+      partial.marketingPriceMonthly !== undefined
+        ? sanitizeMarketingPriceLabel(partial.marketingPriceMonthly)
+        : current.marketingPriceMonthly,
     marketingPriceAnnual:
-      partial.marketingPriceAnnual !== undefined ? partial.marketingPriceAnnual : current.marketingPriceAnnual,
+      partial.marketingPriceAnnual !== undefined
+        ? sanitizeMarketingPriceLabel(partial.marketingPriceAnnual)
+        : current.marketingPriceAnnual,
     trialHours: partial.trialHours !== undefined ? clampTrialHours(partial.trialHours) : current.trialHours,
     landingTrialTitle:
       partial.landingTrialTitle !== undefined
@@ -161,7 +194,9 @@ export async function saveAppConfigMerge(db: Firestore, partial: Partial<AppConf
     landingTrialBody:
       partial.landingTrialBody !== undefined
         ? clampLandingStr(partial.landingTrialBody, LANDING_TRIAL_BODY_MAX)
-        : current.landingTrialBody
+        : current.landingTrialBody,
+    commercialUpdatedAt: opts?.updatedBy ? new Date().toISOString() : current.commercialUpdatedAt,
+    commercialUpdatedBy: opts?.updatedBy ?? current.commercialUpdatedBy
   };
   await ref.set(next, { merge: true });
   invalidateAppConfigCache();

@@ -1,20 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Loader2, Save, Shield, Users, Clock3, RefreshCw, Sparkles,
+  Loader2, Shield, Users, RefreshCw, Sparkles,
   TrendingUp, Copy, BarChart3, Lightbulb, Send, Mail, MessageCircle, CheckCircle2, XCircle, Megaphone,
   CircleDollarSign, Smartphone
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useAppConfig } from '../../context/AppConfigContext';
 import { useAuth } from '../../context/AuthContext';
 import { Button, Card, CardHeader, Badge, StatCard, SectionHeader, EmptyState, Modal, Textarea, CompactPageHeader, TabBar } from '../ui';
 import { AdminAnnouncementsTab } from './AdminAnnouncementsTab';
 import { AdminAccessTab } from './access/AdminAccessTab';
-import {
-  LANDING_TRIAL_BODY_MAX_CHARS,
-  LANDING_TRIAL_TITLE_MAX_CHARS
-} from '../../constants/landingTrialLimits';
-import { resolveLandingTrialCopy } from '../../utils/landingTrialResolved';
+import { AdminCommercialTab } from './AdminCommercialTab';
 import { apiUrl } from '../../utils/apiBase';
 import {
   billingKindLabelPt,
@@ -151,14 +146,7 @@ const billingKindBadgeVariant = (
 
 export const AdminPanel: React.FC = () => {
   const { user } = useAuth();
-  const { config, reload } = useAppConfig();
   const [tab, setTab] = useState<AdminTab>('config');
-  const [saving, setSaving] = useState(false);
-  const [marketingPriceMonthly, setMarketingPriceMonthly] = useState('');
-  const [marketingPriceAnnual, setMarketingPriceAnnual] = useState('');
-  const [trialHours, setTrialHours] = useState('1');
-  const [landingTrialTitle, setLandingTrialTitle] = useState('');
-  const [landingTrialBody, setLandingTrialBody] = useState('');
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [productSuggestions, setProductSuggestions] = useState<ProductSuggestion[]>([]);
   const [replyTarget, setReplyTarget] = useState<ProductSuggestion | null>(null);
@@ -169,60 +157,6 @@ export const AdminPanel: React.FC = () => {
   const [repliesOpenKey, setRepliesOpenKey] = useState<string | null>(null);
   const [platformStats, setPlatformStats] = useState<PlatformStats | null>(null);
   const [platformStatsLoading, setPlatformStatsLoading] = useState(false);
-
-  useEffect(() => {
-    setMarketingPriceMonthly(config.marketingPriceMonthly);
-    setMarketingPriceAnnual(config.marketingPriceAnnual);
-    setTrialHours(String(config.trialHours));
-    setLandingTrialTitle(config.landingTrialTitle);
-    setLandingTrialBody(config.landingTrialBody);
-  }, [config]);
-
-  const landingTrialPreview = useMemo(() => {
-    let th = Math.round(Number.parseFloat(String(trialHours).trim()));
-    if (!Number.isFinite(th)) th = 1;
-    th = Math.max(1, Math.min(168, th));
-    return resolveLandingTrialCopy({
-      trialHours: th,
-      landingTrialTitle,
-      landingTrialBody
-    });
-  }, [trialHours, landingTrialTitle, landingTrialBody]);
-
-  const save = async () => {
-    if (!user) return;
-    const th = Math.max(1, Math.min(168, Math.round(Number(trialHours)) || 1));
-    setSaving(true);
-    try {
-      const idToken = await user.getIdToken();
-      const res = await fetch(apiUrl('/api/admin/app-config'), {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${idToken}`
-        },
-        body: JSON.stringify({
-          marketingPriceMonthly,
-          marketingPriceAnnual,
-          trialHours: th,
-          landingTrialTitle,
-          landingTrialBody
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) {
-        toast.error(typeof data?.error === 'string' ? data.error : 'Falha ao salvar.');
-        return;
-      }
-      toast.success('Configuracao publicada. Clientes passam a ver na proxima leitura (ate ~15s no servidor).');
-      await reload();
-    } catch (e) {
-      console.error(e);
-      toast.error('Erro de rede.');
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const authHeaders = async () => {
     if (!user) throw new Error('Faça login.');
@@ -649,129 +583,7 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
 
-      {tab === 'config' && (
-        <div className="space-y-6">
-          <SectionHeader
-            title="Exibição comercial e trial"
-            description="Estes textos e números alimentam modais, landing e API de teste. Publicação leva alguns segundos para replicar."
-          />
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <CardHeader
-                title="Preços (marketing)"
-                subtitle="O que o cliente lê no upgrade. Vazio cai no fallback do front."
-                icon={<TrendingUp className="w-4 h-4 text-emerald-600" />}
-              />
-              <div className="mt-4 space-y-3">
-                <div>
-                  <label className="ui-eyebrow text-[10px]">Mensal (texto livre)</label>
-                  <input
-                    className="ui-input mt-1"
-                    value={marketingPriceMonthly}
-                    onChange={(e) => setMarketingPriceMonthly(e.target.value)}
-                    placeholder="Ex.: R$ 49,90 / mês"
-                  />
-                </div>
-                <div>
-                  <label className="ui-eyebrow text-[10px]">Anual (texto livre)</label>
-                  <input
-                    className="ui-input mt-1"
-                    value={marketingPriceAnnual}
-                    onChange={(e) => setMarketingPriceAnnual(e.target.value)}
-                    placeholder="Ex.: R$ 479,90 / ano"
-                  />
-                </div>
-              </div>
-            </Card>
-            <Card>
-              <CardHeader
-                title="Janela de teste"
-                subtitle="1—168 h. Aplicada em POST /api/billing/trial/start."
-                icon={<Clock3 className="w-4 h-4 text-sky-600" />}
-              />
-              <div className="mt-4">
-                <label className="ui-eyebrow text-[10px]">Duração (horas)</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={168}
-                  className="ui-input mt-1 max-w-[200px]"
-                  value={trialHours}
-                  onChange={(e) => setTrialHours(e.target.value)}
-                />
-              </div>
-            </Card>
-          </div>
-          <Card>
-            <CardHeader
-              title="Landing — bloco de teste grátis"
-              subtitle={`Opcional; máximo ${LANDING_TRIAL_TITLE_MAX_CHARS} caracteres no título e ${LANDING_TRIAL_BODY_MAX_CHARS} no texto. Eventos para GA4/GTM (com VITE_GA_MEASUREMENT_ID ou snippet próprio): landing_cta_click, landing_login_click, login_success, trial_started.`}
-              icon={<Sparkles className="w-4 h-4 text-amber-600" />}
-            />
-            <div className="mt-4 space-y-3">
-              <div>
-                <div className="flex items-center justify-between gap-2">
-                  <label className="ui-eyebrow text-[10px]">Título</label>
-                  <span className="text-[10px] tabular-nums" style={{ color: 'var(--text-3)' }}>
-                    {landingTrialTitle.length}/{LANDING_TRIAL_TITLE_MAX_CHARS}
-                  </span>
-                </div>
-                <input
-                  className="ui-input mt-1"
-                  value={landingTrialTitle}
-                  maxLength={LANDING_TRIAL_TITLE_MAX_CHARS}
-                  onChange={(e) => setLandingTrialTitle(e.target.value)}
-                  placeholder="Vazio = título automático a partir das horas"
-                />
-              </div>
-              <div>
-                <div className="flex items-center justify-between gap-2">
-                  <label className="ui-eyebrow text-[10px]">Texto</label>
-                  <span className="text-[10px] tabular-nums" style={{ color: 'var(--text-3)' }}>
-                    {landingTrialBody.length}/{LANDING_TRIAL_BODY_MAX_CHARS}
-                  </span>
-                </div>
-                <textarea
-                  rows={4}
-                  maxLength={LANDING_TRIAL_BODY_MAX_CHARS}
-                  className="ui-input mt-1 resize-y min-h-[100px]"
-                  value={landingTrialBody}
-                  onChange={(e) => setLandingTrialBody(e.target.value)}
-                  placeholder="Vazio = texto padrão da landing"
-                />
-              </div>
-              <div
-                className="rounded-xl border p-4 space-y-2"
-                style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
-              >
-                <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-                  Pré-visualização (como na landing)
-                </p>
-                <p className="text-[13px] font-bold leading-snug" style={{ color: 'var(--text-1)' }}>
-                  {landingTrialPreview.title}
-                </p>
-                <p className="text-[12px] leading-relaxed font-medium" style={{ color: 'var(--text-2)' }}>
-                  {landingTrialPreview.body}
-                </p>
-              </div>
-            </div>
-          </Card>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              variant="primary"
-              type="button"
-              disabled={saving}
-              leftIcon={saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              onClick={() => void save()}
-            >
-              Salvar e publicar
-            </Button>
-            <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-              Recomenda-se validar o modal Pro e a landing após publicar.
-            </p>
-          </div>
-        </div>
-      )}
+      {tab === 'config' && <AdminCommercialTab onOpenRevenueTab={() => setTab('revenue')} />}
 
       {tab === 'access' && <AdminAccessTab />}
 
