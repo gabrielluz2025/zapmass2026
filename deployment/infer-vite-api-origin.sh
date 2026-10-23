@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
-# Infere VITE_API_ORIGIN no deploy quando o SPA (PUBLIC_APP_URL) e o callback OAuth estão em hosts diferentes.
-# Ex.: app.zap-mass.com (front) + https://zap-mass.com/api/auth/google/callback → VITE_API_ORIGIN=https://zap-mass.com
+# Infere VITE_API_ORIGIN no deploy SOMENTE com ZAPMASS_CROSS_HOST_API=1 (API/callback no apex, painel em app).
+# Preferência: callback OAuth no mesmo host do painel (sem VITE_API_ORIGIN). Ver server/deploy/inferViteApiOrigin.ts
 set -euo pipefail
+
+_truthy() {
+  case "$(echo "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    1 | true | yes | on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 _host_from_url() {
   local u="${1:-}"
@@ -15,6 +22,9 @@ _host_from_url() {
 
 infer_vite_api_origin_if_needed() {
   if [ -n "${VITE_API_ORIGIN:-}" ]; then
+    return 0
+  fi
+  if ! _truthy "${ZAPMASS_CROSS_HOST_API:-}"; then
     return 0
   fi
   local pub="${PUBLIC_APP_URL:-}"

@@ -26,13 +26,25 @@ upsert_env() {
   fi
 }
 
+remove_env() {
+  local key="$1"
+  if grep -qE "^[[:space:]]*(export[[:space:]]+)?${key}=" .env 2>/dev/null; then
+    sed -i "/^[[:space:]]*\\(export[[:space:]]\\+\\)\\?${key}=/d" .env
+    echo "==> removido ${key} (same-origin no painel)"
+  fi
+}
+
 upsert_env MERCADOPAGO_ACCESS_TOKEN "${MERCADOPAGO_ACCESS_TOKEN:-}"
 upsert_env MERCADOPAGO_WEBHOOK_SECRET "${MERCADOPAGO_WEBHOOK_SECRET:-}"
 upsert_env MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED "${MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED:-}"
 upsert_env MERCADOPAGO_BACK_URL "${MERCADOPAGO_BACK_URL:-}"
 upsert_env PUBLIC_APP_URL "${PUBLIC_APP_URL:-}"
 upsert_env ALLOWED_ORIGINS "${ALLOWED_ORIGINS:-}"
-upsert_env VITE_API_ORIGIN "${VITE_API_ORIGIN:-}"
+if [ "${CLEAR_VITE_API_ORIGIN:-}" = "1" ]; then
+  remove_env VITE_API_ORIGIN
+else
+  upsert_env VITE_API_ORIGIN "${VITE_API_ORIGIN:-}"
+fi
 upsert_env MERCADOPAGO_PRICE_MONTHLY "${MERCADOPAGO_PRICE_MONTHLY:-}"
 upsert_env MERCADOPAGO_PRICE_ANNUAL "${MERCADOPAGO_PRICE_ANNUAL:-}"
 for n in 1 2 3 4 5; do

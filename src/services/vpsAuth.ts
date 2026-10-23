@@ -48,6 +48,18 @@ export async function fetchVpsAuthConfig(): Promise<VpsAuthConfig> {
   }
 }
 
+/** Lê access token de curta duração no fragment (#zapmass_at=…) após redirect Google. */
+export function consumeGoogleLoginFragmentToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.location.hash.replace(/^#/, '');
+  if (!raw) return null;
+  const token = new URLSearchParams(raw).get('zapmass_at');
+  if (!token) return null;
+  const path = `${window.location.pathname}${window.location.search}`;
+  window.history.replaceState({}, '', path);
+  return token;
+}
+
 /** Redireciona o browser para o início do OAuth Google (servidor VPS). */
 export function vpsStartGoogleLogin(returnTo?: string): void {
   const q =
@@ -290,6 +302,32 @@ async function performRefreshAccessToken(): Promise<string | null> {
 }
 
 /** Renova access token — pedidos concorrentes partilham a mesma Promise. */
+/** Completa login Google quando o refresh cookie falhou mas o callback enviou token no fragment. */
+export async function vpsBootstrapSessionFromAccessToken(accessToken: string): Promise<VpsAuthUser | null> {
+  if (isLogoutInProgress()) return null;
+  sessionStorage.setItem(ACCESS_KEY, accessToken);
+  try {
+    const r = await fetchWithTimeout(
+      apiUrl('/api/auth/me'),
+      {
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${accessToken}` }
+      },
+      REFRESH_FETCH_TIMEOUT_MS
+    );
+    const data = await parseJson<{ user?: VpsAuthUser }>(r);
+    if (!r.ok || !data.user) {
+      clearVpsSession();
+      return null;
+    }
+    persistSession(accessToken, data.user);
+    return data.user;
+  } catch {
+    clearVpsSession();
+    return null;
+  }
+}
+
 export async function vpsRefreshAccessToken(): Promise<string | null> {
   bindCrossTabLogoutSync();
   if (refreshInFlight) return refreshInFlight;

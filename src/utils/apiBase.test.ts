@@ -18,6 +18,18 @@ describe('getApiOrigin', () => {
     expect(getApiOrigin()).toBe('https://zap-mass.com');
   });
 
+  it('em app.zap-mass.com sem VITE_API_ORIGIN usa mesma origem (same-origin)', async () => {
+    vi.stubGlobal('window', {
+      location: {
+        hostname: 'app.zap-mass.com',
+        origin: 'https://app.zap-mass.com'
+      }
+    });
+    vi.stubEnv('VITE_API_ORIGIN', '');
+    const { getApiOrigin } = await import('./apiBase');
+    expect(getApiOrigin()).toBe('https://app.zap-mass.com');
+  });
+
   it('em zap-mass.com ignora VITE_API_ORIGIN igual ou ausente e usa mesma origem', async () => {
     vi.stubGlobal('window', {
       location: {

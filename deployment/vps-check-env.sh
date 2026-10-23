@@ -137,10 +137,20 @@ case "$_google_login" in
           fi
           _vite="$(get_env VITE_API_ORIGIN)"
           _red="$(get_env GOOGLE_OAUTH_REDIRECT_URI)"
-          if [ -z "$_vite" ] && [ -n "$_red" ]; then
-            warn "VITE_API_ORIGIN vazio com painel em app — rode bash deployment/google-app-login-configurar.sh e rebuild (manual-pull-deploy)"
+          _red_host=""
+          _pub_host=""
+          case "$_red" in
+            http://*|https://*) _red_host="$(echo "$_red" | sed -E 's|^https?://([^/:]+).*|\1|' | tr '[:upper:]' '[:lower:]')" ;;
+          esac
+          case "$_pub" in
+            http://*|https://*) _pub_host="$(echo "$_pub" | sed -E 's|^https?://([^/:]+).*|\1|' | tr '[:upper:]' '[:lower:]')" ;;
+          esac
+          if [ -n "$_pub_host" ] && [ "$_pub_host" = "$_red_host" ] && [ -z "$_vite" ]; then
+            ok "Login Google same-origin (callback em $_pub_host, sem VITE_API_ORIGIN)"
           elif [ -n "$_vite" ]; then
-            ok "VITE_API_ORIGIN=$_vite (build do front → API)"
+            warn "VITE_API_ORIGIN=$_vite — refresh cross-host; prefira callback no app e VITE vazio (bash deployment/fix-google-login-app.sh)"
+          elif [ -n "$_red" ] && [ "$_pub_host" != "$_red_host" ]; then
+            warn "Callback OAuth ($_red_host) ≠ painel ($_pub_host) — defina ZAPMASS_CROSS_HOST_API=1 + VITE_API_ORIGIN ou mova callback para app"
           fi
           ;;
       esac

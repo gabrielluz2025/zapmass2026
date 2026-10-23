@@ -236,10 +236,13 @@ function redirectWithError(res: Response, returnTo: string, code: string): void 
   res.redirect(302, u.toString());
 }
 
-function redirectSuccess(res: Response, returnTo: string): void {
+function redirectSuccess(res: Response, returnTo: string, accessToken?: string): void {
   clearOAuthCookies(res);
   const u = new URL(returnTo);
   u.searchParams.set('google_login', '1');
+  if (accessToken) {
+    u.hash = `zapmass_at=${encodeURIComponent(accessToken)}`;
+  }
   res.redirect(302, u.toString());
 }
 
@@ -362,7 +365,7 @@ export function registerGoogleOAuthRoutes(app: Express): void {
       }
 
       const { user, isNew } = await resolveOrCreateUser(idClaims);
-      await issueVpsSession(res, {
+      const session = await issueVpsSession(res, {
         sub: user.id,
         email: user.email,
         role: 'owner',
@@ -373,7 +376,7 @@ export function registerGoogleOAuthRoutes(app: Express): void {
         void notifyAdminsNewAccountRegistered(user.id);
       }
 
-      redirectSuccess(res, returnTo);
+      redirectSuccess(res, returnTo, session.accessToken);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[auth/google/callback]', msg);

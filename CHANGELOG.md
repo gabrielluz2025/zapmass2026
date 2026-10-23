@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.328] - 2026-10-23
+
+### Corrigido
+- **Login Google (app.zap-mass.com):** preferência same-origin — callback OAuth no host `app`, `VITE_API_ORIGIN` removido do build; inferência cross-host só com `ZAPMASS_CROSS_HOST_API=1`; scripts `fix-google-login-app.sh` e `google-app-login-configurar.sh` não interativo; fallback `#zapmass_at=` no redirect.
+
 ## [2.3.327] - 2026-10-23
 
 ### Corrigido

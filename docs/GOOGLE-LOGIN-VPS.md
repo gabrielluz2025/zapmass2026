@@ -22,7 +22,9 @@ O ZapMass em modo **VPS** pode autenticar gestores com **OAuth 2.0 / OpenID Conn
 
    **Importante:** o valor de `GOOGLE_OAUTH_REDIRECT_URI` no servidor tem de ser **idêntico** (incluindo `http`/`https` e presença de `www`) ao URI que o Google recebe no parâmetro `redirect_uri`. Erro `redirect_uri_mismatch` = divergência aqui.
 
-   **Apex vs www vs app:** inclua `app.zap-mass.com` no `server_name` do nginx (ver `deployment/nginx-zapmass.conf`). Defina `PUBLIC_APP_URL` para a URL canónica do painel (ex.: `https://app.zap-mass.com`). O callback OAuth pode ficar no apex (`GOOGLE_OAUTH_REDIRECT_URI=https://zap-mass.com/api/auth/google/callback`); após o login o utilizador volta ao `returnTo` (ex.: app). Cookies de sessão usam `Domain=.zap-mass.com` e `SameSite=None; Secure` em produção para o `POST /api/auth/refresh` funcionar quando o SPA e a API estão em hosts diferentes (ex.: app → apex). Inclua **todas** as origens do browser em `ALLOWED_ORIGINS`.
+   **Painel em app (recomendado):** defina `PUBLIC_APP_URL=https://app.zap-mass.com` e `GOOGLE_OAUTH_REDIRECT_URI=https://app.zap-mass.com/api/auth/google/callback` (cadastre este URI no Google Cloud). Deixe **`VITE_API_ORIGIN` vazio** no build — o SPA chama `/api/...` na mesma origem e o cookie de refresh funciona sem depender de cookies cross-site (bloqueados em vários browsers). One-liner na VPS: `bash deployment/fix-google-login-app.sh`.
+
+   **Legado apex + app:** callback no apex exige `VITE_API_ORIGIN=https://zap-mass.com`, `SameSite=None` e `ZAPMASS_CROSS_HOST_API=1` no deploy para inferir o build — prefira mover o callback para **app**.
 5. Copie **Client ID** e **Client secret** (nunca commite no repositório).
 
 Não é necessário Firebase Authentication nem Identity Toolkit para este fluxo.
@@ -47,8 +49,8 @@ Corrija no `.env`, rode `bash deployment/vps-check-env.sh` e redeploy.
 ```bash
 cd /opt/zapmass
 git pull origin main
-bash deployment/google-app-login-configurar.sh   # .env + nginx + VITE_API_ORIGIN
-bash deployment/manual-pull-deploy.sh            # rebuild obrigatório
+bash deployment/fix-google-login-app.sh          # same-origin + rebuild (não interativo)
+# ou: NON_INTERACTIVE=1 bash deployment/google-app-login-configurar.sh && bash deployment/manual-pull-deploy.sh
 ```
 
 **Só credenciais Google (apex):**
@@ -76,7 +78,7 @@ GOOGLE_OAUTH_REDIRECT_URI=https://zap-mass.com/api/auth/google/callback
 
 Garanta também **`ALLOWED_ORIGINS`** com as origens do navegador (ex.: `https://app.zap-mass.com,https://zap-mass.com,https://www.zap-mass.com`).
 
-Se o front em **app** chamar a API no **apex**, defina `VITE_API_ORIGIN=https://zap-mass.com` no `.env` e faça **rebuild** (`manual-pull-deploy`). O deploy infere este valor quando `PUBLIC_APP_URL` e `GOOGLE_OAUTH_REDIRECT_URI` têm hosts diferentes. Sem `VITE_API_ORIGIN` no bundle Docker, o refresh após Google falha com o toast «Não foi possível concluir o login».
+Com painel em **app**, **não** defina `VITE_API_ORIGIN` (same-origin). Só use cross-host com `ZAPMASS_CROSS_HOST_API=1` + `VITE_API_ORIGIN=https://zap-mass.com` se o callback OAuth tiver de ficar no apex.
 
 Reinicie o container/serviço Node após alterar o `.env` (ou use o deploy oferecido pelo script).
 
@@ -86,7 +88,7 @@ Reinicie o container/serviço Node após alterar o `.env` (ou use o deploy ofere
 2. Google devolve para `GET /api/auth/google/callback`.
 3. Servidor troca o `code`, valida o **ID token** (JWKS Google, `email_verified`).
 4. Cria ou **vincula** utilizador em `zapmass.users` (`google_sub`) e emite sessão VPS.
-5. Redirect para o front com `?google_login=1`; o app renova o access token via `/api/auth/refresh`.
+5. Redirect para o front com `?google_login=1` (e token curto no fragment `#zapmass_at=` como fallback); o app renova via `/api/auth/refresh` ou bootstrap com o fragment.
 
 ## 4. Política de contas
 

@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.328',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Login Google app: same-origin (callback em app, sem VITE_API_ORIGIN), fix-google-login-app.sh e fallback #zapmass_at=',
+      },
+    ],
+  },
+  {
     version: '2.3.327',
     date: '23/10/2026',
     highlights: [

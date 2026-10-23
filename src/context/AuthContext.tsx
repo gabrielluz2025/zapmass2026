@@ -13,7 +13,9 @@ import {
   vpsStaffLogin,
   vpsRefreshAccessToken,
   bindCrossTabLogoutSync,
-  vpsStartGoogleLogin
+  vpsStartGoogleLogin,
+  consumeGoogleLoginFragmentToken,
+  vpsBootstrapSessionFromAccessToken
 } from '../services/vpsAuth';
 import { vpsUserToSessionUser } from '../utils/vpsSessionUser';
 import { clearBootstrapCache } from '../utils/bootstrapSessionCache';
@@ -119,7 +121,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const finish = async () => {
       try {
-        const token = await vpsRefreshAccessToken();
+        const fragmentToken = consumeGoogleLoginFragmentToken();
+        let token: string | null = fragmentToken;
+        if (fragmentToken) {
+          const bootstrapped = await vpsBootstrapSessionFromAccessToken(fragmentToken);
+          if (bootstrapped) token = fragmentToken;
+          else token = null;
+        }
+        if (!token) {
+          token = await vpsRefreshAccessToken();
+        }
         if (!token) {
           toast.error('Não foi possível concluir o login com Google. Tente novamente.');
           return;
