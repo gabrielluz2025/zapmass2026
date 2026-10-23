@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.348] - 2026-10-23
+
+### Corrigido
+- **CI/Contatos:** tipagem do callback em `normalizeFileImportRowsStored` (`.map` vs parâmetro opcional de opções de importação).
+
 ## [2.3.347] - 2026-10-23
 
 ### Melhorado

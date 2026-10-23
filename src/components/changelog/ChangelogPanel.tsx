@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.348',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Build CI: tipagem na preparação automática de importação de contatos',
+      },
+    ],
+  },
+  {
     version: '2.3.347',
     date: '23/10/2026',
     highlights: [

@@ -584,7 +584,7 @@ async function recomputeFileImportRowsStoredIncludesAsync(
 
 /** Normaliza nome/telefone/UF e recalcula `include` como em `handleImportCSV` (duplicados no arquivo e na base). */
 const normalizeFileImportRowsStored = (rows: FileImportRow[], contactsList: Contact[]): FileImportRow[] =>
-  recomputeFileImportRowsStoredIncludes(rows.map(normalizeFileImportRowContactOnly), contactsList);
+  recomputeFileImportRowsStoredIncludes(rows.map((row) => normalizeFileImportRowContactOnly(row)), contactsList);
 
 /** Normalização em lotes (UI responsiva + barra de progresso). */
 async function batchedNormalizeFileImportRows(
