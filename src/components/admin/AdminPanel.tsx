@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
-import { Button, Card, CardHeader, Badge, StatCard, SectionHeader, EmptyState, CompactPageHeader, TabBar } from '../ui';
+import { Button, Card, CardHeader, Badge, StatCard, SectionHeader, EmptyState, ZmPageHeader, TabBar } from '../ui';
 import { AdminAnnouncementsTab } from './AdminAnnouncementsTab';
 import { AdminSuggestionsTab } from './AdminSuggestionsTab';
 import { AdminAccessTab } from './access/AdminAccessTab';
@@ -169,8 +169,8 @@ export const AdminPanel: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto px-2 sm:px-0 pb-10 space-y-6">
-      <CompactPageHeader
-        icon={<Shield className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />}
+      <ZmPageHeader
+        icon={<Shield className="w-5 h-5 text-emerald-400" />}
         title="Painel do criador"
         subtitle="Comercial, ganhos, acessos, comunicados e feedback dos usuários — alinhado ao tema escuro do app."
         footer={

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, RefreshCw, Shield, Wrench, AlertTriangle, Lock } from 'lucide-react';
-import { Button, Card, PageShell, Badge } from '../ui';
+import { ExternalLink, RefreshCw, Shield, Wrench, AlertTriangle, Lock, Code2 } from 'lucide-react';
+import { Button, Card, PageShell, Badge, ZmPageHeader } from '../ui';
 import { useMainLayoutNav } from '../../context/MainLayoutNavContext';
 import { useZapMassCore } from '../../context/ZapMassContext';
 import { apiUrl } from '../../utils/apiBase';
@@ -158,6 +158,12 @@ export const CreatorStudio: React.FC = () => {
       }
     >
     <div className="max-w-4xl mx-auto space-y-4 pb-10">
+
+      <ZmPageHeader
+        icon={<Code2 className="w-5 h-5 text-emerald-400" />}
+        title="Estúdio do criador"
+        subtitle="Agente ZapMass, config remota, auditoria e atalhos de diagnóstico interno."
+      />
 
       <AgentStudioSection />
 

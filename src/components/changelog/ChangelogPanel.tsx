@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.342',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'UI Neon Glass: tokens, ZmMetricCard/GlassCard/PageHeader, painel com dock, chrome em Campanhas/Contatos/Criador',
+      },
+    ],
+  },
+  {
     version: '2.3.341',
     date: '23/10/2026',
     highlights: [

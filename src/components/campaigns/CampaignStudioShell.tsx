@@ -20,7 +20,7 @@ import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
 import { DispatchFixPanel } from './DispatchFixPanel';
 import { useDispatchHealth } from './useDispatchHealth';
 import { useAuth } from '../../context/AuthContext';
-import { PageShell, StatTile, Badge } from '../ui';
+import { PageShell, StatTile, Badge, ZmPageHeader } from '../ui';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
 
 export type CampaignStudioTab = 'overview' | 'mission' | 'campaigns' | 'create';
@@ -106,7 +106,28 @@ export const CampaignStudioShell: React.FC<Props> = ({
         </>
       }
     >
-    <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 pb-24 lg:pb-10">
+    <div className="flex flex-col gap-4 pb-24 lg:pb-10 max-w-6xl mx-auto w-full">
+      <ZmPageHeader
+        icon={<Send className="w-5 h-5 text-violet-400" />}
+        title="Campanhas"
+        subtitle="Centro de missões, modelos, calendário e disparos — motor Redis e chips em tempo real."
+        actions={
+          <button
+            type="button"
+            onClick={onCreate}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-[12px] font-bold text-white transition-transform hover:scale-[1.02]"
+            style={{
+              background: 'linear-gradient(135deg, var(--brand-500), var(--brand-600))',
+              boxShadow: 'var(--zm-glow-brand-soft)',
+            }}
+          >
+            <Plus className="w-4 h-4" />
+            Nova campanha
+          </button>
+        }
+      />
+
+    <div className="flex flex-col lg:flex-row gap-4 lg:gap-5">
       {/* ── Navegação lateral ── */}
       <aside
         className="lg:w-[210px] shrink-0 flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0"
@@ -262,6 +283,7 @@ export const CampaignStudioShell: React.FC<Props> = ({
         {/* Conteúdo da sub-aba */}
         <div className="animate-fade-in-up">{children}</div>
       </div>
+    </div>
     </div>
     </PageShell>
   );

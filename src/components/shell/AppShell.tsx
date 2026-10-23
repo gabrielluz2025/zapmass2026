@@ -68,7 +68,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const readOnlyBlockMain = readOnly && currentView !== 'subscription' && currentView !== 'help';
 
   return (
-    <div className="min-h-screen flex zm-aurora-root">
+    <div className="min-h-screen flex zm-aurora-root zm-app-mesh">
       {isMobileNavOpen && (
         <div
           aria-hidden="true"

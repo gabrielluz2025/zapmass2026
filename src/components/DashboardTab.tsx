@@ -889,7 +889,7 @@ export const DashboardTab: React.FC = () => {
         </>
       }
     >
-    <div className="zm-dashboard space-y-5 max-w-5xl mx-auto w-full">
+    <div className="zm-dashboard space-y-5 max-w-6xl mx-auto w-full">
       <TenantOpsHealthCard />
       <DashboardCommandPanel
         firstName={firstName}

@@ -5,6 +5,7 @@ import {
   Users, Flame, Thermometer, Snowflake, Sparkles, Calendar, Heart
 } from 'lucide-react';
 import type { SmartFilterId } from './contactsFilters';
+import { ZmPageHeader } from '../../ui';
 
 export interface ContactsCommandHeroStats {
   total: number;
@@ -93,7 +94,14 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
   const pick = (id: SmartFilterId) => (onSelectFilter ? () => onSelectFilter(id) : undefined);
 
   return (
-    <div className="ch-hero crm-fade-up">
+    <div className="space-y-4 crm-fade-up">
+      <ZmPageHeader
+        icon={<Users className="w-5 h-5 text-cyan-400" />}
+        title="Base de contatos"
+        subtitle={`${displayTotal.toLocaleString('pt-BR')} na visão atual · busque, importe e filtre por temperatura ou retorno.`}
+      />
+
+    <div className="ch-hero zm-glass-card-v2 zm-glass-card-v2--pad-md">
 
       {/* ── Linha 1: Busca + Ações primárias ─────── */}
       <div className="ch-hero__row1">
@@ -274,6 +282,7 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 });

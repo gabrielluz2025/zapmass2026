@@ -1,5 +1,5 @@
 /**
- * Hero do Painel — cabeçalho compacto (padrão criador v2.3.318+) e KPIs com StatCard.
+ * Hero do Painel — chrome neon (ZmPageHeader + ZmMetricCard + dock inferior).
  */
 import React from 'react';
 import {
@@ -20,7 +20,7 @@ import {
 import type { Campaign, Contact, DashboardMetrics } from '../../types';
 import { CampaignStatus } from '../../types';
 import { TerritoryMapTeaser } from './TerritoryMapTeaser';
-import { Button, CompactPageHeader, StatCard } from '../ui';
+import { Button, ZmGlassCard, ZmMetricCard, ZmPageHeader } from '../ui';
 
 type NavView = 'campaigns' | 'connections' | 'contacts' | 'contacts-map' | 'warmup' | 'team' | 'help';
 type Props = {
@@ -96,43 +96,34 @@ export const DashboardCommandPanel: React.FC<Props> = (props) => {
     .join(' · ');
 
   return (
-    <div className="zm-dash-section space-y-4 max-w-5xl mx-auto w-full px-0 sm:px-0">
-      <CompactPageHeader
-        icon={<LayoutDashboard className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />}
-        title="Painel"
+    <div className="zm-dash-section space-y-5 max-w-6xl mx-auto w-full">
+      <ZmPageHeader
+        icon={<LayoutDashboard className="w-5 h-5 text-emerald-400" />}
+        title="Centro de comando"
         subtitle={segmentTagline || 'Visão geral de chips, campanhas, contatos e envios em tempo real.'}
+        actions={
+          <>
+            <Button type="button" variant="primary" size="sm" leftIcon={<Rocket className="w-3.5 h-3.5" />} onClick={() => onNavigate('campaigns')}>
+              Nova campanha
+            </Button>
+            <Button type="button" variant="secondary" size="sm" leftIcon={<TrendingUp className="w-3.5 h-3.5" />} onClick={onScrollFunnel}>
+              Funil
+            </Button>
+          </>
+        }
         footer={
-          <div
-            className="px-4 sm:px-5 pb-3 flex flex-wrap items-center justify-between gap-2 border-t"
-            style={{ borderColor: 'var(--border-subtle)' }}
-          >
-            <p className="text-[12px] font-medium min-w-0 truncate" style={{ color: 'var(--text-3)' }}>
+          <div className="px-4 sm:px-5 py-3">
+            <p className="text-[12px] font-medium truncate" style={{ color: 'var(--text-3)' }}>
               {contextLine}
             </p>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <Button type="button" variant="primary" size="sm" leftIcon={<Rocket className="w-3.5 h-3.5" />} onClick={() => onNavigate('campaigns')}>
-                Nova campanha
-              </Button>
-              <Button type="button" variant="secondary" size="sm" leftIcon={<TrendingUp className="w-3.5 h-3.5" />} onClick={onScrollFunnel}>
-                Funil
-              </Button>
-            </div>
           </div>
         }
       />
 
       {connectionsTotal === 0 && (
-        <div
-          className="rounded-xl border px-4 py-4 flex flex-col sm:flex-row items-start sm:items-center gap-4"
-          style={{
-            borderColor: 'color-mix(in srgb, var(--brand-500) 28%, var(--border-subtle))',
-            background: 'color-mix(in srgb, var(--brand-500) 8%, var(--surface-0))',
-          }}
-        >
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 brand-soft"
-          >
-            <Smartphone className="w-6 h-6" style={{ color: 'var(--brand-600)' }} />
+        <ZmGlassCard padding="md" hover className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 brand-soft">
+            <Smartphone className="w-6 h-6" style={{ color: 'var(--brand-400)' }} />
           </div>
           <div className="min-w-0 flex-1">
             <p className="ui-title text-[15px]">Nenhum canal conectado</p>
@@ -143,99 +134,76 @@ export const DashboardCommandPanel: React.FC<Props> = (props) => {
           <Button type="button" variant="primary" size="sm" leftIcon={<Smartphone className="w-4 h-4" />} onClick={() => onNavigate('connections')}>
             Conectar WhatsApp
           </Button>
-        </div>
+        </ZmGlassCard>
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-        <StatCard
+        <ZmMetricCard
           label="Enviados"
           value={fmt(animSent)}
-          icon={<Send className="w-4 h-4 text-emerald-600" />}
+          icon={<Send className="w-4 h-4" />}
           helper={`Taxa entrega ${deliveryRate}%`}
-          accent="success"
+          accent="emerald"
         />
-        <StatCard
+        <ZmMetricCard
           label="Entregues"
           value={fmt(animDelivered)}
-          icon={<CheckCheck className="w-4 h-4 text-cyan-600" />}
+          icon={<CheckCheck className="w-4 h-4" />}
           helper={`${deliveryRate}% do total`}
-          accent="info"
+          accent="cyan"
         />
-        <StatCard
+        <ZmMetricCard
           label="Lidos"
           value={fmt(animRead)}
-          icon={<Eye className="w-4 h-4 text-indigo-500" />}
+          icon={<Eye className="w-4 h-4" />}
           helper={`${readRate}% dos entregues`}
-          accent="info"
+          accent="violet"
         />
-        <StatCard
+        <ZmMetricCard
           label="Respondidos"
           value={fmt(animReplied)}
-          icon={<MessageCircle className="w-4 h-4 text-amber-600" />}
+          icon={<MessageCircle className="w-4 h-4" />}
           helper={`${replyRate}% taxa de resposta`}
-          accent="warning"
+          accent="amber"
         />
-        <div role="presentation" onClick={() => onNavigate('contacts')} className="cursor-pointer">
-          <StatCard
-            label="Contatos"
-            value={fmt(contactCount)}
-            icon={<Users className="w-4 h-4 text-emerald-500" />}
-            helper="Base salva na conta"
-            accent="default"
-            className="h-full hover:ring-1 hover:ring-[var(--border-subtle)] transition-shadow"
-          />
-        </div>
-        <div role="presentation" onClick={() => onNavigate('campaigns')} className="cursor-pointer">
-          <StatCard
-            label="Campanhas"
-            value={campaigns.length}
-            icon={<Rocket className="w-4 h-4 text-pink-500" />}
-            helper={`${campaigns.filter((c) => c.status === CampaignStatus.RUNNING).length} em disparo`}
-            accent="default"
-            className="h-full hover:ring-1 hover:ring-[var(--border-subtle)] transition-shadow"
-          />
-        </div>
+        <ZmMetricCard
+          label="Contatos"
+          value={fmt(contactCount)}
+          icon={<Users className="w-4 h-4" />}
+          helper="Base salva na conta"
+          accent="emerald"
+          onClick={() => onNavigate('contacts')}
+        />
+        <ZmMetricCard
+          label="Campanhas"
+          value={campaigns.length}
+          icon={<Rocket className="w-4 h-4" />}
+          helper={`${campaigns.filter((c) => c.status === CampaignStatus.RUNNING).length} em disparo`}
+          accent="pink"
+          onClick={() => onNavigate('campaigns')}
+        />
       </div>
 
-      <TerritoryMapTeaser
-        contacts={contacts}
-        contactsSavedTotal={contactsSavedTotal}
-        onOpenMap={() => onNavigate('contacts-map')}
-      />
+      <ZmGlassCard padding="md">
+        <TerritoryMapTeaser
+          contacts={contacts}
+          contactsSavedTotal={contactsSavedTotal}
+          onOpenMap={() => onNavigate('contacts-map')}
+        />
+      </ZmGlassCard>
 
-      <div
-        className="flex flex-wrap gap-2 pt-3"
-        style={{ borderTop: '1px solid var(--border-subtle)' }}
-      >
+      <nav className="zm-bottom-dock" aria-label="Atalhos do painel">
         {navItems.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onNavigate(item.id)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-[12.5px] font-semibold transition-all hover:scale-[1.03]"
-            style={{
-              background: 'var(--surface-1)',
-              border: '1px solid var(--border-subtle)',
-              color: 'var(--text-2)',
-            }}
-          >
+          <button key={item.id} type="button" className="zm-bottom-dock__btn" onClick={() => onNavigate(item.id)}>
             <item.icon className="w-3.5 h-3.5" />
             {item.label}
           </button>
         ))}
-        <button
-          type="button"
-          onClick={() => onNavigate('team')}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-[12.5px] font-semibold ml-auto transition-all hover:scale-[1.03]"
-          style={{
-            background: 'rgba(16,185,129,0.10)',
-            border: '1px solid rgba(16,185,129,0.25)',
-            color: 'var(--brand-400)',
-          }}
-        >
-          <UserPlus className="w-3.5 h-3.5" /> Convidar equipe
+        <button type="button" className="zm-bottom-dock__btn zm-bottom-dock__btn--accent" onClick={() => onNavigate('team')}>
+          <UserPlus className="w-3.5 h-3.5" />
+          Convidar equipe
         </button>
-      </div>
+      </nav>
     </div>
   );
 };

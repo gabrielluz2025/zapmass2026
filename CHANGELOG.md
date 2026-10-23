@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.342] - 2026-10-23
+
+### Melhorado
+- **UI Neon Glass (app inteiro):** tokens CSS (`--zm-surface`, brilho e gradientes), componentes `ZmMetricCard`, `ZmGlassCard` e `ZmPageHeader`, mesh sutil no shell, sidebar/top bar polidos.
+- **Painel:** hero com métricas neon, mapa em vidro e dock inferior de atalhos.
+- **Campanhas, Contatos e Criador:** cabeçalhos de página unificados com o novo chrome.
+
 ## [2.3.341] - 2026-10-23
 
 ### Corrigido

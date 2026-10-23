@@ -4,6 +4,7 @@
 @import './styles/wa-web.css';
 @import './styles/wa-web-v2.css';
 @import './styles/aurora-shell.css';
+@import './styles/zm-neon-ui.css';
 @import './styles/dashboard-premium.css';
 @import './styles/contacts-premium.css';
 @import './styles/campaign-wizard-message.css';
@@ -153,6 +154,21 @@
   /* Extras */
   --brand-glow:            rgba(16,185,129,0.14);
   --surface-selected-brand: color-mix(in srgb, var(--brand-500) 20%, var(--surface-1));
+
+  /* Neon glass — superfícies, brilho e gradientes (Zm* UI) */
+  --zm-surface:              rgba(24, 24, 29, 0.82);
+  --zm-surface-solid:        #12121a;
+  --zm-surface-glass:        linear-gradient(145deg, rgba(28, 28, 36, 0.92) 0%, rgba(14, 14, 18, 0.94) 100%);
+  --zm-glass-border:         rgba(255, 255, 255, 0.08);
+  --zm-glass-blur:           14px;
+  --zm-shadow-glass:         0 0 0 1px rgba(255, 255, 255, 0.04) inset, 0 16px 48px -20px rgba(0, 0, 0, 0.75);
+  --zm-glow-brand-soft:      0 0 28px -8px rgba(16, 185, 129, 0.35);
+  --zm-glow-cyan-soft:       0 0 28px -8px rgba(6, 182, 212, 0.32);
+  --zm-glow-violet-soft:     0 0 28px -8px rgba(139, 92, 246, 0.32);
+  --zm-gradient-accent-line: linear-gradient(90deg, transparent, var(--brand-500) 35%, var(--accent-2) 65%, transparent);
+  --zm-gradient-icon-well:   linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 22%, var(--surface-2)) 0%, var(--surface-1) 100%);
+  --zm-gradient-card-shine:  linear-gradient(125deg, rgba(255, 255, 255, 0.07) 0%, transparent 42%, transparent 100%);
+  --zm-gradient-hero:        radial-gradient(ellipse 70% 55% at 50% -10%, rgba(16, 185, 129, 0.14), transparent 55%);
 }
 
 /* Modo escuro explícito — idêntico ao :root */
