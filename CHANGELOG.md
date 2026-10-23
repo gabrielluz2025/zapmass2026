@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.322] - 2026-10-23
+
+### Melhorado
+- **Mercado Pago VPS:** script interativo `deployment/mercadopago-configurar.sh`; doc `MERCADOPAGO-VPS.md` com bloco único copy-paste; toasts admin com `mpIssue` também em Upgrade Pro e trial encerrado; dicas admin apontam para o script.
+
 ## [2.3.321] - 2026-10-23
 
 ### Melhorado

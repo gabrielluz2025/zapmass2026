@@ -33,4 +33,11 @@ describe('billingRouteErrorPayload', () => {
     expect(r.mpIssue).toBe('token_invalid');
     expect(r.error).toBe(MP_TOKEN_INVALID_MSG);
   });
+
+  it('marca fetch failed como mp_unreachable', () => {
+    const r = billingRouteErrorPayload(new Error('fetch failed calling Mercado Pago'));
+    expect(r.status).toBe(503);
+    expect(r.error).toBe(MP_CHECKOUT_UNAVAILABLE_MSG);
+    expect(r.mpIssue).toBe('mp_unreachable');
+  });
 });

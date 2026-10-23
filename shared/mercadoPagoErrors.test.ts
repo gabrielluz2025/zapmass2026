@@ -19,4 +19,14 @@ describe('classifyMercadoPagoHealth', () => {
   it('ok', () => {
     expect(classifyMercadoPagoHealth({ configured: true, valid: true })).toBe(null);
   });
+
+  it('rede / MP inacessível', () => {
+    expect(
+      classifyMercadoPagoHealth({
+        configured: true,
+        valid: false,
+        error: 'fetch failed'
+      })
+    ).toBe('mp_unreachable');
+  });
 });

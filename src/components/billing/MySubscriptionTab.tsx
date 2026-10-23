@@ -33,11 +33,8 @@ import {
 import { PageShell, CollapsibleSection, Badge, StatTile, CompactPageHeader, Button } from '../ui';
 import type { UserSubscription } from '../../types';
 import { apiUrl } from '../../utils/apiBase';
-import {
-  formatMercadoPagoCheckoutError,
-  mercadoPagoAdminSetupHint,
-  type MpCheckoutIssue
-} from '../../utils/mercadopagoCheckoutError';
+import { mercadoPagoAdminSetupHint, type MpCheckoutIssue } from '../../utils/mercadopagoCheckoutError';
+import { toastMercadoPagoCheckoutFailure } from '../../utils/mercadopagoCheckoutToast';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
 
 type Plan = 'monthly' | 'annual';
@@ -279,14 +276,7 @@ export const MySubscriptionTab: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        const errText = formatMercadoPagoCheckoutError(typeof data?.error === 'string' ? data.error : undefined);
-        if (isPlatformAdmin && typeof data?.mpIssue === 'string') {
-          toast.error(`${errText}\n\nAdmin: ${mercadoPagoAdminSetupHint(data.mpIssue as MpCheckoutIssue)}`, {
-            duration: 9000
-          });
-        } else {
-          toast.error(errText);
-        }
+        toastMercadoPagoCheckoutFailure(data, isPlatformAdmin);
         return;
       }
       if (data.init_point) {
@@ -367,14 +357,7 @@ export const MySubscriptionTab: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        const errText = formatMercadoPagoCheckoutError(typeof data?.error === 'string' ? data.error : undefined);
-        if (isPlatformAdmin && typeof data?.mpIssue === 'string') {
-          toast.error(`${errText}\n\nAdmin: ${mercadoPagoAdminSetupHint(data.mpIssue as MpCheckoutIssue)}`, {
-            duration: 9000
-          });
-        } else {
-          toast.error(errText);
-        }
+        toastMercadoPagoCheckoutFailure(data, isPlatformAdmin);
         return;
       }
       if (data.init_point) {
@@ -513,13 +496,15 @@ export const MySubscriptionTab: React.FC = () => {
                 ? 'Mercado Pago: credencial rejeitada ou inválida'
                 : mpCheckoutIssue === 'back_url'
                   ? 'Mercado Pago: URL pública do checkout ausente'
-                  : 'Mercado Pago não disponível no servidor'}
+                  : mpCheckoutIssue === 'mp_unreachable'
+                    ? 'Mercado Pago: API inacessível a partir do servidor'
+                    : 'Mercado Pago não disponível no servidor'}
             </p>
             <p className="mt-1 leading-relaxed">{mercadoPagoAdminSetupHint(mpCheckoutIssue)}</p>
             <p className="mt-2 ui-caption">
               Valide:{' '}
               <code className="text-[12px]">curl -sS https://zap-mass.com/api/billing/mercadopago/status</code> ·{' '}
-              <code className="text-[12px]">bash deployment/vps-check-env.sh</code> ·{' '}
+              <code className="text-[12px]">bash deployment/mercadopago-configurar.sh</code> ·{' '}
               <code className="text-[12px]">docs/MERCADOPAGO-VPS.md</code>
             </p>
           </div>

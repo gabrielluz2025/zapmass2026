@@ -3,6 +3,24 @@
 Configuração de **cobrança / assinatura ZapMass Pro** (Checkout Pro, Pix, cartão, débito automático).  
 **Não confundir** com chips WhatsApp (Evolution) — isso é outro conjunto de variáveis (`EVOLUTION_*`, sessões).
 
+## Um comando na VPS (recomendado)
+
+No terminal SSH da Hostinger (cole **uma vez**; o script pede token e webhook **sem exibir** na tela):
+
+```bash
+cd /opt/zapmass && git pull origin main && bash deployment/mercadopago-configurar.sh
+```
+
+Antes, no [painel Mercado Pago](https://www.mercadopago.com.br/developers/panel): **Credenciais de produção** → Access Token `APP_USR-…`; **Webhooks** → URL `https://zap-mass.com/api/webhooks/mercadopago` e copie a **assinatura secreta**.
+
+Validação rápida depois:
+
+```bash
+curl -sS https://zap-mass.com/api/billing/mercadopago/status
+```
+
+---
+
 ## Estado esperado (API pública)
 
 Depois de configurar e reiniciar o stack:
@@ -143,4 +161,4 @@ Remova assim que `MERCADOPAGO_WEBHOOK_SECRET` estiver definido.
 | Pagou mas não liberou Pro | Webhook URL errada, secret errado, ou MP não alcança a VPS |
 | `mercadopagoMode: "test"` | Token `TEST-` no `.env` |
 
-Scripts relacionados: `deployment/vps-env-secrets.sh`, `deployment/vps-check-env.sh`, `deployment/verify-mercadopago-token.sh`, `deployment/vps-finalizar-producao.sh`.
+Scripts relacionados: `deployment/mercadopago-configurar.sh`, `deployment/vps-env-secrets.sh`, `deployment/vps-check-env.sh`, `deployment/verify-mercadopago-token.sh`, `deployment/set-mercadopago-token.sh`, `deployment/vps-finalizar-producao.sh`.

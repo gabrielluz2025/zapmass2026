@@ -8,7 +8,8 @@ import { BASE_CHANNEL_SLOTS } from '../../utils/connectionLimitPolicy';
 import { useProBillingPrices } from '../../hooks/useProBillingPrices';
 import { redirectToMercadoPagoCheckout } from '../../utils/mercadopagoCheckout';
 import { apiUrl } from '../../utils/apiBase';
-import { formatMercadoPagoCheckoutError } from '../../utils/mercadopagoCheckoutError';
+import { toastMercadoPagoCheckoutFailure } from '../../utils/mercadopagoCheckoutToast';
+import { isPlatformAdminUser } from '../../utils/adminAccess';
 import { Modal } from '../ui';
 import { ProChannelTierSelect } from './ProChannelTierSelect';
 import { ProPlanCard, type ProLoadingKey } from './ProPlanCard';
@@ -32,6 +33,7 @@ const BENEFITS: string[] = [
 
 export const TrialEndedModal: React.FC<TrialEndedModalProps> = ({ isOpen, onClose }) => {
   const { user } = useAuth();
+  const isPlatformAdmin = isPlatformAdminUser(user);
   const { config } = useAppConfig();
   const [loading, setLoading] = useState<ProLoadingKey>('idle');
   const [channels, setChannels] = useState<ChannelTier>(
@@ -67,7 +69,7 @@ export const TrialEndedModal: React.FC<TrialEndedModalProps> = ({ isOpen, onClos
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        toast.error(formatMercadoPagoCheckoutError(typeof data?.error === 'string' ? data.error : undefined));
+        toastMercadoPagoCheckoutFailure(data, isPlatformAdmin);
         return;
       }
       if (data.init_point) {

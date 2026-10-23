@@ -70,17 +70,17 @@ export function classifyMercadoPagoConfigErrorMessage(message: string): MpChecko
 export function mercadoPagoAdminSetupHint(issue: MpCheckoutIssue | null | undefined): string {
   switch (issue) {
     case 'token_missing':
-      return 'MERCADOPAGO_ACCESS_TOKEN ausente no container. Na VPS: MERCADOPAGO_ACCESS_TOKEN=\'APP_USR-…\' bash deployment/vps-env-secrets.sh && bash deployment/vps-deploy.sh (Swarm não lê .env sozinho).';
+      return 'MERCADOPAGO_ACCESS_TOKEN ausente no container. Na VPS: cd /opt/zapmass && bash deployment/mercadopago-configurar.sh (ou vps-env-secrets.sh + manual-pull-deploy.sh; Swarm não lê .env sozinho).';
     case 'token_invalid':
-      return 'Token presente mas rejeitado pelo Mercado Pago (401). Regenere APP_USR- em developers/panel → Credenciais de produção e rode deployment/set-mercadopago-token.sh ou vps-env-secrets.sh + redeploy.';
+      return 'Token presente mas rejeitado pelo Mercado Pago (401). Regenere APP_USR- no painel → Credenciais de produção e rode bash deployment/mercadopago-configurar.sh na VPS.';
     case 'token_malformed':
-      return 'Valor em MERCADOPAGO_ACCESS_TOKEN não é Access Token (use APP_USR-… longo, não Public Key). Corrija o .env e sincronize secrets/mercadopago_access_token.';
+      return 'MERCADOPAGO_ACCESS_TOKEN não é Access Token (use APP_USR-… longo, não Public Key). Corrija com bash deployment/mercadopago-configurar.sh na VPS.';
     case 'back_url':
-      return 'Defina MERCADOPAGO_BACK_URL=https://zap-mass.com (e PUBLIC_APP_URL) — localhost em produção bloqueia checkout e webhook.';
+      return 'Defina MERCADOPAGO_BACK_URL=https://zap-mass.com (e PUBLIC_APP_URL) — localhost em produção bloqueia checkout e webhook. Use mercadopago-configurar.sh na VPS.';
     case 'mp_unreachable':
       return 'Servidor não alcançou api.mercadopago.com (rede/firewall/DNS). Token pode estar ok; tente de novo ou confira conectividade na VPS.';
     default:
-      return 'Checkout MP indisponível. Rode bash deployment/vps-check-env.sh e curl /api/billing/mercadopago/status na VPS.';
+      return 'Checkout MP indisponível. Na VPS: bash deployment/mercadopago-configurar.sh · bash deployment/vps-check-env.sh · curl /api/billing/mercadopago/status';
   }
 }
 
