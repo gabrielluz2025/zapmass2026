@@ -1,9 +1,10 @@
 /**
- * Hero do Painel — chrome neon (ZmPageHeader + ZmMetricCard + dock inferior).
+ * Hero do Painel — hierarquia: (1) o que fazer agora, (2) pulso do dia, (3) mapa + atalhos.
  */
-import React from 'react';
+import React, { useState } from 'react';
 import {
   BookOpen,
+  ChevronDown,
   Eye,
   Flame,
   Globe2,
@@ -16,11 +17,16 @@ import {
   UserPlus,
   Users,
   CheckCheck,
+  FolderInput,
 } from 'lucide-react';
 import type { Campaign, Contact, DashboardMetrics } from '../../types';
 import { CampaignStatus } from '../../types';
 import { TerritoryMapTeaser } from './TerritoryMapTeaser';
 import { Button, ZmGlassCard, ZmMetricCard, ZmPageHeader } from '../ui';
+import {
+  WelcomeChecklistCard,
+  type WelcomeChecklistProgress,
+} from '../onboarding/welcomeChecklistShared';
 
 type NavView = 'campaigns' | 'connections' | 'contacts' | 'contacts-map' | 'warmup' | 'team' | 'help';
 type Props = {
@@ -44,8 +50,12 @@ type Props = {
   contactsSavedTotal?: number | null;
   bestWindow?: { label: string } | null;
   onNavigate: (view: NavView) => void;
-  onScrollFunnel: () => void;
+  onScrollAnalytics: () => void;
   hideStatusBar?: boolean;
+  welcomeProgress?: WelcomeChecklistProgress;
+  showWelcomeChecklist?: boolean;
+  onWelcomeDismiss?: () => void;
+  runningCampaigns?: number;
 };
 
 const fmt = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1).replace('.0', '') + 'k' : String(n));
@@ -79,12 +89,20 @@ export const DashboardCommandPanel: React.FC<Props> = (props) => {
     readRate,
     replyRate,
     onNavigate,
-    onScrollFunnel,
+    onScrollAnalytics,
+    welcomeProgress,
+    showWelcomeChecklist,
+    onWelcomeDismiss,
+    runningCampaigns,
   } = props;
+
+  const [moreMetricsOpen, setMoreMetricsOpen] = useState(false);
 
   const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   const dateStr = now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
   const contactCount = contactsSavedTotal ?? contacts.length;
+  const running =
+    runningCampaigns ?? campaigns.filter((c) => c.status === CampaignStatus.RUNNING).length;
 
   const contextLine = [
     `${greeting}, ${firstName}`,
@@ -95,19 +113,36 @@ export const DashboardCommandPanel: React.FC<Props> = (props) => {
     .filter(Boolean)
     .join(' · ');
 
+  const onboardingIncomplete = showWelcomeChecklist && welcomeProgress && onWelcomeDismiss;
+
   return (
     <div className="zm-dash-section space-y-5 max-w-6xl mx-auto w-full">
       <ZmPageHeader
         icon={<LayoutDashboard className="w-5 h-5 text-emerald-400" />}
-        title="Centro de comando"
-        subtitle={segmentTagline || 'Visão geral de chips, campanhas, contatos e envios em tempo real.'}
+        title="Seu painel"
+        subtitle={
+          segmentTagline ||
+          'Comece pelo essencial: conecte um canal, importe contatos e acompanhe o que importa hoje.'
+        }
         actions={
           <>
-            <Button type="button" variant="primary" size="sm" leftIcon={<Rocket className="w-3.5 h-3.5" />} onClick={() => onNavigate('campaigns')}>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              leftIcon={<Rocket className="w-3.5 h-3.5" />}
+              onClick={() => onNavigate('campaigns')}
+            >
               Nova campanha
             </Button>
-            <Button type="button" variant="secondary" size="sm" leftIcon={<TrendingUp className="w-3.5 h-3.5" />} onClick={onScrollFunnel}>
-              Funil
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              leftIcon={<TrendingUp className="w-3.5 h-3.5" />}
+              onClick={onScrollAnalytics}
+            >
+              Ver desempenho
             </Button>
           </>
         }
@@ -120,77 +155,181 @@ export const DashboardCommandPanel: React.FC<Props> = (props) => {
         }
       />
 
-      {connectionsTotal === 0 && (
+      {/* (A) O que fazer agora */}
+      {onboardingIncomplete ? (
+        <WelcomeChecklistCard
+          progress={welcomeProgress}
+          onNavigate={onNavigate}
+          onDismiss={onWelcomeDismiss}
+        />
+      ) : connectionsTotal === 0 ? (
         <ZmGlassCard padding="md" hover className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 brand-soft">
             <Smartphone className="w-6 h-6" style={{ color: 'var(--brand-400)' }} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="ui-title text-[15px]">Nenhum canal conectado</p>
+            <p className="ui-title text-[15px]">Próximo passo: conectar WhatsApp</p>
             <p className="ui-subtitle text-[13px] mt-0.5">
-              Conecte seu primeiro WhatsApp em <strong style={{ color: 'var(--text-2)' }}>Canais</strong> para disparar campanhas e ver métricas ao vivo.
+              Sem um canal ativo não há envios nem métricas ao vivo. Leva poucos minutos escanear o QR.
             </p>
           </div>
-          <Button type="button" variant="primary" size="sm" leftIcon={<Smartphone className="w-4 h-4" />} onClick={() => onNavigate('connections')}>
-            Conectar WhatsApp
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            leftIcon={<Smartphone className="w-4 h-4" />}
+            onClick={() => onNavigate('connections')}
+          >
+            Conectar agora
           </Button>
         </ZmGlassCard>
-      )}
+      ) : contactCount === 0 ? (
+        <ZmGlassCard padding="md" hover className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 brand-soft">
+            <FolderInput className="w-6 h-6" style={{ color: 'var(--brand-400)' }} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="ui-title text-[15px]">Importe sua base de contatos</p>
+            <p className="ui-subtitle text-[13px] mt-0.5">
+              Planilha, vCard ou sync do celular — sua lista alimenta campanhas e o mapa por região.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            leftIcon={<Users className="w-4 h-4" />}
+            onClick={() => onNavigate('contacts')}
+          >
+            Ir para Contatos
+          </Button>
+        </ZmGlassCard>
+      ) : campaigns.length === 0 ? (
+        <ZmGlassCard padding="md" hover className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 brand-soft">
+            <Rocket className="w-6 h-6" style={{ color: 'var(--brand-400)' }} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="ui-title text-[15px]">Dispare sua primeira campanha</p>
+            <p className="ui-subtitle text-[13px] mt-0.5">
+              Canal e contatos prontos — crie uma mensagem com intervalo anti-ban (15–45 s) e acompanhe aqui.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            leftIcon={<Rocket className="w-4 h-4" />}
+            onClick={() => onNavigate('campaigns')}
+          >
+            Criar campanha
+          </Button>
+        </ZmGlassCard>
+      ) : null}
 
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-        <ZmMetricCard
-          label="Enviados"
-          value={fmt(animSent)}
-          icon={<Send className="w-4 h-4" />}
-          helper={`Taxa entrega ${deliveryRate}%`}
-          accent="emerald"
-        />
-        <ZmMetricCard
-          label="Entregues"
-          value={fmt(animDelivered)}
-          icon={<CheckCheck className="w-4 h-4" />}
-          helper={`${deliveryRate}% do total`}
-          accent="cyan"
-        />
-        <ZmMetricCard
-          label="Lidos"
-          value={fmt(animRead)}
-          icon={<Eye className="w-4 h-4" />}
-          helper={`${readRate}% dos entregues`}
-          accent="violet"
-        />
-        <ZmMetricCard
-          label="Respondidos"
-          value={fmt(animReplied)}
-          icon={<MessageCircle className="w-4 h-4" />}
-          helper={`${replyRate}% taxa de resposta`}
-          accent="amber"
-        />
-        <ZmMetricCard
-          label="Contatos"
-          value={fmt(contactCount)}
-          icon={<Users className="w-4 h-4" />}
-          helper="Base salva na conta"
-          accent="emerald"
-          onClick={() => onNavigate('contacts')}
-        />
-        <ZmMetricCard
-          label="Campanhas"
-          value={campaigns.length}
-          icon={<Rocket className="w-4 h-4" />}
-          helper={`${campaigns.filter((c) => c.status === CampaignStatus.RUNNING).length} em disparo`}
-          accent="pink"
-          onClick={() => onNavigate('campaigns')}
-        />
+      {/* (B) Pulso de hoje — 4 métricas-chave */}
+      <div>
+        <div className="flex items-center justify-between gap-2 mb-3 px-0.5">
+          <h2 className="ui-title text-[15px]" style={{ color: 'var(--text-1)' }}>
+            Pulso de hoje
+          </h2>
+          <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+            números acumulados da conta
+          </span>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <ZmMetricCard
+            label="Mensagens enviadas"
+            value={fmt(animSent)}
+            icon={<Send className="w-4 h-4" />}
+            helper={animSent > 0 ? `${deliveryRate}% chegaram ao destino` : 'Dispare uma campanha para começar'}
+            accent="emerald"
+          />
+          <ZmMetricCard
+            label="Taxa de resposta"
+            value={animSent > 0 ? `${replyRate}%` : '—'}
+            icon={<MessageCircle className="w-4 h-4" />}
+            helper={
+              animReplied > 0
+                ? `${fmt(animReplied)} respostas no total`
+                : 'Quanto mais personalizado, maior a conversa'
+            }
+            accent="amber"
+          />
+          <ZmMetricCard
+            label="Canais ativos"
+            value={connectionsTotal > 0 ? `${onlineCount}/${connectionsTotal}` : '0'}
+            icon={<Smartphone className="w-4 h-4" />}
+            helper={
+              connectionsTotal === 0
+                ? 'Conecte seu primeiro chip'
+                : onlineCount < connectionsTotal
+                  ? 'Reconecte os offline em Canais'
+                  : 'Todos online'
+            }
+            accent="cyan"
+            onClick={() => onNavigate('connections')}
+          />
+          <ZmMetricCard
+            label="Contatos salvos"
+            value={fmt(contactCount)}
+            icon={<Users className="w-4 h-4" />}
+            helper={contactCount > 0 ? 'Base pronta para segmentar' : 'Importe ou sincronize'}
+            accent="violet"
+            onClick={() => onNavigate('contacts')}
+          />
+        </div>
+
+        <div className="mt-3">
+          <button
+            type="button"
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[12px] font-semibold transition-colors hover:bg-white/5"
+            style={{ color: 'var(--brand-500)', border: '1px dashed var(--border-subtle)' }}
+            aria-expanded={moreMetricsOpen}
+            onClick={() => setMoreMetricsOpen((v) => !v)}
+          >
+            <ChevronDown className={`w-4 h-4 transition-transform ${moreMetricsOpen ? 'rotate-180' : ''}`} />
+            {moreMetricsOpen ? 'Ocultar métricas extras' : 'Ver mais métricas'}
+          </button>
+          {moreMetricsOpen && (
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mt-3 animate-in fade-in duration-200">
+              <ZmMetricCard
+                label="Entregues"
+                value={fmt(animDelivered)}
+                icon={<CheckCheck className="w-4 h-4" />}
+                helper={`${deliveryRate}% do enviado`}
+                accent="cyan"
+              />
+              <ZmMetricCard
+                label="Lidas"
+                value={fmt(animRead)}
+                icon={<Eye className="w-4 h-4" />}
+                helper={`${readRate}% dos entregues`}
+                accent="pink"
+              />
+              <ZmMetricCard
+                label="Campanhas"
+                value={campaigns.length}
+                icon={<Rocket className="w-4 h-4" />}
+                helper={running > 0 ? `${running} em disparo agora` : 'Nenhuma em andamento'}
+                accent="emerald"
+                onClick={() => onNavigate('campaigns')}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
-      <ZmGlassCard padding="md">
-        <TerritoryMapTeaser
-          contacts={contacts}
-          contactsSavedTotal={contactsSavedTotal}
-          onOpenMap={() => onNavigate('contacts-map')}
-        />
-      </ZmGlassCard>
+      {/* Mapa — só quando há base para explorar */}
+      {contactCount > 0 ? (
+        <ZmGlassCard padding="md">
+          <TerritoryMapTeaser
+            contacts={contacts}
+            contactsSavedTotal={contactsSavedTotal}
+            onOpenMap={() => onNavigate('contacts-map')}
+          />
+        </ZmGlassCard>
+      ) : null}
 
       <nav className="zm-bottom-dock" aria-label="Atalhos do painel">
         {navItems.map((item) => (

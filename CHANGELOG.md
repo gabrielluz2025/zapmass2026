@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.349] - 2026-10-23
+
+### Melhorado
+- **Painel (Centro de comando):** hierarquia centrada no cliente — checklist/próximo passo, pulso com 4 métricas e «Ver mais métricas», análises colapsáveis, funil unificado (7 dias + histórico em abas), empty states com CTA, `ZmFieldHelp` e ops de servidor só para admin.
+
 ## [2.3.348] - 2026-10-23
 
 ### Corrigido

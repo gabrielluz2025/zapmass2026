@@ -9,7 +9,6 @@ import {
   User,
   Smartphone,
   ChevronDown,
-  TrendingUp,
   Clock,
   Zap,
   BarChart3,
@@ -73,11 +72,9 @@ import {
   hydrateBirthdayGreetedFromConversations,
   markBirthdayGreeted,
 } from '../utils/birthdayGreeted';
-import { PerformanceFunnel } from './PerformanceFunnel';
 import { DashboardIntelPanel } from './dashboard/DashboardIntelPanel';
 import { TenantOpsHealthCard } from './tenant/TenantOpsHealthCard';
 import {
-  WelcomeChecklistCard,
   computeWelcomeChecklistProgress,
   writeWelcomeChecklistDismissed,
   readWelcomeChecklistDismissed,
@@ -874,9 +871,9 @@ export const DashboardTab: React.FC = () => {
   const hour = now.getHours();
   const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
 
-  const funnelSectionRef = useRef<HTMLDivElement>(null);
-  const scrollToFunnel = () => {
-    funnelSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const analyticsSectionRef = useRef<HTMLDivElement>(null);
+  const scrollToAnalytics = () => {
+    analyticsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const welcomeProgress = useMemo(
@@ -906,16 +903,6 @@ export const DashboardTab: React.FC = () => {
     >
     <div className="zm-dashboard space-y-5 max-w-6xl mx-auto w-full">
       <TenantOpsHealthCard />
-      {showWelcomeCard ? (
-        <WelcomeChecklistCard
-          progress={welcomeProgress}
-          onNavigate={setCurrentView}
-          onDismiss={() => {
-            writeWelcomeChecklistDismissed(user?.uid);
-            setWelcomeDismissed(true);
-          }}
-        />
-      ) : null}
       <DashboardCommandPanel
         firstName={firstName}
         greeting={greeting}
@@ -938,7 +925,13 @@ export const DashboardTab: React.FC = () => {
         contactsSavedTotal={contactsSavedTotal}
         bestWindow={bestWindow}
         onNavigate={setCurrentView}
-        onScrollFunnel={scrollToFunnel}
+        onScrollAnalytics={scrollToAnalytics}
+        welcomeProgress={welcomeProgress}
+        showWelcomeChecklist={showWelcomeCard}
+        onWelcomeDismiss={() => {
+          writeWelcomeChecklistDismissed(user?.uid);
+          setWelcomeDismissed(true);
+        }}
       />
 
       <div className="zm-dash-section">
@@ -963,84 +956,30 @@ export const DashboardTab: React.FC = () => {
         onOpenConnections={() => setCurrentView('connections')}
         onOpenContacts={() => setCurrentView('contacts')}
         onNavigateToChat={(phone, name) => openChatNavigate(setCurrentView, phone, name)}
+        liveSent={metrics.totalSent}
+        liveDelivered={metrics.totalDelivered}
+        liveRead={metrics.totalRead}
+        liveReplied={metrics.totalReplied}
+        replyRate={replyRate}
+        funnelEmpty={funnelEmpty}
+        onRequestClearFunnel={() => setConfirmClearFunnel(true)}
+        bestWindow={bestWindow}
+        sectionRef={analyticsSectionRef}
       />
       </div>
 
-      <div
-        ref={funnelSectionRef}
-        className="zm-dash-section grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 scroll-mt-6"
+      <CollapsibleSection
+        title="Relacionamento e datas especiais"
+        summary={
+          upcomingBirthdays.length > 0
+            ? `${upcomingBirthdays.length} aniversários nos próximos ${BIRTHDAY_RANGE_DAYS} dias`
+            : 'Aniversários, bodas e visitas pastorais'
+        }
+        defaultOpen={upcomingBirthdays.length > 0 || todaysBirthdays.length > 0}
+        className="zm-dash-section"
       >
-        <Card className="zm-funnel-panel lg:col-span-2">
-          <CardHeader
-            compact
-            icon={
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center brand-soft">
-                <TrendingUp className="w-4 h-4" />
-              </div>
-            }
-            title="Funil de desempenho"
-            subtitle="Acumulado histórico — persiste após reinícios"
-            actions={
-            <div className="flex items-center gap-2">
-              <Badge variant="success" dot>
-                Tempo real
-              </Badge>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setConfirmClearFunnel(true)}
-                  disabled={funnelEmpty}
-                title="Zerar contadores do funil"
-              >
-                <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
-                Limpar
-              </Button>
-            </div>
-            }
-          />
-          <div className="mt-4">
-          <PerformanceFunnel
-            sent={metrics.totalSent}
-            delivered={metrics.totalDelivered}
-            read={metrics.totalRead}
-            replied={metrics.totalReplied}
-            height={360}
-          />
-          </div>
-
-          <div className="mt-6 zm-panel flex items-start gap-3.5">
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-              style={{ background: 'rgba(245, 158, 11, 0.15)' }}
-            >
-              <Zap className="w-5 h-5" style={{ color: '#fbbf24' }} />
-            </div>
-            <div className="min-w-0">
-              <p className="ui-body font-semibold">Insight operacional</p>
-              <p className="ui-caption mt-1">
-                {bestWindow ? (
-                  <>
-                    Os seus clientes mais respondem entre{' '}
-                    <strong className="text-[var(--text-1)]">{bestWindow.label}</strong>. Taxa de resposta atual:{' '}
-                    <strong style={{ color: replyRate > 0 ? 'var(--brand-600)' : '#f59e0b' }}>{replyRate}%</strong>.
-                  </>
-                ) : (
-                  <>
-                    Taxa de resposta atual:{' '}
-                    <strong style={{ color: replyRate > 0 ? 'var(--brand-600)' : '#f59e0b' }}>{replyRate}%</strong>.{' '}
-                    <span className="text-[var(--text-3)]">
-                      {replyRate === 0
-                        ? 'Sem respostas registradas ainda — priorize horário e texto do convite.'
-                        : 'Continue acompanhando — logo vamos apontar o melhor horário da sua audiência.'}
-                    </span>
-                  </>
-                )}
-              </p>
-            </div>
-          </div>
-        </Card>
-
-        <div className="flex flex-col gap-4 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5">
+        <div className="flex flex-col gap-4 min-h-0 lg:col-span-1">
         <Card className="overflow-hidden p-0">
           <div
             className="px-4 pt-4 pb-3 flex items-start justify-between gap-3"
@@ -1485,14 +1424,25 @@ export const DashboardTab: React.FC = () => {
         )}
         </div>
       </div>
+      </CollapsibleSection>
 
+      <CollapsibleSection
+        title="Seus canais hoje"
+        summary={
+          channelSpotlight.length > 0
+            ? `${accountSummary.sentToday.toLocaleString('pt-BR')} envios · ${accountSummary.onlineChannels} online`
+            : 'Ranking de envios quando houver canais ativos'
+        }
+        defaultOpen={channelSpotlight.length > 0}
+        className="zm-dash-section"
+      >
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5">
         <Card className="lg:col-span-2 p-0 overflow-hidden">
           <div className="zm-channel-accent" aria-hidden />
           <div className="p-4">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
             <div>
-              <h3 className="ui-title text-[15px]">Canais em destaque</h3>
+              <h3 className="ui-title text-[15px]">Quem mais enviou hoje</h3>
                 <p className="ui-subtitle text-[12px]">
                   {accountSummary.totalChannels > 0
                     ? `${accountSummary.sentToday.toLocaleString('pt-BR')} envios hoje · ${accountSummary.onlineChannels} online`
@@ -1703,6 +1653,7 @@ export const DashboardTab: React.FC = () => {
           </CollapsibleSection>
         )}
       </div>
+      </CollapsibleSection>
 
       <Modal
         isOpen={!!selectedContact}

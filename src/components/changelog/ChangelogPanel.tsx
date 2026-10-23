@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.349',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Painel: pulso enxuto, checklist integrado, funil em abas, blocos colapsáveis e ajuda (i) para novos assinantes',
+      },
+    ],
+  },
+  {
     version: '2.3.348',
     date: '23/10/2026',
     highlights: [

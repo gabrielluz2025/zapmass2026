@@ -2,7 +2,7 @@
  * Novos blocos do painel: radar de campanhas, saúde dos chips, alertas CRM,
  * envios últimos 7 dias, score da base, feed de atividade e meta mensal.
  */
-import React, { useDeferredValue, useMemo, useState } from 'react';
+import React, { useDeferredValue, useMemo, useState, type RefObject } from 'react';
 import type { Campaign, Contact, Conversation, SystemLog, WarmupChipStats, WhatsAppConnection } from '../../types';
 import { ConnectionStatus, CampaignStatus } from '../../types';
 import {
@@ -25,9 +25,12 @@ import {
   TrendingUp,
   Trophy,
   UserRound,
-  Zap
+  Zap,
+  RotateCcw
 } from 'lucide-react';
-import { Button, Card, Modal } from '../ui';
+import { Badge, Button, Card, CollapsibleSection, EmptyState, Modal, ZmFieldHelp } from '../ui';
+import { PerformanceFunnel } from '../PerformanceFunnel';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 import { Sparkline } from '../Sparkline';
 import {
   campaignStatusLabel,
@@ -118,6 +121,16 @@ interface Props {
   onOpenConnections: () => void;
   onOpenContacts: () => void;
   onNavigateToChat: (phone: string, name: string) => void;
+  /** Métricas acumuladas (mesmo funil do hero). */
+  liveSent: number;
+  liveDelivered: number;
+  liveRead: number;
+  liveReplied: number;
+  replyRate: number;
+  funnelEmpty: boolean;
+  onRequestClearFunnel?: () => void;
+  bestWindow?: { label: string } | null;
+  sectionRef?: RefObject<HTMLDivElement | null>;
 }
 
 export const DashboardIntelPanel: React.FC<Props> = ({
@@ -140,12 +153,22 @@ export const DashboardIntelPanel: React.FC<Props> = ({
   onOpenCampaigns,
   onOpenConnections,
   onOpenContacts,
-  onNavigateToChat
+  onNavigateToChat,
+  liveSent,
+  liveDelivered,
+  liveRead,
+  liveReplied,
+  replyRate,
+  funnelEmpty,
+  onRequestClearFunnel,
+  bestWindow,
+  sectionRef
 }) => {
   const deferredConversations = useDeferredValue(conversations);
   const [goalRevision, setGoalRevision] = useState(0);
   const [goalModal, setGoalModal] = useState(false);
   const [goalDraft, setGoalDraft] = useState('');
+  const [funnelTab, setFunnelTab] = useState<'week' | 'total'>('week');
 
   const radar = useMemo(() => computeCampaignRadar(campaigns), [campaigns]);
   const fleetSummary = useMemo(() => computeCampaignFleetSummary(campaigns), [campaigns]);
@@ -282,8 +305,11 @@ export const DashboardIntelPanel: React.FC<Props> = ({
   const projectedMonth = monthSent > 0 && dayOfMonth > 0 ? Math.round((monthSent / dayOfMonth) * monthDays) : 0;
   const goalProgressPct = monthlyGoal > 0 ? Math.min(100, Math.round((monthSent / monthlyGoal) * 100)) : 0;
 
+  const hasCampaignActivity = campaigns.length > 0 || funnelStatsTotalSent > 0;
+  const hasContactBase = displayedTotal > 0;
+
   return (
-    <div className="space-y-4">
+    <div ref={sectionRef} className="space-y-4 scroll-mt-6">
       <div className="flex flex-wrap items-center gap-2 px-0.5">
         <div
           className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
@@ -295,20 +321,31 @@ export const DashboardIntelPanel: React.FC<Props> = ({
           <Radar className="w-5 h-5 shrink-0" style={{ color: 'var(--brand-500)' }} />
         </div>
         <h2 className="ui-title text-[16px]" style={{ color: 'var(--text-1)' }}>
-          Inteligência do painel
+          Entenda seus resultados
         </h2>
+        <ZmFieldHelp content={FIELD_HELP.dashboardAnalytics} ariaLabel="Ajuda: análises do painel" />
         <span className="text-[11px] w-full sm:w-auto" style={{ color: 'var(--text-3)' }}>
-          Radar, chips, CRM, tendência e metas — passe o mouse nos gráficos
+          Campanhas, canais e funil — aprofunde quando quiser
         </span>
       </div>
 
+      <CollapsibleSection
+        title="Campanhas e canais"
+        summary={
+          connections.length > 0
+            ? `${chipFleet.online}/${chipFleet.total} online · ${fleetSummary.running} em disparo`
+            : 'Conecte um canal para ver saúde e radar'
+        }
+        defaultOpen={connections.length > 0 || hasCampaignActivity}
+      >
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4">
-        <Card className="zm-intel-card zm-radar-card xl:col-span-4 p-0 overflow-hidden">
+        <Card className="zm-intel-card zm-radar-card xl:col-span-6 p-0 overflow-hidden">
           <div className="zm-radar-accent" aria-hidden />
           <div className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <TrendingUp className="w-4 h-4" style={{ color: '#3b82f6' }} />
-              <h3 className="ui-title text-[14px]">Radar de campanhas</h3>
+              <h3 className="ui-title text-[14px]">Resumo de campanhas</h3>
+              <ZmFieldHelp content={FIELD_HELP.dashboardCampaignRadar} ariaLabel="Ajuda: resumo de campanhas" />
             </div>
             <p className="text-[10px] mb-3 leading-relaxed" style={{ color: 'var(--text-3)' }}>
               Resumo rápido do que suas campanhas fizeram e o que vem a seguir.
@@ -438,12 +475,13 @@ export const DashboardIntelPanel: React.FC<Props> = ({
           </div>
         </Card>
 
-        <Card className="zm-intel-card zm-chip-health-card xl:col-span-4 p-0 overflow-hidden">
+        <Card className="zm-intel-card zm-chip-health-card xl:col-span-6 p-0 overflow-hidden">
           <div className="zm-chip-health-accent" aria-hidden />
           <div className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <Signal className="w-4 h-4" style={{ color: '#10b981' }} />
-              <h3 className="ui-title text-[14px]">Saúde dos chips</h3>
+              <h3 className="ui-title text-[14px]">Saúde dos canais</h3>
+              <ZmFieldHelp content={FIELD_HELP.dashboardChipHealth} ariaLabel="Ajuda: saúde dos canais" />
             </div>
             <p className="text-[10px] mb-3 leading-relaxed" style={{ color: 'var(--text-3)' }}>
               Ritmo de envio, temperatura do canal e alertas de proteção anti-ban.
@@ -558,9 +596,17 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                 );
               })}
               {!connections.length && (
-                <p className="text-[12px] py-4 text-center" style={{ color: 'var(--text-3)' }}>
-                  Nenhum canal conectado. Adicione um chip para começar.
-                </p>
+                <EmptyState
+                  className="py-6 !shadow-none border-0 bg-transparent"
+                  icon={<Signal className="w-7 h-7" style={{ color: 'var(--brand-500)' }} />}
+                  title="Nenhum canal conectado"
+                  description="Conecte um WhatsApp para ver ritmo de envio, fila e alertas de proteção."
+                  action={
+                    <Button variant="primary" size="sm" type="button" onClick={onOpenConnections}>
+                      Conectar canal
+                    </Button>
+                  }
+                />
               )}
             </div>
             <Button variant="ghost" size="sm" className="mt-3 w-full justify-between" onClick={onOpenConnections}>
@@ -569,21 +615,115 @@ export const DashboardIntelPanel: React.FC<Props> = ({
             </Button>
           </div>
         </Card>
+      </div>
+      </CollapsibleSection>
 
-        <Card className="zm-intel-card zm-send-trend-card xl:col-span-4 p-0 flex flex-col overflow-hidden">
+      <Card className="zm-intel-card zm-send-trend-card zm-funnel-panel p-0 flex flex-col overflow-hidden">
           <div className="zm-send-trend-accent" aria-hidden />
           <div className="p-4 flex flex-col flex-1 min-h-0">
-            <div className="flex items-start justify-between gap-3 mb-3">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Activity className="w-4 h-4 shrink-0" style={{ color: '#a78bfa' }} />
-                  <h3 className="ui-title text-[14px]">Funil de mensagens — 7 dias</h3>
+                  <h3 className="ui-title text-[14px]">Desempenho das mensagens</h3>
+                  <ZmFieldHelp content={FIELD_HELP.dashboardFunnel} ariaLabel="Ajuda: funil de mensagens" />
                 </div>
                 <p className="text-[10px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                  Mesmos números do painel: enviados, entregues, lidos e respondidos por dia.
+                  Compare a semana atual com o histórico acumulado da conta.
                 </p>
               </div>
+              <div className="flex rounded-xl p-0.5 shrink-0" style={{ background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                <button
+                  type="button"
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${funnelTab === 'week' ? 'bg-[var(--surface-0)] shadow-sm' : ''}`}
+                  style={{ color: funnelTab === 'week' ? 'var(--text-1)' : 'var(--text-3)' }}
+                  onClick={() => setFunnelTab('week')}
+                >
+                  Últimos 7 dias
+                </button>
+                <button
+                  type="button"
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${funnelTab === 'total' ? 'bg-[var(--surface-0)] shadow-sm' : ''}`}
+                  style={{ color: funnelTab === 'total' ? 'var(--text-1)' : 'var(--text-3)' }}
+                  onClick={() => setFunnelTab('total')}
+                >
+                  Histórico total
+                </button>
+              </div>
             </div>
+
+            {funnelTab === 'total' ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Badge variant="success" dot>
+                    Tempo real
+                  </Badge>
+                  {onRequestClearFunnel && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      type="button"
+                      onClick={onRequestClearFunnel}
+                      disabled={funnelEmpty}
+                      title="Zerar contadores do funil"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                      Limpar histórico
+                    </Button>
+                  )}
+                </div>
+                {funnelEmpty ? (
+                  <EmptyState
+                    className="py-10 border border-dashed border-[var(--border-subtle)] rounded-xl"
+                    icon={<TrendingUp className="w-8 h-8" style={{ color: 'var(--brand-500)' }} />}
+                    title="Ainda não há mensagens no funil"
+                    description="Assim que sua primeira campanha enviar, você verá enviadas, entregues, lidas e respostas aqui."
+                    action={
+                      <Button variant="primary" size="sm" type="button" onClick={onOpenCampaigns}>
+                        Criar campanha
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <PerformanceFunnel
+                    sent={liveSent}
+                    delivered={liveDelivered}
+                    read={liveRead}
+                    replied={liveReplied}
+                    height={320}
+                  />
+                )}
+                <div className="zm-panel flex items-start gap-3.5">
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                    style={{ background: 'rgba(245, 158, 11, 0.15)' }}
+                  >
+                    <Zap className="w-5 h-5" style={{ color: '#fbbf24' }} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="ui-body font-semibold text-[13px]">Dica de conversão</p>
+                    <p className="ui-caption mt-1">
+                      {bestWindow ? (
+                        <>
+                          Sua audiência tende a responder entre{' '}
+                          <strong className="text-[var(--text-1)]">{bestWindow.label}</strong>. Taxa de resposta:{' '}
+                          <strong style={{ color: replyRate > 0 ? 'var(--brand-600)' : '#f59e0b' }}>{replyRate}%</strong>.
+                        </>
+                      ) : (
+                        <>
+                          Taxa de resposta:{' '}
+                          <strong style={{ color: replyRate > 0 ? 'var(--brand-600)' : '#f59e0b' }}>{replyRate}%</strong>.{' '}
+                          {replyRate === 0
+                            ? 'Personalize o texto e teste horários diferentes.'
+                            : 'Continue monitorando — em breve sugerimos o melhor horário.'}
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-3">
               {FUNNEL_METRICS.map((m) => (
@@ -770,16 +910,29 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                 </button>
               )}
             </div>
+              </>
+            )}
           </div>
         </Card>
 
+      <CollapsibleSection
+        title="Contatos e conversas"
+        summary={
+          hasContactBase
+            ? `${displayedTotal.toLocaleString('pt-BR')} contatos · ${recentReplies.length} respostas recentes`
+            : 'Importe contatos para ver temperatura e qualidade'
+        }
+        defaultOpen={hasContactBase && (recentReplies.length > 0 || attention.issueCount > 0)}
+      >
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4">
         <Card className="zm-intel-card xl:col-span-6 p-0 overflow-hidden">
           <div className="zm-crm-accent" aria-hidden />
           <div className="p-4">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-4 h-4" style={{ color: '#10b981' }} />
-                <h3 className="ui-title text-[14px]">Temperatura dos contatos</h3>
+                <h3 className="ui-title text-[14px]">Engajamento da base</h3>
+                <ZmFieldHelp content={FIELD_HELP.dashboardContactTemp} ariaLabel="Ajuda: engajamento da base" />
               </div>
               {tempBaseCounts.total > 0 && (
                 <span className="text-[10px] font-semibold tabular-nums" style={{ color: 'var(--text-3)' }}>
@@ -788,6 +941,19 @@ export const DashboardIntelPanel: React.FC<Props> = ({
               )}
             </div>
 
+            {!hasContactBase ? (
+              <EmptyState
+                className="py-8 !shadow-none border border-dashed border-[var(--border-subtle)] rounded-xl"
+                icon={<UserRound className="w-7 h-7" style={{ color: 'var(--brand-500)' }} />}
+                title="Base ainda vazia"
+                description="Importe ou sincronize contatos para ver quem está quente, morno ou frio para campanhas."
+                action={
+                  <Button variant="primary" size="sm" type="button" onClick={onOpenContacts}>
+                    Importar contatos
+                  </Button>
+                }
+              />
+            ) : (
             <div className="space-y-3">
               {(Object.keys(tempCounts) as ContactTemperature[]).map((t) => {
                 const count = tempCounts[t];
@@ -819,7 +985,9 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                 );
               })}
             </div>
+            )}
 
+            {hasContactBase && (
             <div className="mt-4 pt-3 flex flex-col sm:flex-row gap-2" style={{ borderTop: '1px solid var(--border-subtle)' }}>
               <Button
                 variant="secondary"
@@ -835,6 +1003,7 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                 <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
+            )}
           </div>
         </Card>
 
@@ -844,7 +1013,8 @@ export const DashboardIntelPanel: React.FC<Props> = ({
             <div className="flex items-center justify-between gap-2 mb-3">
               <div className="flex items-center gap-2">
                 <Send className="w-4 h-4" style={{ color: '#06b6d4' }} />
-                <h3 className="ui-title text-[14px]">Prontos para disparo</h3>
+                <h3 className="ui-title text-[14px]">Qualidade da base</h3>
+                <ZmFieldHelp content={FIELD_HELP.dashboardBaseQuality} ariaLabel="Ajuda: qualidade da base" />
               </div>
               <span
                 className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-full"
@@ -853,6 +1023,20 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                 {attentionMeta.label}
               </span>
             </div>
+            {!hasContactBase ? (
+              <EmptyState
+                className="py-6 !shadow-none border-0 bg-transparent"
+                icon={<Send className="w-7 h-7" style={{ color: 'var(--brand-500)' }} />}
+                title="Importe contatos primeiro"
+                description="Validamos nomes, telefones e duplicados para você disparar com segurança."
+                action={
+                  <Button variant="secondary" size="sm" type="button" onClick={onOpenContacts}>
+                    Abrir Contatos
+                  </Button>
+                }
+              />
+            ) : (
+            <>
             <div className="flex items-center gap-4 mb-3">
               <div
                 className="relative w-20 h-20 rounded-full flex items-center justify-center text-lg font-black shrink-0"
@@ -975,6 +1159,8 @@ export const DashboardIntelPanel: React.FC<Props> = ({
               {attention.genericNames > 0 ? 'Corrigir nomes na aba Contatos' : 'Abrir Contatos'}
               <ChevronRight className="w-4 h-4" />
             </Button>
+            </>
+            )}
           </div>
         </Card>
 
@@ -984,7 +1170,8 @@ export const DashboardIntelPanel: React.FC<Props> = ({
             <div className="flex items-center justify-between gap-2 mb-3">
               <div className="flex items-center gap-2">
                 <Reply className="w-4 h-4" style={{ color: '#a78bfa' }} />
-                <h3 className="ui-title text-[14px]">Respostas em tempo real</h3>
+                <h3 className="ui-title text-[14px]">Respostas recentes</h3>
+                <ZmFieldHelp content={FIELD_HELP.dashboardLiveReplies} ariaLabel="Ajuda: respostas recentes" />
               </div>
               {recentReplies.length > 0 && (
                 <span
@@ -1029,14 +1216,22 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                 ))}
               </ul>
             ) : (
-              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                Ninguém respondeu ainda nas conversas carregadas. Quando um contato responder no Atendimento ou em
-                campanha, aparece aqui automaticamente.
-              </p>
+              <EmptyState
+                className="py-6 !shadow-none border border-dashed border-[var(--border-subtle)] rounded-xl"
+                icon={<Reply className="w-7 h-7" style={{ color: '#a78bfa' }} />}
+                title="Nenhuma resposta recente"
+                description="Dispare uma campanha convidando resposta ou use o Atendimento — as mensagens aparecem aqui ao vivo."
+                action={
+                  <Button variant="secondary" size="sm" type="button" onClick={onOpenCampaigns}>
+                    Ir para Campanhas
+                  </Button>
+                }
+              />
             )}
           </div>
         </Card>
       </div>
+      </CollapsibleSection>
 
       <Modal isOpen={goalModal} onClose={() => setGoalModal(false)} title="Meta de mensagens no mês">
         <p className="text-[12px] mb-3" style={{ color: 'var(--text-2)' }}>

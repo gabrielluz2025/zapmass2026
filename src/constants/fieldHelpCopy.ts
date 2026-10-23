@@ -60,5 +60,19 @@ export const FIELD_HELP = {
   contactsImportTemplate:
     'Planilha oficial com colunas «Nome» e «Telefone» (obrigatórias) e campos extras opcionais. Preencha e use «Importar planilha».',
   contactsInsights:
-    'Painel de segmentos, mapas e métricas da base — ideal para planejar campanhas sem misturar com importação do dia a dia.'
+    'Painel de segmentos, mapas e métricas da base — ideal para planejar campanhas sem misturar com importação do dia a dia.',
+  dashboardAnalytics:
+    'Blocos opcionais abaixo do pulso do dia: campanhas, canais, funil e qualidade da base. Expanda só o que precisar.',
+  dashboardCampaignRadar:
+    'Visão rápida do que está em disparo, agendado e qual campanha performou melhor — sem abrir a lista completa.',
+  dashboardChipHealth:
+    'Ritmo de envio por canal, fila e pausas automáticas de proteção. Chips “quente” já aguentam mais volume.',
+  dashboardFunnel:
+    'Últimos 7 dias mostram envios por dia; Histórico total acumula desde que você começou (persiste após reinícios).',
+  dashboardContactTemp:
+    'Classifica contatos por última interação: quentes respondem recente; frios precisam de reativação.',
+  dashboardBaseQuality:
+    'Percentual pronto para disparo (nome + telefone válidos) e alertas de duplicados, nomes genéricos ou opt-out.',
+  dashboardLiveReplies:
+    'Feed das últimas respostas nas conversas carregadas — atalho para abrir o chat sem procurar na lista.'
 } as const;
