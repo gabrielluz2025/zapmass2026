@@ -35,7 +35,8 @@ import {
 } from './religious/religiousMemberFormShared';
 import type { CampaignWizardDraft } from '../types/campaignMission';
 import toast from 'react-hot-toast';
-import { Badge, BrDateInput, Button, Card, EmptyState, Modal, PageShell, SectionHeader, StatCard } from './ui';
+import { Badge, BrDateInput, Button, Card, EmptyState, Modal, PageShell, SectionHeader, StatCard, ZmFieldHelp } from './ui';
+import { FIELD_HELP } from '../constants/fieldHelpCopy';
 import { ContactsListsRail } from './contacts/workspace/ContactsListsRail';
 import { ContactsListsPanel } from './contacts/workspace/ContactsListsPanel';
 import { type SmartFilterId, type SidebarCounts } from './contacts/workspace/contactsFilters';
@@ -305,6 +306,18 @@ function listNameFromImportFile(fileName: string): string {
   return base || 'Importação';
 }
 
+type FileImportAutoOptions = {
+  normalizeNames: boolean;
+  validatePhones: boolean;
+  dedupeHints: boolean;
+};
+
+const FILE_IMPORT_AUTO_OPTIONS_DEFAULT: FileImportAutoOptions = {
+  normalizeNames: true,
+  validatePhones: true,
+  dedupeHints: true,
+};
+
 /** Snapshot estável para fila de importações (vários arquivos em sequência). */
 type FileImportQueuedPayload = {
   snapshotRows: FileImportRow[];
@@ -312,6 +325,7 @@ type FileImportQueuedPayload = {
   targetMode: ImportTargetMode;
   targetListId: string;
   newListName: string;
+  autoOptions: FileImportAutoOptions;
 };
 
 function cloneFileImportRowsSnapshot(rows: FileImportRow[]): FileImportRow[] {
@@ -489,52 +503,67 @@ const buildFileImportRowsViewFromDupBasis = (rows: FileImportRow[], basis: FileI
 const buildFileImportRowsViewFromState = (rows: FileImportRow[], contactsList: Contact[]): FileImportRowView[] =>
   buildFileImportRowsViewFromDupBasis(rows, buildFileImportDupBasis(contactsList));
 
-const normalizeFileImportRowContactOnly = (row: FileImportRow): FileImportRow => {
-  const phone = normalizeBRPhone(stripInvisibleChars(row.contact.phone || ''));
+const normalizeFileImportRowContactOnly = (
+  row: FileImportRow,
+  opts: FileImportAutoOptions = FILE_IMPORT_AUTO_OPTIONS_DEFAULT
+): FileImportRow => {
+  const rawName = stripInvisibleChars((row.contact.name || '').trim());
+  const rawPhone = stripInvisibleChars(row.contact.phone || '');
+  const name = opts.normalizeNames
+    ? normalizeContactPersonName(rawName, { stripPrefixes: true, titleCase: true })
+    : rawName;
+  const phone = opts.validatePhones ? normalizeBRPhone(rawPhone) : rawPhone.replace(/\D/g, '');
   const base = {
     ...row.contact,
-    name: normalizeContactPersonName(stripInvisibleChars((row.contact.name || '').trim()), {
-      stripPrefixes: true,
-      titleCase: true
-    }),
-    phone
+    name,
+    phone,
   };
   return {
     ...row,
-    contact: applyAddressNormalizationToContact(base)
+    contact: applyAddressNormalizationToContact(base),
   };
 };
 
 const recomputeOneStoredIncludeRow = (
   row: FileImportRow,
   existingKeys: Set<string>,
-  seenPhoneInFile: Set<string>
+  seenPhoneInFile: Set<string>,
+  opts: FileImportAutoOptions = FILE_IMPORT_AUTO_OPTIONS_DEFAULT
 ): FileImportRow => {
   const normalizedContact = row.contact;
   const problems: string[] = [];
   if (!normalizedContact.name.trim()) problems.push('Nome ausente');
   const d = normalizedContact.phone.replace(/\D/g, '');
-  if (!d) problems.push('Telefone ausente');
-  else if (d.length < 10) problems.push('Telefone incompleto (min. 10 digitos)');
+  if (opts.validatePhones) {
+    if (!d) problems.push('Telefone ausente');
+    else if (d.length < 10) problems.push('Telefone incompleto (min. 10 digitos)');
+  }
   const k = normPhoneKey(normalizedContact.phone);
   const duplicateAgainstBase = !!(k && existingKeys.has(k));
   const duplicateRepeatedInFile = !!(k && seenPhoneInFile.has(k));
   if (k) seenPhoneInFile.add(k);
-  const include = problems.length === 0 && !duplicateRepeatedInFile && !duplicateAgainstBase;
+  const include =
+    problems.length === 0 &&
+    (!opts.dedupeHints || (!duplicateRepeatedInFile && !duplicateAgainstBase));
   return { ...row, contact: normalizedContact, include };
 };
 
 /** Recalcula `include` e validação após contactos já normalizados (ordem do ficheiro importa para duplicados). */
-const recomputeFileImportRowsStoredIncludes = (rows: FileImportRow[], contactsList: Contact[]): FileImportRow[] => {
+const recomputeFileImportRowsStoredIncludes = (
+  rows: FileImportRow[],
+  contactsList: Contact[],
+  opts: FileImportAutoOptions = FILE_IMPORT_AUTO_OPTIONS_DEFAULT
+): FileImportRow[] => {
   const existingKeys = new Set(contactsList.map((c) => normPhoneKey(c.phone)).filter(Boolean));
   const seenPhoneInFile = new Set<string>();
-  return rows.map((row) => recomputeOneStoredIncludeRow(row, existingKeys, seenPhoneInFile));
+  return rows.map((row) => recomputeOneStoredIncludeRow(row, existingKeys, seenPhoneInFile, opts));
 };
 
 async function recomputeFileImportRowsStoredIncludesAsync(
   rows: FileImportRow[],
   contactsList: Contact[],
-  onFrac: (frac: number) => void
+  onFrac: (frac: number) => void,
+  opts: FileImportAutoOptions = FILE_IMPORT_AUTO_OPTIONS_DEFAULT
 ): Promise<FileImportRow[]> {
   const existingKeys = new Set(contactsList.map((c) => normPhoneKey(c.phone)).filter(Boolean));
   const seenPhoneInFile = new Set<string>();
@@ -545,7 +574,7 @@ async function recomputeFileImportRowsStoredIncludesAsync(
   for (let i = 0; i < n; i += CHUNK) {
     const end = Math.min(i + CHUNK, n);
     for (let j = i; j < end; j++) {
-      out.push(recomputeOneStoredIncludeRow(rows[j], existingKeys, seenPhoneInFile));
+      out.push(recomputeOneStoredIncludeRow(rows[j], existingKeys, seenPhoneInFile, opts));
     }
     onFrac(end / n);
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -561,27 +590,38 @@ const normalizeFileImportRowsStored = (rows: FileImportRow[], contactsList: Cont
 async function batchedNormalizeFileImportRows(
   rows: FileImportRow[],
   contactsList: Contact[],
-  onProgress: (pct: number, label?: string) => void
+  onProgress: (pct: number, label?: string) => void,
+  opts: FileImportAutoOptions = FILE_IMPORT_AUTO_OPTIONS_DEFAULT
 ): Promise<FileImportRow[]> {
   const n = rows.length;
   if (n === 0) return rows;
+  const shouldNormalizeFields = opts.normalizeNames || opts.validatePhones;
   const CHUNK = Math.max(120, Math.min(320, Math.ceil(n / 30)));
   const next = rows.slice();
-  for (let i = 0; i < n; i += CHUNK) {
-    const end = Math.min(i + CHUNK, n);
-    for (let j = i; j < end; j++) {
-      next[j] = normalizeFileImportRowContactOnly(next[j]);
+  if (shouldNormalizeFields) {
+    for (let i = 0; i < n; i += CHUNK) {
+      const end = Math.min(i + CHUNK, n);
+      for (let j = i; j < end; j++) {
+        next[j] = normalizeFileImportRowContactOnly(next[j], opts);
+      }
+      onProgress(Math.min(92, Math.round((92 * end) / n)), 'A padronizar nomes e telefones…');
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
     }
-    onProgress(Math.min(92, Math.round((92 * end) / n)), 'A normalizar nome e telefone…');
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve());
-    });
+  } else {
+    onProgress(40, 'A validar linhas…');
   }
-  onProgress(95, 'A recalcular duplicados e seleção…');
-  const final = await recomputeFileImportRowsStoredIncludesAsync(next, contactsList, (frac) => {
-    onProgress(95 + Math.round(5 * frac), 'A recalcular duplicados e seleção…');
-  });
-  onProgress(100, 'Normalização concluída');
+  onProgress(95, opts.dedupeHints ? 'A recalcular duplicados e seleção…' : 'A recalcular seleção…');
+  const final = await recomputeFileImportRowsStoredIncludesAsync(
+    next,
+    contactsList,
+    (frac) => {
+      onProgress(95 + Math.round(5 * frac), opts.dedupeHints ? 'A recalcular duplicados e seleção…' : 'A recalcular seleção…');
+    },
+    opts
+  );
+  onProgress(100, 'Preparação concluída');
   return final;
 }
 
@@ -1216,6 +1256,10 @@ export const ContactsTab: React.FC = () => {
   const [fileImportTargetMode, setFileImportTargetMode] = useState<ImportTargetMode>('none');
   const [fileImportTargetListId, setFileImportTargetListId] = useState('');
   const [fileImportNewListName, setFileImportNewListName] = useState('');
+  const [fileImportAutoOptions, setFileImportAutoOptions] = useState<FileImportAutoOptions>(
+    () => ({ ...FILE_IMPORT_AUTO_OPTIONS_DEFAULT })
+  );
+  const fileImportInitialAutoFixRef = useRef<string | null>(null);
   /** Progresso docked — store global (sobrevive a remount da aba Contatos). */
   const fileImportProgress = useSyncExternalStore(
     subscribeFileImportProgress,
@@ -3090,9 +3134,14 @@ export const ContactsTab: React.FC = () => {
     const beforeDup = before.filter((r) => r.duplicate).length;
     setAutoFixProgress({ percent: 0, message: 'A iniciar correção automática…' });
     try {
-      const next = await batchedNormalizeFileImportRows(prevRows, contacts, (pct, label) => {
-        setAutoFixProgress({ percent: pct, message: label || 'A normalizar…' });
-      });
+      const next = await batchedNormalizeFileImportRows(
+        prevRows,
+        contacts,
+        (pct, label) => {
+          setAutoFixProgress({ percent: pct, message: label || 'A normalizar…' });
+        },
+        fileImportAutoOptions
+      );
       setFileImportRows(next);
       const after = buildFileImportRowsViewFromState(next, contacts);
       const afterStrictProb = after.filter((r) => r.problems.length > 0).length;
@@ -3126,7 +3175,7 @@ export const ContactsTab: React.FC = () => {
       autoFixRunLockRef.current = false;
       setAutoFixProgress(null);
     }
-  }, [contacts]);
+  }, [contacts, fileImportAutoOptions]);
 
   const aiOrganizeFileImportRows = useCallback(async () => {
     const prevRows = fileImportRowsRef.current;
@@ -3302,15 +3351,20 @@ export const ContactsTab: React.FC = () => {
       });
 
       try {
-        const workingRows = await batchedNormalizeFileImportRows(snapshotRows, contactsForNormalize, (pct, label) => {
-          patchQueued({
-            phase: 'autofix',
-            percent: pct,
-            current: Math.round((pct / 100) * snapshotRows.length),
-            total: snapshotRows.length,
-            message: label || 'A normalizar…',
-          });
-        });
+        const importOpts = job.autoOptions ?? FILE_IMPORT_AUTO_OPTIONS_DEFAULT;
+        const shouldAutoPrepare =
+          importOpts.normalizeNames || importOpts.validatePhones || importOpts.dedupeHints;
+        const workingRows = shouldAutoPrepare
+          ? await batchedNormalizeFileImportRows(snapshotRows, contactsForNormalize, (pct, label) => {
+              patchQueued({
+                phase: 'autofix',
+                percent: pct,
+                current: Math.round((pct / 100) * snapshotRows.length),
+                total: snapshotRows.length,
+                message: label || 'A preparar linhas…',
+              });
+            }, importOpts)
+          : snapshotRows;
 
         const view = buildFileImportRowsViewFromState(workingRows, contactsForNormalize);
         let skippedProb = 0;
@@ -3631,6 +3685,7 @@ export const ContactsTab: React.FC = () => {
       targetMode: fileImportTargetMode,
       targetListId: fileImportTargetListId,
       newListName: fileImportNewListName,
+      autoOptions: { ...fileImportAutoOptions },
     };
 
     const resetFileImportModalAfterConfirm = () => {
@@ -3686,7 +3741,29 @@ export const ContactsTab: React.FC = () => {
     fileImportTargetListId,
     fileImportNewListName,
     fileImportLabel,
+    fileImportAutoOptions,
     runSingleFileImportPayload,
+  ]);
+
+  useEffect(() => {
+    if (!fileImportOpen) {
+      fileImportInitialAutoFixRef.current = null;
+      return;
+    }
+    if (fileImportRows.length === 0 || autoFixProgress !== null) return;
+    const labelKey = fileImportLabel || 'import';
+    if (fileImportInitialAutoFixRef.current === labelKey) return;
+    if (!fileImportAutoOptions.normalizeNames && !fileImportAutoOptions.validatePhones) return;
+    fileImportInitialAutoFixRef.current = labelKey;
+    void autoFixFileImportRows();
+  }, [
+    fileImportOpen,
+    fileImportLabel,
+    fileImportRows.length,
+    fileImportAutoOptions.normalizeNames,
+    fileImportAutoOptions.validatePhones,
+    autoFixProgress,
+    autoFixFileImportRows,
   ]);
 
   const handleSaveNewContact = async () => {
@@ -6290,7 +6367,7 @@ export const ContactsTab: React.FC = () => {
                   </button>
                 </div>
               </div>
-              {fileImportTriageSummary.total > 0 && (
+              {fileImportAutoOptions.dedupeHints && fileImportTriageSummary.total > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 rounded-xl border border-slate-200 dark:border-slate-700 p-2.5 bg-white/80 dark:bg-slate-900/40">
                   <div className="min-w-0">
                     <p className="text-[10px] font-bold uppercase text-slate-500">No arquivo</p>
@@ -6319,9 +6396,11 @@ export const ContactsTab: React.FC = () => {
                   </div>
                 </div>
               )}
-              <p className="text-[11px] text-slate-500">
-                Duplicado na base = telefone já no CRM (pode marcar a linha para unificar dados e vincular à lista, sem criar outro contato). Repetido no arquivo = segunda linha com o mesmo número neste ficheiro — não importa. Linhas com problema precisam correção.
-              </p>
+              {fileImportAutoOptions.dedupeHints && (
+                <p className="text-[11px] text-slate-500">
+                  Duplicado na base = telefone já no CRM (pode marcar a linha para unificar dados e vincular à lista, sem criar outro contato). Repetido no arquivo = segunda linha com o mesmo número neste ficheiro — não importa. Linhas com problema precisam correção.
+                </p>
+              )}
               {autoFixProgress !== null && (
                 <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/25 px-3 py-2 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
@@ -6359,7 +6438,7 @@ export const ContactsTab: React.FC = () => {
                   onClick={() => void autoFixFileImportRows()}
                   disabled={autoFixProgress !== null || aiImportLoading}
                 >
-                  Correção automática (todos)
+                  Reaplicar preparação (todas as linhas)
                 </Button>
               </div>
             </div>
@@ -6507,8 +6586,50 @@ export const ContactsTab: React.FC = () => {
             </div>
 
             <div className="shrink-0 px-4 py-3 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-3 bg-slate-50 dark:bg-slate-900/50">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-3 bg-white dark:bg-slate-900">
+                <div className="flex items-center gap-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Automação ao importar
+                  </p>
+                  <ZmFieldHelp content={FIELD_HELP.contactsImportAuto} ariaLabel="Ajuda: automação na importação" />
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  Recomendado deixar tudo ligado: o sistema prepara os dados antes de gravar (mesmo fluxo da «Correção automática»).
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {([
+                    ['normalizeNames', 'Padronizar nomes', 'Capitalização e prefixos (Sr., Dra.)'] as const,
+                    ['validatePhones', 'Validar telefones', 'Formato Brasil (55…) e avisos de número incompleto'] as const,
+                    ['dedupeHints', 'Detectar duplicados', 'Destaca repetidos no arquivo e quem já está no CRM'] as const,
+                  ]).map(([key, label, hint]) => (
+                    <label
+                      key={key}
+                      className="flex items-start gap-2.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        checked={fileImportAutoOptions[key]}
+                        disabled={autoFixProgress !== null}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setFileImportAutoOptions((prev) => ({ ...prev, [key]: checked }));
+                          fileImportInitialAutoFixRef.current = null;
+                        }}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-[12px] font-semibold text-slate-800 dark:text-slate-100">{label}</span>
+                        <span className="block text-[10px] text-slate-500 leading-snug">{hint}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
               <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2 bg-white dark:bg-slate-900">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Destino da importação</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Destino da importação</p>
+                  <ZmFieldHelp content={FIELD_HELP.contactsImportDestination} ariaLabel="Ajuda: destino da importação" />
+                </div>
                 <p className="text-[11px] text-slate-500">
                   Por padrão criamos uma lista com o nome do arquivo. Contatos novos entram nela;
                   os que já estão na base (mesmo sem lista) também são vinculados a essa lista.

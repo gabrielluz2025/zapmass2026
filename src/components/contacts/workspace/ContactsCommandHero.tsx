@@ -2,10 +2,11 @@
 import {
   UserPlus, Upload, Download, Wand2, FileSpreadsheet, Smartphone,
   ChevronDown, SpellCheck2, BarChart3, Search, X, Database,
-  Users, Flame, Thermometer, Snowflake, Sparkles, Calendar, Heart
+  Users, Flame, Thermometer, Snowflake, Sparkles, Calendar, Heart, MoreHorizontal,
 } from 'lucide-react';
 import type { SmartFilterId } from './contactsFilters';
-import { ZmPageHeader } from '../../ui';
+import { ZmFieldHelp, ZmPageHeader } from '../../ui';
+import { FIELD_HELP } from '../../../constants/fieldHelpCopy';
 
 export interface ContactsCommandHeroStats {
   total: number;
@@ -71,6 +72,14 @@ const KpiChip: React.FC<{
   );
 };
 
+type MenuItem = {
+  icon: React.ReactNode;
+  title: string;
+  sub: string;
+  fn: () => void;
+  show?: boolean;
+};
+
 export const ContactsCommandHero: React.FC<Props> = React.memo(({
   stats, contactTempsReady, hideWedding, savedTotal,
   searchTerm, onSearchChange, onSelectFilter,
@@ -78,34 +87,97 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
   onDownloadTemplate, onExport, onOpenInsights, onOpenNormalizeNames, onSyncWaNames, onOpenFixBase, onSaveBaseToChip
 }) => {
   const [importOpen, setImportOpen] = React.useState(false);
+  const [moreOpen, setMoreOpen] = React.useState(false);
   const importRef = React.useRef<HTMLDivElement>(null);
+  const moreRef = React.useRef<HTMLDivElement>(null);
   const searchRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
-    if (!importOpen) return;
+    if (!importOpen && !moreOpen) return;
     const close = (e: MouseEvent) => {
-      if (importRef.current && !importRef.current.contains(e.target as Node)) setImportOpen(false);
+      const t = e.target as Node;
+      if (importOpen && importRef.current && !importRef.current.contains(t)) setImportOpen(false);
+      if (moreOpen && moreRef.current && !moreRef.current.contains(t)) setMoreOpen(false);
     };
     window.addEventListener('mousedown', close);
     return () => window.removeEventListener('mousedown', close);
-  }, [importOpen]);
+  }, [importOpen, moreOpen]);
 
   const displayTotal = Math.max(stats.total, savedTotal ?? 0, 0);
   const pick = (id: SmartFilterId) => (onSelectFilter ? () => onSelectFilter(id) : undefined);
+
+  const moreItems: MenuItem[] = [
+    {
+      icon: <BarChart3 className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />,
+      title: 'Insights da base',
+      sub: 'Segmentos, mapas e métricas',
+      fn: () => { setMoreOpen(false); onOpenInsights(); },
+      show: true,
+    },
+    {
+      icon: <Download className="w-4 h-4 text-sky-400" />,
+      title: 'Exportar contatos',
+      sub: 'Baixar planilha ou vCard da visão atual',
+      fn: () => { setMoreOpen(false); onExport(); },
+      show: true,
+    },
+    {
+      icon: <Database className="w-4 h-4 text-amber-400" />,
+      title: 'Corrigir telefones e endereços',
+      sub: 'Varredura segura na base inteira',
+      fn: () => { setMoreOpen(false); onOpenFixBase?.(); },
+      show: Boolean(onOpenFixBase),
+    },
+    {
+      icon: <Smartphone className="w-4 h-4 text-violet-400" />,
+      title: 'Sincronizar agenda do WhatsApp',
+      sub: 'Gravar contatos no celular do chip',
+      fn: () => { setMoreOpen(false); onSaveBaseToChip?.(); },
+      show: Boolean(onSaveBaseToChip),
+    },
+    {
+      icon: <Smartphone className="w-4 h-4 text-emerald-400" />,
+      title: 'Buscar nomes no perfil WhatsApp',
+      sub: 'Para contatos com nome genérico',
+      fn: () => { setMoreOpen(false); onSyncWaNames?.(); },
+      show: Boolean(onSyncWaNames),
+    },
+    {
+      icon: <SpellCheck2 className="w-4 h-4 text-cyan-400" />,
+      title: 'Padronizar nomes da base',
+      sub: 'Capitalização e prefixos',
+      fn: () => { setMoreOpen(false); onOpenNormalizeNames?.(); },
+      show: Boolean(onOpenNormalizeNames),
+    },
+  ].filter((i) => i.show !== false);
+
+  const dropdownPanel = (title: string, children: React.ReactNode) => (
+    <div
+      className="ch-dropdown-panel absolute right-0 top-full mt-2 z-50 overflow-hidden"
+      style={{
+        width: 300,
+        borderRadius: 14,
+        background: 'var(--surface-1)',
+        border: '1px solid var(--border)',
+        boxShadow: '0 20px 50px -10px rgba(0,0,0,0.55)',
+      }}
+    >
+      <div className="ch-dropdown-panel__head">{title}</div>
+      {children}
+    </div>
+  );
 
   return (
     <div className="space-y-4 crm-fade-up">
       <ZmPageHeader
         icon={<Users className="w-5 h-5 text-cyan-400" />}
         title="Base de contatos"
-        subtitle={`${displayTotal.toLocaleString('pt-BR')} na visão atual · busque, importe e filtre por temperatura ou retorno.`}
+        subtitle={`${displayTotal.toLocaleString('pt-BR')} na visão atual · importe planilhas, busque e filtre por temperatura.`}
       />
 
     <div className="ch-hero zm-glass-card-v2 zm-glass-card-v2--pad-md">
 
-      {/* ── Linha 1: Busca + Ações primárias ─────── */}
       <div className="ch-hero__row1">
-        {/* Search bar */}
         <div className="ch-search">
           <Search className="ch-search__icon" />
           <input
@@ -128,129 +200,91 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
           )}
         </div>
 
-        {/* Action buttons */}
-        <div className="ch-hero__actions">
-          <button type="button" onClick={onOpenInsights} className="ch-btn" title="Insights">
-            <BarChart3 className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />
-            <span className="hidden sm:inline">Insights</span>
-          </button>
-
-          {/* Import dropdown */}
-          <div className="relative" ref={importRef}>
-            <button
-              type="button"
-              onClick={() => setImportOpen((v) => !v)}
-              className={`ch-btn${importOpen ? ' ch-btn--active' : ''}`}
-              aria-expanded={importOpen}
-            >
-              <Upload className="w-4 h-4 text-emerald-400" />
-              <span className="hidden sm:inline">Importar</span>
-              <ChevronDown className={`w-3 h-3 opacity-40 transition-transform${importOpen ? ' rotate-180' : ''}`} />
-            </button>
-            {importOpen && (
-              <div
-                className="absolute right-0 top-full mt-2 z-50 overflow-hidden"
-                style={{
-                  width: 280, borderRadius: 14,
-                  background: 'var(--surface-1)',
-                  border: '1px solid var(--border)',
-                  boxShadow: '0 20px 50px -10px rgba(0,0,0,0.55)',
-                }}
-              >
-                <div style={{ padding: '8px 16px 6px', fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)', borderBottom: '1px solid var(--border)', background: 'var(--surface-0)' }}>
-                  Importar contatos
-                </div>
-                {[
-                  { icon: <FileSpreadsheet className="w-4 h-4 text-emerald-400" />, title: 'XLSX / CSV', sub: 'Planilha com colunas do template', fn: () => { setImportOpen(false); onImportXLSX(); } },
-                  { icon: <Smartphone className="w-4 h-4 text-teal-400" />, title: 'vCard (.vcf)', sub: 'Exportado do celular', fn: () => { setImportOpen(false); onImportVcf(); } },
-                  { icon: <Wand2 className="w-4 h-4 text-violet-400" />, title: 'Importação inteligente', sub: 'Cole texto — IA organiza tudo', fn: () => { setImportOpen(false); onSmartImport(); } },
-                ].map((item) => (
-                  <button key={item.title} type="button" onClick={item.fn}
-                    className="w-full flex items-start gap-3 px-4 py-3 text-left transition"
-                    style={{ borderBottom: '1px solid var(--border)' }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-0)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    {item.icon}
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>{item.title}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{item.sub}</div>
-                    </div>
-                  </button>
-                ))}
-                <div style={{ padding: 8, background: 'var(--surface-0)' }}>
-                  <button type="button" onClick={() => { setImportOpen(false); onDownloadTemplate(); }}
-                    className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed"
-                    style={{ borderColor: 'var(--border)', color: 'var(--text-3)', fontSize: 11, fontWeight: 700 }}
-                  >
-                    <Download className="w-3 h-3" /> Baixar template XLSX
-                  </button>
-                </div>
-              </div>
-            )}
+        <div className="ch-hero__actions-wrap">
+          <div className="ch-hero__actions-label">
+            <span>Ações principais</span>
+            <ZmFieldHelp content={FIELD_HELP.contactsToolbar} ariaLabel="Ajuda: ações da base de contatos" />
           </div>
+          <div className="ch-hero__actions">
+            <div className="ch-btn-with-help">
+              <button
+                type="button"
+                onClick={onDownloadTemplate}
+                className="ch-btn ch-btn--template"
+                title="Planilha modelo para importação"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                <span className="hidden sm:inline">Baixar modelo (.xlsx)</span>
+                <span className="sm:hidden">Modelo</span>
+              </button>
+              <ZmFieldHelp content={FIELD_HELP.contactsImportTemplate} ariaLabel="Ajuda: modelo de planilha" />
+            </div>
 
-          <button type="button" onClick={onExport} className="ch-btn">
-            <Download className="w-4 h-4 text-sky-400" />
-            <span className="hidden sm:inline">Exportar</span>
-          </button>
+            <div className="relative" ref={importRef}>
+              <button
+                type="button"
+                onClick={() => { setMoreOpen(false); setImportOpen((v) => !v); }}
+                className={`ch-btn ch-btn--import${importOpen ? ' ch-btn--active' : ''}`}
+                aria-expanded={importOpen}
+              >
+                <Upload className="w-4 h-4 text-emerald-400" />
+                <span className="hidden sm:inline">Importar planilha</span>
+                <span className="sm:hidden">Importar</span>
+                <ChevronDown className={`w-3 h-3 opacity-40 transition-transform${importOpen ? ' rotate-180' : ''}`} />
+              </button>
+              {importOpen && dropdownPanel('Como você quer importar?', (
+                <>
+                  {[
+                    { icon: <FileSpreadsheet className="w-4 h-4 text-emerald-400" />, title: 'Excel ou CSV', sub: 'Use o modelo ou suas colunas Nome + Telefone', fn: () => { setImportOpen(false); onImportXLSX(); } },
+                    { icon: <Smartphone className="w-4 h-4 text-teal-400" />, title: 'Cartão de visita (.vcf)', sub: 'Exportado do celular', fn: () => { setImportOpen(false); onImportVcf(); } },
+                    { icon: <Wand2 className="w-4 h-4 text-violet-400" />, title: 'Colar lista (IA)', sub: 'Cole texto — a IA organiza as linhas', fn: () => { setImportOpen(false); onSmartImport(); } },
+                  ].map((item) => (
+                    <button key={item.title} type="button" onClick={item.fn} className="ch-dropdown-panel__item">
+                      {item.icon}
+                      <div>
+                        <div className="ch-dropdown-panel__item-title">{item.title}</div>
+                        <div className="ch-dropdown-panel__item-sub">{item.sub}</div>
+                      </div>
+                    </button>
+                  ))}
+                </>
+              ))}
+            </div>
 
-          {onOpenFixBase && (
-            <button
-              type="button"
-              onClick={onOpenFixBase}
-              className="ch-btn"
-              title="Corrigir telefones, nomes e endereços"
-            >
-              <Database className="w-4 h-4 text-amber-400" />
-              <span className="hidden lg:inline">Corrigir base</span>
+            <button type="button" onClick={onNewContact} className="ch-btn ch-btn--primary">
+              <UserPlus className="w-4 h-4" />
+              <span>Novo contato</span>
             </button>
-          )}
 
-          {onSaveBaseToChip && (
-            <button
-              type="button"
-              onClick={onSaveBaseToChip}
-              className="ch-btn"
-              title="Gravar toda a base na agenda do celular do canal (com pausas)"
-            >
-              <Smartphone className="w-4 h-4 text-violet-400" />
-              <span className="hidden lg:inline">Agenda no chip</span>
-            </button>
-          )}
-
-          {onSyncWaNames && (
-            <button
-              type="button"
-              onClick={onSyncWaNames}
-              className="ch-btn"
-              title="Puxar nomes do perfil WhatsApp para contatos com nome genérico"
-            >
-              <Smartphone className="w-4 h-4 text-emerald-400" />
-              <span className="hidden lg:inline">Nomes do WhatsApp</span>
-            </button>
-          )}
-
-          {onOpenNormalizeNames && (
-            <button
-              type="button"
-              onClick={onOpenNormalizeNames}
-              className="ch-btn"
-              title="Padronizar capitalização e prefixos dos nomes"
-            >
-              <SpellCheck2 className="w-4 h-4 text-cyan-400" />
-              <span className="hidden lg:inline">Padronizar nomes</span>
-            </button>
-          )}
-
-          <button type="button" onClick={onNewContact} className="ch-btn ch-btn--primary">
-            <UserPlus className="w-4 h-4" />
-            <span>Novo contato</span>
-          </button>
+            <div className="relative" ref={moreRef}>
+              <button
+                type="button"
+                onClick={() => { setImportOpen(false); setMoreOpen((v) => !v); }}
+                className={`ch-btn ch-btn--more${moreOpen ? ' ch-btn--active' : ''}`}
+                aria-expanded={moreOpen}
+              >
+                <MoreHorizontal className="w-4 h-4" />
+                <span className="hidden sm:inline">Mais ações</span>
+                <ChevronDown className={`w-3 h-3 opacity-40 transition-transform${moreOpen ? ' rotate-180' : ''}`} />
+              </button>
+              {moreOpen && dropdownPanel('Ferramentas avançadas', (
+                <>
+                  {moreItems.map((item) => (
+                    <button key={item.title} type="button" onClick={item.fn} className="ch-dropdown-panel__item">
+                      {item.icon}
+                      <div>
+                        <div className="ch-dropdown-panel__item-title">{item.title}</div>
+                        <div className="ch-dropdown-panel__item-sub">{item.sub}</div>
+                      </div>
+                    </button>
+                  ))}
+                </>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* ── Linha 2: KPI chips ───────────────────── */}
       <div className="ch-hero__kpis">
         <KpiChip icon={<Users className="w-3.5 h-3.5" />} label="total" value={displayTotal} color="#10b981" bg="rgba(16,185,129,0.1)" onClick={pick('all')} />
         <KpiChip icon={<Flame className="w-3.5 h-3.5" />} label="quentes" value={stats.hot} color="#f87171" bg="rgba(239,68,68,0.1)" onClick={pick('hot')} />
@@ -268,7 +302,6 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
           onClick={pick('wedding_week')}
         />
 
-        {/* Barra de engajamento — só quando pronto */}
         {contactTempsReady && (stats.hot + stats.warm + stats.cold) > 0 && (
           <div className="ch-engage-bar">
             <div className="ch-engage-bar__track">

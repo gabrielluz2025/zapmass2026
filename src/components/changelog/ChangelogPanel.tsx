@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.347',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Contatos: toolbar enxuta (modelo XLSX visível, Mais ações), importação com automação padrão ON e ajuda (i)',
+      },
+    ],
+  },
+  {
     version: '2.3.346',
     date: '23/10/2026',
     highlights: [

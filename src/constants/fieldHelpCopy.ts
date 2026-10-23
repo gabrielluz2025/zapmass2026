@@ -50,5 +50,15 @@ export const FIELD_HELP = {
   maxDelaySettings:
     'Valor máximo da faixa. Quanto maior a diferença entre mínimo e máximo, mais natural o ritmo de envio.',
   chipProtection:
-    'Reduz sync pesado e pausas automáticas quando o chip cai, leva ban ou muitas reconexões seguidas — protege a linha sem parar campanhas nos outros chips do pool.'
+    'Reduz sync pesado e pausas automáticas quando o chip cai, leva ban ou muitas reconexões seguidas — protege a linha sem parar campanhas nos outros chips do pool.',
+  contactsToolbar:
+    'Use «Novo contato» ou «Importar planilha» no dia a dia. Baixe o modelo XLSX antes da primeira importação. Ferramentas avançadas (exportar, corrigir base, agenda no chip) ficam em «Mais ações».',
+  contactsImportAuto:
+    'Com as opções ligadas, o ZapMass padroniza nomes, ajusta telefones para o formato Brasil (55…) e destaca duplicados antes de gravar. Você ainda pode revisar linha a linha.',
+  contactsImportDestination:
+    'Listas organizam campanhas: contatos novos entram na lista escolhida; quem já existe no CRM pode ser só vinculado à lista, sem criar outro cadastro.',
+  contactsImportTemplate:
+    'Planilha oficial com colunas «Nome» e «Telefone» (obrigatórias) e campos extras opcionais. Preencha e use «Importar planilha».',
+  contactsInsights:
+    'Painel de segmentos, mapas e métricas da base — ideal para planejar campanhas sem misturar com importação do dia a dia.'
 } as const;

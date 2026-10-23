@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.347] - 2026-10-23
+
+### Melhorado
+- **Contatos — toolbar:** ações principais (Novo contato, Importar planilha, Baixar modelo .xlsx visível); ferramentas avançadas em «Mais ações» com labels didáticos em PT-BR.
+- **Importação:** checkboxes (ligados por padrão) para padronizar nomes, validar telefones e detectar duplicados; preparação automática ao abrir o revisador; `ZmFieldHelp` na toolbar e no modal.
+
 ## [2.3.346] - 2026-10-23
 
 ### Melhorado
