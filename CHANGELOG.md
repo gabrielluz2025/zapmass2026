@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.341] - 2026-10-23
+
+### Corrigido
+- **Login Google:** corrida entre refresh cookie e bootstrap `#zapmass_at=` — refresh com falha/timeout já não apaga a sessão estabelecida pelo fragment nem dispara toast genérico por `Promise.all` rejeitado; mensagens para `google_error=oauth|token`.
+
 ## [2.3.340] - 2026-10-23
 
 ### Corrigido

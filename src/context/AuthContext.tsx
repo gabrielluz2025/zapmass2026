@@ -69,6 +69,8 @@ const googleLoginErrorMessages: Record<string, string> = {
   state: 'Sessão OAuth expirada. Tente entrar com Google novamente.',
   disabled: 'Login com Google não está ativo nesta instalação.',
   postgres: 'Serviço temporariamente indisponível. Tente mais tarde.',
+  oauth: 'O Google recusou ou interrompeu o login. Tente novamente.',
+  token: 'Não foi possível validar a resposta do Google. Tente de novo.',
   failed: 'Não foi possível entrar com Google. Tente de novo ou use e-mail e senha.'
 };
 
@@ -140,7 +142,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           console.warn('[auth] Google OAuth return: refresh e bootstrap falharam', {
             hadFragment: !!fragmentToken
           });
-          toast.error('Não foi possível concluir o login com Google. Tente novamente.');
+          toast.error(googleLoginErrorMessages.failed);
           return;
         }
         const v = getVpsAuthUser();

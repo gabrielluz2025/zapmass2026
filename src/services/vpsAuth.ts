@@ -19,6 +19,8 @@ const LOGOUT_BROADCAST_KEY = 'zapmass_logout_broadcast';
 
 let refreshInFlight: Promise<string | null> | null = null;
 let crossTabLogoutBound = false;
+/** Refresh paralelo ao bootstrap `#zapmass_at=` não deve limpar sessão em curso. */
+let googleOAuthEstablishInFlight = 0;
 
 /** Auth 100% VPS (Firebase removido do frontend). */
 export function useVpsAuth(): boolean {
@@ -309,37 +311,42 @@ export async function vpsStaffLogin(
 }
 
 async function performRefreshAccessToken(): Promise<string | null> {
-  if (consumeLogoutFlag()) {
-    clearVpsSession();
+  try {
+    if (consumeLogoutFlag()) {
+      clearVpsSession();
+      return null;
+    }
+    const r = await fetchWithTimeout(
+      apiUrl('/api/auth/refresh'),
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+      },
+      REFRESH_FETCH_TIMEOUT_MS
+    );
+    const data = await parseJson<{ accessToken?: string; user?: VpsAuthUser }>(r);
+    if (!r.ok || !data.accessToken) {
+      // 5xx/429 = servidor ou banco indisponível (não é sessão inválida): mantém o login local para o
+      // próximo retry em vez de deslogar o cliente por um soluço de infraestrutura.
+      if (r.status >= 500 || r.status === 429) return null;
+      if (googleOAuthEstablishInFlight > 0) return null;
+      clearVpsSession();
+      return null;
+    }
+    if (isLogoutInProgress()) {
+      clearVpsSession();
+      return null;
+    }
+    const prev = getVpsAuthUser();
+    const user = data.user || prev;
+    if (user) persistSession(data.accessToken, user);
+    else if (!isLogoutInProgress()) sessionStorage.setItem(ACCESS_KEY, data.accessToken);
+    return data.accessToken;
+  } catch {
     return null;
   }
-  const r = await fetchWithTimeout(
-    apiUrl('/api/auth/refresh'),
-    {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}'
-    },
-    REFRESH_FETCH_TIMEOUT_MS
-  );
-  const data = await parseJson<{ accessToken?: string; user?: VpsAuthUser }>(r);
-  if (!r.ok || !data.accessToken) {
-    // 5xx/429 = servidor ou banco indisponível (não é sessão inválida): mantém o login local para o
-    // próximo retry em vez de deslogar o cliente por um soluço de infraestrutura.
-    if (r.status >= 500 || r.status === 429) return null;
-    clearVpsSession();
-    return null;
-  }
-  if (isLogoutInProgress()) {
-    clearVpsSession();
-    return null;
-  }
-  const prev = getVpsAuthUser();
-  const user = data.user || prev;
-  if (user) persistSession(data.accessToken, user);
-  else if (!isLogoutInProgress()) sessionStorage.setItem(ACCESS_KEY, data.accessToken);
-  return data.accessToken;
 }
 
 /** Renova access token — pedidos concorrentes partilham a mesma Promise. */
@@ -375,36 +382,48 @@ export async function vpsEstablishSessionAfterGoogleOAuth(
 ): Promise<string | null> {
   if (isLogoutInProgress()) return null;
 
-  if (!fragmentToken) {
-    return vpsRefreshAccessToken();
+  googleOAuthEstablishInFlight += 1;
+  try {
+    if (!fragmentToken) {
+      return await vpsRefreshAccessToken();
+    }
+
+    const refreshPromise = vpsRefreshAccessToken();
+    const bootstrapPromise = vpsBootstrapSessionFromAccessToken(fragmentToken).then((user) =>
+      user ? fragmentToken : null
+    );
+
+    const firstSuccess = await new Promise<string | null>((resolve) => {
+      let pending = 2;
+      let settled = false;
+      const done = (token: string | null) => {
+        if (settled) return;
+        if (token) {
+          settled = true;
+          resolve(token);
+          return;
+        }
+        pending -= 1;
+        if (pending === 0) resolve(null);
+      };
+      void refreshPromise.then(done).catch(() => done(null));
+      void bootstrapPromise.then(done).catch(() => done(null));
+    });
+
+    if (firstSuccess) return firstSuccess;
+
+    const [refreshResult, bootstrapResult] = await Promise.allSettled([
+      refreshPromise,
+      bootstrapPromise
+    ]);
+    const refreshToken =
+      refreshResult.status === 'fulfilled' ? refreshResult.value : null;
+    const bootstrapToken =
+      bootstrapResult.status === 'fulfilled' ? bootstrapResult.value : null;
+    return refreshToken || bootstrapToken;
+  } finally {
+    googleOAuthEstablishInFlight = Math.max(0, googleOAuthEstablishInFlight - 1);
   }
-
-  const refreshPromise = vpsRefreshAccessToken();
-  const bootstrapPromise = vpsBootstrapSessionFromAccessToken(fragmentToken).then((user) =>
-    user ? fragmentToken : null
-  );
-
-  const firstSuccess = await new Promise<string | null>((resolve) => {
-    let pending = 2;
-    let settled = false;
-    const done = (token: string | null) => {
-      if (settled) return;
-      if (token) {
-        settled = true;
-        resolve(token);
-        return;
-      }
-      pending -= 1;
-      if (pending === 0) resolve(null);
-    };
-    void refreshPromise.then(done).catch(() => done(null));
-    void bootstrapPromise.then(done).catch(() => done(null));
-  });
-
-  if (firstSuccess) return firstSuccess;
-
-  const [refreshToken, bootstrapToken] = await Promise.all([refreshPromise, bootstrapPromise]);
-  return refreshToken || bootstrapToken;
 }
 
 export async function vpsRefreshAccessToken(): Promise<string | null> {

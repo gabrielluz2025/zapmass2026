@@ -61,6 +61,47 @@ describe('vpsEstablishSessionAfterGoogleOAuth', () => {
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/auth/me'))).toBe(true);
   });
 
+  it('não propaga rejeição do refresh quando ambos falham (Promise.allSettled)', async () => {
+    const jwt = 'eyJhbG.eyJzdWI.SIGN';
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/api/auth/refresh')) {
+        throw new Error('network down');
+      }
+      if (url.includes('/api/auth/me')) {
+        return new Response(JSON.stringify({}), { status: 401 });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { vpsEstablishSessionAfterGoogleOAuth } = await import('./vpsAuth');
+    await expect(vpsEstablishSessionAfterGoogleOAuth(jwt)).resolves.toBeNull();
+  });
+
+  it('mantém sessão do fragment se refresh falhar em paralelo (401)', async () => {
+    const jwt = 'eyJhbG.eyJzdWI.SIGN';
+    const user = { id: 'frag-1', email: 'g@z.com', role: 'owner' as const };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/api/auth/refresh')) {
+        await new Promise((r) => setTimeout(r, 5));
+        return new Response(JSON.stringify({ error: 'no cookie' }), { status: 401 });
+      }
+      if (url.includes('/api/auth/me')) {
+        return new Response(JSON.stringify({ user }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { vpsEstablishSessionAfterGoogleOAuth, getVpsAuthUser } = await import('./vpsAuth');
+    const token = await vpsEstablishSessionAfterGoogleOAuth(jwt);
+    expect(token).toBe(jwt);
+    expect(getVpsAuthUser()?.email).toBe('g@z.com');
+  });
+
   it('usa refresh quando não há fragment', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes('/api/auth/refresh')) {
