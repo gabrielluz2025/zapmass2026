@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.330] - 2026-10-23
+
+### Melhorado
+- **Painel do criador — aba Acesso:** UI tipo SaaS admin (cards, labels, TabBar no detalhe), liberação/credenciais/canais extras reunidos, senha e link de reset sem `prompt`; limpeza de código duplicado no `AdminPanel`.
+
 ## [2.3.329] - 2026-10-23
 
 ### Corrigido

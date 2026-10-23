@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.330',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Painel do criador — aba Acesso: cards, labels, credenciais/reset, canais extras e detalhe com TabBar; AdminPanel sem lógica duplicada',
+      },
+    ],
+  },
+  {
     version: '2.3.329',
     date: '23/10/2026',
     highlights: [
