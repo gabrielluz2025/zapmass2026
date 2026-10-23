@@ -73,6 +73,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     bindCrossTabLogoutSync();
     const boot = async () => {
       try {
+        const bootParams = new URLSearchParams(window.location.search);
+        if (bootParams.get('google_login') === '1') {
+          setLoading(false);
+          return;
+        }
         const cached = getVpsAuthUser();
         if (cached) {
           setUser(vpsUserToSessionUser(cached));

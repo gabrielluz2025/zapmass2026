@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.325] - 2026-10-23
+
+### Corrigido
+- **Login Google (VPS):** cookie de sessão com `Domain=.zap-mass.com` (apex/www); alinhamento do `returnTo` ao host do callback OAuth; boot do `AuthContext` não compete com `?google_login=1`; doc VPS (redirect_uri, diagnóstico refresh).
+
 ## [2.3.324] - 2026-10-23
 
 ### Melhorado

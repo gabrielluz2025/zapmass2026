@@ -12,6 +12,8 @@ import {
   linkGoogleSubToUser,
   type UserRow
 } from './userRepository.js';
+import { vpsAuthCookieDomainSuffix } from './authCookieDomain.js';
+import { getSurveyLinksBaseOrigin } from '../publicSurveyAppOrigin.js';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -128,7 +130,8 @@ export async function verifyGoogleIdToken(
 
 function oauthCookieFlags(): string {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  return `Path=/api/auth; HttpOnly; SameSite=Lax${secure}`;
+  const domain = vpsAuthCookieDomainSuffix();
+  return `Path=/api/auth; HttpOnly; SameSite=Lax${domain}${secure}`;
 }
 
 function setOAuthCookie(res: Response, name: string, value: string): void {
@@ -170,18 +173,38 @@ function defaultAppOrigin(): string {
       /* ignore */
     }
   }
-  const origins = (process.env.ALLOWED_ORIGINS || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (origins[0]) {
+  const fromPublic = getSurveyLinksBaseOrigin();
+  if (fromPublic) {
     try {
-      return new URL(origins[0]).origin;
+      return new URL(fromPublic).origin;
     } catch {
       /* ignore */
     }
   }
   return 'http://localhost:8000';
+}
+
+/** Evita cookie de sessão no apex e SPA no www (ou vice-versa) após o callback Google. */
+export function alignOAuthReturnToHost(returnTo: string, oauthRedirectUri: string): string {
+  let cbOrigin: string;
+  try {
+    cbOrigin = new URL(oauthRedirectUri).origin;
+  } catch {
+    return returnTo;
+  }
+  try {
+    const u = new URL(returnTo);
+    if (u.origin === cbOrigin) return returnTo;
+    const stripWww = (h: string) => h.replace(/^www\./i, '');
+    if (stripWww(u.hostname) !== stripWww(new URL(cbOrigin).hostname)) return returnTo;
+    const aligned = new URL(returnTo);
+    const cb = new URL(cbOrigin);
+    aligned.protocol = cb.protocol;
+    aligned.host = cb.host;
+    return aligned.toString();
+  } catch {
+    return returnTo;
+  }
 }
 
 function sanitizeReturnTo(raw: string | undefined): string {
@@ -289,9 +312,10 @@ export function registerGoogleOAuthRoutes(app: Express): void {
 
     const state = base64Url(randomBytes(24));
     const { verifier, challenge } = generatePkcePair();
-    const returnTo = sanitizeReturnTo(
+    let returnTo = sanitizeReturnTo(
       typeof req.query.returnTo === 'string' ? req.query.returnTo : undefined
     );
+    returnTo = alignOAuthReturnToHost(returnTo, env.redirectUri);
 
     setOAuthCookie(res, OAUTH_STATE_COOKIE, state);
     setOAuthCookie(res, OAUTH_PKCE_COOKIE, verifier);
@@ -308,11 +332,12 @@ export function registerGoogleOAuthRoutes(app: Express): void {
 
   app.get('/api/auth/google/callback', authGoogleOAuthLimiter, async (req: Request, res: Response) => {
     const env = readGoogleOAuthEnv();
-    const returnTo = sanitizeReturnTo(readCookie(req, OAUTH_RETURN_COOKIE) || undefined);
+    let returnTo = sanitizeReturnTo(readCookie(req, OAUTH_RETURN_COOKIE) || undefined);
 
     if (!isGoogleLoginEnabled() || !env) {
       return redirectWithError(res, returnTo, 'disabled');
     }
+    returnTo = alignOAuthReturnToHost(returnTo, env.redirectUri);
     if (!getZapmassPool()) {
       return redirectWithError(res, returnTo, 'postgres');
     }

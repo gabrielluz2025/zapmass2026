@@ -8,6 +8,7 @@ import {
   signAccessToken
 } from './jwt.js';
 import { insertRefreshToken } from './userRepository.js';
+import { vpsAuthCookieDomainSuffix } from './authCookieDomain.js';
 
 export const REFRESH_COOKIE = 'zapmass_refresh';
 
@@ -28,17 +29,19 @@ export function readRefreshCookie(req: Request): string | null {
 
 export function setRefreshCookie(res: Response, value: string, maxAgeMs: number): void {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  const domain = vpsAuthCookieDomainSuffix();
   res.setHeader(
     'Set-Cookie',
-    `${REFRESH_COOKIE}=${encodeURIComponent(value)}; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAgeMs / 1000)}${secure}`
+    `${REFRESH_COOKIE}=${encodeURIComponent(value)}; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAgeMs / 1000)}${domain}${secure}`
   );
 }
 
 export function clearRefreshCookie(res: Response): void {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  const domain = vpsAuthCookieDomainSuffix();
   res.setHeader(
     'Set-Cookie',
-    `${REFRESH_COOKIE}=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0${secure}`
+    `${REFRESH_COOKIE}=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0${domain}${secure}`
   );
 }
 

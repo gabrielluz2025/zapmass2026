@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  alignOAuthReturnToHost,
   buildGoogleAuthorizationUrl,
   generatePkcePair,
   isGoogleLoginEnabled,
@@ -26,6 +27,14 @@ describe('googleOAuth', () => {
     expect(u.searchParams.get('code_challenge')).toBe('challenge-xyz');
     expect(u.searchParams.get('state')).toBe('state-abc');
     expect(u.searchParams.get('response_type')).toBe('code');
+  });
+
+  it('alignOAuthReturnToHost alinha www com host do callback OAuth', () => {
+    const cb = 'https://zap-mass.com/api/auth/google/callback';
+    expect(alignOAuthReturnToHost('https://www.zap-mass.com/?x=1', cb)).toBe(
+      'https://zap-mass.com/?x=1'
+    );
+    expect(alignOAuthReturnToHost('https://zap-mass.com/', cb)).toBe('https://zap-mass.com/');
   });
 
   it('generatePkcePair produz verifier e challenge distintos', () => {

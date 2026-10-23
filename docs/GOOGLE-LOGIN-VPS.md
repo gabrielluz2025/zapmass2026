@@ -12,8 +12,15 @@ O ZapMass em modo **VPS** pode autenticar gestores com **OAuth 2.0 / OpenID Conn
    - Em desenvolvimento: `http://localhost:8000` (ou a porta do Vite)
 4. **URIs de redirecionamento autorizados** (callback no **backend**):
    - Produção (mesmo host da API): `https://zap-mass.com/api/auth/google/callback`
+   - Se o site abrir também em **www**, cadastre **os dois** (devem bater com `GOOGLE_OAUTH_REDIRECT_URI` no `.env` — use um só como valor oficial, tipicamente **sem** www):
+     - `https://zap-mass.com/api/auth/google/callback`
+     - `https://www.zap-mass.com/api/auth/google/callback`
    - Se a API estiver noutro host: `https://api.seudominio.com/api/auth/google/callback`
    - Dev local (API na 3001): `http://localhost:3001/api/auth/google/callback`
+
+   **Importante:** o valor de `GOOGLE_OAUTH_REDIRECT_URI` no servidor tem de ser **idêntico** (incluindo `http`/`https` e presença de `www`) ao URI que o Google recebe no parâmetro `redirect_uri`. Erro `redirect_uri_mismatch` = divergência aqui.
+
+   **Apex vs www:** o nginx do ZapMass serve apex e www sem redirecionar um para o outro. Defina `PUBLIC_APP_URL=https://zap-mass.com` (canónico) e o mesmo host em `GOOGLE_OAUTH_REDIRECT_URI`. Após o login, o servidor alinha o retorno ao host do callback e usa cookie `Domain=.zap-mass.com` para a sessão funcionar nos dois hosts.
 5. Copie **Client ID** e **Client secret** (nunca commite no repositório).
 
 Não é necessário Firebase Authentication nem Identity Toolkit para este fluxo.
@@ -82,6 +89,15 @@ curl -s https://zap-mass.com/api/auth/config | jq '.googleLoginEnabled'
 ```
 
 Deve retornar `true` quando env e Postgres estão corretos.
+
+Ver o `redirect_uri` que o servidor envia ao Google (deve coincidir com o GCP):
+
+```bash
+curl -sI 'https://zap-mass.com/api/auth/google/start' | grep -i location
+# Na URL decodificada, confira redirect_uri=https%3A%2F%2Fzap-mass.com%2Fapi%2Fauth%2Fgoogle%2Fcallback
+```
+
+Se o login Google concluir no Google mas a landing mostrar *«Não foi possível concluir o login com Google»* **sem** `?google_error=` na URL (só `?google_login=1`), o callback provavelmente OK mas o **`POST /api/auth/refresh`** falhou (cookie de sessão). Causas comuns: apex/www diferentes, ou secret `GOCSPX-` errado (aí costuma falhar antes, com `google_error=failed`). Veja logs: `docker logs … 2>&1 | grep 'auth/google/callback'`.
 
 ## 6. Migração
 

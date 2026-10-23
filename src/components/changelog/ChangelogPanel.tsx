@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.325',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Login Google VPS: cookie Domain apex/www, returnTo alinhado ao callback e race do AuthContext com google_login=1',
+      },
+    ],
+  },
+  {
     version: '2.3.324',
     date: '23/10/2026',
     highlights: [
