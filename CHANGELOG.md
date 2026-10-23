@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.331] - 2026-10-23
+
+### Melhorado
+- **Centro de acessos (criador/admin):** formulários de liberação movidos para modal «Nova liberação» com etapas; diretório com avatares, chips de status e metadados legíveis; KPI exportável; atalhos Ctrl+N e `/`; seleção persistida em sessionStorage; grid de respostas rápidas com copiar e expandir.
+
 ## [2.3.330] - 2026-10-23
 
 ### Melhorado

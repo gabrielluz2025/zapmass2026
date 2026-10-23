@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.331',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Centro de acessos: modal Nova liberação, diretório refinado, export JSON, atalhos Ctrl+N e /, respostas rápidas em cards',
+      },
+    ],
+  },
+  {
     version: '2.3.330',
     date: '23/10/2026',
     highlights: [

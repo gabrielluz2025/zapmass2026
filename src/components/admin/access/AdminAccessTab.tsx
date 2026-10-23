@@ -1,8 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
+  CalendarClock,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   Copy,
+  Download,
   History,
   KeyRound,
   LayoutList,
@@ -11,6 +15,8 @@ import {
   Loader2,
   Lock,
   Mail,
+  MessageSquare,
+  Plus,
   RefreshCw,
   Search,
   Shield,
@@ -21,7 +27,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../context/AuthContext';
-import { Badge, Button, Card, CardHeader, EmptyState, SectionHeader, StatCard, TabBar } from '../../ui';
+import { Badge, Button, Card, CardHeader, EmptyState, Modal, SectionHeader, StatCard, TabBar } from '../../ui';
 import { apiUrl } from '../../../utils/apiBase';
 import {
   type AccessAudit,
@@ -38,6 +44,28 @@ import {
 } from './adminAccessUtils';
 
 type DetailTab = 'resumo' | 'metricas' | 'acoes';
+type GrantModalStep = 'access' | 'credentials' | 'extras';
+
+const ACCESS_SELECTED_UID_KEY = 'zapmass_admin_access_selected_uid';
+
+const GRANT_MODAL_STEPS: Array<{
+  id: GrantModalStep;
+  label: string;
+  Icon: React.FC<{ className?: string }>;
+}> = [
+  { id: 'access', label: 'Acesso', Icon: KeyRound },
+  { id: 'credentials', label: 'Credenciais', Icon: Shield },
+  { id: 'extras', label: 'Canais extras', Icon: Smartphone }
+];
+
+const formatStatusLabel = (status: string, blocked: boolean): string => {
+  if (blocked) return 'Bloqueado';
+  const s = (status || '').toLowerCase();
+  if (s === 'active') return 'Ativo';
+  if (s === 'trialing') return 'Trial';
+  if (s === 'canceled' || s === 'cancelled') return 'Cancelado';
+  return status || 'Indefinido';
+};
 
 const DETAIL_TABS: Array<{
   id: DetailTab;
@@ -88,11 +116,11 @@ const FieldLabel: React.FC<{ htmlFor?: string; children: React.ReactNode; hint?:
   hint
 }) => (
   <div className="space-y-1">
-    <label htmlFor={htmlFor} className="ui-eyebrow text-[10px] block">
+    <label htmlFor={htmlFor} className="text-[12px] font-medium block" style={{ color: 'var(--text-2)' }}>
       {children}
     </label>
     {hint ? (
-      <p className="text-[10px] leading-snug" style={{ color: 'var(--text-3)' }}>
+      <p className="text-[11px] leading-snug" style={{ color: 'var(--text-3)' }}>
         {hint}
       </p>
     ) : null}
@@ -162,15 +190,15 @@ const ActionSection: React.FC<{ title: string; description?: string; children: R
   children
 }) => (
   <div
-    className="rounded-xl border p-3.5 space-y-3"
+    className="rounded-xl border p-4 space-y-3.5"
     style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
   >
     <div>
-      <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-2)' }}>
+      <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
         {title}
       </p>
       {description ? (
-        <p className="text-[10px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+        <p className="text-[12px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
           {description}
         </p>
       ) : null}
@@ -178,6 +206,61 @@ const ActionSection: React.FC<{ title: string; description?: string; children: R
     {children}
   </div>
 );
+
+const QuickReplyCard: React.FC<{ title: string; text: string }> = ({ title, text }) => {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div
+      className="group flex flex-col rounded-xl border p-4 transition-colors hover:border-emerald-500/25"
+      style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
+    >
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 brand-soft">
+          <MessageSquare className="w-4 h-4 text-emerald-500" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[13px] font-semibold leading-snug" style={{ color: 'var(--text-1)' }}>
+              {title}
+            </p>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="shrink-0 !h-8"
+              leftIcon={<Copy className="w-3.5 h-3.5" />}
+              onClick={() => void copyToClipboard(text, `"${title}" copiado.`)}
+            >
+              Copiar
+            </Button>
+          </div>
+          <p
+            className={`text-[12px] mt-2 leading-relaxed ${expanded ? '' : 'line-clamp-3'}`}
+            style={{ color: 'var(--text-2)' }}
+          >
+            {text}
+          </p>
+          {text.length > 120 ? (
+            <button
+              type="button"
+              className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-500 hover:text-emerald-400"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? (
+                <>
+                  Recolher <ChevronUp className="w-3.5 h-3.5" />
+                </>
+              ) : (
+                <>
+                  Ver texto completo <ChevronDown className="w-3.5 h-3.5" />
+                </>
+              )}
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const AdminAccessTab: React.FC = () => {
   const { user } = useAuth();
@@ -202,6 +285,9 @@ export const AdminAccessTab: React.FC = () => {
   const [auditRows, setAuditRows] = useState<AccessAudit[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insights, setInsights] = useState<AccessUserInsights | null>(null);
+  const [grantModalOpen, setGrantModalOpen] = useState(false);
+  const [grantModalStep, setGrantModalStep] = useState<GrantModalStep>('access');
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const authHeaders = useCallback(async () => {
     if (!user) throw new Error('Faça login.');
@@ -261,6 +347,36 @@ export const AdminAccessTab: React.FC = () => {
     void loadAudit();
   }, [loadAccessUsers, loadAudit]);
 
+  useEffect(() => {
+    if (users.length === 0 || selectedUid) return;
+    const stored = sessionStorage.getItem(ACCESS_SELECTED_UID_KEY);
+    if (!stored) return;
+    const match = users.find((u) => u.uid === stored);
+    if (match) {
+      setSelectedUid(match.uid);
+      setExtraChannelSlots(String(match.manualExtraChannelSlots ?? 0));
+      void loadInsightsForUid(match.uid);
+    }
+  }, [users, selectedUid]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      const typing = tag === 'input' || tag === 'textarea' || (e.target as HTMLElement)?.isContentEditable;
+      if (typing) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        setGrantModalOpen(true);
+      }
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const updateAccessUser = async (
     payload: Partial<AccessUser> & {
       uid?: string;
@@ -312,10 +428,38 @@ export const AdminAccessTab: React.FC = () => {
 
   const selectUser = (u: AccessUser) => {
     setSelectedUid(u.uid);
+    sessionStorage.setItem(ACCESS_SELECTED_UID_KEY, u.uid);
     setDetailTab('resumo');
     setSelectedNewPassword('');
     setExtraChannelSlots(String(u.manualExtraChannelSlots ?? 0));
     void loadInsightsForUid(u.uid);
+  };
+
+  const exportFilteredUsers = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      filter,
+      search: search.trim() || null,
+      total: filteredUsers.length,
+      users: filteredUsers.map((u) => ({
+        uid: u.uid,
+        email: u.email,
+        status: u.status,
+        blocked: u.blocked,
+        manualGrant: u.manualGrant,
+        plan: u.plan,
+        includedChannels: u.includedChannels,
+        manualExtraChannelSlots: u.manualExtraChannelSlots
+      }))
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `zapmass-acessos-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`${filteredUsers.length} conta(s) exportada(s).`);
   };
 
   const selectedUser = useMemo(
@@ -439,6 +583,7 @@ export const AdminAccessTab: React.FC = () => {
       );
       setGrantEmail('');
       setGrantNote('');
+      setGrantModalOpen(false);
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Falha ao liberar.');
     } finally {
@@ -471,6 +616,7 @@ export const AdminAccessTab: React.FC = () => {
       setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
       selectUser(updated);
       toast.success('Canais extras liberados. Peça ao cliente para atualizar a página (Ctrl+F5).');
+      setGrantModalOpen(false);
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Falha ao liberar canais extras.');
     } finally {
@@ -534,19 +680,104 @@ export const AdminAccessTab: React.FC = () => {
 
   const grantEmailForOps = () => (grantEmail.trim() || selectedUser?.email || '').trim();
 
+  const grantModalFooter = (
+    <>
+      <Button variant="secondary" size="sm" onClick={() => setGrantModalOpen(false)}>
+        Fechar
+      </Button>
+      {grantModalStep === 'access' ? (
+        <Button variant="primary" size="sm" loading={accessActionBusy} onClick={() => void handleGrantByEmail()}>
+          Conceder acesso
+        </Button>
+      ) : grantModalStep === 'credentials' ? (
+        <div className="flex flex-wrap gap-2 justify-end">
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={accessActionBusy}
+            leftIcon={<KeyRound className="w-3.5 h-3.5" />}
+            onClick={() => void handleSetPasswordByEmail()}
+          >
+            Aplicar senha
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            loading={accessActionBusy}
+            leftIcon={<Link2 className="w-3.5 h-3.5" />}
+            onClick={() => void copyResetLinkForEmail(grantEmailForOps())}
+          >
+            Copiar link de reset
+          </Button>
+        </div>
+      ) : (
+        <Button
+          variant="primary"
+          size="sm"
+          loading={accessActionBusy}
+          leftIcon={<Smartphone className="w-3.5 h-3.5" />}
+          onClick={() => void handleGrantChannelsByEmail()}
+        >
+          Liberar canais extras
+        </Button>
+      )}
+    </>
+  );
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <SectionHeader
+        eyebrow="Administração"
         title="Centro de acessos"
-        description="Gerencie contas, prazos, credenciais e canais. Selecione um usuário na lista para ver detalhes e aplicar ações."
+        description="Diretório de contas, prazos e ações de suporte. Use a lista para detalhes; liberações ficam no fluxo «Nova liberação»."
+        icon={<Shield className="w-5 h-5 text-emerald-500" />}
+        actions={
+          <>
+            <span className="hidden sm:inline text-[11px] tabular-nums" style={{ color: 'var(--text-3)' }} title="Atalhos">
+              <kbd className="px-1.5 py-0.5 rounded border text-[10px] font-mono" style={{ borderColor: 'var(--border-subtle)' }}>
+                Ctrl+N
+              </kbd>{' '}
+              nova ·{' '}
+              <kbd className="px-1.5 py-0.5 rounded border text-[10px] font-mono" style={{ borderColor: 'var(--border-subtle)' }}>
+                /
+              </kbd>{' '}
+              buscar
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={usersLoading || filteredUsers.length === 0}
+              leftIcon={<Download className="w-3.5 h-3.5" />}
+              onClick={exportFilteredUsers}
+            >
+              Exportar ({filteredUsers.length})
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={usersLoading}
+              leftIcon={usersLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              onClick={() => {
+                void loadAccessUsers(search);
+                void loadAudit();
+              }}
+            >
+              Atualizar
+            </Button>
+            <Button variant="primary" size="sm" leftIcon={<Plus className="w-3.5 h-3.5" />} onClick={() => setGrantModalOpen(true)}>
+              Nova liberação
+            </Button>
+          </>
+        }
       />
 
-      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid sm:grid-cols-2 xl:grid-cols-5 gap-3">
         <StatCard
           label="Contas ativas"
           value={users.filter((u) => !u.blocked).length}
+          helper={`${users.length} carregadas · ${filteredUsers.length} na vista atual`}
           icon={<Users className="w-4 h-4 text-emerald-600" />}
-          accent="default"
+          accent="success"
         />
         <StatCard
           label="Bloqueados"
@@ -566,117 +797,120 @@ export const AdminAccessTab: React.FC = () => {
           icon={<Clock3 className="w-4 h-4 text-amber-600" />}
           accent="warning"
         />
+        <StatCard
+          label="Exportável"
+          value={filteredUsers.length}
+          helper="JSON da lista filtrada"
+          icon={<Download className="w-4 h-4 text-emerald-600" />}
+          accent="default"
+        />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader
-            title="Liberação por e-mail"
-            subtitle="Concede acesso manual, canais do plano e nota de auditoria."
-            icon={<KeyRound className="w-4 h-4 text-emerald-500" />}
-          />
-          <div className="mt-4 space-y-3">
-            <FieldLabel htmlFor="grant-email" hint="Conta existente ou nova — o backend cria/atualiza conforme o e-mail.">
+      <Modal
+        isOpen={grantModalOpen}
+        onClose={() => setGrantModalOpen(false)}
+        size="lg"
+        title="Nova liberação"
+        subtitle="Conceda acesso, credenciais ou canais extras sem poluir a tela principal."
+        icon={<KeyRound className="w-5 h-5 text-emerald-500" />}
+        footer={grantModalFooter}
+      >
+        <div className="space-y-5">
+          <div>
+            <FieldLabel htmlFor="grant-email-modal" hint="Conta existente ou nova — o backend cria/atualiza conforme o e-mail.">
               E-mail do cliente
             </FieldLabel>
             <input
-              id="grant-email"
-              className="ui-input"
+              id="grant-email-modal"
+              className="ui-input mt-1.5"
               placeholder="cliente@empresa.com"
               value={grantEmail}
               onChange={(e) => setGrantEmail(e.target.value)}
+              autoFocus
             />
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <FieldLabel htmlFor="grant-days">Dias de acesso</FieldLabel>
-                <input
-                  id="grant-days"
-                  className="ui-input mt-1"
-                  type="number"
-                  min={0}
-                  value={grantDays}
-                  onChange={(e) => setGrantDays(e.target.value)}
-                />
-              </div>
-              <div>
-                <FieldLabel htmlFor="grant-channels" hint="1–5 canais incluídos no plano.">
-                  Canais do plano
-                </FieldLabel>
-                <input
-                  id="grant-channels"
-                  className="ui-input mt-1"
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={includedChannelsGrant}
-                  onChange={(e) => setIncludedChannelsGrant(e.target.value)}
-                />
-              </div>
-            </div>
-            <FieldLabel htmlFor="grant-note">Nota de auditoria</FieldLabel>
-            <textarea
-              id="grant-note"
-              className="ui-input resize-y min-h-[72px]"
-              rows={2}
-              placeholder="Opcional — visível no histórico admin"
-              value={grantNote}
-              onChange={(e) => setGrantNote(e.target.value)}
-            />
-            <Button variant="primary" size="sm" loading={accessActionBusy} onClick={() => void handleGrantByEmail()}>
-              Conceder acesso
-            </Button>
           </div>
-        </Card>
-
-        <Card>
-          <CardHeader
-            title="Credenciais e canais extras"
-            subtitle="Senha administrativa, link de recuperação e slots temporários."
-            icon={<Shield className="w-4 h-4 text-sky-500" />}
+          <TabBar
+            items={GRANT_MODAL_STEPS.map(({ id, label, Icon }) => ({
+              id,
+              label,
+              Icon,
+              activeClass: 'text-emerald-600 dark:text-emerald-400'
+            }))}
+            activeId={grantModalStep}
+            onChange={(id) => setGrantModalStep(id as GrantModalStep)}
+            ariaLabel="Etapas da nova liberação"
+            className="!px-0"
           />
-          <div className="mt-4 space-y-3">
-            <FieldLabel htmlFor="grant-password" hint="Mínimo 8 caracteres — não envia e-mail automaticamente.">
-              Definir senha
-            </FieldLabel>
-            <input
-              id="grant-password"
-              className="ui-input"
-              type="password"
-              autoComplete="new-password"
-              placeholder="Nova senha"
-              value={grantPassword}
-              onChange={(e) => setGrantPassword(e.target.value)}
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                loading={accessActionBusy}
-                leftIcon={<KeyRound className="w-3.5 h-3.5" />}
-                onClick={() => void handleSetPasswordByEmail()}
-              >
-                Aplicar senha
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                loading={accessActionBusy}
-                leftIcon={<Link2 className="w-3.5 h-3.5" />}
-                onClick={() => void copyResetLinkForEmail(grantEmailForOps())}
-              >
-                Copiar link de reset
-              </Button>
+          {grantModalStep === 'access' ? (
+            <div className="space-y-4">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <FieldLabel htmlFor="grant-days">Dias de acesso manual</FieldLabel>
+                  <input
+                    id="grant-days"
+                    className="ui-input mt-1.5"
+                    type="number"
+                    min={0}
+                    value={grantDays}
+                    onChange={(e) => setGrantDays(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <FieldLabel htmlFor="grant-channels" hint="1–5 canais incluídos no plano.">
+                    Canais do plano
+                  </FieldLabel>
+                  <input
+                    id="grant-channels"
+                    className="ui-input mt-1.5"
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={includedChannelsGrant}
+                    onChange={(e) => setIncludedChannelsGrant(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div>
+                <FieldLabel htmlFor="grant-note">Nota de auditoria</FieldLabel>
+                <textarea
+                  id="grant-note"
+                  className="ui-input resize-y min-h-[88px] mt-1.5"
+                  rows={3}
+                  placeholder="Opcional — visível no histórico admin"
+                  value={grantNote}
+                  onChange={(e) => setGrantNote(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-              <p className="text-[10px] font-bold uppercase tracking-wide mb-2" style={{ color: 'var(--text-3)' }}>
-                Canais extras (add-on manual)
+          ) : grantModalStep === 'credentials' ? (
+            <div className="space-y-4">
+              <FieldLabel htmlFor="grant-password" hint="Mínimo 8 caracteres — não envia e-mail automaticamente.">
+                Definir senha administrativa
+              </FieldLabel>
+              <input
+                id="grant-password"
+                className="ui-input mt-1.5"
+                type="password"
+                autoComplete="new-password"
+                placeholder="Nova senha"
+                value={grantPassword}
+                onChange={(e) => setGrantPassword(e.target.value)}
+              />
+              <p className="text-[12px] rounded-lg px-3 py-2.5 border" style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-3)' }}>
+                O link de reset usa o e-mail acima ou, se vazio, o da conta selecionada na lista.
               </p>
-              <div className="grid grid-cols-3 gap-2">
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-[12px]" style={{ color: 'var(--text-2)' }}>
+                Add-on manual temporário (até 3 slots). Preencha prazo em dias e/ou meses.
+              </p>
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <FieldLabel htmlFor="ch-slots">Slots</FieldLabel>
                   <input
                     id="ch-slots"
-                    className="ui-input mt-1"
+                    className="ui-input mt-1.5"
                     type="number"
                     min={1}
                     max={3}
@@ -688,7 +922,7 @@ export const AdminAccessTab: React.FC = () => {
                   <FieldLabel htmlFor="ch-days">Dias</FieldLabel>
                   <input
                     id="ch-days"
-                    className="ui-input mt-1"
+                    className="ui-input mt-1.5"
                     type="number"
                     min={0}
                     value={channelGrantDays}
@@ -699,7 +933,7 @@ export const AdminAccessTab: React.FC = () => {
                   <FieldLabel htmlFor="ch-months">Meses</FieldLabel>
                   <input
                     id="ch-months"
-                    className="ui-input mt-1"
+                    className="ui-input mt-1.5"
                     type="number"
                     min={0}
                     value={channelGrantMonths}
@@ -707,37 +941,12 @@ export const AdminAccessTab: React.FC = () => {
                   />
                 </div>
               </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="mt-2"
-                loading={accessActionBusy}
-                leftIcon={<Smartphone className="w-3.5 h-3.5" />}
-                onClick={() => void handleGrantChannelsByEmail()}
-              >
-                Liberar canais extras
-              </Button>
             </div>
-          </div>
-        </Card>
-      </div>
+          )}
+        </div>
+      </Modal>
 
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={usersLoading}
-          leftIcon={usersLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-          onClick={() => {
-            void loadAccessUsers(search);
-            void loadAudit();
-          }}
-        >
-          Atualizar lista e auditoria
-        </Button>
-      </div>
-
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] gap-5 items-start">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] items-start">
         <Card className="overflow-hidden !p-0">
           <div className="p-4 border-b space-y-3" style={{ borderColor: 'var(--border-subtle)' }}>
             <CardHeader
@@ -750,8 +959,9 @@ export const AdminAccessTab: React.FC = () => {
               <div className="relative flex-1">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
+                  ref={searchInputRef}
                   className="ui-input pl-10"
-                  placeholder="Buscar e-mail ou UID…"
+                  placeholder="Buscar e-mail ou UID… ( / )"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && void loadAccessUsers(search)}
@@ -806,41 +1016,51 @@ export const AdminAccessTab: React.FC = () => {
                 const h = computeAccessHealth(u);
                 const styles = accessHealthStyles[h.health];
                 const selected = selectedUid === u.uid;
+                const channelBase = Math.max(0, Math.min(5, Math.floor(Number(u.includedChannels) || 0)));
                 return (
                   <button
                     key={u.uid}
                     type="button"
                     onClick={() => selectUser(u)}
-                    className={`w-full text-left p-3 sm:p-4 transition-all hover:bg-[var(--surface-1)] ${selected ? `ring-2 ring-inset ${styles.ring} bg-[var(--surface-1)]` : ''}`}
+                    className={`w-full text-left p-3.5 sm:p-4 transition-all border-l-[3px] hover:bg-[var(--surface-1)] ${
+                      selected
+                        ? 'border-l-emerald-500 bg-emerald-500/[0.06]'
+                        : 'border-l-transparent'
+                    }`}
                   >
-                    <div className="flex gap-3">
+                    <div className="flex gap-3.5 items-center">
                       <div
-                        className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-bold text-white"
+                        className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 font-bold text-white text-sm shadow-sm"
                         style={{ background: 'linear-gradient(135deg, #059669, #0d9488)' }}
                       >
                         {userInitial(u.email)}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[14px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
                             {u.email || 'Sem e-mail'}
                           </span>
                           <Badge variant={statusBadgeVariant(u.status, u.blocked)} dot>
-                            {u.blocked ? 'Bloq.' : u.status}
+                            {formatStatusLabel(u.status, u.blocked)}
                           </Badge>
                           {u.manualGrant ? <Badge variant="info">Manual</Badge> : null}
                         </div>
-                        <div className="mt-1.5 flex flex-wrap gap-2 text-[10px]">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${styles.bg} ${styles.text}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${styles.dot}`} />
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px]" style={{ color: 'var(--text-3)' }}>
+                          <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-medium ${styles.bg} ${styles.text}`}>
+                            <CalendarClock className="w-3.5 h-3.5 shrink-0 opacity-80" />
                             {h.nextLabel}
-                            {h.daysRemaining != null ? ` · ${h.daysRemaining}d` : ''}
+                            {h.daysRemaining != null ? (
+                              <span className="tabular-nums opacity-90">· {h.daysRemaining}d</span>
+                            ) : null}
                           </span>
-                          <span className="text-slate-500 tabular-nums">
-                            {Math.max(0, Math.min(5, Math.floor(Number(u.includedChannels) || 0))) || '—'} canais
-                            {Number(u.manualExtraChannelSlots) > 0 ? ` +${u.manualExtraChannelSlots}` : ''}
+                          <span className="inline-flex items-center gap-1 tabular-nums">
+                            <Smartphone className="w-3.5 h-3.5 text-emerald-500/80" />
+                            {channelBase || '—'} canais
+                            {Number(u.manualExtraChannelSlots) > 0 ? (
+                              <span className="text-sky-400 font-medium">+{u.manualExtraChannelSlots}</span>
+                            ) : null}
                           </span>
-                          <span className="text-slate-600 capitalize">{u.provider}</span>
+                          <span className="capitalize">{u.provider}</span>
                         </div>
                       </div>
                     </div>
@@ -904,22 +1124,23 @@ export const AdminAccessTab: React.FC = () => {
               <div className="p-4 max-h-[min(62vh,560px)] overflow-y-auto space-y-4">
                 {detailTab === 'resumo' && (
                   <>
-                    <div>
-                      <p className="text-[10px] uppercase font-bold mb-2" style={{ color: 'var(--text-3)' }}>
-                        Linha do tempo de acesso
-                      </p>
+                    <div
+                      className="rounded-xl border p-4 space-y-3"
+                      style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
+                    >
+                      <p className="ui-eyebrow">Linha do tempo</p>
                       <AccessTimeline user={selectedUser} />
                     </div>
-                    <div className="grid grid-cols-2 gap-2 text-[11px]">
-                      <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)' }}>
-                        <span className="text-slate-500 block text-[10px]">Plano</span>
-                        <p className="font-semibold mt-0.5" style={{ color: 'var(--text-1)' }}>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[12px]">
+                      <div className="rounded-xl border p-3.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                        <span className="ui-eyebrow block mb-1">Plano</span>
+                        <p className="font-semibold text-[14px]" style={{ color: 'var(--text-1)' }}>
                           {selectedUser.plan || '—'}
                         </p>
                       </div>
-                      <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)' }}>
-                        <span className="text-slate-500 block text-[10px]">Provedor de login</span>
-                        <p className="font-semibold mt-0.5 capitalize" style={{ color: 'var(--text-1)' }}>
+                      <div className="rounded-xl border p-3.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                        <span className="ui-eyebrow block mb-1">Provedor de login</span>
+                        <p className="font-semibold text-[14px] capitalize" style={{ color: 'var(--text-1)' }}>
                           {selectedUser.provider}
                         </p>
                       </div>
@@ -930,8 +1151,11 @@ export const AdminAccessTab: React.FC = () => {
                         {selectedUser.adminNote}
                       </p>
                     ) : null}
-                    <div>
-                      <p className="text-[10px] uppercase font-bold mb-2 flex items-center gap-1" style={{ color: 'var(--text-3)' }}>
+                    <div
+                      className="rounded-xl border p-4"
+                      style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
+                    >
+                      <p className="ui-eyebrow mb-3 flex items-center gap-1.5">
                         <History className="w-3.5 h-3.5" /> Auditoria recente
                       </p>
                       {auditLoading ? (
@@ -1231,24 +1455,18 @@ export const AdminAccessTab: React.FC = () => {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader title="Respostas rápidas" subtitle="Copie para WhatsApp ou e-mail de suporte." icon={<Copy className="w-4 h-4" />} />
-        <div className="mt-3 grid sm:grid-cols-2 gap-2">
+      <Card className="!p-0 overflow-hidden">
+        <div className="p-5 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+          <CardHeader
+            title="Respostas rápidas"
+            subtitle="Modelos prontos para WhatsApp ou e-mail — copie ou expanda o texto antes de enviar."
+            icon={<MessageSquare className="w-4 h-4 text-emerald-500" />}
+            className="!mb-0"
+          />
+        </div>
+        <div className="p-5 grid sm:grid-cols-2 gap-4">
           {SUPPORT_SNIPPETS.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => void copyToClipboard(s.text, `"${s.title}" copiado.`)}
-              className="text-left p-3 rounded-xl border hover:border-emerald-500/30 hover:bg-emerald-500/5 transition-all"
-              style={{ borderColor: 'var(--border-subtle)' }}
-            >
-              <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
-                {s.title}
-              </p>
-              <p className="text-[10px] mt-1 line-clamp-2" style={{ color: 'var(--text-3)' }}>
-                {s.text}
-              </p>
-            </button>
+            <QuickReplyCard key={s.id} title={s.title} text={s.text} />
           ))}
         </div>
       </Card>
