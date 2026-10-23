@@ -37,6 +37,8 @@ import {
   accessExpirySlices,
   accessHealthStyles,
   computeAccessHealth,
+  formatAccessProviderLabel,
+  formatAccessStatusLabel,
   formatAppUsageMs,
   statusBadgeVariant,
   toPtDateTime,
@@ -57,15 +59,6 @@ const GRANT_MODAL_STEPS: Array<{
   { id: 'credentials', label: 'Credenciais', Icon: Shield },
   { id: 'extras', label: 'Canais extras', Icon: Smartphone }
 ];
-
-const formatStatusLabel = (status: string, blocked: boolean): string => {
-  if (blocked) return 'Bloqueado';
-  const s = (status || '').toLowerCase();
-  if (s === 'active') return 'Ativo';
-  if (s === 'trialing') return 'Trial';
-  if (s === 'canceled' || s === 'cancelled') return 'Cancelado';
-  return status || 'Indefinido';
-};
 
 const DETAIL_TABS: Array<{
   id: DetailTab;
@@ -206,6 +199,83 @@ const ActionSection: React.FC<{ title: string; description?: string; children: R
     {children}
   </div>
 );
+
+const DirectoryAccountRow: React.FC<{
+  user: AccessUser;
+  selected: boolean;
+  onSelect: () => void;
+}> = ({ user: u, selected, onSelect }) => {
+  const h = computeAccessHealth(u);
+  const styles = accessHealthStyles[h.health];
+  const channelBase = Math.max(0, Math.min(5, Math.floor(Number(u.includedChannels) || 0)));
+  const providerLabel = formatAccessProviderLabel(u.provider);
+  const expiryTitle =
+    h.nextAt != null
+      ? `${h.nextLabel} · ${toPtDateTime(h.nextAt)}${h.daysRemaining != null ? ` · ${h.daysRemaining}d` : ''}`
+      : h.nextLabel;
+
+  const channelText =
+    Number(u.manualExtraChannelSlots) > 0
+      ? `${channelBase || '—'} canais +${u.manualExtraChannelSlots} bônus`
+      : `${channelBase || '—'} canais`;
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      title={expiryTitle}
+      className={`w-full text-left px-3.5 py-2.5 sm:px-4 sm:py-3 transition-colors border-l-[3px] hover:bg-[var(--surface-1)] ${
+        selected ? 'border-l-emerald-500 bg-emerald-500/[0.06]' : 'border-l-transparent'
+      }`}
+    >
+      <div className="flex gap-3 items-start">
+        <div
+          className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 font-semibold text-white text-[13px]"
+          style={{ background: 'linear-gradient(135deg, #059669, #0d9488)' }}
+        >
+          {userInitial(u.email)}
+        </div>
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[13px] font-semibold truncate leading-tight" style={{ color: 'var(--text-1)' }}>
+              {u.email || 'Sem e-mail'}
+            </span>
+            <Badge variant={statusBadgeVariant(u.status, u.blocked)} dot className="!shrink-0">
+              {formatAccessStatusLabel(u.status, u.blocked)}
+            </Badge>
+            {u.manualGrant ? (
+              <Badge variant="info" className="!shrink-0">
+                Manual
+              </Badge>
+            ) : null}
+          </div>
+          <p className="text-[11px] leading-snug line-clamp-2 flex flex-wrap items-center gap-x-2 gap-y-0.5" style={{ color: 'var(--text-3)' }}>
+            <span className={`inline-flex items-center gap-1 font-medium tabular-nums ${styles.text}`}>
+              <CalendarClock className="w-3 h-3 shrink-0 opacity-75" aria-hidden />
+              {h.nextLabel}
+              {h.daysRemaining != null ? <span className="opacity-80">· {h.daysRemaining}d</span> : null}
+            </span>
+            <span className="opacity-40" aria-hidden>
+              ·
+            </span>
+            <span className="inline-flex items-center gap-1 tabular-nums">
+              <Smartphone className="w-3 h-3 text-emerald-500/70 shrink-0" aria-hidden />
+              {channelText}
+            </span>
+            {providerLabel ? (
+              <>
+                <span className="opacity-40" aria-hidden>
+                  ·
+                </span>
+                <span>{providerLabel}</span>
+              </>
+            ) : null}
+          </p>
+        </div>
+      </div>
+    </button>
+  );
+};
 
 const QuickReplyCard: React.FC<{ title: string; text: string }> = ({ title, text }) => {
   const [expanded, setExpanded] = useState(false);
@@ -1012,61 +1082,14 @@ export const AdminAccessTab: React.FC = () => {
                 className="!py-12"
               />
             ) : (
-              filteredUsers.map((u) => {
-                const h = computeAccessHealth(u);
-                const styles = accessHealthStyles[h.health];
-                const selected = selectedUid === u.uid;
-                const channelBase = Math.max(0, Math.min(5, Math.floor(Number(u.includedChannels) || 0)));
-                return (
-                  <button
-                    key={u.uid}
-                    type="button"
-                    onClick={() => selectUser(u)}
-                    className={`w-full text-left p-3.5 sm:p-4 transition-all border-l-[3px] hover:bg-[var(--surface-1)] ${
-                      selected
-                        ? 'border-l-emerald-500 bg-emerald-500/[0.06]'
-                        : 'border-l-transparent'
-                    }`}
-                  >
-                    <div className="flex gap-3.5 items-center">
-                      <div
-                        className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 font-bold text-white text-sm shadow-sm"
-                        style={{ background: 'linear-gradient(135deg, #059669, #0d9488)' }}
-                      >
-                        {userInitial(u.email)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[14px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                            {u.email || 'Sem e-mail'}
-                          </span>
-                          <Badge variant={statusBadgeVariant(u.status, u.blocked)} dot>
-                            {formatStatusLabel(u.status, u.blocked)}
-                          </Badge>
-                          {u.manualGrant ? <Badge variant="info">Manual</Badge> : null}
-                        </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px]" style={{ color: 'var(--text-3)' }}>
-                          <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-medium ${styles.bg} ${styles.text}`}>
-                            <CalendarClock className="w-3.5 h-3.5 shrink-0 opacity-80" />
-                            {h.nextLabel}
-                            {h.daysRemaining != null ? (
-                              <span className="tabular-nums opacity-90">· {h.daysRemaining}d</span>
-                            ) : null}
-                          </span>
-                          <span className="inline-flex items-center gap-1 tabular-nums">
-                            <Smartphone className="w-3.5 h-3.5 text-emerald-500/80" />
-                            {channelBase || '—'} canais
-                            {Number(u.manualExtraChannelSlots) > 0 ? (
-                              <span className="text-sky-400 font-medium">+{u.manualExtraChannelSlots}</span>
-                            ) : null}
-                          </span>
-                          <span className="capitalize">{u.provider}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })
+              filteredUsers.map((u) => (
+                <DirectoryAccountRow
+                  key={u.uid}
+                  user={u}
+                  selected={selectedUid === u.uid}
+                  onSelect={() => selectUser(u)}
+                />
+              ))
             )}
           </div>
         </Card>

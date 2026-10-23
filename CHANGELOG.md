@@ -7,6 +7,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.332] - 2026-10-23
+
+### Corrigido
+- **Centro de acessos — diretório:** removido texto «None» no fim da linha de metadados (provedor `none` + CSS `capitalize`); campos vazios omitidos; trial sem data deixa de aparecer como alerta vermelho.
+- **Centro de acessos — métricas:** `GET /api/admin/access-user-insights` deixa de chamar `listCampaigns()` completo (heal/requeue) — leitura leve no Postgres; auth admin trata falha em `resolveAuthPrincipal`; auditoria Postgres tolerante a indisponibilidade.
+
+### Melhorado
+- **Diretório de contas:** linhas compactas (2 linhas), tipografia menor, tooltip de vencimento, labels PT para status/provedor.
+
 ## [2.3.331] - 2026-10-23
 
 ### Melhorado

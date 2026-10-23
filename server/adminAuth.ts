@@ -36,7 +36,14 @@ export async function assertAdminFromBearer(
     res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer <token>.' });
     return null;
   }
-  const principal = await resolveAuthPrincipal(token);
+  let principal: Awaited<ReturnType<typeof resolveAuthPrincipal>> = null;
+  try {
+    principal = await resolveAuthPrincipal(token);
+  } catch (e) {
+    console.error('[adminAuth] resolveAuthPrincipal falhou:', e);
+    res.status(401).json({ ok: false, error: 'Token inválido ou expirado.' });
+    return null;
+  }
   if (principal) {
     const shape = { uid: principal.authUid, email: principal.email, admin: false };
     if (isPlatformAdminDecoded(shape)) {

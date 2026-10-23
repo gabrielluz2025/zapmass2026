@@ -88,6 +88,29 @@ export const toPtDateTime = (iso: string | null | undefined): string => {
   }
 };
 
+const NULLISH_LABELS = new Set(['none', 'null', 'undefined', '']);
+
+export const formatAccessStatusLabel = (status: string, blocked: boolean): string => {
+  if (blocked) return 'Bloqueado';
+  const s = (status || '').trim().toLowerCase();
+  if (NULLISH_LABELS.has(s)) return 'Sem plano';
+  if (s === 'active') return 'Ativo';
+  if (s === 'trialing') return 'Trial';
+  if (s === 'past_due') return 'Inadimplente';
+  if (s === 'canceled' || s === 'cancelled') return 'Cancelado';
+  return status.trim() || 'Indefinido';
+};
+
+export const formatAccessProviderLabel = (provider: string): string | null => {
+  const p = (provider || '').trim().toLowerCase();
+  if (NULLISH_LABELS.has(p)) return null;
+  if (p === 'mercadopago') return 'Mercado Pago';
+  if (p === 'infinitepay') return 'InfinitePay';
+  if (p === 'google') return 'Google';
+  if (p === 'password' || p === 'email') return 'E-mail';
+  return provider.trim();
+};
+
 export const formatAppUsageMs = (ms: number): string => {
   if (!Number.isFinite(ms) || ms <= 0) return '—';
   if (ms < 60_000) return `≈ ${Math.max(1, Math.round(ms / 1000))} s`;
@@ -113,15 +136,21 @@ export const statusBadgeVariant = (
   return 'neutral';
 };
 
+function expiryMs(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? t : 0;
+}
+
 export function accessExpirySlices(u: AccessUser): AccessExpirySlice[] {
   return [
-    { key: 'trial', label: 'Trial', at: u.trialEndsAt, ms: u.trialEndsAt ? new Date(u.trialEndsAt).getTime() : 0 },
-    { key: 'paid', label: 'Pago', at: u.accessEndsAt, ms: u.accessEndsAt ? new Date(u.accessEndsAt).getTime() : 0 },
+    { key: 'trial', label: 'Trial', at: u.trialEndsAt, ms: expiryMs(u.trialEndsAt) },
+    { key: 'paid', label: 'Pago', at: u.accessEndsAt, ms: expiryMs(u.accessEndsAt) },
     {
       key: 'manual',
       label: 'Manual',
       at: u.manualAccessEndsAt,
-      ms: u.manualAccessEndsAt ? new Date(u.manualAccessEndsAt).getTime() : 0
+      ms: expiryMs(u.manualAccessEndsAt)
     }
   ];
 }
@@ -144,7 +173,14 @@ export function computeAccessHealth(u: AccessUser, now = Date.now()): {
     if (u.manualGrant && !u.manualAccessEndsAt) {
       return { health: 'open', daysRemaining: null, nextLabel: 'Manual sem prazo', nextAt: null };
     }
-    return { health: 'critical', daysRemaining: 0, nextLabel: 'Sem prazo ativo', nextAt: null };
+    const st = (u.status || '').trim().toLowerCase();
+    if (st === 'trialing') {
+      return { health: 'ok', daysRemaining: null, nextLabel: 'Trial em andamento', nextAt: null };
+    }
+    if (st === 'active') {
+      return { health: 'ok', daysRemaining: null, nextLabel: 'Acesso ativo', nextAt: null };
+    }
+    return { health: 'warning', daysRemaining: null, nextLabel: 'Sem vencimento registrado', nextAt: null };
   }
 
   const next = future[0]!;

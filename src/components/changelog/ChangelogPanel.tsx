@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.332',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Centro de acessos: diretório sem «None», trial sem alarme vermelho, métricas admin com leitura leve no Postgres',
+      },
+      {
+        type: 'improvement',
+        text: 'Diretório de contas: linhas compactas (2 linhas), labels PT e tooltip de vencimento',
+      },
+    ],
+  },
+  {
     version: '2.3.331',
     date: '23/10/2026',
     highlights: [

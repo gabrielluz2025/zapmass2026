@@ -57,8 +57,17 @@ export type AdminAccessUserPutBody = {
   newPassword?: string;
 };
 
+function isNullishStoredValue(v: unknown): boolean {
+  if (v == null || v === '') return true;
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase();
+    return s === 'none' || s === 'null' || s === 'undefined';
+  }
+  return false;
+}
+
 function tsToIso(v: unknown): string | null {
-  if (!v) return null;
+  if (isNullishStoredValue(v)) return null;
   if (typeof (v as { toDate?: () => Date }).toDate === 'function') {
     try {
       return (v as { toDate: () => Date }).toDate().toISOString();
@@ -66,8 +75,18 @@ function tsToIso(v: unknown): string | null {
       return null;
     }
   }
-  if (typeof v === 'string') return v;
+  if (typeof v === 'string') return v.trim();
   return null;
+}
+
+function normalizeSubscriptionStatus(raw: unknown): string {
+  if (typeof raw !== 'string' || isNullishStoredValue(raw)) return 'none';
+  return raw.trim().toLowerCase();
+}
+
+function normalizeSubscriptionProvider(raw: unknown): string {
+  if (typeof raw !== 'string' || isNullishStoredValue(raw)) return 'none';
+  return raw.trim().toLowerCase();
 }
 
 export function docToAdminAccessRow(
@@ -78,8 +97,8 @@ export function docToAdminAccessRow(
   return {
     uid,
     email,
-    status: typeof data?.status === 'string' ? data.status : 'none',
-    provider: typeof data?.provider === 'string' ? data.provider : 'none',
+    status: normalizeSubscriptionStatus(data?.status),
+    provider: normalizeSubscriptionProvider(data?.provider),
     plan: typeof data?.plan === 'string' ? data.plan : null,
     blocked: data?.blocked === true,
     manualGrant: data?.manualGrant === true,
@@ -537,33 +556,38 @@ export async function listAdminAccessAudit(limit: number): Promise<AdminAccessAu
   const cap = Math.max(10, Math.min(300, Math.round(limit) || 100));
 
   if (usePostgresSubscriptions() && getZapmassPool()) {
-    const r = await getZapmassPool()!.query<{
-      id: string;
-      target_tenant_id: string | null;
-      target_email: string;
-      admin_subject_id: string;
-      admin_email: string;
-      action: string;
-      note: string;
-      created_at: Date;
-    }>(
-      `SELECT id::text, target_tenant_id::text, target_email, admin_subject_id, admin_email,
-              action, note, created_at
-       FROM zapmass.admin_access_audit
-       ORDER BY created_at DESC
-       LIMIT $1`,
-      [cap]
-    );
-    return r.rows.map((row) => ({
-      id: row.id,
-      targetUid: row.target_tenant_id || '',
-      targetEmail: row.target_email,
-      adminUid: row.admin_subject_id,
-      adminEmail: row.admin_email,
-      action: row.action,
-      note: row.note,
-      createdAt: row.created_at.toISOString()
-    }));
+    try {
+      const r = await getZapmassPool()!.query<{
+        id: string;
+        target_tenant_id: string | null;
+        target_email: string;
+        admin_subject_id: string;
+        admin_email: string;
+        action: string;
+        note: string;
+        created_at: Date;
+      }>(
+        `SELECT id::text, target_tenant_id::text, target_email, admin_subject_id, admin_email,
+                action, note, created_at
+         FROM zapmass.admin_access_audit
+         ORDER BY created_at DESC
+         LIMIT $1`,
+        [cap]
+      );
+      return r.rows.map((row) => ({
+        id: row.id,
+        targetUid: row.target_tenant_id || '',
+        targetEmail: row.target_email,
+        adminUid: row.admin_subject_id,
+        adminEmail: row.admin_email,
+        action: row.action,
+        note: row.note,
+        createdAt: row.created_at.toISOString()
+      }));
+    } catch (e) {
+      console.error('[admin/access-audit] Postgres indisponível:', e);
+      return [];
+    }
   }
 
   const adminApp = getFirebaseAdmin();

@@ -4,8 +4,8 @@ import { getZapmassPool } from './db/postgres.js';
 import * as evolutionService from './evolutionService.js';
 import { listContactLists } from './repositories/contactListsRepository.js';
 import { listContacts } from './repositories/contactsRepository.js';
-import { listCampaigns } from './repositories/campaignsRepository.js';
-import { ConnectionStatus } from '../src/types.js';
+import { rowToCampaign, type CampaignRow } from './repositories/campaignMapper.js';
+import { ConnectionStatus, type Campaign } from '../src/types.js';
 
 export type AdminUserInsightsPayload = {
   uid: string;
@@ -48,6 +48,18 @@ export type AdminUserInsightsPayload = {
   } | null;
 };
 
+/** Leitura só leitura para métricas admin — evita heal/requeue pesado de listCampaigns(). */
+async function listCampaignsForAdminInsights(tenantId: string): Promise<Campaign[]> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const r = await pool.query<CampaignRow>(
+    `SELECT id::text, tenant_id::text, name, status, next_run_at, schedule_lock_until, doc, created_at, updated_at
+     FROM zapmass.campaigns WHERE tenant_id = $1::uuid ORDER BY created_at DESC`,
+    [tenantId]
+  );
+  return r.rows.map(rowToCampaign);
+}
+
 function asEpoch(v: unknown): number {
   if (!v) return 0;
   if (v instanceof Date) return v.getTime();
@@ -76,7 +88,7 @@ export async function loadAdminUserInsightsPg(uid: string): Promise<AdminUserIns
   const [contacts, lists, campaigns] = await Promise.all([
     listContacts(tenantId, { limit: 10_000 }),
     listContactLists(tenantId),
-    listCampaigns(tenantId)
+    listCampaignsForAdminInsights(tenantId)
   ]);
 
   let conns = evolutionService.getConnections();
@@ -133,17 +145,21 @@ export async function loadAdminUserInsightsPg(uid: string): Promise<AdminUserIns
     }));
 
   let usage: AdminUserInsightsPayload['usage'] = null;
-  const usageR = await pool.query<{ total_active_ms: string; last_active_at: Date | null }>(
-    `SELECT total_active_ms::text, last_active_at
-     FROM zapmass.tenant_usage_stats
-     WHERE tenant_id = $1::uuid`,
-    [tenantId]
-  );
-  if (usageR.rows[0]) {
-    usage = {
-      totalActiveMs: Math.max(0, Math.round(Number(usageR.rows[0].total_active_ms) || 0)),
-      lastActiveAt: usageR.rows[0].last_active_at?.toISOString() ?? null
-    };
+  try {
+    const usageR = await pool.query<{ total_active_ms: string; last_active_at: Date | null }>(
+      `SELECT total_active_ms::text, last_active_at
+       FROM zapmass.tenant_usage_stats
+       WHERE tenant_id = $1::uuid`,
+      [tenantId]
+    );
+    if (usageR.rows[0]) {
+      usage = {
+        totalActiveMs: Math.max(0, Math.round(Number(usageR.rows[0].total_active_ms) || 0)),
+        lastActiveAt: usageR.rows[0].last_active_at?.toISOString() ?? null
+      };
+    }
+  } catch (e) {
+    console.warn('[admin/insights] tenant_usage_stats indisponível:', e);
   }
 
   const accountCreatedAt = userRow.created_at?.toISOString?.() ?? null;
