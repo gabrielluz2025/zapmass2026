@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.334] - 2026-10-23
+
+### Corrigido
+- **Centro de acessos — falsa sessão expirada:** `apiFetchJson` deixava de forçar um segundo `POST /api/auth/refresh` após 401 (rotação do cookie invalidava a sessão quando listagem e auditoria corriam em paralelo); refresh 401 deduplicado entre chamadas; aba Acesso só carrega após bootstrap de auth; perfil local limpo se o refresh inicial falhar.
+
 ## [2.3.333] - 2026-10-23
 
 ### Corrigido

@@ -88,13 +88,25 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Evita rotação dupla do refresh cookie quando vários `apiFetchJson` recebem 401 em paralelo. */
+let refreshAfter401InFlight: Promise<string | null> | null = null;
+
+async function refreshSessionAfter401(): Promise<string | null> {
+  if (refreshAfter401InFlight) return refreshAfter401InFlight;
+  refreshAfter401InFlight = getSessionIdToken(true).finally(() => {
+    refreshAfter401InFlight = null;
+  });
+  return refreshAfter401InFlight;
+}
+
 /** GET/POST autenticados com Bearer; caminhos passam por `apiUrl`. Renova token uma vez em 401. */
 export async function apiFetchJson<T = Record<string, unknown>>(
   path: string,
   init?: ApiFetchInit,
   retried = false
 ): Promise<T> {
-  const token = await getSessionIdToken(retried);
+  // Após 401, o token já foi renovado — usar cache (nunca forçar 2.º refresh em paralelo).
+  const token = await getSessionIdToken(false);
   if (!token) throw new Error('Sessão expirada. Entre novamente.');
 
   const method = methodOf(init);
@@ -114,7 +126,7 @@ export async function apiFetchJson<T = Record<string, unknown>>(
       });
       const j = (await r.json().catch(() => ({}))) as T & { error?: string; code?: string };
       if (r.status === 401 && !retried) {
-        const refreshed = await getSessionIdToken(true);
+        const refreshed = await refreshSessionAfter401();
         if (refreshed) {
           return apiFetchJson<T>(path, init, true);
         }

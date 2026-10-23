@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.334',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Centro de acessos: corrige falso «Sessão expirada» ao abrir o painel (refresh duplo em 401 com listagem + auditoria em paralelo)',
+      },
+    ],
+  },
+  {
     version: '2.3.333',
     date: '23/10/2026',
     highlights: [

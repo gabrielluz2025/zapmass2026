@@ -91,11 +91,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setLoading(false);
           void vpsRefreshAccessToken()
             .then((token) => {
-              if (!token) return;
+              if (!token) {
+                if (!getVpsAuthUser()) setUser(null);
+                return;
+              }
               const v = getVpsAuthUser();
               if (v) setUser(vpsUserToSessionUser(v));
             })
-            .catch(() => {});
+            .catch(() => {
+              if (!getVpsAuthUser()) setUser(null);
+            });
           return;
         }
         await vpsRefreshAccessToken();

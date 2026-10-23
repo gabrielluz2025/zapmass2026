@@ -9,8 +9,10 @@ vi.mock('./apiBase', () => ({
   apiUrl: (path: string) => `http://test.local${path}`,
 }));
 
+const getSessionIdToken = vi.fn(async (_forceRefresh?: boolean) => 'test-token');
+
 vi.mock('./sessionAuth', () => ({
-  getSessionIdToken: vi.fn(async () => 'test-token'),
+  getSessionIdToken: (...args: unknown[]) => getSessionIdToken(...args),
 }));
 
 describe('isSubscriptionRequiredHttpPayload', () => {
@@ -43,6 +45,8 @@ describe('apiFetchJson subscription guard', () => {
   });
 
   afterEach(() => {
+    getSessionIdToken.mockReset();
+    getSessionIdToken.mockResolvedValue('test-token');
     vi.unstubAllGlobals();
     vi.resetModules();
   });
@@ -70,5 +74,46 @@ describe('apiFetchJson subscription guard', () => {
     );
     expect(events).toHaveLength(1);
     expect(events[0].detail).toEqual({ message: 'Assine o Pro.' });
+  });
+
+  it('401 em paralelo renova sessão uma vez e reutiliza o token em cache', async () => {
+    let accessToken = 'expired-a';
+    let forceRefreshCalls = 0;
+
+    getSessionIdToken.mockImplementation(async (forceRefresh?: boolean) => {
+      if (forceRefresh) {
+        forceRefreshCalls += 1;
+        accessToken = 'fresh-b';
+        return accessToken;
+      }
+      return accessToken;
+    });
+
+    vi.mocked(fetch).mockImplementation(async (_url, init) => {
+      const auth = String((init as RequestInit)?.headers && (init as RequestInit).headers);
+      const bearer =
+        init && typeof init.headers === 'object' && init.headers !== null && !Array.isArray(init.headers)
+          ? String((init.headers as Record<string, string>).Authorization || '')
+          : auth;
+      if (bearer.includes('expired-a')) {
+        return new Response(JSON.stringify({ ok: false, error: 'Token expirado' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, users: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const { apiFetchJson } = await import('./apiFetchAuth');
+    const [a, b] = await Promise.all([
+      apiFetchJson('/api/admin/access-users'),
+      apiFetchJson('/api/admin/access-audit'),
+    ]);
+    expect(a).toEqual({ ok: true, users: [] });
+    expect(b).toEqual({ ok: true, users: [] });
+    expect(forceRefreshCalls).toBe(1);
   });
 });

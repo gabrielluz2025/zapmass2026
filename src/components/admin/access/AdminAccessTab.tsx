@@ -258,7 +258,7 @@ const QuickReplyCard: React.FC<{ title: string; text: string }> = ({ title, text
 };
 
 export const AdminAccessTab: React.FC = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [usersLoading, setUsersLoading] = useState(false);
   const [users, setUsers] = useState<AccessUser[]>([]);
   const [search, setSearch] = useState('');
@@ -342,9 +342,10 @@ export const AdminAccessTab: React.FC = () => {
   }, [user]);
 
   useEffect(() => {
+    if (authLoading || !user) return;
     void loadAccessUsers('');
     void loadAudit();
-  }, [loadAccessUsers, loadAudit]);
+  }, [authLoading, user, loadAccessUsers, loadAudit]);
 
   useEffect(() => {
     if (users.length === 0 || selectedUid) return;
