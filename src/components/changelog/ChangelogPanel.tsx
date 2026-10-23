@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.326',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Login Google em app.zap-mass.com: SameSite=None no cookie partilhado, VITE_API_ORIGIN cross-host e nginx app',
+      },
+    ],
+  },
+  {
     version: '2.3.325',
     date: '23/10/2026',
     highlights: [

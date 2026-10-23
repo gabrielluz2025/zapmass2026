@@ -1,6 +1,6 @@
 /** Versão semântica atual do ZapMass (atualizar a cada release). */
-export const APP_VERSION = '2.3.325';
-export const PROD_VERSION = '2.3.325';
+export const APP_VERSION = '2.3.326';
+export const PROD_VERSION = '2.3.326';
 
 /** Versão em homologação (develop). */
 export const HOMOLOG_VERSION = APP_VERSION;

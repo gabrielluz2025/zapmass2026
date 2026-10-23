@@ -34,17 +34,32 @@ function isLocalDevHost(hostname: string): boolean {
   return h === 'localhost' || h === '127.0.0.1';
 }
 
+function normalizeApiOrigin(raw: string): string {
+  const s = raw.trim();
+  if (!s) return '';
+  try {
+    const url = s.startsWith('http') ? s : `https://${s}`;
+    return trimSlash(new URL(url).origin);
+  } catch {
+    return trimSlash(s);
+  }
+}
+
 export function getApiOrigin(): string {
+  const fromEnv = normalizeApiOrigin(
+    (import.meta.env.VITE_API_ORIGIN as string | undefined) || ''
+  );
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
-    // VPS / domínio próprio: API e Socket na mesma origem (nginx → Node).
-    // Evita meta/env antigos (ex.: zap-mass.com) quando o utilizador abre zap.mass.com.
+    // VPS / domínio próprio: API na mesma origem quando nginx serve app + API no mesmo host.
+    // Se o build define VITE_API_ORIGIN noutro host (ex.: app. → apex), respeita o env.
     if (!isFirebaseStaticHost(host) && !isLocalDevHost(host)) {
-      return trimSlash(window.location.origin);
+      const pageOrigin = trimSlash(window.location.origin);
+      if (fromEnv && fromEnv !== pageOrigin) return fromEnv;
+      return pageOrigin;
     }
   }
-  const fromEnv = (import.meta.env.VITE_API_ORIGIN as string | undefined)?.trim();
-  if (fromEnv) return trimSlash(fromEnv);
+  if (fromEnv) return fromEnv;
   const fromWindow = readRuntimeWindowApiOrigin();
   if (fromWindow) return fromWindow;
   const fromMeta = readMetaApiOrigin();

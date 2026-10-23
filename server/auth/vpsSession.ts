@@ -8,7 +8,7 @@ import {
   signAccessToken
 } from './jwt.js';
 import { insertRefreshToken } from './userRepository.js';
-import { vpsAuthCookieDomainSuffix } from './authCookieDomain.js';
+import { vpsAuthCookieBaseFlags } from './authCookieDomain.js';
 
 export const REFRESH_COOKIE = 'zapmass_refresh';
 
@@ -28,21 +28,16 @@ export function readRefreshCookie(req: Request): string | null {
 }
 
 export function setRefreshCookie(res: Response, value: string, maxAgeMs: number): void {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  const domain = vpsAuthCookieDomainSuffix();
+  const flags = vpsAuthCookieBaseFlags();
   res.setHeader(
     'Set-Cookie',
-    `${REFRESH_COOKIE}=${encodeURIComponent(value)}; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAgeMs / 1000)}${domain}${secure}`
+    `${REFRESH_COOKIE}=${encodeURIComponent(value)}; Max-Age=${Math.floor(maxAgeMs / 1000)}; ${flags}`
   );
 }
 
 export function clearRefreshCookie(res: Response): void {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  const domain = vpsAuthCookieDomainSuffix();
-  res.setHeader(
-    'Set-Cookie',
-    `${REFRESH_COOKIE}=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0${domain}${secure}`
-  );
+  const flags = vpsAuthCookieBaseFlags();
+  res.setHeader('Set-Cookie', `${REFRESH_COOKIE}=; Max-Age=0; ${flags}`);
 }
 
 export async function issueVpsSession(

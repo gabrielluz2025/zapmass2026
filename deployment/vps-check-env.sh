@@ -125,6 +125,24 @@ case "$_google_login" in
     else
       miss "GOOGLE_OAUTH_REDIRECT_URI — ex.: https://zap-mass.com/api/auth/google/callback"
     fi
+    _allowed="$(get_env ALLOWED_ORIGINS)"
+    _pub="$(get_env PUBLIC_APP_URL)"
+    if [ -n "$_pub" ]; then
+      case "$_pub" in
+        *app.zap-mass.com*)
+          if [ -n "$_allowed" ] && [[ "$_allowed" == *"app.zap-mass.com"* ]]; then
+            ok "ALLOWED_ORIGINS inclui app.zap-mass.com"
+          else
+            warn "PUBLIC_APP_URL=$_pub mas ALLOWED_ORIGINS não lista https://app.zap-mass.com — login Google pode falhar no refresh"
+          fi
+          ;;
+      esac
+    fi
+    if [ -n "$_allowed" ]; then
+      ok "ALLOWED_ORIGINS definido (CORS + returnTo OAuth)"
+    else
+      miss "ALLOWED_ORIGINS — ex.: https://app.zap-mass.com,https://zap-mass.com,https://www.zap-mass.com"
+    fi
     ;;
   *)
     echo "  INFO: login Google desligado (ZAPMASS_GOOGLE_LOGIN≠1). Ativar: bash deployment/google-oauth-configurar.sh"

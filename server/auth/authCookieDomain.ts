@@ -1,4 +1,4 @@
-/** Sufixo `; Domain=.example.com` para cookies de auth partilhados entre apex e www. */
+/** Sufixo `; Domain=.example.com` para cookies de auth partilhados entre subdomínios (app, apex, www). */
 export function vpsAuthCookieDomainSuffix(): string {
   if (process.env.NODE_ENV !== 'production') return '';
 
@@ -26,4 +26,21 @@ export function vpsAuthCookieDomainSuffix(): string {
     }
   }
   return '';
+}
+
+/**
+ * Com `Domain=.zap-mass.com`, o SPA em app.zap-mass.com pode chamar a API no apex (ou vice-versa).
+ * POST cross-site não envia cookies `SameSite=Lax`; em produção multi-host usamos `None` + `Secure`.
+ */
+export function vpsAuthCookieSameSite(): 'Lax' | 'None' {
+  if (process.env.NODE_ENV !== 'production') return 'Lax';
+  return vpsAuthCookieDomainSuffix() ? 'None' : 'Lax';
+}
+
+/** Atributos comuns dos cookies HttpOnly de `/api/auth` (refresh + OAuth transitório). */
+export function vpsAuthCookieBaseFlags(): string {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  const domain = vpsAuthCookieDomainSuffix();
+  const sameSite = vpsAuthCookieSameSite();
+  return `Path=/api/auth; HttpOnly; SameSite=${sameSite}${domain}${secure}`;
 }

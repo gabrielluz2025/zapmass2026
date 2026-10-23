@@ -37,6 +37,13 @@ describe('googleOAuth', () => {
     expect(alignOAuthReturnToHost('https://zap-mass.com/', cb)).toBe('https://zap-mass.com/');
   });
 
+  it('alignOAuthReturnToHost mantém subdomínio app após callback no apex', () => {
+    const cb = 'https://zap-mass.com/api/auth/google/callback';
+    expect(alignOAuthReturnToHost('https://app.zap-mass.com/login', cb)).toBe(
+      'https://app.zap-mass.com/login'
+    );
+  });
+
   it('generatePkcePair produz verifier e challenge distintos', () => {
     const a = generatePkcePair();
     const b = generatePkcePair();

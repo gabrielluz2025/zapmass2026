@@ -12,7 +12,7 @@ import {
   linkGoogleSubToUser,
   type UserRow
 } from './userRepository.js';
-import { vpsAuthCookieDomainSuffix } from './authCookieDomain.js';
+import { vpsAuthCookieBaseFlags } from './authCookieDomain.js';
 import { getSurveyLinksBaseOrigin } from '../publicSurveyAppOrigin.js';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -129,9 +129,7 @@ export async function verifyGoogleIdToken(
 }
 
 function oauthCookieFlags(): string {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  const domain = vpsAuthCookieDomainSuffix();
-  return `Path=/api/auth; HttpOnly; SameSite=Lax${domain}${secure}`;
+  return vpsAuthCookieBaseFlags();
 }
 
 function setOAuthCookie(res: Response, name: string, value: string): void {

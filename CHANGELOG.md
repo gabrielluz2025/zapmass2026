@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.326] - 2026-10-23
+
+### Corrigido
+- **Login Google (app.zap-mass.com):** cookies de refresh/OAuth com `SameSite=None; Secure` quando `Domain=.zap-mass.com`; `getApiOrigin` respeita `VITE_API_ORIGIN` cross-host (app → apex); nginx e docs com subdomínio `app`; checagem `vps-check-env` para `ALLOWED_ORIGINS`.
+
 ## [2.3.325] - 2026-10-23
 
 ### Corrigido
