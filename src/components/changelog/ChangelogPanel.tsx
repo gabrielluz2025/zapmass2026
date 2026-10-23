@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.333',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Centro de acessos: API admin com refresh de token, toast de sessão único e tela de erro quando a lista não carrega',
+      },
+      {
+        type: 'improvement',
+        text: 'Diretório de contas: cards premium, sticky com filtros/ordenação, avatares circulares e chips de status',
+      },
+    ],
+  },
+  {
     version: '2.3.332',
     date: '23/10/2026',
     highlights: [

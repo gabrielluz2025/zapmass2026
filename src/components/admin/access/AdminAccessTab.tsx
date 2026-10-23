@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
-  CalendarClock,
   ChevronDown,
   ChevronUp,
   Clock3,
@@ -18,7 +17,6 @@ import {
   MessageSquare,
   Plus,
   RefreshCw,
-  Search,
   Shield,
   SlidersHorizontal,
   Smartphone,
@@ -27,20 +25,17 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../context/AuthContext';
-import { Badge, Button, Card, CardHeader, EmptyState, Modal, SectionHeader, StatCard, TabBar } from '../../ui';
+import { Button, Card, CardHeader, EmptyState, Modal, SectionHeader, StatCard, TabBar } from '../../ui';
 import { apiUrl } from '../../../utils/apiBase';
+import { apiFetchJson } from '../../../utils/apiFetchAuth';
+import { DirectoryAccountList, sortAccessUsers, type DirectorySort } from './DirectoryAccountList';
 import {
   type AccessAudit,
   type AccessFilter,
   type AccessUser,
   type AccessUserInsights,
   accessExpirySlices,
-  accessHealthStyles,
-  computeAccessHealth,
-  formatAccessProviderLabel,
-  formatAccessStatusLabel,
   formatAppUsageMs,
-  statusBadgeVariant,
   toPtDateTime,
   userInitial
 } from './adminAccessUtils';
@@ -49,6 +44,13 @@ type DetailTab = 'resumo' | 'metricas' | 'acoes';
 type GrantModalStep = 'access' | 'credentials' | 'extras';
 
 const ACCESS_SELECTED_UID_KEY = 'zapmass_admin_access_selected_uid';
+const SESSION_TOAST_ID = 'admin-access-session';
+
+const toastAccessError = (e: unknown, fallback: string) => {
+  const msg = e instanceof Error ? e.message : fallback;
+  const isSession = /sessão expirada/i.test(msg);
+  toast.error(msg, { id: isSession ? SESSION_TOAST_ID : undefined });
+};
 
 const GRANT_MODAL_STEPS: Array<{
   id: GrantModalStep;
@@ -200,83 +202,6 @@ const ActionSection: React.FC<{ title: string; description?: string; children: R
   </div>
 );
 
-const DirectoryAccountRow: React.FC<{
-  user: AccessUser;
-  selected: boolean;
-  onSelect: () => void;
-}> = ({ user: u, selected, onSelect }) => {
-  const h = computeAccessHealth(u);
-  const styles = accessHealthStyles[h.health];
-  const channelBase = Math.max(0, Math.min(5, Math.floor(Number(u.includedChannels) || 0)));
-  const providerLabel = formatAccessProviderLabel(u.provider);
-  const expiryTitle =
-    h.nextAt != null
-      ? `${h.nextLabel} · ${toPtDateTime(h.nextAt)}${h.daysRemaining != null ? ` · ${h.daysRemaining}d` : ''}`
-      : h.nextLabel;
-
-  const channelText =
-    Number(u.manualExtraChannelSlots) > 0
-      ? `${channelBase || '—'} canais +${u.manualExtraChannelSlots} bônus`
-      : `${channelBase || '—'} canais`;
-
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      title={expiryTitle}
-      className={`w-full text-left px-3.5 py-2.5 sm:px-4 sm:py-3 transition-colors border-l-[3px] hover:bg-[var(--surface-1)] ${
-        selected ? 'border-l-emerald-500 bg-emerald-500/[0.06]' : 'border-l-transparent'
-      }`}
-    >
-      <div className="flex gap-3 items-start">
-        <div
-          className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 font-semibold text-white text-[13px]"
-          style={{ background: 'linear-gradient(135deg, #059669, #0d9488)' }}
-        >
-          {userInitial(u.email)}
-        </div>
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[13px] font-semibold truncate leading-tight" style={{ color: 'var(--text-1)' }}>
-              {u.email || 'Sem e-mail'}
-            </span>
-            <Badge variant={statusBadgeVariant(u.status, u.blocked)} dot className="!shrink-0">
-              {formatAccessStatusLabel(u.status, u.blocked)}
-            </Badge>
-            {u.manualGrant ? (
-              <Badge variant="info" className="!shrink-0">
-                Manual
-              </Badge>
-            ) : null}
-          </div>
-          <p className="text-[11px] leading-snug line-clamp-2 flex flex-wrap items-center gap-x-2 gap-y-0.5" style={{ color: 'var(--text-3)' }}>
-            <span className={`inline-flex items-center gap-1 font-medium tabular-nums ${styles.text}`}>
-              <CalendarClock className="w-3 h-3 shrink-0 opacity-75" aria-hidden />
-              {h.nextLabel}
-              {h.daysRemaining != null ? <span className="opacity-80">· {h.daysRemaining}d</span> : null}
-            </span>
-            <span className="opacity-40" aria-hidden>
-              ·
-            </span>
-            <span className="inline-flex items-center gap-1 tabular-nums">
-              <Smartphone className="w-3 h-3 text-emerald-500/70 shrink-0" aria-hidden />
-              {channelText}
-            </span>
-            {providerLabel ? (
-              <>
-                <span className="opacity-40" aria-hidden>
-                  ·
-                </span>
-                <span>{providerLabel}</span>
-              </>
-            ) : null}
-          </p>
-        </div>
-      </div>
-    </button>
-  );
-};
-
 const QuickReplyCard: React.FC<{ title: string; text: string }> = ({ title, text }) => {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -357,34 +282,40 @@ export const AdminAccessTab: React.FC = () => {
   const [insights, setInsights] = useState<AccessUserInsights | null>(null);
   const [grantModalOpen, setGrantModalOpen] = useState(false);
   const [grantModalStep, setGrantModalStep] = useState<GrantModalStep>('access');
+  const [directorySort, setDirectorySort] = useState<DirectorySort>('email');
+  const [usersLoadError, setUsersLoadError] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const authHeaders = useCallback(async () => {
-    if (!user) throw new Error('Faça login.');
-    const idToken = await user.getIdToken();
-    return {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`
-    };
-  }, [user]);
+  const authHeaders = useCallback(
+    async (forceRefresh = false) => {
+      if (!user) throw new Error('Faça login.');
+      const idToken = await user.getIdToken(forceRefresh);
+      return {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`
+      };
+    },
+    [user]
+  );
 
   const loadAccessUsers = useCallback(
     async (searchTerm = '') => {
       if (!user) return;
       setUsersLoading(true);
+      setUsersLoadError(null);
       try {
-        const idToken = await user.getIdToken();
         const qs = searchTerm.trim() ? `?search=${encodeURIComponent(searchTerm.trim())}` : '';
-        const res = await fetch(apiUrl(`/api/admin/access-users${qs}`), {
-          headers: { Authorization: `Bearer ${idToken}` }
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data?.ok) {
+        const data = await apiFetchJson<{ ok: boolean; users?: AccessUser[]; error?: string }>(
+          `/api/admin/access-users${qs}`
+        );
+        if (!data?.ok) {
           throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao listar usuários.');
         }
         setUsers(Array.isArray(data.users) ? data.users : []);
       } catch (e: unknown) {
-        toast.error(e instanceof Error ? e.message : 'Não foi possível carregar acessos.');
+        const msg = e instanceof Error ? e.message : 'Não foi possível carregar acessos.';
+        setUsersLoadError(msg);
+        toastAccessError(e, msg);
       } finally {
         setUsersLoading(false);
       }
@@ -396,17 +327,15 @@ export const AdminAccessTab: React.FC = () => {
     if (!user) return;
     setAuditLoading(true);
     try {
-      const idToken = await user.getIdToken();
-      const res = await fetch(apiUrl('/api/admin/access-audit?limit=80'), {
-        headers: { Authorization: `Bearer ${idToken}` }
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) {
+      const data = await apiFetchJson<{ ok: boolean; audit?: AccessAudit[]; error?: string }>(
+        '/api/admin/access-audit?limit=80'
+      );
+      if (!data?.ok) {
         throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar auditoria.');
       }
       setAuditRows(Array.isArray(data.audit) ? data.audit : []);
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Auditoria indisponível.');
+      toastAccessError(e, e instanceof Error ? e.message : 'Auditoria indisponível.');
     } finally {
       setAuditLoading(false);
     }
@@ -463,33 +392,29 @@ export const AdminAccessTab: React.FC = () => {
       adminNote?: string;
     }
   ) => {
-    const res = await fetch(apiUrl('/api/admin/access-user'), {
+    const data = await apiFetchJson<{ ok: boolean; user?: AccessUser; error?: string }>('/api/admin/access-user', {
       method: 'PUT',
-      headers: await authHeaders(),
       body: JSON.stringify(payload)
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data?.ok) {
+    if (!data?.ok || !data.user) {
       throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao atualizar acesso.');
     }
-    return data.user as AccessUser;
+    return data.user;
   };
 
   const loadInsightsForUid = async (uid: string) => {
     if (!user) return;
     setInsightsLoading(true);
     try {
-      const idToken = await user.getIdToken();
-      const res = await fetch(apiUrl(`/api/admin/access-user-insights?uid=${encodeURIComponent(uid)}`), {
-        headers: { Authorization: `Bearer ${idToken}` }
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) {
+      const data = await apiFetchJson<{ ok: boolean; insights?: AccessUserInsights; error?: string }>(
+        `/api/admin/access-user-insights?uid=${encodeURIComponent(uid)}`
+      );
+      if (!data?.ok) {
         throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar perfil.');
       }
       setInsights(data.insights as AccessUserInsights);
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Perfil indisponível.');
+      toastAccessError(e, e instanceof Error ? e.message : 'Perfil indisponível.');
       setInsights(null);
     } finally {
       setInsightsLoading(false);
@@ -554,6 +479,11 @@ export const AdminAccessTab: React.FC = () => {
       return true;
     });
   }, [users, filter]);
+
+  const sortedFilteredUsers = useMemo(
+    () => sortAccessUsers(filteredUsers, directorySort),
+    [filteredUsers, directorySort]
+  );
 
   const filterCounts = useMemo(() => {
     const now = Date.now();
@@ -1017,82 +947,27 @@ export const AdminAccessTab: React.FC = () => {
       </Modal>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] items-start">
-        <Card className="overflow-hidden !p-0">
-          <div className="p-4 border-b space-y-3" style={{ borderColor: 'var(--border-subtle)' }}>
-            <CardHeader
-              title="Diretório de contas"
-              subtitle={`${filteredUsers.length} de ${users.length} contas · filtros locais sobre a lista carregada`}
-              icon={<Users className="w-4 h-4 text-sky-500" />}
-              className="!mb-0"
-            />
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  ref={searchInputRef}
-                  className="ui-input pl-10"
-                  placeholder="Buscar e-mail ou UID… ( / )"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && void loadAccessUsers(search)}
-                />
-              </div>
-              <Button variant="secondary" size="sm" onClick={() => void loadAccessUsers(search)}>
-                Buscar
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {(
-                [
-                  ['all', 'Todos'],
-                  ['manual', 'Manual'],
-                  ['blocked', 'Bloq.'],
-                  ['active', 'Ativos'],
-                  ['trialing', 'Trial'],
-                  ['expiring7', '≤7d']
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setFilter(id)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all ${
-                    filter === id
-                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                      : 'border-[var(--border-subtle)] text-[var(--text-2)] hover:border-slate-500'
-                  }`}
-                >
-                  {label} <span className="opacity-60 tabular-nums">{filterCounts[id]}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="max-h-[min(62vh,560px)] overflow-y-auto divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
-            {usersLoading ? (
-              <div className="py-14 flex flex-col items-center justify-center gap-2 text-sm" style={{ color: 'var(--text-3)' }}>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Carregando contas…
-              </div>
-            ) : filteredUsers.length === 0 ? (
-              <EmptyState
-                icon={<Users className="w-7 h-7 text-sky-500/70" />}
-                title="Nenhuma conta encontrada"
-                description="Ajuste os filtros ou busque outro e-mail/UID. Use «Buscar» para consultar o servidor."
-                className="!py-12"
-              />
-            ) : (
-              filteredUsers.map((u) => (
-                <DirectoryAccountRow
-                  key={u.uid}
-                  user={u}
-                  selected={selectedUid === u.uid}
-                  onSelect={() => selectUser(u)}
-                />
-              ))
-            )}
-          </div>
-        </Card>
+        <DirectoryAccountList
+          usersTotal={users.length}
+          filteredUsers={sortedFilteredUsers}
+          filterCounts={filterCounts}
+          filter={filter}
+          onFilterChange={setFilter}
+          sort={directorySort}
+          onSortChange={setDirectorySort}
+          search={search}
+          onSearchChange={setSearch}
+          onSearchSubmit={() => void loadAccessUsers(search)}
+          searchInputRef={searchInputRef}
+          usersLoading={usersLoading}
+          loadError={usersLoadError}
+          onRetryLoad={() => {
+            void loadAccessUsers(search);
+            void loadAudit();
+          }}
+          selectedUid={selectedUid}
+          onSelectUser={selectUser}
+        />
 
         <Card className="lg:sticky lg:top-3 overflow-hidden !p-0">
           {!selectedUser ? (

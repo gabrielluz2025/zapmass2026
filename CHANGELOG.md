@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.333] - 2026-10-23
+
+### Corrigido
+- **Centro de acessos — sessão:** listagem, auditoria e insights passam por `apiFetchJson` (renova token em 401); toast «Sessão expirada» deduplicado; estado de erro distingue falha de API de lista vazia.
+
+### Melhorado
+- **Diretório de contas:** visual SaaS premium — cards com hover/glow, avatares circulares em gradiente, chips de status, pill de canais à direita, subcabeçalho sticky com filtros pill e ordenação (e-mail, vencimento, status), skeleton de carregamento.
+
 ## [2.3.332] - 2026-10-23
 
 ### Corrigido
