@@ -38,9 +38,13 @@ chmod 600 /opt/zapmass/secrets/firebase-admin.json
 
 ### Mercado Pago + Resend
 
+Guia passo a passo (webhook, tiers, diagnóstico): **[MERCADOPAGO-VPS.md](./MERCADOPAGO-VPS.md)**.
+
 ```bash
 MERCADOPAGO_ACCESS_TOKEN='APP_USR-...' \
 MERCADOPAGO_WEBHOOK_SECRET='...' \
+MERCADOPAGO_BACK_URL='https://zap-mass.com' \
+PUBLIC_APP_URL='https://zap-mass.com' \
 RESEND_API_KEY='re_...' \
 EMAIL_FROM='ZapMass <no-reply@zap-mass.com>' \
 EMAIL_REPLY_TO='suporte@zap-mass.com' \
