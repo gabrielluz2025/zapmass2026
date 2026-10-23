@@ -630,12 +630,22 @@ const MainLayoutWithPrefetch: React.FC = () => {
   );
 };
 
+function isGoogleOAuthReturnPending(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('google_login') === '1';
+}
+
 const AuthGate: React.FC = () => {
   const { user, loading } = useAuth();
   useRegisterLegalAcceptances();
+  const googleReturnPending = isGoogleOAuthReturnPending();
 
-  if (loading) {
-    return <SessionSpinner label="Carregando sessao..." />;
+  if (loading || googleReturnPending) {
+    return (
+      <SessionSpinner
+        label={googleReturnPending ? 'Entrando…' : 'Carregando sessao...'}
+      />
+    );
   }
 
   if (!user) {

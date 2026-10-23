@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.337',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Login Google: fim do flash da landing como visitante após OAuth; spinner «Entrando…» até sessão pronta',
+      },
+      {
+        type: 'perf',
+        text: 'Login Google: refresh cookie e token no hash em paralelo para entrar mais rápido',
+      },
+    ],
+  },
+  {
     version: '2.3.336',
     date: '23/10/2026',
     highlights: [

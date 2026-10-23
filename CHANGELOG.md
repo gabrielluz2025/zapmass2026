@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.337] - 2026-10-23
+
+### Corrigido
+- **Login Google — UX pós-OAuth:** o boot com `google_login=1` deixava `loading=false` cedo demais (regressão 2.3.325/329), exibindo a landing como visitante por vários segundos enquanto o refresh cookie terminava; agora mantém spinner «Entrando…» até a sessão estar pronta.
+- **Login Google — velocidade:** `POST /api/auth/refresh` e bootstrap via fragment `#zapmass_at=` rodam em paralelo (`vpsEstablishSessionAfterGoogleOAuth`), evitando esperar o refresh lento quando o token no hash já permite `/api/auth/me`.
+
 ## [2.3.336] - 2026-10-23
 
 ### Melhorado

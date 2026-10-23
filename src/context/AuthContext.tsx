@@ -15,7 +15,7 @@ import {
   bindCrossTabLogoutSync,
   vpsStartGoogleLogin,
   consumeGoogleLoginFragmentToken,
-  vpsBootstrapSessionFromAccessToken,
+  vpsEstablishSessionAfterGoogleOAuth,
   prepareForGoogleOAuthCallback,
   clearGoogleLoginFragmentStash
 } from '../services/vpsAuth';
@@ -79,10 +79,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     bindCrossTabLogoutSync();
     const boot = async () => {
+      let skipBootLoadingOff = false;
       try {
         const bootParams = new URLSearchParams(window.location.search);
         if (bootParams.get('google_login') === '1') {
-          setLoading(false);
+          skipBootLoadingOff = true;
           return;
         }
         const cached = getVpsAuthUser();
@@ -109,7 +110,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } catch {
         setUser(null);
       } finally {
-        setLoading(false);
+        if (!skipBootLoadingOff) setLoading(false);
       }
     };
     void boot();
@@ -130,15 +131,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (params.get('google_login') !== '1') return;
 
     const finish = async () => {
+      setLoading(true);
       prepareForGoogleOAuthCallback();
       const fragmentToken = consumeGoogleLoginFragmentToken();
       try {
-        // Cookie HttpOnly (callback) é o caminho principal; fragment é fallback.
-        let token: string | null = await vpsRefreshAccessToken();
-        if (!token && fragmentToken) {
-          const bootstrapped = await vpsBootstrapSessionFromAccessToken(fragmentToken);
-          if (bootstrapped) token = fragmentToken;
-        }
+        const token = await vpsEstablishSessionAfterGoogleOAuth(fragmentToken);
         if (!token) {
           console.warn('[auth] Google OAuth return: refresh e bootstrap falharam', {
             hadFragment: !!fragmentToken
@@ -157,6 +154,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         params.delete('google_login');
         const qs = params.toString();
         window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`);
+        setLoading(false);
       }
     };
     if (!googleLoginFinishInFlight) {

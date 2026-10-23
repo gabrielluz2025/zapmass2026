@@ -369,6 +369,44 @@ export async function vpsBootstrapSessionFromAccessToken(accessToken: string): P
   }
 }
 
+/** Após redirect Google: fragment (#zapmass_at) e cookie refresh em paralelo; usa o que concluir com sucesso. */
+export async function vpsEstablishSessionAfterGoogleOAuth(
+  fragmentToken: string | null
+): Promise<string | null> {
+  if (isLogoutInProgress()) return null;
+
+  if (!fragmentToken) {
+    return vpsRefreshAccessToken();
+  }
+
+  const refreshPromise = vpsRefreshAccessToken();
+  const bootstrapPromise = vpsBootstrapSessionFromAccessToken(fragmentToken).then((user) =>
+    user ? fragmentToken : null
+  );
+
+  const firstSuccess = await new Promise<string | null>((resolve) => {
+    let pending = 2;
+    let settled = false;
+    const done = (token: string | null) => {
+      if (settled) return;
+      if (token) {
+        settled = true;
+        resolve(token);
+        return;
+      }
+      pending -= 1;
+      if (pending === 0) resolve(null);
+    };
+    void refreshPromise.then(done).catch(() => done(null));
+    void bootstrapPromise.then(done).catch(() => done(null));
+  });
+
+  if (firstSuccess) return firstSuccess;
+
+  const [refreshToken, bootstrapToken] = await Promise.all([refreshPromise, bootstrapPromise]);
+  return refreshToken || bootstrapToken;
+}
+
 export async function vpsRefreshAccessToken(): Promise<string | null> {
   bindCrossTabLogoutSync();
   if (refreshInFlight) return refreshInFlight;
