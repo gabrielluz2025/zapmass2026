@@ -19,7 +19,8 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useZapMassConnectionsSlice } from '../../context/ZapMassContext';
-import { Button, Card, Input, SectionHeader } from '../ui';
+import { Button, Card, Input, SectionHeader, ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 import { NurtureStepEditor, type PendingStepMedia } from './NurtureStepEditor';
 import {
   cancelNurtureEnrollment,
@@ -426,7 +427,12 @@ export const NurtureJourneyPanel: React.FC = () => {
       >
         <SectionHeader
           icon={<BookOpen className="w-5 h-5 text-teal-600" />}
-          title="Jornada de nutrição"
+          title={
+            <span className="inline-flex flex-wrap items-center gap-2">
+              Jornada de nutrição
+              <ZmFieldHelp content={FIELD_HELP.nurtureJourney} ariaLabel="Ajuda: jornada de nutrição" />
+            </span>
+          }
           description="Sequência profissional para leads quentes — fora da cota de campanha, com mídia, links e acompanhamento em tempo real"
         />
         <div className="mt-4 flex flex-wrap items-center gap-3">

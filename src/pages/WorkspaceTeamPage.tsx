@@ -1,7 +1,8 @@
 import React from 'react';
 import { Shield } from 'lucide-react';
 import { WorkspaceTeamSection } from '../components/settings/WorkspaceTeamSection';
-import { PageShell, Badge } from '../components/ui';
+import { PageShell, Badge, ZmFieldHelp } from '../components/ui';
+import { FIELD_HELP } from '../constants/fieldHelpCopy';
 
 export const WorkspaceTeamPage: React.FC = () => {
   return (
@@ -24,7 +25,13 @@ export const WorkspaceTeamPage: React.FC = () => {
         </span>
       }
     >
-      <div className="max-w-[960px] mx-auto">
+      <div className="max-w-[960px] mx-auto space-y-4">
+        <div className="flex flex-wrap items-center gap-2 px-1">
+          <h1 className="text-[22px] font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
+            Funcionários
+          </h1>
+          <ZmFieldHelp content={FIELD_HELP.teamMembers} ariaLabel="Ajuda: funcionários" />
+        </div>
         <WorkspaceTeamSection variant="standalone" />
       </div>
     </PageShell>

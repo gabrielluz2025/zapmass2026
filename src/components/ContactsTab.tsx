@@ -1019,6 +1019,24 @@ export const ContactsTab: React.FC = () => {
     ]
   );
 
+  const contactsBaseEmpty = useMemo(
+    () =>
+      activeFilter === 'all' &&
+      !searchTerm.trim() &&
+      !contactsSavedTotalLoading &&
+      !contactsLoadingMore &&
+      (contactsSavedTotal ?? 0) === 0 &&
+      !contactsBootstrapStale,
+    [
+      activeFilter,
+      searchTerm,
+      contactsSavedTotalLoading,
+      contactsLoadingMore,
+      contactsSavedTotal,
+      contactsBootstrapStale,
+    ]
+  );
+
   /** Base ainda sendo hidratada — adia cálculos pesados (temperatura, stats). */
   const isHydratingContacts =
     contactsLoadingMore ||
@@ -4902,6 +4920,37 @@ export const ContactsTab: React.FC = () => {
               </Button>
             </div>
           )}
+            {contactsBaseEmpty ? (
+              <EmptyState
+                icon={<Users className="w-6 h-6" style={{ color: 'var(--brand-600)' }} />}
+                title="Sua base está vazia"
+                description={
+                  <div className="space-y-2 text-left max-w-md mx-auto">
+                    <p className="text-center">
+                      Importe uma planilha ou sincronize com o WhatsApp conectado — depois use listas, mapa e campanhas.
+                    </p>
+                    <ul className="text-[13px] space-y-1 list-disc list-inside" style={{ color: 'var(--text-2)' }}>
+                      <li>CSV, XLSX ou vCard pelo botão Importar</li>
+                      <li>Sync de nomes do celular (chip online)</li>
+                      <li>Cadastro manual contato a contato</li>
+                    </ul>
+                  </div>
+                }
+                action={
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Button variant="primary" leftIcon={<Upload className="w-4 h-4" />} onClick={openImportXLSX}>
+                      Importar planilha
+                    </Button>
+                    <Button variant="secondary" leftIcon={<Smartphone className="w-4 h-4" />} onClick={() => void openBaseChipSyncModal()}>
+                      Sincronizar com chip
+                    </Button>
+                    <Button variant="ghost" leftIcon={<UserPlus className="w-4 h-4" />} onClick={openNewContactModal}>
+                      Novo contato
+                    </Button>
+                  </div>
+                }
+              />
+            ) : (
             <ContactsTableVirtual
               rows={tableContacts}
               contactTemps={contactTemps}
@@ -4939,6 +4988,7 @@ export const ContactsTab: React.FC = () => {
                           : 'Ajuste o filtro acima ou tente outra busca.'
               }
             />
+            )}
 
           {/* Pagination */}
           {totalPages > 1 && (

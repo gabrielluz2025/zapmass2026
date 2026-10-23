@@ -76,6 +76,13 @@ import {
 import { PerformanceFunnel } from './PerformanceFunnel';
 import { DashboardIntelPanel } from './dashboard/DashboardIntelPanel';
 import { TenantOpsHealthCard } from './tenant/TenantOpsHealthCard';
+import {
+  WelcomeChecklistCard,
+  computeWelcomeChecklistProgress,
+  writeWelcomeChecklistDismissed,
+  readWelcomeChecklistDismissed,
+  isWelcomeChecklistComplete,
+} from './onboarding/welcomeChecklistShared';
 import { Sparkline } from './Sparkline';
 import {
   buildChannelSpotlightRows,
@@ -872,6 +879,14 @@ export const DashboardTab: React.FC = () => {
     funnelSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  const welcomeProgress = useMemo(
+    () => computeWelcomeChecklistProgress(connections, contactsSavedTotal, campaigns),
+    [connections, contactsSavedTotal, campaigns]
+  );
+  const [welcomeDismissed, setWelcomeDismissed] = useState(() => readWelcomeChecklistDismissed(user?.uid));
+  const showWelcomeCard =
+    !welcomeDismissed && !isWelcomeChecklistComplete(welcomeProgress);
+
   return (
     <PageShell
       statusStrip={
@@ -891,6 +906,16 @@ export const DashboardTab: React.FC = () => {
     >
     <div className="zm-dashboard space-y-5 max-w-6xl mx-auto w-full">
       <TenantOpsHealthCard />
+      {showWelcomeCard ? (
+        <WelcomeChecklistCard
+          progress={welcomeProgress}
+          onNavigate={setCurrentView}
+          onDismiss={() => {
+            writeWelcomeChecklistDismissed(user?.uid);
+            setWelcomeDismissed(true);
+          }}
+        />
+      ) : null}
       <DashboardCommandPanel
         firstName={firstName}
         greeting={greeting}

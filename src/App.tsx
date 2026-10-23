@@ -38,6 +38,7 @@ import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { AppProfileProvider, useAppProfile } from './context/AppProfileContext';
 import { SegmentOnboardingScreen } from './components/onboarding/SegmentOnboardingScreen';
 import { WelcomeChecklistModal, useWelcomeChecklist } from './components/onboarding/WelcomeChecklistModal';
+import { computeWelcomeChecklistProgress } from './components/onboarding/welcomeChecklistShared';
 import { TabLoadErrorBoundary } from './components/TabLoadErrorBoundary';
 import { MainLayoutNavProvider } from './context/MainLayoutNavContext';
 import { AppViewProvider, useAppView } from './context/AppViewContext';
@@ -618,7 +619,12 @@ const GateOrApp: React.FC = () => {
 
 const MainLayoutWithPrefetch: React.FC = () => {
   const { user } = useAuth();
-  const { show: showWelcome, dismiss: dismissWelcome } = useWelcomeChecklist(user?.uid);
+  const { connections, campaigns, contactsSavedTotal } = useZapMassCore();
+  const welcomeProgress = useMemo(
+    () => computeWelcomeChecklistProgress(connections, contactsSavedTotal, campaigns),
+    [connections, contactsSavedTotal, campaigns]
+  );
+  const { show: showWelcome, dismiss: dismissWelcome } = useWelcomeChecklist(user?.uid, welcomeProgress);
   const { setCurrentView } = useAppView();
 
   useEffect(() => {
@@ -629,6 +635,7 @@ const MainLayoutWithPrefetch: React.FC = () => {
     <>
       {showWelcome && (
         <WelcomeChecklistModal
+          progress={welcomeProgress}
           onClose={dismissWelcome}
           onNavigate={(tab) => {
             setCurrentView(tab);

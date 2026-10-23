@@ -48,5 +48,7 @@ export const FIELD_HELP = {
   minDelaySettings:
     'Valor mínimo da faixa aleatória entre mensagens. Vale como padrão para novas campanhas se você não alterar no assistente.',
   maxDelaySettings:
-    'Valor máximo da faixa. Quanto maior a diferença entre mínimo e máximo, mais natural o ritmo de envio.'
+    'Valor máximo da faixa. Quanto maior a diferença entre mínimo e máximo, mais natural o ritmo de envio.',
+  chipProtection:
+    'Reduz sync pesado e pausas automáticas quando o chip cai, leva ban ou muitas reconexões seguidas — protege a linha sem parar campanhas nos outros chips do pool.'
 } as const;

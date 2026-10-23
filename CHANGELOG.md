@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.345] - 2026-10-23
+
+### Melhorado
+- **UX comercial:** tooltips (i) em Atendimento, Jornada, Mapa de contatos, Funcionários e Proteção de chips; empty states com CTA em Campanhas e Contatos; checklist de boas-vindas no Painel (dados reais, dismiss em sessionStorage); labels Redis/fila ocultas para clientes na aba Campanhas.
+
 ## [2.3.344] - 2026-10-23
 
 ### Preparação comercial v2.3.344+

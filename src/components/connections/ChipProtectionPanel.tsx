@@ -16,7 +16,8 @@ import {
   Zap,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { CollapsibleSection, Badge, Button } from '../ui';
+import { CollapsibleSection, Badge, Button, ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 import {
   fetchChipProtection,
   setChipProtectionPolicy,
@@ -404,7 +405,16 @@ export const ChipProtectionPanel: React.FC = () => {
       : 'Ativo';
 
   return (
-    <CollapsibleSection title="Proteção automática de chips" summary={summary} defaultOpen>
+    <CollapsibleSection
+      title={
+        <span className="inline-flex flex-wrap items-center gap-2">
+          Proteção automática de chips
+          <ZmFieldHelp content={FIELD_HELP.chipProtection} ariaLabel="Ajuda: proteção de chips" />
+        </span>
+      }
+      summary={summary}
+      defaultOpen
+    >
       <div className="space-y-5">
         {/* Hero status */}
         {visual && data && (

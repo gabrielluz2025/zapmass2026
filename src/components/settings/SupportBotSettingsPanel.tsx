@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bot, Clock, History, MessageCircle, Plus, RefreshCw, Save, Trash2, UserRound } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useZapMassConnectionsSlice } from '../../context/ZapMassContext';
-import { Button, Card, Input, SectionHeader } from '../ui';
+import { Button, Card, Input, SectionHeader, ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 import {
   fetchSupportBotConfig,
   fetchSupportBotHandoffs,
@@ -256,7 +257,12 @@ export const SupportBotSettingsPanel: React.FC = () => {
   return (
     <div className="space-y-4">
       <SectionHeader
-        title="Atendimento automático"
+        title={
+          <span className="inline-flex flex-wrap items-center gap-2">
+            Atendimento automático
+            <ZmFieldHelp content={FIELD_HELP.supportBot} ariaLabel="Ajuda: atendimento automático" />
+          </span>
+        }
         description="Bot com menu no WhatsApp. Quando o cliente pede atendente, você recebe alerta no Bate-papo."
       />
 

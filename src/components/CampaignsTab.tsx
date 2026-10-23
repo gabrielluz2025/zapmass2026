@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import { CampaignReplyFlow, CampaignScheduleSlot, CampaignStageConfig, CampaignStatus, ConnectionStatus, WhatsAppConnection } from '../types';
 import type { CampaignWizardDraft } from '../types/campaignMission';
 import { useZapMassCore } from '../context/ZapMassContext';
+import { useAppView } from '../context/AppViewContext';
 import { useAuth } from '../context/AuthContext';
 import { isWhatsAppRiskAcknowledged, saveWhatsAppRiskAck } from '../utils/whatsappRiskStorage';
 import { appendAudit } from '../utils/campaignMissionStorage';
@@ -70,6 +71,7 @@ const loadDismissed = (): string[] => {
 };
 
 export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
+  const { setCurrentView } = useAppView();
   const { user } = useAuth();
   const {
     campaigns,
@@ -891,6 +893,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 onOpenDetails={openDetails}
                 onViewAll={() => setSubTab('campaigns')}
                 onCreate={requestCreateFlow}
+                onConnectChannel={() => setCurrentView('connections')}
               />
               <CampaignStudioSection title="Templates prontos" subtitle="Comece a partir de um modelo testado">
                 <CampaignTemplatesGallery onUseTemplate={openWizardWithDraft} />

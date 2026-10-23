@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.345',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'UX comercial: ZmFieldHelp em Atendimento/Jornada/Mapa/Funcionários/Proteção; empty states Campanhas+Contatos; checklist Painel; Redis oculto p/ clientes',
+      },
+    ],
+  },
+  {
     version: '2.3.344',
     date: '23/10/2026',
     highlights: [

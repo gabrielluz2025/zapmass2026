@@ -22,7 +22,8 @@ import {
 } from 'lucide-react';
 import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
 import { useAppView } from '../../context/AppViewContext';
-import { PageShell, Badge } from '../ui';
+import { PageShell, Badge, ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 import { DDD_COORDINATES } from '../../utils/dddCoordinates';
 import {
   computeContactTemperatures,
@@ -190,6 +191,13 @@ export const ContactsMapTab: React.FC = () => {
       className="flex min-h-0 flex-1 flex-col"
     >
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+
+        <div className="flex flex-wrap items-center gap-2 px-1">
+          <h1 className="text-[22px] font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
+            Mapa de contatos
+          </h1>
+          <ZmFieldHelp content={FIELD_HELP.contactsMap} ariaLabel="Ajuda: mapa de contatos" />
+        </div>
 
         {/* ── KPIs Rápidos ────────────────── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

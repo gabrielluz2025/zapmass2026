@@ -11,7 +11,8 @@ import {
   Sparkles,
   KeyRound
 } from 'lucide-react';
-import { Badge, Button, Card, CardHeader, Input } from '../ui';
+import { Badge, Button, Card, CardHeader, Input, ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 import { StaffPasswordAccountsPanel } from './StaffPasswordAccountsPanel';
 import { WorkspaceTeamMembersPanel } from './WorkspaceTeamMembersPanel';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -129,7 +130,12 @@ export const WorkspaceTeamSection: React.FC<Props> = ({ variant = 'embedded' }) 
       {variant === 'embedded' && (
         <CardHeader
           icon={<Users className="w-4 h-4" />}
-          title="Funcionários"
+          title={
+            <span className="inline-flex flex-wrap items-center gap-2">
+              Funcionários
+              <ZmFieldHelp content={FIELD_HELP.teamMembers} ariaLabel="Ajuda: funcionários" />
+            </span>
+          }
           subtitle="Controle quem acessa sua conta ZapMass."
         />
       )}

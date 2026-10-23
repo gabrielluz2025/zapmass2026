@@ -110,7 +110,11 @@ export const CampaignStudioShell: React.FC<Props> = ({
       <ZmPageHeader
         icon={<Send className="w-5 h-5 text-violet-400" />}
         title="Campanhas"
-        subtitle="Centro de missões, modelos, calendário e disparos — motor Redis e chips em tempo real."
+        subtitle={
+          isAdmin
+            ? 'Centro de missões, modelos, calendário e disparos — motor Redis e chips em tempo real.'
+            : 'Centro de missões, modelos, calendário e disparos — acompanhe chips e envios em tempo real.'
+        }
         actions={
           <button
             type="button"
@@ -193,23 +197,35 @@ export const CampaignStudioShell: React.FC<Props> = ({
         {/* Saúde do motor — compacto */}
         <div className="zm-panel space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <StatusPill
-                label="Redis"
-                ok={healthUi === 'ok'}
-                warn={healthUi === 'reconnecting'}
+            {isAdmin ? (
+              <>
+                <StatusPill
+                  label="Redis"
+                  ok={healthUi === 'ok'}
+                  warn={healthUi === 'reconnecting'}
+                  checking={healthUi === 'checking'}
+                  sub={health?.redis.pingMs != null ? `${health.redis.pingMs}ms` : undefined}
+                />
+                <StatusPill
+                  label="Fila"
+                  ok={healthUi === 'ok'}
+                  warn={healthUi === 'reconnecting'}
+                  value={String(stats.running.length)}
+                />
+              </>
+            ) : (
+              <StatusPill
+                label="Envios"
+                ok={healthUi === 'ok' || healthUi === 'reconnecting'}
+                warn={healthUi === 'error'}
                 checking={healthUi === 'checking'}
-                sub={health?.redis.pingMs != null ? `${health.redis.pingMs}ms` : undefined}
+                value={ready ? 'Pronto' : healthUi === 'checking' ? '…' : 'Aguarde'}
               />
+            )}
               <StatusPill
                 label="Chips"
                 ok={stats.onlineChips.length > 0}
                 value={`${stats.onlineChips.length}/${connections.length}`}
-              />
-              <StatusPill
-                label="Fila"
-                ok={healthUi === 'ok'}
-                warn={healthUi === 'reconnecting'}
-                value={String(stats.running.length)}
               />
               <button
                 type="button"

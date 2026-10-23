@@ -26,6 +26,7 @@ interface CampaignsOverviewProps {
   onOpenDetails: (id: string) => void;
   onViewAll: () => void;
   onCreate: () => void;
+  onConnectChannel?: () => void;
 }
 
 const HOURS_IN_DAY = 24;
@@ -42,6 +43,7 @@ export const CampaignsOverview: React.FC<CampaignsOverviewProps> = ({
   onOpenDetails,
   onViewAll,
   onCreate,
+  onConnectChannel,
 }) => {
   const data = useMemo(() => {
     const now = new Date();
@@ -139,11 +141,29 @@ export const CampaignsOverview: React.FC<CampaignsOverviewProps> = ({
       <EmptyState
         icon={<Rocket className="w-6 h-6" style={{ color: 'var(--brand-600)' }} />}
         title="Nenhuma campanha ainda"
-        description="Crie sua primeira campanha e dispare mensagens para toda sua base de contatos com segurança."
+        description={
+          <div className="space-y-3 text-left max-w-md mx-auto">
+            <p className="text-center">
+              Em poucos minutos você dispara para toda a base com intervalo anti-ban e chips em rodízio.
+            </p>
+            <ol className="text-[13px] space-y-1.5 list-decimal list-inside" style={{ color: 'var(--text-2)' }}>
+              <li>Conecte um chip WhatsApp (Conexões)</li>
+              <li>Importe ou sincronize contatos</li>
+              <li>Crie a campanha e confirme o disparo</li>
+            </ol>
+          </div>
+        }
         action={
-          <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={onCreate}>
-            Criar Campanha
-          </Button>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={onCreate}>
+              Nova campanha
+            </Button>
+            {onConnectChannel ? (
+              <Button variant="secondary" leftIcon={<Smartphone className="w-4 h-4" />} onClick={onConnectChannel}>
+                Conectar canal
+              </Button>
+            ) : null}
+          </div>
         }
       />
     );
