@@ -2,6 +2,14 @@ import { getZapmassPool } from './db/postgres.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import * as evolutionService from './evolutionService.js';
 import * as waService from './whatsappService.js';
+import {
+  classifySubscriptionBilling,
+  courtesyChannelAddonSlots,
+  paidChannelAddonSlots,
+  planForMrrEstimate,
+  type SubscriptionBillingKind,
+  type SubscriptionDocLike
+} from '../shared/subscriptionBillingKind.js';
 
 export type AdminPlatformStats = {
   generatedAt: string;
@@ -14,6 +22,9 @@ export type AdminPlatformStats = {
     active: number;
     trialing: number;
     manualGrant: number;
+    mercadopagoActive: number;
+    manualBonus: number;
+    manualPaidExternal: number;
     blocked: number;
     none: number;
   };
@@ -25,9 +36,27 @@ export type AdminPlatformStats = {
   revenue: {
     priceMonthlyBrl: number;
     priceAnnualBrl: number;
+    /** Receita recorrente estimada só Mercado Pago (+ add-ons MP). */
+    estimatedMrrPaidBrl: number;
+    /** Valor de referência (não faturado pelo MP) — liberações cortesia. */
+    estimatedMrrCourtesyBrl: number;
+    /** Estimativa de planos liberados manualmente mas cobrados fora do MP. */
+    estimatedMrrManualPaidBrl: number;
+    /** @deprecated Use estimatedMrrPaidBrl — mantido = MRR pago MP. */
     estimatedMrrBrl: number;
+    activeMonthlyPlansPaid: number;
+    activeAnnualPlansPaid: number;
+    activeMonthlyPlansCourtesy: number;
+    activeAnnualPlansCourtesy: number;
+    activeMonthlyPlansManualPaid: number;
+    activeAnnualPlansManualPaid: number;
+    channelAddonSlotsPaid: number;
+    channelAddonSlotsCourtesy: number;
+    /** @deprecated */
     activeMonthlyPlans: number;
+    /** @deprecated */
     activeAnnualPlans: number;
+    /** @deprecated */
     channelAddonSlots: number;
   };
   recentSignups: Array<{
@@ -36,6 +65,7 @@ export type AdminPlatformStats = {
     createdAt: string | null;
     status: string;
     plan: string | null;
+    billingKind: SubscriptionBillingKind;
     connectionsConnected: number;
   }>;
 };
@@ -65,6 +95,103 @@ function connectionOwnerUid(id: string): string | null {
   return idx > 0 ? id.slice(0, idx) : null;
 }
 
+function docFromRow(raw: unknown): SubscriptionDocLike {
+  if (!raw || typeof raw !== 'object') return {};
+  return raw as SubscriptionDocLike;
+}
+
+function addPlanMrr(
+  plan: 'monthly' | 'annual' | null,
+  prices: { monthly: number; annual: number }
+): number {
+  if (plan === 'monthly') return prices.monthly;
+  if (plan === 'annual') return prices.annual / 12;
+  return 0;
+}
+
+function aggregateSubscriptionDocs(
+  docs: SubscriptionDocLike[],
+  prices: { monthly: number; annual: number },
+  channelTierPrice: number
+) {
+  const counts = {
+    active: 0,
+    trialing: 0,
+    manualGrant: 0,
+    mercadopagoActive: 0,
+    manualBonus: 0,
+    manualPaidExternal: 0,
+    blocked: 0,
+    none: 0
+  };
+
+  let mrrPaid = 0;
+  let mrrCourtesy = 0;
+  let mrrManualPaid = 0;
+  let activeMonthlyPaid = 0;
+  let activeAnnualPaid = 0;
+  let activeMonthlyCourtesy = 0;
+  let activeAnnualCourtesy = 0;
+  let activeMonthlyManualPaid = 0;
+  let activeAnnualManualPaid = 0;
+  let channelPaid = 0;
+  let channelCourtesy = 0;
+
+  for (const doc of docs) {
+    const status = String(doc.status || 'none').toLowerCase();
+    if (doc.blocked === true) counts.blocked += 1;
+    if (status === 'active') counts.active += 1;
+    if (status === 'trialing') counts.trialing += 1;
+    if (doc.manualGrant === true) counts.manualGrant += 1;
+    const kind = classifySubscriptionBilling(doc);
+    if (kind === 'none') counts.none += 1;
+    if (kind === 'mercadopago') counts.mercadopagoActive += 1;
+    if (kind === 'manual_bonus') counts.manualBonus += 1;
+    if (kind === 'manual_paid') counts.manualPaidExternal += 1;
+
+    const plan = planForMrrEstimate(doc);
+    const paidSlots = paidChannelAddonSlots(doc);
+    const courtesySlots = courtesyChannelAddonSlots(doc);
+
+    if (kind === 'mercadopago') {
+      if (plan === 'monthly') activeMonthlyPaid += 1;
+      if (plan === 'annual') activeAnnualPaid += 1;
+      mrrPaid += addPlanMrr(plan, prices);
+      channelPaid += paidSlots;
+      mrrPaid += paidSlots * channelTierPrice;
+    } else if (kind === 'manual_paid') {
+      if (plan === 'monthly') activeMonthlyManualPaid += 1;
+      if (plan === 'annual') activeAnnualManualPaid += 1;
+      mrrManualPaid += addPlanMrr(plan, prices);
+      channelPaid += courtesySlots;
+      mrrManualPaid += courtesySlots * channelTierPrice;
+    } else if (kind === 'manual_bonus') {
+      if (plan === 'monthly') activeMonthlyCourtesy += 1;
+      if (plan === 'annual') activeAnnualCourtesy += 1;
+      mrrCourtesy += addPlanMrr(plan, prices);
+      channelCourtesy += courtesySlots;
+      mrrCourtesy += courtesySlots * channelTierPrice;
+    }
+  }
+
+  return {
+    counts,
+    revenue: {
+      estimatedMrrPaidBrl: Math.round(mrrPaid * 100) / 100,
+      estimatedMrrCourtesyBrl: Math.round(mrrCourtesy * 100) / 100,
+      estimatedMrrManualPaidBrl: Math.round(mrrManualPaid * 100) / 100,
+      activeMonthlyPlansPaid: activeMonthlyPaid,
+      activeAnnualPlansPaid: activeAnnualPaid,
+      activeMonthlyPlansCourtesy: activeMonthlyCourtesy,
+      activeAnnualPlansCourtesy: activeAnnualCourtesy,
+      activeMonthlyPlansManualPaid: activeMonthlyManualPaid,
+      activeAnnualPlansManualPaid: activeAnnualManualPaid,
+      channelAddonSlotsPaid: channelPaid,
+      channelAddonSlotsCourtesy: channelCourtesy
+    }
+  };
+}
+
 export async function buildAdminPlatformStats(): Promise<AdminPlatformStats> {
   const prices = readPrices();
   const conns = listAllConnections();
@@ -82,23 +209,49 @@ export async function buildAdminPlatformStats(): Promise<AdminPlatformStats> {
     byOwnerConnected.set(owner, (byOwnerConnected.get(owner) || 0) + 1);
   }
 
+  const channelTierPrice = parseFloat(process.env.MERCADOPAGO_CHANNEL_TIER_1 || '29.9');
+  const channelPrice =
+    Number.isFinite(channelTierPrice) && channelTierPrice > 0 ? channelTierPrice : 0;
+
+  const emptyRevenue = {
+    priceMonthlyBrl: prices.monthly,
+    priceAnnualBrl: prices.annual,
+    estimatedMrrPaidBrl: 0,
+    estimatedMrrCourtesyBrl: 0,
+    estimatedMrrManualPaidBrl: 0,
+    estimatedMrrBrl: 0,
+    activeMonthlyPlansPaid: 0,
+    activeAnnualPlansPaid: 0,
+    activeMonthlyPlansCourtesy: 0,
+    activeAnnualPlansCourtesy: 0,
+    activeMonthlyPlansManualPaid: 0,
+    activeAnnualPlansManualPaid: 0,
+    channelAddonSlotsPaid: 0,
+    channelAddonSlotsCourtesy: 0,
+    activeMonthlyPlans: 0,
+    activeAnnualPlans: 0,
+    channelAddonSlots: 0
+  };
+
   const empty: AdminPlatformStats = {
     generatedAt: new Date().toISOString(),
     users: { total: 0, newLast7Days: 0, newLast30Days: 0 },
-    subscriptions: { active: 0, trialing: 0, manualGrant: 0, blocked: 0, none: 0 },
+    subscriptions: {
+      active: 0,
+      trialing: 0,
+      manualGrant: 0,
+      mercadopagoActive: 0,
+      manualBonus: 0,
+      manualPaidExternal: 0,
+      blocked: 0,
+      none: 0
+    },
     connections: {
       total: conns.length,
       connected: connected.length,
       tenantsWithConnection: ownerSet.size
     },
-    revenue: {
-      priceMonthlyBrl: prices.monthly,
-      priceAnnualBrl: prices.annual,
-      estimatedMrrBrl: 0,
-      activeMonthlyPlans: 0,
-      activeAnnualPlans: 0,
-      channelAddonSlots: 0
-    },
+    revenue: emptyRevenue,
     recentSignups: []
   };
 
@@ -114,33 +267,11 @@ export async function buildAdminPlatformStats(): Promise<AdminPlatformStats> {
      WHERE disabled_at IS NULL`
   );
 
-  const subR = await pool.query<{
-    active: string;
-    trialing: string;
-    manual: string;
-    blocked: string;
-    none: string;
-    monthly: string;
-    annual: string;
-    channel_slots: string;
-  }>(
-    `SELECT
-       COUNT(*) FILTER (WHERE COALESCE(doc->>'status','') = 'active')::text AS active,
-       COUNT(*) FILTER (WHERE COALESCE(doc->>'status','') = 'trialing')::text AS trialing,
-       COUNT(*) FILTER (WHERE (doc->>'manualGrant')::boolean IS TRUE)::text AS manual,
-       COUNT(*) FILTER (WHERE (doc->>'blocked')::boolean IS TRUE)::text AS blocked,
-       COUNT(*) FILTER (WHERE doc IS NULL OR doc = '{}'::jsonb OR COALESCE(doc->>'status','') IN ('','none'))::text AS none,
-       COUNT(*) FILTER (WHERE COALESCE(doc->>'status','') = 'active' AND COALESCE(doc->>'plan','monthly') = 'monthly')::text AS monthly,
-       COUNT(*) FILTER (WHERE COALESCE(doc->>'status','') = 'active' AND doc->>'plan' = 'annual')::text AS annual,
-       COALESCE(SUM(
-         CASE WHEN COALESCE((doc->>'manualExtraChannelSlots')::int, 0) > 0
-           THEN LEAST(3, GREATEST(0, (doc->>'manualExtraChannelSlots')::int))
-           WHEN doc->>'mercadoPagoChannelAddonPreapprovalId' IS NOT NULL AND doc->>'mercadoPagoChannelAddonPreapprovalId' <> ''
-           THEN 1
-           ELSE 0 END
-       ), 0)::text AS channel_slots
-     FROM zapmass.user_subscriptions`
+  const subsR = await pool.query<{ doc: Record<string, unknown> }>(
+    `SELECT doc FROM zapmass.user_subscriptions`
   );
+  const subDocs = subsR.rows.map((r) => docFromRow(r.doc));
+  const agg = aggregateSubscriptionDocs(subDocs, prices, channelPrice);
 
   const recentR = await pool.query<{
     uid: string;
@@ -148,10 +279,12 @@ export async function buildAdminPlatformStats(): Promise<AdminPlatformStats> {
     created_at: Date;
     status: string;
     plan: string | null;
+    doc: Record<string, unknown> | null;
   }>(
     `SELECT u.id::text AS uid, u.email, u.created_at,
             COALESCE(s.doc->>'status', 'none') AS status,
-            NULLIF(s.doc->>'plan', '') AS plan
+            NULLIF(s.doc->>'plan', '') AS plan,
+            s.doc
      FROM zapmass.users u
      LEFT JOIN zapmass.user_subscriptions s ON s.tenant_id = u.id
      WHERE u.disabled_at IS NULL
@@ -159,17 +292,7 @@ export async function buildAdminPlatformStats(): Promise<AdminPlatformStats> {
      LIMIT 25`
   );
 
-  const sub = subR.rows[0];
-  const activeMonthly = Number(sub?.monthly || 0);
-  const activeAnnual = Number(sub?.annual || 0);
-  const channelSlots = Number(sub?.channel_slots || 0);
-  const channelTierPrice = parseFloat(process.env.MERCADOPAGO_CHANNEL_TIER_1 || '29.9');
-  const channelMrr =
-    Number.isFinite(channelTierPrice) && channelTierPrice > 0
-      ? channelSlots * channelTierPrice
-      : 0;
-  const estimatedMrr =
-    activeMonthly * prices.monthly + activeAnnual * (prices.annual / 12) + channelMrr;
+  const rev = agg.revenue;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -178,13 +301,7 @@ export async function buildAdminPlatformStats(): Promise<AdminPlatformStats> {
       newLast7Days: Number(usersR.rows[0]?.d7 || 0),
       newLast30Days: Number(usersR.rows[0]?.d30 || 0)
     },
-    subscriptions: {
-      active: Number(sub?.active || 0),
-      trialing: Number(sub?.trialing || 0),
-      manualGrant: Number(sub?.manual || 0),
-      blocked: Number(sub?.blocked || 0),
-      none: Number(sub?.none || 0)
-    },
+    subscriptions: agg.counts,
     connections: {
       total: conns.length,
       connected: connected.length,
@@ -193,18 +310,33 @@ export async function buildAdminPlatformStats(): Promise<AdminPlatformStats> {
     revenue: {
       priceMonthlyBrl: prices.monthly,
       priceAnnualBrl: prices.annual,
-      estimatedMrrBrl: Math.round(estimatedMrr * 100) / 100,
-      activeMonthlyPlans: activeMonthly,
-      activeAnnualPlans: activeAnnual,
-      channelAddonSlots: channelSlots
+      estimatedMrrPaidBrl: rev.estimatedMrrPaidBrl,
+      estimatedMrrCourtesyBrl: rev.estimatedMrrCourtesyBrl,
+      estimatedMrrManualPaidBrl: rev.estimatedMrrManualPaidBrl,
+      estimatedMrrBrl: rev.estimatedMrrPaidBrl,
+      activeMonthlyPlansPaid: rev.activeMonthlyPlansPaid,
+      activeAnnualPlansPaid: rev.activeAnnualPlansPaid,
+      activeMonthlyPlansCourtesy: rev.activeMonthlyPlansCourtesy,
+      activeAnnualPlansCourtesy: rev.activeAnnualPlansCourtesy,
+      activeMonthlyPlansManualPaid: rev.activeMonthlyPlansManualPaid,
+      activeAnnualPlansManualPaid: rev.activeAnnualPlansManualPaid,
+      channelAddonSlotsPaid: rev.channelAddonSlotsPaid,
+      channelAddonSlotsCourtesy: rev.channelAddonSlotsCourtesy,
+      activeMonthlyPlans: rev.activeMonthlyPlansPaid,
+      activeAnnualPlans: rev.activeAnnualPlansPaid,
+      channelAddonSlots: rev.channelAddonSlotsPaid
     },
-    recentSignups: recentR.rows.map((row) => ({
-      uid: row.uid,
-      email: row.email,
-      createdAt: row.created_at ? row.created_at.toISOString() : null,
-      status: row.status || 'none',
-      plan: row.plan,
-      connectionsConnected: byOwnerConnected.get(row.uid) || 0
-    }))
+    recentSignups: recentR.rows.map((row) => {
+      const doc = docFromRow(row.doc || undefined);
+      return {
+        uid: row.uid,
+        email: row.email,
+        createdAt: row.created_at ? row.created_at.toISOString() : null,
+        status: row.status || 'none',
+        plan: row.plan,
+        billingKind: classifySubscriptionBilling(doc),
+        connectionsConnected: byOwnerConnected.get(row.uid) || 0
+      };
+    })
   };
 }

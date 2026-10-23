@@ -53,6 +53,10 @@ export type AdminAccessUserPutBody = {
   /** Canais do plano (1–5). Usado em Gestão manual / ajuste administrativo. */
   includedChannels?: number | null;
   adminNote?: string;
+  /** Cortesia (padrão) ou cobrado fora do Mercado Pago. */
+  manualGrantKind?: 'bonus' | 'paid_external';
+  /** Plano comercial associado à liberação manual cobrada (opcional). */
+  plan?: 'monthly' | 'annual' | null;
   /** Admin define senha do cliente sem e-mail de reset (quando Resend está off). */
   newPassword?: string;
 };
@@ -348,15 +352,27 @@ export function buildAdminAccessUpdates(
       updates.trialEndsAt = forPg ? null : FieldValue.delete();
       updates.manualGrantedAt = forPg ? new Date().toISOString() : FieldValue.serverTimestamp();
       updates.manualGrantedBy = adminEmail;
+      const grantKind =
+        body.manualGrantKind === 'paid_external'
+          ? 'paid_external'
+          : body.manualGrantKind === 'bonus'
+            ? 'bonus'
+            : 'bonus';
+      updates.manualGrantKind = grantKind;
+      if (body.plan === 'monthly' || body.plan === 'annual') {
+        updates.plan = body.plan;
+      }
     } else {
       if (forPg) {
         updates.manualAccessEndsAt = null;
         updates.manualGrantedAt = null;
         updates.manualGrantedBy = null;
+        updates.manualGrantKind = null;
       } else {
         updates.manualAccessEndsAt = FieldValue.delete();
         updates.manualGrantedAt = FieldValue.delete();
         updates.manualGrantedBy = FieldValue.delete();
+        updates.manualGrantKind = FieldValue.delete();
       }
       if ((cur.provider || 'none') === 'none') {
         updates.status = 'none';

@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.335',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Ganhos (criador): MRR pago MP vs cortesia vs manual cobrado; badges nos cadastros; tipo de liberação na concessão de acesso',
+      },
+      {
+        type: 'fix',
+        text: 'MRR deixa de incluir bônus manual como se fosse assinatura Mercado Pago',
+      },
+    ],
+  },
+  {
     version: '2.3.334',
     date: '23/10/2026',
     highlights: [

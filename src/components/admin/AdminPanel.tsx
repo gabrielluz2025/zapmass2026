@@ -16,6 +16,10 @@ import {
 } from '../../constants/landingTrialLimits';
 import { resolveLandingTrialCopy } from '../../utils/landingTrialResolved';
 import { apiUrl } from '../../utils/apiBase';
+import {
+  billingKindLabelPt,
+  type SubscriptionBillingKind
+} from '../../../shared/subscriptionBillingKind';
 
 type AdminTab = 'config' | 'revenue' | 'access' | 'suggestions' | 'announcements';
 
@@ -58,6 +62,9 @@ type PlatformStats = {
     active: number;
     trialing: number;
     manualGrant: number;
+    mercadopagoActive: number;
+    manualBonus: number;
+    manualPaidExternal: number;
     blocked: number;
     none: number;
   };
@@ -65,7 +72,18 @@ type PlatformStats = {
   revenue: {
     priceMonthlyBrl: number;
     priceAnnualBrl: number;
+    estimatedMrrPaidBrl: number;
+    estimatedMrrCourtesyBrl: number;
+    estimatedMrrManualPaidBrl: number;
     estimatedMrrBrl: number;
+    activeMonthlyPlansPaid: number;
+    activeAnnualPlansPaid: number;
+    activeMonthlyPlansCourtesy: number;
+    activeAnnualPlansCourtesy: number;
+    activeMonthlyPlansManualPaid: number;
+    activeAnnualPlansManualPaid: number;
+    channelAddonSlotsPaid: number;
+    channelAddonSlotsCourtesy: number;
     activeMonthlyPlans: number;
     activeAnnualPlans: number;
     channelAddonSlots: number;
@@ -76,6 +94,7 @@ type PlatformStats = {
     createdAt: string | null;
     status: string;
     plan: string | null;
+    billingKind: SubscriptionBillingKind;
     connectionsConnected: number;
   }>;
 };
@@ -109,6 +128,25 @@ const statusBadgeVariant = (status: string, blocked: boolean): 'success' | 'warn
   if (s === 'active') return 'success';
   if (s === 'trialing') return 'info';
   return 'neutral';
+};
+
+const billingKindBadgeVariant = (
+  kind: SubscriptionBillingKind
+): 'success' | 'warning' | 'danger' | 'info' | 'neutral' => {
+  switch (kind) {
+    case 'mercadopago':
+      return 'success';
+    case 'manual_paid':
+      return 'warning';
+    case 'manual_bonus':
+      return 'info';
+    case 'trial':
+      return 'info';
+    case 'blocked':
+      return 'danger';
+    default:
+      return 'neutral';
+  }
 };
 
 export const AdminPanel: React.FC = () => {
@@ -384,7 +422,7 @@ export const AdminPanel: React.FC = () => {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <SectionHeader
               title="Ganhos e crescimento"
-              description="MRR estimado com base nos planos ativos no Mercado Pago, cadastros recentes e canais WhatsApp conectados na plataforma."
+              description="MRR pago reflete só assinaturas Mercado Pago. Cortesias manuais aparecem à parte; liberações cobradas fora do MP entram como estimativa manual."
             />
             <Button
               variant="secondary"
@@ -410,34 +448,43 @@ export const AdminPanel: React.FC = () => {
             </div>
           ) : platformStats ? (
             <>
-              <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="grid sm:grid-cols-2 xl:grid-cols-5 gap-3">
                 <StatCard
-                  label="MRR estimado"
-                  value={formatBrl(platformStats.revenue.estimatedMrrBrl)}
+                  label="MRR pago (MP)"
+                  value={formatBrl(
+                    platformStats.revenue.estimatedMrrPaidBrl ?? platformStats.revenue.estimatedMrrBrl
+                  )}
                   icon={<CircleDollarSign className="w-4 h-4 text-emerald-600" />}
-                  helper={`${platformStats.revenue.activeMonthlyPlans} mensais · ${platformStats.revenue.activeAnnualPlans} anuais`}
-                  accent="default"
+                  helper={`${platformStats.revenue.activeMonthlyPlansPaid ?? platformStats.revenue.activeMonthlyPlans} mensais · ${platformStats.revenue.activeAnnualPlansPaid ?? platformStats.revenue.activeAnnualPlans} anuais · ${platformStats.subscriptions.mercadopagoActive ?? '—'} ativas MP`}
+                  accent="success"
+                />
+                <StatCard
+                  label="MRR cortesia (ref.)"
+                  value={formatBrl(platformStats.revenue.estimatedMrrCourtesyBrl)}
+                  icon={<Sparkles className="w-4 h-4 text-sky-600" />}
+                  helper={`${platformStats.subscriptions.manualBonus} bônus · não faturado no MP`}
+                  accent="info"
+                />
+                <StatCard
+                  label="MRR manual cobrado (est.)"
+                  value={formatBrl(platformStats.revenue.estimatedMrrManualPaidBrl)}
+                  icon={<TrendingUp className="w-4 h-4 text-amber-600" />}
+                  helper={`${platformStats.subscriptions.manualPaidExternal} contas · fora do MP`}
+                  accent="warning"
                 />
                 <StatCard
                   label="Contas na plataforma"
                   value={platformStats.users.total}
                   icon={<Users className="w-4 h-4 text-sky-600" />}
                   helper={`+${platformStats.users.newLast7Days} (7d) · +${platformStats.users.newLast30Days} (30d)`}
-                  accent="info"
-                />
-                <StatCard
-                  label="Assinaturas ativas"
-                  value={platformStats.subscriptions.active}
-                  icon={<CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                  helper={`${platformStats.subscriptions.trialing} em trial · ${platformStats.subscriptions.manualGrant} manual`}
                   accent="default"
                 />
                 <StatCard
                   label="Canais conectados"
                   value={platformStats.connections.connected}
                   icon={<Smartphone className="w-4 h-4 text-cyan-600" />}
-                  helper={`${platformStats.connections.tenantsWithConnection} contas com WhatsApp · ${platformStats.connections.total} total`}
-                  accent="warning"
+                  helper={`${platformStats.connections.tenantsWithConnection} contas · ${platformStats.connections.total} total`}
+                  accent="default"
                 />
               </div>
 
@@ -459,10 +506,16 @@ export const AdminPanel: React.FC = () => {
                       </span>
                     </p>
                     <p>
-                      Add-ons de canal pagos: <strong>{platformStats.revenue.channelAddonSlots}</strong> slot(s)
+                      Add-ons MP: <strong>{platformStats.revenue.channelAddonSlotsPaid}</strong> slot(s)
+                      {platformStats.revenue.channelAddonSlotsCourtesy > 0 ? (
+                        <>
+                          {' '}
+                          · cortesia: <strong>{platformStats.revenue.channelAddonSlotsCourtesy}</strong>
+                        </>
+                      ) : null}
                     </p>
                     <p className="text-xs pt-2" style={{ color: 'var(--text-3)' }}>
-                      Atualizado em {toPtDateTime(platformStats.generatedAt)}. O MRR é estimativa — confira também o painel do Mercado Pago.
+                      Atualizado em {toPtDateTime(platformStats.generatedAt)}. MRR pago = Mercado Pago; valores de cortesia são referência (preço de tabela).
                     </p>
                   </div>
                 </Card>
@@ -472,11 +525,13 @@ export const AdminPanel: React.FC = () => {
                     subtitle="Distribuição de status em todas as contas."
                     icon={<BarChart3 className="w-4 h-4 text-sky-600" />}
                   />
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
                     {[
-                      ['Ativas', platformStats.subscriptions.active],
+                      ['Ativas MP', platformStats.subscriptions.mercadopagoActive],
+                      ['Manual cobrado', platformStats.subscriptions.manualPaidExternal],
+                      ['Manual bônus', platformStats.subscriptions.manualBonus],
                       ['Trial', platformStats.subscriptions.trialing],
-                      ['Manual', platformStats.subscriptions.manualGrant],
+                      ['Status ativo (doc)', platformStats.subscriptions.active],
                       ['Bloqueadas', platformStats.subscriptions.blocked],
                       ['Sem plano', platformStats.subscriptions.none]
                     ].map(([label, count]) => (
@@ -500,7 +555,7 @@ export const AdminPanel: React.FC = () => {
               <Card>
                 <CardHeader
                   title="Cadastros recentes"
-                  subtitle="—altimas 25 contas criadas — com plano e canais conectados."
+                  subtitle="Últimas 25 contas — origem de acesso (MP, bônus ou manual cobrado) e canais conectados."
                   icon={<Users className="w-4 h-4 text-emerald-600" />}
                 />
                 {platformStats.recentSignups.length === 0 ? (
@@ -512,6 +567,7 @@ export const AdminPanel: React.FC = () => {
                         <tr className="border-b" style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-3)' }}>
                           <th className="py-2 pr-3 font-semibold">E-mail</th>
                           <th className="py-2 pr-3 font-semibold">Cadastro</th>
+                          <th className="py-2 pr-3 font-semibold">Acesso</th>
                           <th className="py-2 pr-3 font-semibold">Plano</th>
                           <th className="py-2 pr-3 font-semibold">Canais</th>
                           <th className="py-2 font-semibold">UID</th>
@@ -531,11 +587,18 @@ export const AdminPanel: React.FC = () => {
                               {toPtDateTime(row.createdAt)}
                             </td>
                             <td className="py-2.5 pr-3">
+                              <Badge variant={billingKindBadgeVariant(row.billingKind)}>
+                                {billingKindLabelPt(row.billingKind)}
+                              </Badge>
+                            </td>
+                            <td className="py-2.5 pr-3">
                               <Badge variant={statusBadgeVariant(row.status, false)}>
                                 {row.status === 'active'
                                   ? row.plan === 'annual'
                                     ? 'Anual'
-                                    : 'Mensal'
+                                    : row.plan === 'monthly'
+                                      ? 'Mensal'
+                                      : 'Ativo'
                                   : row.status === 'trialing'
                                     ? 'Trial'
                                     : row.status === 'none'

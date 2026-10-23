@@ -268,6 +268,8 @@ export const AdminAccessTab: React.FC = () => {
   const [grantEmail, setGrantEmail] = useState('');
   const [grantDays, setGrantDays] = useState('30');
   const [grantNote, setGrantNote] = useState('');
+  const [grantBillingKind, setGrantBillingKind] = useState<'bonus' | 'paid_external'>('bonus');
+  const [grantPlan, setGrantPlan] = useState<'monthly' | 'annual' | ''>('');
   const [grantPassword, setGrantPassword] = useState('');
   const [channelGrantSlots, setChannelGrantSlots] = useState('1');
   const [channelGrantDays, setChannelGrantDays] = useState('30');
@@ -391,6 +393,8 @@ export const AdminAccessTab: React.FC = () => {
       includedChannels?: number | null;
       newPassword?: string;
       adminNote?: string;
+      manualGrantKind?: 'bonus' | 'paid_external';
+      plan?: 'monthly' | 'annual' | null;
     }
   ) => {
     const data = await apiFetchJson<{ ok: boolean; user?: AccessUser; error?: string }>('/api/admin/access-user', {
@@ -575,7 +579,9 @@ export const AdminAccessTab: React.FC = () => {
         manualGrant: true,
         grantDays: days > 0 ? days : null,
         includedChannels: channels,
-        adminNote: grantNote.trim()
+        adminNote: grantNote.trim(),
+        manualGrantKind: grantBillingKind,
+        plan: grantBillingKind === 'paid_external' && grantPlan ? grantPlan : null
       });
       setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
       selectUser(updated);
@@ -844,6 +850,18 @@ export const AdminAccessTab: React.FC = () => {
           />
           {grantModalStep === 'access' ? (
             <div className="space-y-4">
+              <div>
+                <FieldLabel htmlFor="grant-billing-kind">Tipo de liberação</FieldLabel>
+                <select
+                  id="grant-billing-kind"
+                  className="ui-input mt-1.5"
+                  value={grantBillingKind}
+                  onChange={(e) => setGrantBillingKind(e.target.value === 'paid_external' ? 'paid_external' : 'bonus')}
+                >
+                  <option value="bonus">Cortesia / bônus (não entra no MRR pago)</option>
+                  <option value="paid_external">Cobrado fora do MP (PIX, transferência…)</option>
+                </select>
+              </div>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
                   <FieldLabel htmlFor="grant-days">Dias de acesso manual</FieldLabel>
@@ -871,6 +889,26 @@ export const AdminAccessTab: React.FC = () => {
                   />
                 </div>
               </div>
+              {grantBillingKind === 'paid_external' ? (
+                <div>
+                  <FieldLabel htmlFor="grant-plan" hint="Usado na estimativa de MRR manual cobrado no painel Ganhos.">
+                    Plano comercial
+                  </FieldLabel>
+                  <select
+                    id="grant-plan"
+                    className="ui-input mt-1.5"
+                    value={grantPlan}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setGrantPlan(v === 'monthly' || v === 'annual' ? v : '');
+                    }}
+                  >
+                    <option value="">Sem plano definido</option>
+                    <option value="monthly">Mensal</option>
+                    <option value="annual">Anual</option>
+                  </select>
+                </div>
+              ) : null}
               <div>
                 <FieldLabel htmlFor="grant-note">Nota de auditoria</FieldLabel>
                 <textarea

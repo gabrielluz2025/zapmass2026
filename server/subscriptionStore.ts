@@ -39,6 +39,8 @@ export interface UserSubscriptionDoc {
   manualExtraChannelSlots?: number;
   manualExtraChannelSlotsEndsAt?: Timestamp | string | null;
   manualGrant?: boolean;
+  /** Admin: cortesia vs cobrado fora do MP (painel Ganhos). */
+  manualGrantKind?: 'bonus' | 'paid_external';
   freeTrialUsed?: boolean;
   adminNewClientNotifiedAt?: Timestamp | string | null;
   nfeLastInvoiceId?: string;

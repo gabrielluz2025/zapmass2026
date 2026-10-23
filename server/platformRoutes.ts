@@ -20,7 +20,10 @@ const SUBSCRIPTION_INTERNAL_FIELDS = [
   'adminNewClientNotifiedAt',
   'mercadoPagoProcessedPaymentIds',
   'mercadoPagoPreapprovalActivatedId',
-  'mercadoPagoPreapprovalBridgePending'
+  'mercadoPagoPreapprovalBridgePending',
+  'manualGrantKind',
+  'manualGrantedAt',
+  'manualGrantedBy'
 ] as const;
 
 /** Funcionário só precisa do estado de acesso do dono (sem dados de cobrança). */

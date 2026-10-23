@@ -7,6 +7,14 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.335] - 2026-10-23
+
+### Melhorado
+- **Painel do criador — Ganhos:** MRR pago separado de cortesia e de liberações manuais cobradas fora do MP; KPIs e resumo (MP / manual cobrado / bônus / trial); badges nos cadastros recentes; tipo de liberação na modal «Nova liberação» (`manualGrantKind` + plano opcional).
+
+### Corrigido
+- **MRR:** deixa de contar cortesias manuais como receita MP (antes plano `null` caía como mensal); add-ons manuais só entram na referência de cortesia.
+
 ## [2.3.334] - 2026-10-23
 
 ### Corrigido
