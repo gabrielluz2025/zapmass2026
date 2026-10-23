@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.321] - 2026-10-23
+
+### Melhorado
+- **Checkout Mercado Pago:** `/api/billing/mercadopago/status` e `/api/health` expõem `issue`/`mercadopagoCheckoutIssue` (token ausente vs rejeitado vs URL/back_url); respostas 503 de checkout incluem `mpIssue` para admin; banner e toast em Minha assinatura com dica VPS (`docs/MERCADOPAGO-VPS.md`).
+
 ## [2.3.320] - 2026-10-20
 
 ### Melhorado

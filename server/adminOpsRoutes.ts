@@ -9,6 +9,7 @@ import * as waService from './whatsappService.js';
 import { getChannelCapacityHeuristic, buildAlerts, type AdminOpsAlert } from './opsHealth.js';
 import { pingFirebaseAdmin } from './firebaseAdminProbe.js';
 import { getMercadoPagoHealthCached } from './mercadoPagoAccess.js';
+import { classifyMercadoPagoHealth } from '../shared/mercadoPagoErrors.js';
 import { buildVpsMaintenancePayload } from './vpsMaintenance.js';
 
 const HISTORY_MAX = 288;
@@ -105,7 +106,8 @@ export async function buildAdminOpsSnapshotPayload() {
         source: mp.source ?? null,
         prefix: mp.prefix ?? null,
         userId: mp.userId ?? null,
-        error: mp.error ?? null
+        error: mp.error ?? null,
+        issue: classifyMercadoPagoHealth(mp)
       },
       alerts,
       history: opsHistory.map((p) => ({ ...p })),

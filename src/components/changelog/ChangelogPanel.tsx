@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.321',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Mercado Pago: diagnóstico token_missing vs token_invalid no status/health; banner admin em Minha assinatura',
+      },
+    ],
+  },
+  {
     version: '2.3.320',
     date: '20/10/2026',
     highlights: [

@@ -1,5 +1,6 @@
 import { PROJECT_ROOT } from './bootstrapEnv.js';
 import { getMercadoPagoHealthCached, isMercadoPagoAccessTokenConfigured, verifyMercadoPagoAccessTokenLive } from './mercadoPagoAccess.js';
+import { classifyMercadoPagoHealth } from '../shared/mercadoPagoErrors.js';
 
 import express, { type Request } from 'express';
 import { createServer } from 'http';
@@ -509,6 +510,7 @@ app.get('/api/health', async (_req, res) => {
     mercadopagoCheckoutAvailable: mp?.valid ?? false,
     mercadopagoCheckoutVerified: mp != null,
     mercadopagoMode: mp?.mode ?? null,
+    mercadopagoCheckoutIssue: mp != null ? classifyMercadoPagoHealth(mp) : null,
     mercadopagoWebhookSecretConfigured: Boolean(process.env.MERCADOPAGO_WEBHOOK_SECRET?.trim()),
     subscriptionEnforced: subscriptionEnforceFromEnv(),
     emailConfigured: Boolean(process.env.RESEND_API_KEY?.trim())

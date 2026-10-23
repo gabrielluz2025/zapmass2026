@@ -11,6 +11,7 @@ import {
   verifyMercadoPagoAccessTokenLive
 } from './mercadoPagoAccess.js';
 import { billingRouteErrorPayload, MercadoPagoApiError, throwIfMercadoPagoHttpError } from './mercadoPagoApiError.js';
+import { classifyMercadoPagoHealth } from '../shared/mercadoPagoErrors.js';
 import { assertMercadoPagoBackUrlForCheckout } from './mercadoPagoBackUrl.js';
 import {
   CHANNEL_TIER_PRICES_ANNUAL,
@@ -541,11 +542,13 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
   app.get('/api/billing/mercadopago/status', async (_req: Request, res: Response) => {
     try {
       const health = await verifyMercadoPagoAccessTokenLive();
+      const issue = classifyMercadoPagoHealth(health);
       return res.json({
         ok: health.valid,
         checkoutAvailable: health.valid,
         configured: health.configured,
-        mode: health.mode ?? null
+        mode: health.mode ?? null,
+        issue
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -641,8 +644,8 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
       } else {
         console.error('[billing/mercadopago/start]', e instanceof Error ? e.message : String(e));
       }
-      const { status, error } = billingRouteErrorPayload(e);
-      return res.status(status).json({ ok: false, error });
+      const { status, error, mpIssue } = billingRouteErrorPayload(e);
+      return res.status(status).json({ ok: false, error, ...(mpIssue ? { mpIssue } : {}) });
     }
   });
 
@@ -731,8 +734,8 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
       } else {
         console.error('[billing/mercadopago/channel-plan]', e instanceof Error ? e.message : String(e));
       }
-      const { status, error } = billingRouteErrorPayload(e);
-      return res.status(status).json({ ok: false, error });
+      const { status, error, mpIssue } = billingRouteErrorPayload(e);
+      return res.status(status).json({ ok: false, error, ...(mpIssue ? { mpIssue } : {}) });
     }
   });
 

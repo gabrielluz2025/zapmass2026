@@ -33,7 +33,11 @@ import {
 import { PageShell, CollapsibleSection, Badge, StatTile, CompactPageHeader, Button } from '../ui';
 import type { UserSubscription } from '../../types';
 import { apiUrl } from '../../utils/apiBase';
-import { formatMercadoPagoCheckoutError } from '../../utils/mercadopagoCheckoutError';
+import {
+  formatMercadoPagoCheckoutError,
+  mercadoPagoAdminSetupHint,
+  type MpCheckoutIssue
+} from '../../utils/mercadopagoCheckoutError';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
 
 type Plan = 'monthly' | 'annual';
@@ -181,14 +185,21 @@ export const MySubscriptionTab: React.FC = () => {
     annual: string;
   } | null>(null);
   const [mpCheckoutAvailable, setMpCheckoutAvailable] = useState<boolean | null>(null);
+  const [mpCheckoutIssue, setMpCheckoutIssue] = useState<MpCheckoutIssue | null>(null);
   const isPlatformAdmin = isPlatformAdminUser(user);
   useEffect(() => {
     let alive = true;
     fetch(apiUrl('/api/billing/mercadopago/status'))
       .then((r) => r.json().catch(() => ({})))
-      .then((data: { checkoutAvailable?: boolean; configured?: boolean }) => {
+      .then(
+        (data: {
+          checkoutAvailable?: boolean;
+          configured?: boolean;
+          issue?: MpCheckoutIssue | null;
+        }) => {
         if (!alive) return;
         setMpCheckoutAvailable(Boolean(data.checkoutAvailable ?? data.configured));
+        setMpCheckoutIssue(data.issue ?? null);
       })
       .catch(() => {
         if (alive) setMpCheckoutAvailable(null);
@@ -268,7 +279,14 @@ export const MySubscriptionTab: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        toast.error(formatMercadoPagoCheckoutError(typeof data?.error === 'string' ? data.error : undefined));
+        const errText = formatMercadoPagoCheckoutError(typeof data?.error === 'string' ? data.error : undefined);
+        if (isPlatformAdmin && typeof data?.mpIssue === 'string') {
+          toast.error(`${errText}\n\nAdmin: ${mercadoPagoAdminSetupHint(data.mpIssue as MpCheckoutIssue)}`, {
+            duration: 9000
+          });
+        } else {
+          toast.error(errText);
+        }
         return;
       }
       if (data.init_point) {
@@ -349,7 +367,14 @@ export const MySubscriptionTab: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        toast.error(formatMercadoPagoCheckoutError(typeof data?.error === 'string' ? data.error : undefined));
+        const errText = formatMercadoPagoCheckoutError(typeof data?.error === 'string' ? data.error : undefined);
+        if (isPlatformAdmin && typeof data?.mpIssue === 'string') {
+          toast.error(`${errText}\n\nAdmin: ${mercadoPagoAdminSetupHint(data.mpIssue as MpCheckoutIssue)}`, {
+            duration: 9000
+          });
+        } else {
+          toast.error(errText);
+        }
         return;
       }
       if (data.init_point) {
@@ -484,13 +509,18 @@ export const MySubscriptionTab: React.FC = () => {
           <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
           <div style={{ color: 'var(--text-2)' }}>
             <p className="ui-title text-[14px]" style={{ color: 'var(--text-1)' }}>
-              Mercado Pago não configurado no servidor
+              {mpCheckoutIssue === 'token_invalid' || mpCheckoutIssue === 'token_malformed'
+                ? 'Mercado Pago: credencial rejeitada ou inválida'
+                : mpCheckoutIssue === 'back_url'
+                  ? 'Mercado Pago: URL pública do checkout ausente'
+                  : 'Mercado Pago não disponível no servidor'}
             </p>
-            <p className="mt-1 leading-relaxed">
-              Os clientes não conseguem pagar até definir <code className="text-[12px]">MERCADOPAGO_ACCESS_TOKEN</code>{' '}
-              e a URL pública do webhook na VPS. Rode{' '}
-              <code className="text-[12px]">bash deployment/vps-check-env.sh</code> e consulte{' '}
-              <code className="text-[12px]">docs/PRE-LANCAMENTO-AUDITORIA.md</code>.
+            <p className="mt-1 leading-relaxed">{mercadoPagoAdminSetupHint(mpCheckoutIssue)}</p>
+            <p className="mt-2 ui-caption">
+              Valide:{' '}
+              <code className="text-[12px]">curl -sS https://zap-mass.com/api/billing/mercadopago/status</code> ·{' '}
+              <code className="text-[12px]">bash deployment/vps-check-env.sh</code> ·{' '}
+              <code className="text-[12px]">docs/MERCADOPAGO-VPS.md</code>
             </p>
           </div>
         </div>

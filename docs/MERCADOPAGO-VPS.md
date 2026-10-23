@@ -9,7 +9,8 @@ Depois de configurar e reiniciar o stack:
 
 ```bash
 curl -sS https://zap-mass.com/api/billing/mercadopago/status
-# {"ok":true,"checkoutAvailable":true,"configured":true,"mode":"production"}
+# {"ok":true,"checkoutAvailable":true,"configured":true,"mode":"production","issue":null}
+# issue quando falha: token_missing | token_invalid | token_malformed | back_url | mp_unreachable
 
 curl -sS https://zap-mass.com/api/health | jq .
 # mercadopagoConfigured: true
