@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.352',
+    date: '23/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Assistente passo Mensagem: tooltips, checklist com progresso, limite WhatsApp 4.096 e validação ao avançar',
+      },
+    ],
+  },
+  {
     version: '2.3.351',
     date: '23/10/2026',
     highlights: [

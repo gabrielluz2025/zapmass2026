@@ -1,6 +1,7 @@
 import React from 'react';
 import { FileSpreadsheet, Loader2, Sparkles } from 'lucide-react';
-import { Button } from '../ui';
+import { Button, ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 import type { CampaignMediaPayload } from '../../utils/campaignMediaLibrary';
 
 export type CampaignAttachmentState = {
@@ -43,8 +44,9 @@ export const CampaignAttachmentBlock: React.FC<Props> = ({
     >
       <div className="flex items-center justify-between gap-2 mb-2">
         <div>
-          <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
+          <p className="text-[12px] font-semibold inline-flex items-center gap-1.5" style={{ color: 'var(--text-1)' }}>
             Anexo {compact ? '(opcional)' : 'da campanha'}
+            <ZmFieldHelp content={FIELD_HELP.campaignMessageAttachment} ariaLabel="Ajuda: anexo da mensagem" />
           </p>
           <p className="text-[10.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
             Foto, vídeo ou arquivo na 1ª mensagem. O texto acima vira legenda.

@@ -46,7 +46,13 @@ export const CampaignMessageVariableChips: React.FC<Props> = ({
           onClick={() => setExpanded((e) => !e)}
           aria-expanded={expanded}
         >
-          <span>Personalizar com variáveis ({WIZARD_CAMPAIGN_VARS_PRIMARY.length + fichaVars.length})</span>
+          <span className="inline-flex items-center gap-1.5 min-w-0">
+            Personalizar com variáveis ({WIZARD_CAMPAIGN_VARS_PRIMARY.length + fichaVars.length})
+            <ZmFieldHelp
+              content={FIELD_HELP.campaignMessageVariables}
+              ariaLabel="Ajuda: variáveis da mensagem"
+            />
+          </span>
           <ChevronDown
             className="w-4 h-4 shrink-0 transition-transform"
             style={{ transform: expanded ? 'rotate(180deg)' : undefined }}
@@ -55,7 +61,7 @@ export const CampaignMessageVariableChips: React.FC<Props> = ({
       ) : (
         <p className="cw-vars-group-label inline-flex items-center gap-1.5">
           Variáveis rápidas
-          <ZmFieldHelp content={FIELD_HELP.spinTrax} ariaLabel="Ajuda: variáveis e SpinTrax" />
+          <ZmFieldHelp content={FIELD_HELP.campaignMessageVariables} ariaLabel="Ajuda: variáveis da mensagem" />
         </p>
       )}
       <div className="cw-vars-body">

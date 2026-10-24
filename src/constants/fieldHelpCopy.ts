@@ -33,6 +33,20 @@ export const FIELD_HELP = {
     'Varre a base inteira (exceto opt-out): quem responde entra no plano de follow-up; quem fica em silêncio recebe lembretes semanais automáticos.',
   campaignWizardName:
     'Nome interno só para você achar a campanha depois — contatos não veem. Ex.: «Promoção VIP — março».',
+  campaignWizardMessage:
+    'Texto que o contato recebe no WhatsApp. Use modelos rápidos, variáveis como {nome} e, se quiser, anexo na 1ª mensagem.',
+  campaignFlowModePicker:
+    'Disparo único = uma mensagem para todos. Fluxo por respostas = abertura + respostas automáticas conforme o que a pessoa mandar.',
+  campaignFlowSingle:
+    'Ideal para avisos, convites, lembretes e promoções: o mesmo texto vai para cada contato da lista, de uma vez.',
+  campaignFlowReply:
+    'Ideal para funis, opt-in e menus (1, 2, 3): você envia a abertura e o sistema responde sozinho quando o contato interage.',
+  campaignMessageTemplates:
+    'Modelos prontos preenchem o editor com um clique — você pode editar antes de disparar. Não substituem modelos salvos na biblioteca.',
+  campaignMessageVariables:
+    'Variáveis como {nome} e {cidade} são trocadas pelos dados do contato no envio. Se o campo estiver vazio no cadastro, a variável sai em branco.',
+  campaignMessageAttachment:
+    'Imagem, vídeo ou PDF na 1ª mensagem — o texto vira legenda. Só em disparo imediato (sem agendamento). Tamanho máximo conforme limite do WhatsApp.',
   campaignWizardReview:
     'Última checagem antes do disparo: público, mensagem, chips e horário. Use o teste rápido para enviar ao seu número.',
   campaignSchedule:

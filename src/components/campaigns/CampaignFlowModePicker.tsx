@@ -17,6 +17,7 @@ const VISIBLE_MODES: Array<{
   id: Exclude<CampaignFlowMode, 'sequential'>;
   title: string;
   desc: string;
+  help: string;
   icon: React.ReactNode;
   accent: string;
   recommended?: boolean;
@@ -25,6 +26,7 @@ const VISIBLE_MODES: Array<{
     id: 'single',
     title: 'Disparo único',
     desc: 'Uma mensagem para cada contato — avisos, convites e promoções.',
+    help: FIELD_HELP.campaignFlowSingle,
     icon: <MessageSquare className="w-5 h-5" />,
     accent: '#10b981',
     recommended: true,
@@ -33,6 +35,7 @@ const VISIBLE_MODES: Array<{
     id: 'reply',
     title: 'Fluxo por respostas',
     desc: 'Mensagem de abertura + regras automáticas: direcione o contato conforme o que ele responder.',
+    help: FIELD_HELP.campaignFlowReply,
     icon: <GitBranch className="w-5 h-5" />,
     accent: '#6366f1',
   },
@@ -50,7 +53,7 @@ export const CampaignFlowModePicker: React.FC<Props> = ({ mode, onChange, hidden
         <Zap className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />
         <p className="cw-msg-section-title mb-0 inline-flex items-center gap-1.5">
           Tipo de campanha
-          <ZmFieldHelp content={FIELD_HELP.replyFlow} ariaLabel="Ajuda: tipo de campanha" />
+          <ZmFieldHelp content={FIELD_HELP.campaignFlowModePicker} ariaLabel="Ajuda: tipo de campanha" />
         </p>
       </div>
       <div className="cw-flow-pick-grid" role="group" aria-label="Tipo de campanha">
@@ -83,8 +86,9 @@ export const CampaignFlowModePicker: React.FC<Props> = ({ mode, onChange, hidden
               </div>
               <div className="min-w-0 flex-1 text-left">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
+                  <span className="text-[14px] font-bold inline-flex items-center gap-1" style={{ color: 'var(--text-1)' }}>
                     {m.title}
+                    <ZmFieldHelp content={m.help} ariaLabel={`Ajuda: ${m.title}`} />
                   </span>
                   {m.recommended && <span className="cw-flow-badge cw-flow-badge--recommended">Mais usado</span>}
                 </div>

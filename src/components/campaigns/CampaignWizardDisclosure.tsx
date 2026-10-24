@@ -4,6 +4,8 @@ import { ChevronDown, Settings2 } from 'lucide-react';
 type Props = {
   title?: string;
   summary?: string;
+  /** Ícone de ajuda ao lado do título (ex.: ZmFieldHelp). */
+  titleAddon?: React.ReactNode;
   open: boolean;
   onToggle: () => void;
   children: React.ReactNode;
@@ -13,6 +15,7 @@ type Props = {
 export const CampaignWizardDisclosure: React.FC<Props> = ({
   title = 'Opções avançadas',
   summary = 'Pools de chips, pesos, envio fracionado e variações de texto',
+  titleAddon,
   open,
   onToggle,
   children,
@@ -31,8 +34,9 @@ export const CampaignWizardDisclosure: React.FC<Props> = ({
         <Settings2 className="w-4 h-4 text-violet-400" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-bold" style={{ color: 'var(--text-1)' }}>
+        <p className="text-[13px] font-bold inline-flex items-center gap-1.5 flex-wrap" style={{ color: 'var(--text-1)' }}>
           {title}
+          {titleAddon}
         </p>
         <p className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--text-3)' }}>
           {summary}

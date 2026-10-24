@@ -65,7 +65,7 @@ import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { CampaignReplyFlowEditor } from './CampaignReplyFlowEditor';
 import { CampaignFlowModePicker, type CampaignFlowMode } from './CampaignFlowModePicker';
 import { CampaignProspectingSetup } from './CampaignProspectingSetup';
-import { CampaignSingleMessageEditor } from './CampaignSingleMessageEditor';
+import { CampaignSingleMessageEditor, WA_MESSAGE_CHAR_LIMIT } from './CampaignSingleMessageEditor';
 import { CampaignPreflightEstimate } from './CampaignPreflightEstimate';
 import { CampaignMessageSetupProgress } from './CampaignMessageSetupProgress';
 import { createLibraryItem } from '../../services/campaignLibraryApi';
@@ -1592,11 +1592,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       : messageStages[0]?.optionsMode === 'conditional'
       ? messageStages.length >= 1
       : messageStages.length >= 2;
+  const messageBodiesWithinWaLimit = messageStages.every((s) => s.body.length <= WA_MESSAGE_CHAR_LIMIT);
   const canGoFromMessage =
     flowModeChosen &&
     name.trim().length > 0 &&
     messageStages.length > 0 &&
     messageStages.every((s) => s.body.trim().length > 0) &&
+    messageBodiesWithinWaLimit &&
     replyFlowGatesOk &&
     stageCountOk &&
     (campaignKind !== 'prospecting' ||
@@ -1688,6 +1690,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     if (!name.trim()) return 'Dê um nome à campanha (só você vê) para organizar na lista depois.';
     if (messageStages.some((s) => !s.body.trim())) {
       return 'Escreva o texto de cada etapa da mensagem antes de avançar.';
+    }
+    if (!messageBodiesWithinWaLimit) {
+      return 'Encurte o texto — o WhatsApp limita a 4.096 caracteres por mensagem.';
     }
     if (!replyFlowGatesOk) {
       return 'No fluxo por respostas, preencha gatilhos, respostas automáticas e mensagem para resposta inválida.';
@@ -3095,7 +3100,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 <div>
                   <h3 className="ui-title text-[15px] mb-0.5 flex items-center gap-1.5">
                     Qual a mensagem?
-                    <ZmFieldHelp content={FIELD_HELP.campaignAudience} ariaLabel="Ajuda: etapa mensagem" />
+                    <ZmFieldHelp content={FIELD_HELP.campaignWizardMessage} ariaLabel="Ajuda: etapa mensagem" />
                   </h3>
                   <p className="ui-subtitle text-[12px]">{messageStepHint}</p>
                 </div>
@@ -3309,6 +3314,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <CampaignWizardDisclosure
                     title="Opções avançadas de texto"
                     summary="Variações automáticas (SpinTrax) e dicas de personalização"
+                    titleAddon={<ZmFieldHelp content={FIELD_HELP.spinTrax} ariaLabel="Ajuda: SpinTrax" />}
                     open={messageAdvancedOpen}
                     onToggle={() => setMessageAdvancedOpen((v) => !v)}
                   >
@@ -3318,7 +3324,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         {'{Olá|Oi|E aí}'}
                       </code>{' '}
                       para cada contato receber uma variação diferente — reduz padrão repetitivo.
-                      <ZmFieldHelp content={FIELD_HELP.spinTrax} ariaLabel="Ajuda: SpinTrax" />
                     </p>
                     <p className="text-[11px] mt-2" style={{ color: 'var(--text-3)' }}>
                       Insira variáveis pelos chips acima do editor (<strong>nome</strong>, cidade, etc.) ou cole blocos

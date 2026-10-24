@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Circle } from 'lucide-react';
+import { CheckCircle2, Circle, PartyPopper } from 'lucide-react';
 
 export type SetupProgressItem = {
   id: string;
@@ -16,19 +16,28 @@ type Props = {
 export const CampaignMessageSetupProgress: React.FC<Props> = ({ items }) => {
   const doneCount = items.filter((i) => i.done).length;
   const pct = items.length ? Math.round((doneCount / items.length) * 100) : 0;
+  const complete = items.length > 0 && doneCount === items.length;
 
   return (
-    <div className="cw-setup-progress">
+    <div className="cw-setup-progress" data-complete={complete ? 'true' : 'false'}>
+      {complete ? (
+        <div className="cw-setup-progress__celebrate" role="status">
+          <PartyPopper className="w-4 h-4 shrink-0" aria-hidden />
+          <span>
+            <strong>Checklist completo!</strong> Revise a prévia ao lado e avance para escolher os chips de envio.
+          </span>
+        </div>
+      ) : null}
       <div className="cw-setup-progress__head">
         <div>
           <p className="cw-setup-progress__title">Checklist da mensagem</p>
           <p className="cw-setup-progress__sub">
-            {doneCount === items.length
-              ? 'Tudo pronto — pode avançar para os chips.'
-              : `${items.length - doneCount} item${items.length - doneCount !== 1 ? 'ns' : ''} pendente${items.length - doneCount !== 1 ? 's' : ''}`}
+            {complete
+              ? 'Obrigatórios concluídos — anexo continua opcional.'
+              : `${items.length - doneCount} pendência${items.length - doneCount !== 1 ? 's' : ''} antes de avançar`}
           </p>
         </div>
-        <span className="cw-setup-progress__pct" data-complete={doneCount === items.length ? 'true' : 'false'}>
+        <span className="cw-setup-progress__pct" data-complete={complete ? 'true' : 'false'}>
           {pct}%
         </span>
       </div>

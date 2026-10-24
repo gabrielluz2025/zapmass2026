@@ -1256,6 +1256,29 @@
   background: linear-gradient(135deg, var(--surface-1) 0%, var(--surface-0) 100%);
 }
 
+.cw-setup-progress[data-complete='true'] {
+  border-color: rgba(16, 185, 129, 0.35);
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.08);
+}
+
+.cw-setup-progress__celebrate {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.75rem;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--text-2);
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+}
+
+.cw-setup-progress__celebrate strong {
+  color: #059669;
+}
+
 .cw-setup-progress__head {
   display: flex;
   align-items: flex-start;

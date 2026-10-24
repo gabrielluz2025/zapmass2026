@@ -6,6 +6,9 @@ import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { CampaignMessageQuickStarters } from './CampaignMessageQuickStarters';
 import { analyzeCampaignSpintax } from '../../../shared/campaignSpintax';
 
+/** Limite oficial de texto por mensagem no WhatsApp (caracteres). */
+export const WA_MESSAGE_CHAR_LIMIT = 4096;
+
 type Props = {
   body: string;
   onBodyChange: (body: string) => void;
@@ -32,6 +35,8 @@ export const CampaignSingleMessageEditor: React.FC<Props> = ({
 }) => {
   const charCount = body.length;
   const hasBody = body.trim().length > 0;
+  const overWaLimit = charCount > WA_MESSAGE_CHAR_LIMIT;
+  const warnWaLimit = charCount > WA_MESSAGE_CHAR_LIMIT * 0.85;
 
   const spintaxInfo = React.useMemo(() => analyzeCampaignSpintax(body), [body]);
 
@@ -63,15 +68,26 @@ export const CampaignSingleMessageEditor: React.FC<Props> = ({
               </p>
             </div>
           </div>
-          <span
-            className="text-[10px] font-semibold tabular-nums shrink-0 px-2 py-1 rounded-lg"
-            style={{
-              background: charCount > 900 ? 'rgba(245,158,11,0.12)' : 'var(--surface-2)',
-              color: charCount > 900 ? '#d97706' : 'var(--text-3)',
-            }}
-          >
-            {charCount} caracteres
-          </span>
+          <div className="text-right shrink-0">
+            <span
+              className="text-[10px] font-semibold tabular-nums px-2 py-1 rounded-lg inline-block"
+              style={{
+                background: overWaLimit
+                  ? 'rgba(239,68,68,0.12)'
+                  : warnWaLimit
+                    ? 'rgba(245,158,11,0.12)'
+                    : 'var(--surface-2)',
+                color: overWaLimit ? '#dc2626' : warnWaLimit ? '#d97706' : 'var(--text-3)',
+              }}
+            >
+              {charCount.toLocaleString('pt-BR')} / {WA_MESSAGE_CHAR_LIMIT.toLocaleString('pt-BR')}
+            </span>
+            <p className="text-[9.5px] mt-0.5 max-w-[11rem] leading-snug" style={{ color: 'var(--text-3)' }}>
+              {overWaLimit
+                ? 'Acima do limite do WhatsApp — encurte o texto.'
+                : 'WhatsApp: até 4.096 caracteres por mensagem.'}
+            </p>
+          </div>
         </div>
 
         <div className="p-4 space-y-3">

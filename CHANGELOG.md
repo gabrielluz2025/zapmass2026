@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.352] - 2026-10-23
+
+### Melhorado
+- **Campanhas — assistente passo Mensagem (v2.3.352):** ajuda (i) em tipo de campanha, modelos, variáveis e anexo; checklist com celebração ao concluir; contador 4.096 caracteres (WhatsApp) com aviso visual; bloqueio ao avançar se passar do limite; SpinTrax na aba avançada com ajuda no título.
+
 ## [2.3.351] - 2026-10-23
 
 ### Melhorado

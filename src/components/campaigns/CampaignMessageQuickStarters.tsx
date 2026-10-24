@@ -2,6 +2,8 @@ import React from 'react';
 import { Sparkles, Hand, Calendar, Bell, Tag, Church, ShoppingBag, Stethoscope, Home } from 'lucide-react';
 import { SEGMENT_MESSAGE_STARTERS } from '../../constants/segmentMessageStarters';
 import { useAppProfile } from '../../context/AppProfileContext';
+import { ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
 
 export type MessageQuickStarter = {
   id: string;
@@ -77,8 +79,9 @@ export const CampaignMessageQuickStarters: React.FC<Props> = ({ onPick, disabled
   <div className="cw-quick-starters">
     <div className="flex items-center gap-2 mb-2">
       <Sparkles className="w-3.5 h-3.5" style={{ color: 'var(--brand-500)' }} />
-      <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+      <p className="text-[11px] font-bold uppercase tracking-wider inline-flex items-center gap-1.5" style={{ color: 'var(--text-3)' }}>
         Começar com um modelo{segmentStarters.length ? ' (incl. seu segmento)' : ''}
+        <ZmFieldHelp content={FIELD_HELP.campaignMessageTemplates} ariaLabel="Ajuda: modelos rápidos" />
       </p>
     </div>
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -89,6 +92,7 @@ export const CampaignMessageQuickStarters: React.FC<Props> = ({ onPick, disabled
           disabled={disabled}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => onPick(s.body)}
+          title={`${s.label}: ${s.hint}`}
           className="cw-quick-starter-card text-left transition-all disabled:opacity-50"
           style={{ borderColor: `${s.accent}30` }}
         >
