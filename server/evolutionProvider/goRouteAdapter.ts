@@ -1,8 +1,5 @@
 import type { InternalAxiosRequestConfig } from 'axios';
-import {
-    evolutionEngineConfig,
-    isGoChatFindMessagesBootstrapEnabled,
-} from '../evolutionEngineConfig.js';
+import { evolutionEngineConfig } from '../evolutionEngineConfig.js';
 import { goPayloadLooksConnected } from '../evolutionOpenState.js';
 import { pickGoInstanceUuid } from './goUuid.js';
 
@@ -320,17 +317,7 @@ export function adaptEvolutionApiRequestToGo(
     }
 
     if (url.includes('/chat/findMessages/')) {
-        if (isGoChatFindMessagesBootstrapEnabled()) {
-            const goUuid = goUuidForConnection(tokenStore, instanceId!);
-            if (!goUuid) {
-                return {
-                    url,
-                    headers: instH,
-                    syntheticResponse: { status: 200, data: { messages: { records: [] } } },
-                };
-            }
-            return { url, data, headers: { ...instH, instanceId: goUuid } };
-        }
+        // Evolution Go não expõe POST /chat/findMessages — histórico via webhook/HistorySync/arquivo.
         return {
             url,
             headers: instH,

@@ -30,7 +30,7 @@ export function isGoWebhookInboxMode(): boolean {
     return isEvolutionGoEngine();
 }
 
-/** Tenta POST /chat/findMessages no Go (quando a build expõe o endpoint) para bootstrap de thread vazio. */
+/** Go: habilita bootstrap de thread vazio (arquivo + HistorySync automático ao abrir chat). Não chama HTTP findMessages. */
 export function isGoChatFindMessagesBootstrapEnabled(): boolean {
     if (!isEvolutionGoEngine()) return false;
     return !['0', 'false', 'no', 'off'].includes(

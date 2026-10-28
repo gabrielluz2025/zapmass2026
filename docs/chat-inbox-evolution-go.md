@@ -14,7 +14,7 @@ Variáveis ZapMass (opcional):
 - `GO_WEBHOOK_INBOX_STALE_HOURS` — horas sem evento de inbox antes de re-registrar webhook (padrão 6).
 - `GO_WEBHOOK_OPEN_GRACE_MINUTES` — grace após chip `open` sem exigir mensagem (padrão 45).
 - `GO_WEBHOOK_REPAIR_GRACE_MINUTES` — após reaplicar webhook, UI fica em “aguardando” (padrão 90) em vez de loop “reparando”.
-- `GO_BOOTSTRAP_CHAT_MESSAGES` — padrão `1`: ao abrir conversa vazia, tenta `findMessages` no Go e grava no arquivo.
+- `GO_BOOTSTRAP_CHAT_MESSAGES` — padrão `1`: ao abrir conversa vazia, reforça merge do arquivo Postgres e pode disparar **HistorySync** automático (não chama HTTP `findMessages` no Go).
 - **`ZAPMASS_WEBHOOK_URL`** — deve ser **alcançável pelo container Evolution** (Swarm: `http://api:3001/webhook/evolution`, não URL HTTPS pública se o Go não sair à internet).
 
 ### Checklist webhook (VPS)
@@ -33,7 +33,7 @@ Ao selecionar um chat, o ZapMass:
 
 1. Hidrata o arquivo (`hydrate-firestore-chat-archive`) com chaves `@lid`, telefone e `waJidAlt`.
 2. `load-chat-history` faz merge no servidor, une threads irmãs (@lid + telefone) e faz backfill por todas as chaves de thread.
-3. Se o arquivo estiver vazio, **bootstrap** opcional via `findMessages` no Go (`GO_BOOTSTRAP_CHAT_MESSAGES=1`).
+3. Se o arquivo estiver vazio, **bootstrap** opcional (`GO_BOOTSTRAP_CHAT_MESSAGES=1`): novo merge/backfill e pedido de **HistorySync** do celular — sem `findMessages` HTTP no Go.
 4. Só então empty state honesto; **“Sincronizar do celular”** dispara HistorySync — **modo proteção não bloqueia** sync manual (socket), só sync automático.
 
 ### Importação do celular (HistorySync) vs arquivo

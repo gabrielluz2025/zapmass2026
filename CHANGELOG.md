@@ -7,6 +7,12 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.365] - 2026-10-28
+
+### Corrigido
+- **Evolution Go**: `findMessages` no adapter sempre resposta sintética vazia (endpoint inexistente no Go); fim do spam 404 nos logs.
+- **Bate-papo Go**: histórico confia em arquivo Postgres + HistorySync; `GO_BOOTSTRAP_CHAT_MESSAGES` controla bootstrap/HistorySync automático, não HTTP.
+
 ## [2.3.364] - 2026-10-28
 
 ### Corrigido

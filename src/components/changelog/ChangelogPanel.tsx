@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.365',
+    date: '28/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Evolution Go: findMessages deixa de ir ao HTTP (404); histórico via arquivo + HistorySync; GO_BOOTSTRAP só bootstrap/sync',
+      },
+    ],
+  },
+  {
     version: '2.3.364',
     date: '28/10/2026',
     highlights: [

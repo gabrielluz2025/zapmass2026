@@ -123,23 +123,32 @@ describe('adaptEvolutionApiRequestToGo', () => {
         expect(r.syntheticResponse).toBeUndefined();
     });
 
-    it('findMessages com bootstrap off → resposta sintética vazia', () => {
-        const prev = process.env.GO_BOOTSTRAP_CHAT_MESSAGES;
-        process.env.GO_BOOTSTRAP_CHAT_MESSAGES = '0';
-        try {
-            const r = adaptEvolutionApiRequestToGo(
-                {
-                    method: 'post',
-                    url: '/chat/findMessages/conn_abc',
-                    data: { where: { key: { remoteJid: '5511999999999@s.whatsapp.net' } } },
-                    headers: {},
-                },
-                tokenStore
-            );
-            expect(r.syntheticResponse?.status).toBe(200);
-        } finally {
-            if (prev === undefined) delete process.env.GO_BOOTSTRAP_CHAT_MESSAGES;
-            else process.env.GO_BOOTSTRAP_CHAT_MESSAGES = prev;
+    it('findMessages → sempre resposta sintética vazia (Go não expõe endpoint)', () => {
+        const validUuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+        const store = {
+            ...tokenStore,
+            getGoInstanceUuid: () => validUuid,
+        };
+        for (const bootstrap of ['0', '1'] as const) {
+            const prev = process.env.GO_BOOTSTRAP_CHAT_MESSAGES;
+            process.env.GO_BOOTSTRAP_CHAT_MESSAGES = bootstrap;
+            try {
+                const r = adaptEvolutionApiRequestToGo(
+                    {
+                        method: 'post',
+                        url: '/chat/findMessages/conn_abc',
+                        data: { where: { key: { remoteJid: '5511999999999@s.whatsapp.net' } } },
+                        headers: {},
+                    },
+                    store
+                );
+                expect(r.syntheticResponse?.status).toBe(200);
+                expect(r.syntheticResponse?.data).toEqual({ messages: { records: [] } });
+                expect(r.headers.instanceId).toBeUndefined();
+            } finally {
+                if (prev === undefined) delete process.env.GO_BOOTSTRAP_CHAT_MESSAGES;
+                else process.env.GO_BOOTSTRAP_CHAT_MESSAGES = prev;
+            }
         }
     });
 

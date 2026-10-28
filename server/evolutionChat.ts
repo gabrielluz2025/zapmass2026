@@ -2022,7 +2022,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         maxTotal: number,
         opts?: { beforeTimestampMs?: number }
     ): Promise<any[]> {
-        if (isGoWebhookInboxMode() && !isGoChatFindMessagesBootstrapEnabled()) return [];
+        if (isGoWebhookInboxMode()) return [];
         const pageSize = 100;
         const maxPages = Math.min(80, Math.ceil(maxTotal / pageSize) + 3);
         const collected: any[] = [];
@@ -2413,44 +2413,12 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                     emitConversationDelta(conversationId);
                 }
             }
-            if ((conv?.messages?.length || 0) === 0 && isGoChatFindMessagesBootstrapEnabled()) {
-                const jids = remoteJidsForMessageFetch(conv, parsed.remoteJid);
-                const fetched = await fetchMessagesFromAlternateJids(
-                    parsed.connectionId,
-                    jids,
-                    requested
-                );
-                if (fetched.length > 0) {
-                    const converted = fetched
-                        .map((m) => evolutionRawToChatMessage(m, skipMedia))
-                        .filter((m): m is ChatMessage => Boolean(m))
-                        .sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
-                    conv = conversations.find((c) => c.id === conversationId);
-                    if (conv && converted.length > 0) {
-                        const byId = new Map<string, ChatMessage>();
-                        for (const m of conv.messages || []) byId.set(m.id, m);
-                        for (const m of converted) byId.set(m.id, m);
-                        conv.messages = Array.from(byId.values()).sort(
-                            (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
-                        );
-                        const last = conv.messages[conv.messages.length - 1];
-                        if (last) {
-                            conv.lastMessage = last.text || conv.lastMessage;
-                            conv.lastMessageTime = last.timestamp || conv.lastMessageTime;
-                            conv.lastMessageTimestamp = last.timestampMs || conv.lastMessageTimestamp;
-                        }
-                        upsertConversation(conv);
-                        emitConversationDelta(conversationId);
-                        console.info('[loadChatHistory/go] bootstrap findMessages', {
-                            conversationId,
-                            fetched: converted.length,
-                        });
-                    }
-                }
-            }
-
             let historySyncTriggered = false;
-            if (conv && conversationNeedsGoHistorySync(conv)) {
+            if (
+                conv &&
+                isGoChatFindMessagesBootstrapEnabled() &&
+                conversationNeedsGoHistorySync(conv)
+            ) {
                 const connKey = String(parsed.connectionId || '').trim();
                 const lastAsk = threadGoHistorySyncLastAsk.get(connKey) ?? 0;
                 if (Date.now() - lastAsk >= THREAD_GO_HISTORY_SYNC_ASK_MS) {
