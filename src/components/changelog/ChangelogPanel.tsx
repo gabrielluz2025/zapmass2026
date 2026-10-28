@@ -10,6 +10,13 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.359',
+    date: '28/10/2026',
+    highlights: [
+      { type: 'fix', text: 'CI: typecheck evolutionConfig (export bootstrap findMessages Go)' },
+    ],
+  },
+  {
     version: '2.3.358',
     date: '28/10/2026',
     highlights: [

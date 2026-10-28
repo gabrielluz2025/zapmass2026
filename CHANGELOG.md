@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.359] - 2026-10-28
+
+### Corrigido
+- **CI**: reexport `isGoChatFindMessagesBootstrapEnabled` em `evolutionConfig.ts` (typecheck).
+
 ## [2.3.358] - 2026-10-28
 
 ### Corrigido

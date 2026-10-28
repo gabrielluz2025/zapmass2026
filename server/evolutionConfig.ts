@@ -2,6 +2,7 @@ import {
     activeEvolutionBaseUrl,
     evolutionEngineConfig,
     isEvolutionGoEngine,
+    isGoChatFindMessagesBootstrapEnabled,
     isGoWebhookInboxMode,
     resolveWhatsAppEngine,
     usesEvolutionMotor,
