@@ -20,6 +20,7 @@ import { getAppVersion } from './version.js';
 import { runBackup } from './backup.js';
 import { registerSubscriptionWebhooks } from './subscriptionWebhooks.js';
 import { registerBillingMercadoPagoRoutes } from './billingMercadoPago.js';
+import { refreshBillingPricingSnapshot } from './billingPricingSnapshot.js';
 import { registerBillingTrialRoutes } from './billingTrial.js';
 import { assertAdminFromBearer, registerAdminAuthRoutes } from './adminAuth.js';
 import { registerAdminAppConfigRoutes } from './adminAppConfigRoutes.js';
@@ -2709,6 +2710,10 @@ const startServer = async (port: number): Promise<boolean> => {
       }
     }
   }
+
+  await refreshBillingPricingSnapshot().catch((e) => {
+    console.warn('[billing] snapshot inicial falhou — usando defaults/env:', e instanceof Error ? e.message : e);
+  });
 
   // Monitorar memória a cada 2min: loga antes de chegar em OOM e derrubar o processo.
   const MEM_WARN_MB = Number(process.env.MEM_WARN_MB ?? 900);

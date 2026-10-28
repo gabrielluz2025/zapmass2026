@@ -32,7 +32,9 @@ import {
   sanitizeMarketingPriceLabel,
   validateCommercialConfigPartial
 } from '../../../shared/commercialConfigValidation';
-import { Badge, Button, Card, CardHeader, SectionHeader } from '../ui';
+import { Badge, Button, Card, CardHeader, SectionHeader, ZmFieldHelp } from '../ui';
+import { FIELD_HELP } from '../../constants/fieldHelpCopy';
+import { CHANNEL_TIERS } from '../../../shared/billingPricingConfig';
 
 const SAVE_TOAST_ID = 'commercial-config-save';
 const NET_TOAST_ID = 'commercial-config-net';
@@ -91,6 +93,17 @@ export const AdminCommercialTab: React.FC<Props> = ({ onOpenRevenueTab }) => {
   const [mpLoading, setMpLoading] = useState(true);
   const [metaUpdatedAt, setMetaUpdatedAt] = useState<string | undefined>(config.commercialUpdatedAt);
   const [metaUpdatedBy, setMetaUpdatedBy] = useState<string | undefined>(config.commercialUpdatedBy);
+  const [billingUpdatedAt, setBillingUpdatedAt] = useState<string | undefined>();
+  const [billingUpdatedBy, setBillingUpdatedBy] = useState<string | undefined>();
+
+  type TierForm = Record<string, { monthly: string; annual: string }>;
+  const emptyTierForm = (): TierForm =>
+    Object.fromEntries(CHANNEL_TIERS.map((t) => [String(t), { monthly: '', annual: '' }]));
+
+  const [billingBaseline, setBillingBaseline] = useState<TierForm>(() => emptyTierForm());
+  const [tierForm, setTierForm] = useState<TierForm>(() => emptyTierForm());
+  const [channelAddonMonthly, setChannelAddonMonthly] = useState('');
+  const [billingBaselineAddon, setBillingBaselineAddon] = useState('');
 
   const syncFromConfig = useCallback(
     (c: typeof config) => {
@@ -125,21 +138,55 @@ export const AdminCommercialTab: React.FC<Props> = ({ onOpenRevenueTab }) => {
         const c = data.config as typeof config;
         setMetaUpdatedAt(c.commercialUpdatedAt);
         setMetaUpdatedBy(c.commercialUpdatedBy);
+        setBillingUpdatedAt(
+          typeof (c as { billingUpdatedAt?: string }).billingUpdatedAt === 'string'
+            ? (c as { billingUpdatedAt?: string }).billingUpdatedAt
+            : undefined
+        );
+        setBillingUpdatedBy(
+          typeof (c as { billingUpdatedBy?: string }).billingUpdatedBy === 'string'
+            ? (c as { billingUpdatedBy?: string }).billingUpdatedBy
+            : undefined
+        );
       }
     } catch {
       /* meta opcional */
     }
   }, [user]);
 
+  const applyPricesToBillingForm = useCallback((p: ServerBillingPrices) => {
+    const next = emptyTierForm();
+    const tiers = p.channelTiers;
+    for (const t of CHANNEL_TIERS) {
+      const key = String(t);
+      const row = tiers?.[key];
+      if (row) {
+        next[key] = {
+          monthly: String(row.monthly),
+          annual: String(row.annual)
+        };
+      }
+    }
+    const addon =
+      typeof (p as { channelAddonMonthly?: number }).channelAddonMonthly === 'number'
+        ? String((p as { channelAddonMonthly?: number }).channelAddonMonthly)
+        : '';
+    setBillingBaseline(next);
+    setTierForm(next);
+    setBillingBaselineAddon(addon);
+    setChannelAddonMonthly(addon);
+  }, []);
+
   const loadMpPrices = useCallback(async () => {
     setMpLoading(true);
     try {
       const p = await fetchServerBillingPrices();
       setMpPrices(p);
+      if (p) applyPricesToBillingForm(p);
     } finally {
       setMpLoading(false);
     }
-  }, []);
+  }, [applyPricesToBillingForm]);
 
   useEffect(() => {
     void loadAdminMeta();
@@ -161,7 +208,7 @@ export const AdminCommercialTab: React.FC<Props> = ({ onOpenRevenueTab }) => {
     [parsedTrialHours, landingTrialTitle, landingTrialBody]
   );
 
-  const isDirty = useMemo(() => {
+  const isCommercialDirty = useMemo(() => {
     const cur = {
       marketingPriceMonthly,
       marketingPriceAnnual,
@@ -171,6 +218,15 @@ export const AdminCommercialTab: React.FC<Props> = ({ onOpenRevenueTab }) => {
     };
     return JSON.stringify(cur) !== JSON.stringify(baseline);
   }, [baseline, marketingPriceAnnual, marketingPriceMonthly, landingTrialBody, landingTrialTitle, trialHours]);
+
+  const isBillingDirty = useMemo(
+    () =>
+      JSON.stringify(tierForm) !== JSON.stringify(billingBaseline) ||
+      channelAddonMonthly.trim() !== billingBaselineAddon.trim(),
+    [billingBaseline, billingBaselineAddon, channelAddonMonthly, tierForm]
+  );
+
+  const isDirty = isCommercialDirty || isBillingDirty;
 
   const clientValidation = useMemo((): FieldErrors => {
     const errs: FieldErrors = {};
@@ -224,8 +280,41 @@ export const AdminCommercialTab: React.FC<Props> = ({ onOpenRevenueTab }) => {
     setTrialHours(baseline.trialHours);
     setLandingTrialTitle(baseline.landingTrialTitle);
     setLandingTrialBody(baseline.landingTrialBody);
+    setTierForm(billingBaseline);
+    setChannelAddonMonthly(billingBaselineAddon);
     setFieldErrors({});
     setTouched({});
+  };
+
+  const parseTierMoney = (raw: string): number | null => {
+    const t = raw.trim().replace(',', '.');
+    if (!t) return null;
+    const n = Number(t);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.round(n * 100) / 100;
+  };
+
+  const buildBillingPayload = (): { ok: true; billing: Record<string, unknown> } | { ok: false; error: string } => {
+    const channelTiersMonthly: Record<string, number> = {};
+    const channelTiersAnnual: Record<string, number> = {};
+    for (const t of CHANNEL_TIERS) {
+      const key = String(t);
+      const m = parseTierMoney(tierForm[key]?.monthly ?? '');
+      const a = parseTierMoney(tierForm[key]?.annual ?? '');
+      if (m == null || a == null) {
+        return { ok: false, error: `Informe preços válidos para o tier ${t} canal(is).` };
+      }
+      channelTiersMonthly[key] = m;
+      channelTiersAnnual[key] = a;
+    }
+    const addon = parseTierMoney(channelAddonMonthly);
+    if (addon == null) {
+      return { ok: false, error: 'Informe o preço mensal do add-on de canal (referência MRR).' };
+    }
+    return {
+      ok: true,
+      billing: { channelTiersMonthly, channelTiersAnnual, channelAddonMonthly: addon }
+    };
   };
 
   const save = async () => {
@@ -238,28 +327,41 @@ export const AdminCommercialTab: React.FC<Props> = ({ onOpenRevenueTab }) => {
       landingTrialBody: true
     });
 
-    const payload = {
-      marketingPriceMonthly: sanitizeMarketingPriceLabel(marketingPriceMonthly),
-      marketingPriceAnnual: sanitizeMarketingPriceLabel(marketingPriceAnnual),
-      trialHours: trialHours.trim(),
-      landingTrialTitle,
-      landingTrialBody
-    };
-    const validated = validateCommercialConfigPartial(payload);
-    if (validated.ok === false) {
-      setFieldErrors(validated.errors);
-      toast.error(
-        validated.errors.form ||
-          validated.errors.trialHours ||
-          'Corrija os campos destacados antes de publicar.',
-        { id: SAVE_TOAST_ID }
-      );
-      return;
+    let body: Record<string, unknown> = {};
+    if (isCommercialDirty) {
+      const payload = {
+        marketingPriceMonthly: sanitizeMarketingPriceLabel(marketingPriceMonthly),
+        marketingPriceAnnual: sanitizeMarketingPriceLabel(marketingPriceAnnual),
+        trialHours: trialHours.trim(),
+        landingTrialTitle,
+        landingTrialBody
+      };
+      const validated = validateCommercialConfigPartial(payload);
+      if (validated.ok === false) {
+        setFieldErrors(validated.errors);
+        toast.error(
+          validated.errors.form ||
+            validated.errors.trialHours ||
+            'Corrija os campos destacados antes de publicar.',
+          { id: SAVE_TOAST_ID }
+        );
+        return;
+      }
+      if (hasBlockingErrors) {
+        toast.error('Corrija os campos destacados antes de publicar.', { id: SAVE_TOAST_ID });
+        return;
+      }
+      body = { ...validated.data };
     }
-    if (hasBlockingErrors) {
-      toast.error('Corrija os campos destacados antes de publicar.', { id: SAVE_TOAST_ID });
-      return;
+    if (isBillingDirty) {
+      const billingBuilt = buildBillingPayload();
+      if (billingBuilt.ok === false) {
+        toast.error(billingBuilt.error, { id: SAVE_TOAST_ID });
+        return;
+      }
+      body.billing = billingBuilt.billing;
     }
+    if (!isCommercialDirty && !isBillingDirty) return;
 
     setSaving(true);
     try {
@@ -270,7 +372,7 @@ export const AdminCommercialTab: React.FC<Props> = ({ onOpenRevenueTab }) => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${idToken}`
         },
-        body: JSON.stringify(validated.data)
+        body: JSON.stringify(body)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
@@ -279,14 +381,18 @@ export const AdminCommercialTab: React.FC<Props> = ({ onOpenRevenueTab }) => {
         toast.error(typeof data?.error === 'string' ? data.error : 'Falha ao salvar.', { id: SAVE_TOAST_ID });
         return;
       }
-      toast.success('Configuração comercial publicada. Clientes veem na próxima leitura (~15s no servidor).', {
-        id: SAVE_TOAST_ID
-      });
+      toast.success(
+        isBillingDirty && !isCommercialDirty
+          ? 'Preços de cobrança publicados — checkout e MRR usam os novos valores.'
+          : 'Configuração comercial publicada. Clientes veem na próxima leitura (~15s no servidor).',
+        { id: SAVE_TOAST_ID }
+      );
       if (data.config) {
         syncFromConfig({ ...config, ...data.config });
       }
       await reload();
       void loadAdminMeta();
+      void loadMpPrices();
     } catch (e) {
       console.error(e);
       toast.error('Erro de rede.', { id: NET_TOAST_ID });
@@ -332,7 +438,7 @@ export const AdminCommercialTab: React.FC<Props> = ({ onOpenRevenueTab }) => {
               variant="primary"
               size="sm"
               type="button"
-              disabled={saving || !isDirty || hasBlockingErrors}
+              disabled={saving || !isDirty || (isCommercialDirty && hasBlockingErrors)}
               loading={saving}
               leftIcon={saving ? undefined : <Save className="w-3.5 h-3.5" />}
               onClick={() => void save()}
@@ -343,18 +449,32 @@ export const AdminCommercialTab: React.FC<Props> = ({ onOpenRevenueTab }) => {
         }
       />
 
-      {(metaUpdatedAt || metaUpdatedBy) && (
-        <p className="text-xs -mt-2" style={{ color: 'var(--text-3)' }}>
-          Última publicação: {toPtDateTime(metaUpdatedAt)}
-          {metaUpdatedBy ? ` · ${metaUpdatedBy}` : ''}
-          {!metaUpdatedAt && metaUpdatedBy ? ` · por ${metaUpdatedBy}` : ''}
+      {(metaUpdatedAt || metaUpdatedBy || billingUpdatedAt || billingUpdatedBy) && (
+        <p className="text-xs -mt-2 space-y-0.5" style={{ color: 'var(--text-3)' }}>
+          {metaUpdatedAt || metaUpdatedBy ? (
+            <span>
+              Comercial: {toPtDateTime(metaUpdatedAt)}
+              {metaUpdatedBy ? ` · ${metaUpdatedBy}` : ''}
+            </span>
+          ) : null}
+          {billingUpdatedAt || billingUpdatedBy ? (
+            <span className={metaUpdatedAt || metaUpdatedBy ? 'block' : ''}>
+              Cobrança (checkout): {toPtDateTime(billingUpdatedAt)}
+              {billingUpdatedBy ? ` · ${billingUpdatedBy}` : ''}
+            </span>
+          ) : null}
         </p>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader
-            title="Preços (marketing)"
+            title={
+              <span className="inline-flex items-center gap-1.5">
+                Preços (marketing)
+                <ZmFieldHelp content={FIELD_HELP.creatorMarketingPrices} ariaLabel="Ajuda: preços de marketing" />
+              </span>
+            }
             subtitle="O que o cliente lê no upgrade. Vazio usa fallback do front. Não altera cobrança no Mercado Pago."
             icon={<TrendingUp className="w-4 h-4 text-emerald-600" />}
           />
@@ -414,36 +534,91 @@ export const AdminCommercialTab: React.FC<Props> = ({ onOpenRevenueTab }) => {
 
         <Card>
           <CardHeader
-            title="Mercado Pago (cobrança real)"
-            subtitle="Somente leitura — checkout e MRR usam estes valores."
+            title={
+              <span className="inline-flex items-center gap-1.5">
+                Mercado Pago (cobrança real)
+                <ZmFieldHelp content={FIELD_HELP.creatorBillingTiers} ariaLabel="Ajuda: preços de cobrança" />
+              </span>
+            }
+            subtitle="Checkout Pro, landing e MRR estimado. Persistido no Postgres (substitui env após publicar)."
             icon={<CircleDollarSign className="w-4 h-4 text-sky-600" />}
           />
-          <div className="mt-4 space-y-2 text-sm" style={{ color: 'var(--text-2)' }}>
+          <div className="mt-4 space-y-3 text-sm" style={{ color: 'var(--text-2)' }}>
             {mpLoading ? (
               <div className="flex items-center gap-2 py-2" style={{ color: 'var(--text-3)' }}>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Carregando preços MP…
               </div>
-            ) : mpPrices ? (
+            ) : (
               <>
-                <p>
-                  Plano mensal: <strong>{mpDisplayMonthly}</strong>
-                </p>
-                <p>
-                  Plano anual: <strong>{mpDisplayAnnual}</strong>
-                </p>
-                <p className="text-xs pt-1" style={{ color: 'var(--text-3)' }}>
-                  Compare com os textos de marketing à esquerda para evitar promessas diferentes do checkout.
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[12px] border-collapse">
+                    <thead>
+                      <tr className="text-left" style={{ color: 'var(--text-3)' }}>
+                        <th className="py-1 pr-2 font-semibold">Canais</th>
+                        <th className="py-1 px-1 font-semibold">Mensal (R$)</th>
+                        <th className="py-1 pl-1 font-semibold">Anual (R$)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {CHANNEL_TIERS.map((t) => {
+                        const key = String(t);
+                        return (
+                          <tr key={key}>
+                            <td className="py-1.5 pr-2 font-medium">{t}</td>
+                            <td className="py-1 px-1">
+                              <input
+                                className="ui-input w-full min-w-[88px] tabular-nums"
+                                inputMode="decimal"
+                                value={tierForm[key]?.monthly ?? ''}
+                                onChange={(e) =>
+                                  setTierForm((prev) => ({
+                                    ...prev,
+                                    [key]: { ...prev[key], monthly: e.target.value }
+                                  }))
+                                }
+                              />
+                            </td>
+                            <td className="py-1 pl-1">
+                              <input
+                                className="ui-input w-full min-w-[88px] tabular-nums"
+                                inputMode="decimal"
+                                value={tierForm[key]?.annual ?? ''}
+                                onChange={(e) =>
+                                  setTierForm((prev) => ({
+                                    ...prev,
+                                    [key]: { ...prev[key], annual: e.target.value }
+                                  }))
+                                }
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <label className="ui-eyebrow text-[10px]">Add-on canal / mês (ref. MRR)</label>
+                    <ZmFieldHelp content={FIELD_HELP.creatorChannelAddon} ariaLabel="Ajuda: add-on" />
+                  </div>
+                  <input
+                    className="ui-input mt-1 max-w-[160px] tabular-nums"
+                    inputMode="decimal"
+                    value={channelAddonMonthly}
+                    onChange={(e) => setChannelAddonMonthly(e.target.value)}
+                  />
+                </div>
+                <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+                  Base Pro (2 canais) hoje: {mpDisplayMonthly} · {mpDisplayAnnual}. Assinaturas ativas no MP mantêm o
+                  valor anterior até upgrade/troca de plano.
                 </p>
               </>
-            ) : (
-              <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-                API de preços indisponível. Confira a aba Ganhos ou variáveis MP no servidor.
-              </p>
             )}
-            <div className="flex flex-wrap gap-2 pt-2">
+            <div className="flex flex-wrap gap-2 pt-1">
               <Button variant="secondary" size="sm" type="button" disabled={mpLoading} onClick={() => void loadMpPrices()}>
-                Atualizar MP
+                Recarregar da API
               </Button>
               {onOpenRevenueTab ? (
                 <Button
@@ -583,7 +758,7 @@ export const AdminCommercialTab: React.FC<Props> = ({ onOpenRevenueTab }) => {
             variant="primary"
             size="sm"
             type="button"
-            disabled={saving || !isDirty || hasBlockingErrors}
+            disabled={saving || !isDirty || (isCommercialDirty && hasBlockingErrors)}
             loading={saving}
             leftIcon={saving ? undefined : <Save className="w-3.5 h-3.5" />}
             onClick={() => void save()}

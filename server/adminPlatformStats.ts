@@ -10,6 +10,8 @@ import {
   type SubscriptionBillingKind,
   type SubscriptionDocLike
 } from '../shared/subscriptionBillingKind.js';
+import { getLegacyFlatPricesSync, channelAddonUnitPriceBrlSync } from './billingPricingSnapshot.js';
+import { usesEvolutionMotor } from './evolutionConfig.js';
 
 export type AdminPlatformStats = {
   generatedAt: string;
@@ -71,15 +73,8 @@ export type AdminPlatformStats = {
 };
 
 function readPrices(): { monthly: number; annual: number } {
-  const monthly = parseFloat(process.env.MERCADOPAGO_PRICE_MONTHLY || '49.9');
-  const annual = parseFloat(process.env.MERCADOPAGO_PRICE_ANNUAL || '479.9');
-  return {
-    monthly: Number.isFinite(monthly) && monthly > 0 ? monthly : 49.9,
-    annual: Number.isFinite(annual) && annual > 0 ? annual : 479.9
-  };
+  return getLegacyFlatPricesSync();
 }
-
-import { usesEvolutionMotor } from './evolutionConfig.js';
 
 function useEvolutionEngine(): boolean {
   return usesEvolutionMotor();
@@ -209,9 +204,7 @@ export async function buildAdminPlatformStats(): Promise<AdminPlatformStats> {
     byOwnerConnected.set(owner, (byOwnerConnected.get(owner) || 0) + 1);
   }
 
-  const channelTierPrice = parseFloat(process.env.MERCADOPAGO_CHANNEL_TIER_1 || '29.9');
-  const channelPrice =
-    Number.isFinite(channelTierPrice) && channelTierPrice > 0 ? channelTierPrice : 0;
+  const channelPrice = channelAddonUnitPriceBrlSync();
 
   const emptyRevenue = {
     priceMonthlyBrl: prices.monthly,

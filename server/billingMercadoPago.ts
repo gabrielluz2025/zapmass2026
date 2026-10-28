@@ -13,11 +13,13 @@ import {
 import { billingRouteErrorPayload, MercadoPagoApiError, throwIfMercadoPagoHttpError } from './mercadoPagoApiError.js';
 import { classifyMercadoPagoHealth } from '../shared/mercadoPagoErrors.js';
 import { assertMercadoPagoBackUrlForCheckout } from './mercadoPagoBackUrl.js';
+import type { ChannelTier } from '../shared/channelTierPricing.js';
 import {
-  CHANNEL_TIER_PRICES_ANNUAL,
-  CHANNEL_TIER_PRICES_MONTHLY,
-  type ChannelTier
-} from '../shared/channelTierPricing.js';
+  channelAddonUnitPriceBrlSync,
+  channelTierAnnualPriceSync,
+  channelTierMonthlyPriceSync,
+  getLegacyFlatPricesSync
+} from './billingPricingSnapshot.js';
 
 type Plan = 'monthly' | 'annual';
 type Method = 'pix' | 'card' | 'recurring';
@@ -50,8 +52,7 @@ function formatPriceLabelBrl(amount: number, kind: 'monthly' | 'annual'): string
 }
 
 function getPrices(): { monthly: number; annual: number } {
-  const monthly = parseFloat(process.env.MERCADOPAGO_PRICE_MONTHLY || '49.9');
-  const annual = parseFloat(process.env.MERCADOPAGO_PRICE_ANNUAL || '479.9');
+  const { monthly, annual } = getLegacyFlatPricesSync();
   if (!Number.isFinite(monthly) || monthly <= 0) throw new Error('MERCADOPAGO_PRICE_MONTHLY invalido.');
   if (!Number.isFinite(annual) || annual <= 0) throw new Error('MERCADOPAGO_PRICE_ANNUAL invalido.');
   return { monthly, annual };
@@ -90,17 +91,11 @@ function parseChannelTier(v: unknown): ChannelTier | null {
 }
 
 function channelTierMonthlyPrice(channels: ChannelTier): number {
-  const envKey = `MERCADOPAGO_CHANNEL_TIER_${channels}`;
-  const envVal = parseFloat(process.env[envKey] || '');
-  if (Number.isFinite(envVal) && envVal > 0) return envVal;
-  return CHANNEL_TIER_PRICES_MONTHLY[channels];
+  return channelTierMonthlyPriceSync(channels);
 }
 
 function channelTierAnnualPrice(channels: ChannelTier): number {
-  const envKey = `MERCADOPAGO_CHANNEL_TIER_${channels}_ANNUAL`;
-  const envVal = parseFloat(process.env[envKey] || '');
-  if (Number.isFinite(envVal) && envVal > 0) return envVal;
-  return CHANNEL_TIER_PRICES_ANNUAL[channels];
+  return channelTierAnnualPriceSync(channels);
 }
 
 function resolveCurrentChannelsFromSub(sub: Record<string, unknown> | undefined): ChannelTier {
@@ -588,7 +583,8 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
         pixDiscountPct: PIX_DISCOUNT_PCT,
         currency: 'BRL',
         displayMonthly: formatPriceLabelBrl(monthly, 'monthly'),
-        displayAnnual: formatPriceLabelBrl(annual, 'annual')
+        displayAnnual: formatPriceLabelBrl(annual, 'annual'),
+        channelAddonMonthly: channelAddonUnitPriceBrlSync()
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);

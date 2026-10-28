@@ -7,6 +7,7 @@ import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscription
 import { adminUidSet, isPlatformAdminDecoded } from './adminIdentity.js';
 import { findUserById } from './auth/userRepository.js';
 import { isUuid } from './auth/firebaseUidMap.js';
+import { channelAddonUnitPriceBrlSync } from './billingPricingSnapshot.js';
 
 /** Incluídos no plano. */
 export const BASE_CONNECTION_SLOTS = 2;
@@ -216,6 +217,5 @@ export async function evaluateMayCreateWaConnection(
 }
 
 export function channelAddonUnitPriceBrl(): number {
-  const n = parseFloat(process.env.MERCADOPAGO_CHANNEL_ADDON_MONTHLY || '100');
-  return Number.isFinite(n) && n > 0 ? n : 100;
+  return channelAddonUnitPriceBrlSync();
 }

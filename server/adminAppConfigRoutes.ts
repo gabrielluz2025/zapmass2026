@@ -11,6 +11,11 @@ import {
   type AppConfigGlobal
 } from './appConfigStore.js';
 import { validateCommercialConfigPartial } from '../shared/commercialConfigValidation.js';
+import {
+  emptyBillingPricingConfig,
+  validateBillingPricingPut,
+  type BillingPricingPutInput
+} from '../shared/billingPricingConfig.js';
 import { recordCommercialConfigAudit } from './adminCommercialConfigAudit.js';
 import { loadMergedUserInsightData } from './insightMerge.js';
 import { sendSuggestionReplyEmail } from './emailService.js';
@@ -49,7 +54,26 @@ function summarizeCommercialChanges(
   if (before.landingTrialBody !== after.landingTrialBody) {
     parts.push('texto landing alterado');
   }
+  if (JSON.stringify(before.billing ?? null) !== JSON.stringify(after.billing ?? null)) {
+    parts.push('preços de cobrança (checkout) alterados');
+  }
   return parts.length ? parts.join('; ') : 'publicação comercial (sem diff detectado)';
+}
+
+function parseBillingPutBody(body: unknown): ReturnType<typeof validateBillingPricingPut> | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as Record<string, unknown>;
+  if (b.billing === undefined) return null;
+  const raw = b.billing;
+  if (!raw || typeof raw !== 'object') {
+    return { ok: false, errors: { form: 'Corpo billing inválido.' } };
+  }
+  const o = raw as Record<string, unknown>;
+  const partial: BillingPricingPutInput = {};
+  if (o.channelTiersMonthly !== undefined) partial.channelTiersMonthly = o.channelTiersMonthly as BillingPricingPutInput['channelTiersMonthly'];
+  if (o.channelTiersAnnual !== undefined) partial.channelTiersAnnual = o.channelTiersAnnual as BillingPricingPutInput['channelTiersAnnual'];
+  if ('channelAddonMonthly' in o) partial.channelAddonMonthly = o.channelAddonMonthly as number | null;
+  return validateBillingPricingPut(partial);
 }
 
 function parseCommercialPutBody(body: unknown): ReturnType<typeof validateCommercialConfigPartial> {
@@ -149,7 +173,14 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         loadAppConfigGlobal(),
         loadSystemAnnouncementPg()
       ]);
-      const { commercialUpdatedAt: _a, commercialUpdatedBy: _b, ...publicConfig } = config;
+      const {
+        commercialUpdatedAt: _a,
+        commercialUpdatedBy: _b,
+        billing: _c,
+        billingUpdatedAt: _d,
+        billingUpdatedBy: _e,
+        ...publicConfig
+      } = config;
       return res.json({ ok: true, config: { ...publicConfig, systemAnnouncement } });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -176,18 +207,49 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       const auth = await assertAdminFromBearer(req, res);
       if (!auth) return;
 
-      const parsed = parseCommercialPutBody(req.body);
-      if (parsed.ok === false) {
+      const parsedCommercial = parseCommercialPutBody(req.body);
+      const parsedBilling = parseBillingPutBody(req.body);
+      const hasBilling = parsedBilling != null;
+      const hasCommercial = parsedCommercial.ok === true;
+
+      if (parsedCommercial.ok === false && !hasBilling) {
         const first =
-          parsed.errors.form ||
-          parsed.errors.trialHours ||
-          parsed.errors.marketingPriceMonthly ||
+          parsedCommercial.errors.form ||
+          parsedCommercial.errors.trialHours ||
+          parsedCommercial.errors.marketingPriceMonthly ||
           'Dados comerciais inválidos.';
-        return res.status(400).json({ ok: false, error: first, fieldErrors: parsed.errors });
+        return res.status(400).json({ ok: false, error: first, fieldErrors: parsedCommercial.errors });
       }
+      if (hasBilling && parsedBilling.ok === false) {
+        const first = parsedBilling.errors.form || Object.values(parsedBilling.errors)[0] || 'Preços inválidos.';
+        return res.status(400).json({ ok: false, error: first, fieldErrors: parsedBilling.errors });
+      }
+      if (!hasCommercial && (!hasBilling || parsedBilling.ok === false)) {
+        return res.status(400).json({ ok: false, error: 'Nenhum campo para salvar.' });
+      }
+
       const { saveAppConfigGlobal } = await import('./appConfigStore.js');
       const before = await loadAppConfigGlobal();
-      const config = await saveAppConfigGlobal(parsed.data, { updatedBy: auth.email });
+      const savePartial: Partial<import('./appConfigStore.js').AppConfigGlobal> = {
+        ...(hasCommercial ? parsedCommercial.data : {}),
+        ...(hasBilling && parsedBilling.ok
+          ? {
+              billing: {
+                ...emptyBillingPricingConfig(),
+                channelTiersMonthly: parsedBilling.data.channelTiersMonthly ?? {},
+                channelTiersAnnual: parsedBilling.data.channelTiersAnnual ?? {},
+                channelAddonMonthly:
+                  parsedBilling.data.channelAddonMonthly !== undefined
+                    ? parsedBilling.data.channelAddonMonthly
+                    : before.billing?.channelAddonMonthly ?? null
+              }
+            }
+          : {})
+      };
+      const config = await saveAppConfigGlobal(savePartial, {
+        updatedBy: hasCommercial ? auth.email : undefined,
+        billingUpdatedBy: hasBilling && parsedBilling.ok ? auth.email : undefined
+      });
       const note = summarizeCommercialChanges(before, config);
       void recordCommercialConfigAudit(auth, note);
       console.log('[api/admin/app-config] atualizado por', auth.email);

@@ -59,6 +59,12 @@ export const FIELD_HELP = {
     'Para quem não respondeu à abertura: lembrete semanal automático até o limite de semanas que você definir.',
   channelExtras:
     'Canais além do incluído no plano. Cobrança separada no Mercado Pago; liberam slots extras na aba Conexões.',
+  creatorBillingTiers:
+    'Valores reais cobrados no checkout Mercado Pago (1 a 5 canais). Alterações aqui valem para novos pagamentos; assinaturas já ativas mantêm o valor contratado até mudar de plano.',
+  creatorMarketingPrices:
+    'Textos exibidos na landing e no modal Pro. Não alteram a cobrança — use para copy comercial ou promoções visuais.',
+  creatorChannelAddon:
+    'Preço mensal de referência por slot extra (legado). O MRR estimado na aba Ganhos usa este valor para add-ons.',
   trialPro:
     'Teste libera envios e todas as abas pelo período promocional. Sem cartão. Ao terminar, você escolhe o Pro ou fica só em leitura.',
   warmup:

@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.360',
+    date: '28/10/2026',
+    highlights: [
+      {
+        type: 'feature',
+        text: 'Painel do criador: editar preços MP (tiers 1–5 + add-on) persistidos no Postgres; doc SEGURANCA-POSTURA',
+      },
+    ],
+  },
+  {
     version: '2.3.359',
     date: '28/10/2026',
     highlights: [

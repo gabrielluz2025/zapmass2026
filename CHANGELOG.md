@@ -7,6 +7,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.360] - 2026-10-28
+
+### Adicionado
+- **Painel do criador — Comercial:** edição dos preços reais de checkout (tiers 1–5 canais + add-on ref.) persistidos em `app_config_global`; auditoria em `update-commercial-config`; tooltips ZmFieldHelp.
+- **Docs:** `docs/SEGURANCA-POSTURA.md` (stack Node/Postgres vs PHP, auth, webhooks, hardening).
+
+### Melhorado
+- **Billing:** snapshot em memória (`billingPricingSnapshot`) — Postgres > env > defaults; MRR e checkout usam a mesma fonte após publicar no painel.
+
 ## [2.3.359] - 2026-10-28
 
 ### Corrigido
