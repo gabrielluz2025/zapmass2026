@@ -37,8 +37,22 @@ curl -sf "http://127.0.0.1:${HOST_PORT}/api/version" 2>/dev/null || echo "(API i
 echo ""
 
 echo "==> Env chat sync"
-grep -E '^(WA_FULL_INBOX_SYNC|WA_CHAT_ARCHIVE|EVOLUTION_SYNC_|CHAT_SOCKET_MSG_TAIL|EVOLUTION_API_URL)=' .env 2>/dev/null \
+grep -E '^(WA_FULL_INBOX_SYNC|WA_CHAT_ARCHIVE|EVOLUTION_SYNC_|CHAT_SOCKET_MSG_TAIL|EVOLUTION_API_URL|ZAPMASS_WEBHOOK_URL|GO_BOOTSTRAP_CHAT_MESSAGES|GO_WEBHOOK_)=' .env 2>/dev/null \
   || echo "(variáveis não definidas — defaults do código)"
+echo ""
+
+WEBHOOK_URL="$(grep -E '^[[:space:]]*ZAPMASS_WEBHOOK_URL=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d $'\r"' | sed 's/^["'\'']//;s/["'\'']$//' || true)"
+WEBHOOK_URL="${WEBHOOK_URL:-http://api:3001/webhook/evolution}"
+echo "==> Webhook ZapMass (Evolution deve alcançar esta URL): ${WEBHOOK_URL}"
+_EVO_CID="$(docker compose ps -q evolution 2>/dev/null | head -1 || docker ps -q --filter 'name=evolution' 2>/dev/null | head -1 || true)"
+if [ -n "$_EVO_CID" ]; then
+  echo "==> Teste HTTP do container evolution → webhook"
+  docker exec "$_EVO_CID" sh -c "wget -qO- --timeout=8 '${WEBHOOK_URL}' 2>&1 | head -c 400" \
+    || docker exec "$_EVO_CID" sh -c "curl -sf --max-time 8 -X POST '${WEBHOOK_URL}' -H 'Content-Type: application/json' -d '{\"ping\":true}' 2>&1 | head -c 400" \
+    || echo "(falhou — URL inacessível de dentro do container evolution; use http://api:3001/... na rede Docker, não URL pública)"
+else
+  echo "(container evolution não encontrado para teste de rede)"
+fi
 echo ""
 
 echo "==> Evolution URL: ${EVO_URL}"

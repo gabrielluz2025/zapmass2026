@@ -13,6 +13,17 @@ Variáveis ZapMass (opcional):
 
 - `GO_WEBHOOK_INBOX_STALE_HOURS` — horas sem evento de inbox antes de re-registrar webhook (padrão 6).
 - `GO_WEBHOOK_OPEN_GRACE_MINUTES` — grace após chip `open` sem exigir mensagem (padrão 45).
+- `GO_WEBHOOK_REPAIR_GRACE_MINUTES` — após reaplicar webhook, UI fica em “aguardando” (padrão 90) em vez de loop “reparando”.
+- `GO_BOOTSTRAP_CHAT_MESSAGES` — padrão `1`: ao abrir conversa vazia, tenta `findMessages` no Go e grava no arquivo.
+- **`ZAPMASS_WEBHOOK_URL`** — deve ser **alcançável pelo container Evolution** (Swarm: `http://api:3001/webhook/evolution`, não URL HTTPS pública se o Go não sair à internet).
+
+### Checklist webhook (VPS)
+
+1. `.env`: `ZAPMASS_WEBHOOK_URL=http://api:3001/webhook/evolution` (nome do serviço na mesma rede Docker que `evolution`).
+2. `docker compose config | grep -i webhook` — Evolution e API com a mesma URL.
+3. `bash deployment/diagnose-evolution-chat.sh` — bloco “Teste HTTP do container evolution → webhook”.
+4. Logs: `docker logs zapmass-api 2>&1 | grep -E 'MESSAGES_UPSERT|Webhook Go aplicado|webhook.*Timeout'`.
+5. API: `GET /api/tenant/inbox-webhook-health` — `lastInboxWebhookAt` deve atualizar ao receber mensagem de teste.
 
 ## Histórico ao abrir conversa (Go)
 
@@ -22,7 +33,8 @@ Ao selecionar um chat, o ZapMass:
 
 1. Hidrata o arquivo (`hydrate-firestore-chat-archive`) com chaves `@lid`, telefone e `waJidAlt`.
 2. `load-chat-history` faz merge no servidor, une threads irmãs (@lid + telefone) e faz backfill por todas as chaves de thread.
-3. Só então mostra empty state honesto; **“Sincronizar do celular”** dispara HistorySync (pode ser enfileirado em modo proteção).
+3. Se o arquivo estiver vazio, **bootstrap** opcional via `findMessages` no Go (`GO_BOOTSTRAP_CHAT_MESSAGES=1`).
+4. Só então empty state honesto; **“Sincronizar do celular”** dispara HistorySync — **modo proteção não bloqueia** sync manual (socket), só sync automático.
 
 ### Importação do celular (HistorySync) vs arquivo
 

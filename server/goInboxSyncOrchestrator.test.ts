@@ -66,6 +66,21 @@ describe('goInboxSyncOrchestrator', () => {
     expect(p.blockReason).toBe('chip_protection');
   });
 
+  it('socket full com proteção de chip ainda enfileira sync (userInitiated)', async () => {
+    const ex = {
+      reemitLight: vi.fn(async () => undefined),
+      syncFromPhone: vi.fn(async () => undefined),
+      isCampaignBlocking: () => false,
+      isChipProtectionBlocking: async () => true,
+      publishPolicy: vi.fn(),
+      clearHistoryImportUi: vi.fn(),
+    };
+    registerInboxSyncExecutor(ex);
+    await handleOwnerInboxSyncRequest('quiet-tenant', true);
+    expect(ex.reemitLight).not.toHaveBeenCalled();
+    expect(getInboxSyncQueueDepth('quiet-tenant')).toBe(1);
+  });
+
   it('notifyCampaignBlocking dispara publish', async () => {
     const publishPolicy = vi.fn();
     registerInboxSyncExecutor({

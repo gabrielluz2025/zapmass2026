@@ -30,6 +30,14 @@ export function isGoWebhookInboxMode(): boolean {
     return isEvolutionGoEngine();
 }
 
+/** Tenta POST /chat/findMessages no Go (quando a build expõe o endpoint) para bootstrap de thread vazio. */
+export function isGoChatFindMessagesBootstrapEnabled(): boolean {
+    if (!isEvolutionGoEngine()) return false;
+    return !['0', 'false', 'no', 'off'].includes(
+        String(process.env.GO_BOOTSTRAP_CHAT_MESSAGES ?? '1').trim().toLowerCase()
+    );
+}
+
 /** Evolution API (legacy) ou Evolution Go — ambos usam evolutionService. */
 export function usesEvolutionMotor(): boolean {
     const engine = resolveWhatsAppEngine();

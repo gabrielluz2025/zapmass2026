@@ -123,18 +123,24 @@ describe('adaptEvolutionApiRequestToGo', () => {
         expect(r.syntheticResponse).toBeUndefined();
     });
 
-    it('findMessages → resposta sintética vazia (Go não expõe histórico)', () => {
-        const r = adaptEvolutionApiRequestToGo(
-            {
-                method: 'post',
-                url: '/chat/findMessages/conn_abc',
-                data: { where: { key: { remoteJid: '5511999999999@s.whatsapp.net' } } },
-                headers: {},
-            },
-            tokenStore
-        );
-        expect(r.syntheticResponse?.status).toBe(200);
-        expect(r.syntheticResponse?.data).toEqual([]);
+    it('findMessages com bootstrap off → resposta sintética vazia', () => {
+        const prev = process.env.GO_BOOTSTRAP_CHAT_MESSAGES;
+        process.env.GO_BOOTSTRAP_CHAT_MESSAGES = '0';
+        try {
+            const r = adaptEvolutionApiRequestToGo(
+                {
+                    method: 'post',
+                    url: '/chat/findMessages/conn_abc',
+                    data: { where: { key: { remoteJid: '5511999999999@s.whatsapp.net' } } },
+                    headers: {},
+                },
+                tokenStore
+            );
+            expect(r.syntheticResponse?.status).toBe(200);
+        } finally {
+            if (prev === undefined) delete process.env.GO_BOOTSTRAP_CHAT_MESSAGES;
+            else process.env.GO_BOOTSTRAP_CHAT_MESSAGES = prev;
+        }
     });
 
     it('extrai id de findMessages em /chat/', () => {

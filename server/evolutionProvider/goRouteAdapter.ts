@@ -1,5 +1,8 @@
 import type { InternalAxiosRequestConfig } from 'axios';
-import { evolutionEngineConfig } from '../evolutionEngineConfig.js';
+import {
+    evolutionEngineConfig,
+    isGoChatFindMessagesBootstrapEnabled,
+} from '../evolutionEngineConfig.js';
 import { goPayloadLooksConnected } from '../evolutionOpenState.js';
 import { pickGoInstanceUuid } from './goUuid.js';
 
@@ -308,11 +311,30 @@ export function adaptEvolutionApiRequestToGo(
         return { url: '/user/info', data, headers: instH };
     }
 
-    if (url.includes('/chat/findChats/') || url.includes('/chat/findMessages/')) {
+    if (url.includes('/chat/findChats/')) {
         return {
             url,
             headers: instH,
             syntheticResponse: { status: 200, data: [] },
+        };
+    }
+
+    if (url.includes('/chat/findMessages/')) {
+        if (isGoChatFindMessagesBootstrapEnabled()) {
+            const goUuid = goUuidForConnection(tokenStore, instanceId!);
+            if (!goUuid) {
+                return {
+                    url,
+                    headers: instH,
+                    syntheticResponse: { status: 200, data: { messages: { records: [] } } },
+                };
+            }
+            return { url, data, headers: { ...instH, instanceId: goUuid } };
+        }
+        return {
+            url,
+            headers: instH,
+            syntheticResponse: { status: 200, data: { messages: { records: [] } } },
         };
     }
 

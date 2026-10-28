@@ -51,7 +51,7 @@ export function registerTenantExtrasRoutes(app: Express): void {
       redisUsedPct: redisPct,
       goHistorySync: isGoWebhookInboxMode() ? getOwnerGoHistorySyncOps(ctx.tenantId) : null,
       inboxWebhook: isGoWebhookInboxMode()
-        ? getInboxWebhookHealthForOwner(ctx.tenantId)
+        ? await getInboxWebhookHealthForOwner(ctx.tenantId)
         : null,
     });
   });
@@ -73,7 +73,7 @@ export function registerTenantExtrasRoutes(app: Express): void {
     }
     res.json({
       ok: true,
-      health: getInboxWebhookHealthForOwner(ctx.tenantId),
+      health: await getInboxWebhookHealthForOwner(ctx.tenantId),
       activitySnapshot,
     });
   });

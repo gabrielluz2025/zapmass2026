@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.358',
+    date: '28/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Go: fim do loop “Webhook reparando”; sync manual do celular funciona em modo proteção; bootstrap findMessages + preview no load-chat-history',
+      },
+      {
+        type: 'improvement',
+        text: 'Diagnóstico VPS: teste de reachability do webhook a partir do container Evolution',
+      },
+    ],
+  },
+  {
     version: '2.3.357',
     date: '28/10/2026',
     highlights: [

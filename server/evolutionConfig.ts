@@ -26,4 +26,11 @@ export const evolutionConfig = {
     isGo: isEvolutionGoEngine(),
 };
 
-export { evolutionEngineConfig, isEvolutionGoEngine, isGoWebhookInboxMode, resolveWhatsAppEngine, usesEvolutionMotor };
+export {
+    evolutionEngineConfig,
+    isEvolutionGoEngine,
+    isGoChatFindMessagesBootstrapEnabled,
+    isGoWebhookInboxMode,
+    resolveWhatsAppEngine,
+    usesEvolutionMotor,
+};

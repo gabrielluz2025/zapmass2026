@@ -15,7 +15,16 @@ type ConnectionActivity = {
 
 const mem = new Map<string, ConnectionActivity>();
 
+/** Após re-registrar webhook, UI fica em “aguardando” em vez de loop “reparando”. */
+const WEBHOOK_REPAIR_GRACE_MS = Math.max(
+  20 * 60_000,
+  parseHoursEnv('GO_WEBHOOK_REPAIR_GRACE_MINUTES', 90) * 60_000
+);
+
+const webhookRepairAt = new Map<string, number>();
+
 const REDIS_KEY_PREFIX = 'zapmass:evo:wh:last:';
+const REDIS_REPAIR_PREFIX = 'zapmass:evo:wh:repair:';
 const REDIS_TTL_SEC = 30 * 24 * 3600;
 
 function parseHoursEnv(name: string, fallback: number): number {
@@ -103,13 +112,61 @@ export function recordEvolutionWebhookActivity(
 
 export function classifyWebhookEventKind(eventNameUpper: string): WebhookActivityKind {
   const ev = String(eventNameUpper || '').toUpperCase().replace(/\./g, '_');
-  if (ev === 'MESSAGES_UPSERT' || ev === 'MESSAGES_UPDATE' || ev === 'PRESENCE_UPDATE') {
+  if (
+    ev === 'MESSAGES_UPSERT' ||
+    ev === 'MESSAGES_UPDATE' ||
+    ev === 'MESSAGES_SET' ||
+    ev === 'PRESENCE_UPDATE' ||
+    ev === 'HISTORY_SYNC' ||
+    ev === 'CHATS_UPSERT' ||
+    ev === 'CHATS_UPDATE'
+  ) {
     return 'inbox';
   }
   if (ev === 'CONNECTION_UPDATE' || ev === 'QRCODE_UPDATED') {
     return 'connection';
   }
   return 'other';
+}
+
+/** Chamado após POST /instance/connect reaplicar webhookUrl (Go). */
+export async function markEvolutionWebhookRepairAttempt(connectionId: string): Promise<void> {
+  const id = String(connectionId || '').trim();
+  if (!id) return;
+  const now = Date.now();
+  webhookRepairAt.set(id, now);
+  const conn = redisGetter?.();
+  if (!conn) return;
+  try {
+    await conn.set(`${REDIS_REPAIR_PREFIX}${id}`, String(now), 'EX', REDIS_TTL_SEC);
+  } catch {
+    /* best-effort */
+  }
+}
+
+async function readWebhookRepairAt(connectionId: string): Promise<number> {
+  const id = String(connectionId || '').trim();
+  const memVal = webhookRepairAt.get(id);
+  if (memVal) return memVal;
+  const conn = redisGetter?.();
+  if (!conn) return 0;
+  try {
+    const raw = await conn.get(`${REDIS_REPAIR_PREFIX}${id}`);
+    if (!raw) return 0;
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) {
+      webhookRepairAt.set(id, n);
+      return n;
+    }
+  } catch {
+    /* ignore */
+  }
+  return 0;
+}
+
+export function isWebhookRepairGraceActive(connectionId: string, now = Date.now()): boolean {
+  const at = webhookRepairAt.get(String(connectionId || '').trim()) ?? 0;
+  return at > 0 && now - at < WEBHOOK_REPAIR_GRACE_MS;
 }
 
 export function getConnectionWebhookActivity(connectionId: string): ConnectionActivity | null {
@@ -133,28 +190,31 @@ function resolveStatus(
   lastInboxMs: number,
   lastAnyMs: number,
   hasStaleChip: boolean,
-  engine: string
+  engine: string,
+  repairGraceActive: boolean
 ): InboxWebhookHealthStatus {
   if (engine !== 'evolution-go') return 'n/a';
   if (openChips <= 0) return 'ok';
-  if (hasStaleChip) return 'stale';
   const now = Date.now();
   if (lastInboxMs > 0 && now - lastInboxMs < WEBHOOK_UI_WAITING_MS) return 'ok';
   if (lastAnyMs > 0 && now - lastAnyMs < 45 * 60_000) return 'ok';
+  if (hasStaleChip && repairGraceActive) return 'waiting';
+  if (hasStaleChip) return 'stale';
   return 'waiting';
 }
 
-export function buildInboxWebhookHealthForOwner(
+export async function buildInboxWebhookHealthForOwner(
   ownerUid: string,
   openConnections: Array<{ id: string; lastOpenAt?: number }>,
   engine: string
-): InboxWebhookHealthPayload {
+): Promise<InboxWebhookHealthPayload> {
   const uid = String(ownerUid || '').trim();
   if (!uid) return defaultInboxWebhookHealth(engine);
 
   let lastInboxMs = 0;
   let lastAnyMs = 0;
   const staleConnectionIds: string[] = [];
+  let repairGraceActive = false;
   const now = Date.now();
 
   for (const conn of openConnections) {
@@ -162,13 +222,20 @@ export function buildInboxWebhookHealthForOwner(
     if (row?.lastInboxMs) lastInboxMs = Math.max(lastInboxMs, row.lastInboxMs);
     if (row?.lastAnyMs) lastAnyMs = Math.max(lastAnyMs, row.lastAnyMs);
 
+    const repairedAt = await readWebhookRepairAt(conn.id);
+    if (repairedAt > 0 && now - repairedAt < WEBHOOK_REPAIR_GRACE_MS) {
+      repairGraceActive = true;
+    }
+
     const openSince = conn.lastOpenAt ?? 0;
     const openAge = openSince > 0 ? now - openSince : OPEN_GRACE_MS + 1;
     const inboxAge = row?.lastInboxMs ? now - row.lastInboxMs : Infinity;
+    const inRepairGrace = repairedAt > 0 && now - repairedAt < WEBHOOK_REPAIR_GRACE_MS;
     if (
       isEvolutionGoEngine() &&
       openAge > OPEN_GRACE_MS &&
-      inboxAge > WEBHOOK_INBOX_STALE_MS
+      inboxAge > WEBHOOK_INBOX_STALE_MS &&
+      !inRepairGrace
     ) {
       staleConnectionIds.push(conn.id);
     }
@@ -179,7 +246,8 @@ export function buildInboxWebhookHealthForOwner(
     lastInboxMs,
     lastAnyMs,
     staleConnectionIds.length > 0,
-    engine
+    engine,
+    repairGraceActive
   );
 
   return {
@@ -216,7 +284,11 @@ export function startEvolutionWebhookHealthMonitor(deps: WebhookHealthMonitorDep
       const inboxAge = activity?.lastInboxMs ? now - activity.lastInboxMs : Infinity;
 
       if (openAge > OPEN_GRACE_MS && inboxAge > WEBHOOK_INBOX_STALE_MS) {
-        await deps.reregisterWebhook(row.id).catch(() => undefined);
+        const repairedAt = await readWebhookRepairAt(row.id);
+        const repairCooldown = repairedAt > 0 && now - repairedAt < WEBHOOK_REPAIR_GRACE_MS;
+        if (!repairCooldown) {
+          await deps.reregisterWebhook(row.id).catch(() => undefined);
+        }
       }
 
       const list = byOwner.get(row.ownerUid) ?? [];
@@ -226,7 +298,8 @@ export function startEvolutionWebhookHealthMonitor(deps: WebhookHealthMonitorDep
 
     const engine = deps.engineLabel();
     for (const [ownerUid, conns] of byOwner.entries()) {
-      deps.publishOwnerHealth(ownerUid, buildInboxWebhookHealthForOwner(ownerUid, conns, engine));
+      const payload = await buildInboxWebhookHealthForOwner(ownerUid, conns, engine);
+      deps.publishOwnerHealth(ownerUid, payload);
     }
   };
 

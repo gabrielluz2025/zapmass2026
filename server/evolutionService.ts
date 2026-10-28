@@ -28,6 +28,7 @@ import { normalizeEvolutionGoWebhookIfNeeded } from './evolutionProvider/evoluti
 import {
     bindEvolutionWebhookHealthRedis,
     buildInboxWebhookHealthForOwner,
+    markEvolutionWebhookRepairAttempt,
     classifyWebhookEventKind,
     recordEvolutionWebhookActivity,
     snapshotAllWebhookActivity,
@@ -8083,6 +8084,7 @@ async function ensureGoInstanceWebhook(
     _webhookEnsureLastRun.set(instanceName, Date.now());
     try {
         await api.post(`/instance/connect/${evoInst(instanceName)}`, {});
+        await markEvolutionWebhookRepairAttempt(instanceName);
         log('info', `Webhook Go aplicado via connect: ${instanceName}`);
     } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -14520,7 +14522,9 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
     });
 }
 
-export function getInboxWebhookHealthForOwner(ownerUid: string): InboxWebhookHealthPayload {
+export async function getInboxWebhookHealthForOwner(
+    ownerUid: string
+): Promise<InboxWebhookHealthPayload> {
     const uid = String(ownerUid || '').trim();
     const scoped = filterByConnectionScope(uid, getConnections());
     const open = scoped

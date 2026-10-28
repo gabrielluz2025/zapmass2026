@@ -225,6 +225,12 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
       return 'Webhook: reparando entrega (servidor reaplicou URL)';
     }
     if (inboxWebhookHealth.status === 'waiting') {
+      if (
+        inboxWebhookHealth.staleConnectionIds?.length &&
+        inboxWebhookHealth.lastAnyWebhookAt
+      ) {
+        return 'Webhook reaplicado — aguardando mensagens do WhatsApp';
+      }
       return 'Webhook ok — aguardando mensagens do WhatsApp';
     }
     if (inboxWebhookHealth.status === 'ok') {

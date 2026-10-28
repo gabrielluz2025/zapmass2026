@@ -7,6 +7,18 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.358] - 2026-10-28
+
+### Corrigido
+- **Banner “Webhook: reparando entrega” em loop**: grace pós-reaplicar URL (`GO_WEBHOOK_REPAIR_GRACE_MINUTES`); HistorySync/CHATS contam como atividade de inbox; cooldown entre re-registros.
+- **Thread vazio com lista preenchida (stubs)**: bootstrap `findMessages` no Go ao abrir chat (`GO_BOOTSTRAP_CHAT_MESSAGES`, padrão on) + preview materializado no `load-chat-history`.
+- **“Sincronizar do celular” em modo proteção**: sync manual (socket) não é mais barrado pelo orquestrador só por `chip_protection` — HistorySync userInitiated segue para o chip.
+
+### Melhorado
+- **Diagnóstico VPS**: `diagnose-evolution-chat.sh` testa reachability do `ZAPMASS_WEBHOOK_URL` de dentro do container Evolution.
+- **Docs**: checklist de webhook + variáveis em `docs/chat-inbox-evolution-go.md`.
+- **Testes**: grace webhook, sync manual com proteção, chaves de arquivo roundtrip.
+
 ## [2.3.357] - 2026-10-28
 
 ### Corrigido

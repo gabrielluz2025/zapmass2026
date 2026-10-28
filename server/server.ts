@@ -1213,7 +1213,10 @@ const registerSocketHandlers = () => {
           await evolutionService.syncConnectionsForOwner(uid).catch(() => undefined);
         }
         if (isGoWebhookInboxMode()) {
-          socket.emit('inbox-webhook-health', evolutionService.getInboxWebhookHealthForOwner(uid));
+          socket.emit(
+            'inbox-webhook-health',
+            await evolutionService.getInboxWebhookHealthForOwner(uid)
+          );
         }
       } else {
         socket.emit(
