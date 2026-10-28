@@ -10,6 +10,28 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.368',
+    date: '28/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Inbox: identidade única por chip + telefone decidida no servidor em toda lista enviada (sem depender só do colapso no navegador)',
+      },
+      {
+        type: 'fix',
+        text: 'Some a ficha "0" (JID inválido/broadcast) e a segunda ficha com JID como nome vinda do arquivo PG em outro chip',
+      },
+      {
+        type: 'fix',
+        text: 'Nome do contato não vira mais JID cru nem pushName do próprio chip; arquivo PG protege nome real contra lixo',
+      },
+      {
+        type: 'feature',
+        text: 'Admin: POST /api/admin/dedupe-inbox-ram e script npm run dedupe:inbox para limpar duplicatas existentes',
+      },
+    ],
+  },
+  {
     version: '2.3.367',
     date: '28/10/2026',
     highlights: [

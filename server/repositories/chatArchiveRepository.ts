@@ -5,6 +5,8 @@ import {
   contactPhoneLookupVariants,
 } from '../contactIdentity/contactPhone.js';
 
+import { isJunkInboxLabel } from '../../src/utils/collapseConversationsByPhone.js';
+
 const MAX_TEXT_LEN = 12000;
 const MAX_MEDIA_PREVIEW = 512;
 const ARCHIVE_BATCH_MESSAGES = 200;
@@ -108,7 +110,23 @@ export async function appendChatArchiveMessagesPg(
            (tenant_id, thread_id, contact_name, contact_phone, last_connection_id, updated_at, schema_version)
          VALUES ($1::uuid, $2, $3, $4, $5, now(), 1)
          ON CONFLICT (tenant_id, thread_id) DO UPDATE SET
-           contact_name = EXCLUDED.contact_name,
+           -- Nome lixo ("0", JID cru, vazio, "Contato", só telefone) não sobrescreve nome real já gravado.
+           contact_name = CASE
+             WHEN (
+               EXCLUDED.contact_name IS NULL OR btrim(EXCLUDED.contact_name) = ''
+               OR EXCLUDED.contact_name = '0' OR lower(EXCLUDED.contact_name) = 'contato'
+               OR EXCLUDED.contact_name LIKE '%@%'
+               OR EXCLUDED.contact_name ~ '^[+0-9 ().-]+$'
+             ) AND NOT (
+               zapmass.wa_chat_threads.contact_name IS NULL OR btrim(zapmass.wa_chat_threads.contact_name) = ''
+               OR zapmass.wa_chat_threads.contact_name = '0'
+               OR lower(zapmass.wa_chat_threads.contact_name) = 'contato'
+               OR zapmass.wa_chat_threads.contact_name LIKE '%@%'
+               OR zapmass.wa_chat_threads.contact_name ~ '^[+0-9 ().-]+$'
+             )
+             THEN zapmass.wa_chat_threads.contact_name
+             ELSE EXCLUDED.contact_name
+           END,
            contact_phone = EXCLUDED.contact_phone,
            last_connection_id = EXCLUDED.last_connection_id,
            updated_at = now()`,
@@ -317,7 +335,7 @@ export async function listInboxThreadStubsPg(
       const ts = Number(row.updated_ms) || Date.now();
       out.push({
         id,
-        contactName: row.contact_name || `+${phone}`,
+        contactName: isJunkInboxLabel(row.contact_name) ? `+${phone}` : row.contact_name,
         contactPhone: row.contact_phone || `+${phone}`,
         connectionId: conn,
         connectionOwnerUid: tenantId,

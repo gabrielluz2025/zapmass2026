@@ -6,7 +6,6 @@ function remoteJidFromConversationId(id) {
 function isLidJid(jid) {
     return jid.endsWith('@lid');
 }
-/** Preferir JID com telefone real em vez de @lid para id canônico da thread. */
 function conversationIdRank(id) {
     const jid = remoteJidFromConversationId(id);
     if (isLidJid(jid))
@@ -24,7 +23,6 @@ function newestActivityMs(conv) {
     const fromMsgN = typeof fromMsg === 'number' && Number.isFinite(fromMsg) ? fromMsg : 0;
     return Math.max(conv.lastMessageTimestamp ?? 0, fromMsgN);
 }
-/** Desempate estável — evita alternar id primário a cada tick (React #185). */
 export function compareConversationsForCanonicalId(a, b) {
     const rankDiff = conversationIdRank(b.id) - conversationIdRank(a.id);
     if (rankDiff !== 0)
@@ -44,7 +42,6 @@ export function selectionAnchorFromConversationId(conversationId) {
     const phoneDigits = tail.split('@')[0]?.replace(/\D/g, '') || '';
     return phoneDigits.length >= 8 ? { connectionId, phoneDigits } : null;
 }
-/** Mesmo contato: @lid / @s.whatsapp.net e 9º dígito BR (via merge keys). */
 export function phonesEquivalentForInboxMerge(a, b) {
     const da = localDigitsFromWaAddress(a) || normalizePhoneDigits(a);
     const db = localDigitsFromWaAddress(b) || normalizePhoneDigits(b);
@@ -101,7 +98,6 @@ export function reconcileConversationSelection(list, selectedId, anchor) {
         return stable;
     return null;
 }
-/** Foto real do WhatsApp (não avatar gerado). Path estável — query string muda. */
 export function stableWhatsappPicKey(url) {
     const raw = String(url || '').trim();
     if (!raw.startsWith('http://') && !raw.startsWith('https://'))
@@ -128,13 +124,8 @@ export function stableWhatsappPicKey(url) {
         return '';
     }
 }
-function normalizedInboxName(name) {
-    return String(name || '')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase()
-        .replace(/\s+/g, ' ')
-        .trim();
+export function inboxPhoneKeysForConversation(conv, resolvedOnly = false) {
+    return phoneKeysForConversation(conv, resolvedOnly);
 }
 function phoneKeysForConversation(conv, resolvedOnly = false) {
     const keys = new Set();
@@ -184,7 +175,6 @@ function phoneKeysForConversation(conv, resolvedOnly = false) {
     }
     return Array.from(keys);
 }
-/** @lid sem telefone, sem texto e sem mensagens: ficha vazia que não deve ir para a lista. */
 export function isEmptyUnresolvedLidStub(conv) {
     if (!isLidJid(remoteJidFromConversationId(conv.id)))
         return false;
@@ -194,7 +184,62 @@ export function isEmptyUnresolvedLidStub(conv) {
         return false;
     return phoneKeysForConversation(conv, true).length === 0;
 }
-/** Une duas threads do mesmo contato (usado no servidor ao redirecionar @lid → JID com telefone). */
+export function isJunkInboxJid(jid) {
+    const j = String(jid || '').trim().toLowerCase();
+    if (!j)
+        return true;
+    if (j.includes('@broadcast') || j.endsWith('@newsletter'))
+        return true;
+    if (j.endsWith('@g.us') || j.endsWith('@lid'))
+        return false;
+    const digits = (j.split('@')[0] || '').replace(/\D/g, '');
+    if (!digits || digits === '0')
+        return true;
+    return digits.length < 8;
+}
+export function isJunkInboxLabel(name) {
+    const t = String(name ?? '').trim();
+    if (!t)
+        return true;
+    if (t === '0')
+        return true;
+    if (t.includes('@'))
+        return true;
+    return false;
+}
+export function isJunkInboxConversation(conv) {
+    const id = String(conv?.id || '').trim();
+    if (!id || id.indexOf(':') < 0)
+        return true;
+    const jid = remoteJidFromConversationId(id);
+    if (isJunkInboxJid(jid))
+        return true;
+    const msgs = conv.messages?.length || 0;
+    const name = String(conv.contactName || '').trim();
+    const phone = String(conv.contactPhone || '').trim();
+    if (msgs === 0 && (name === '0' || phone === '0' || phone === '+0')) {
+        return phoneKeysForConversation(conv, true).length === 0;
+    }
+    return false;
+}
+export function sanitizeInboxConversationDisplay(conv) {
+    if (!isJunkInboxLabel(conv.contactName))
+        return conv;
+    const candidates = [
+        conv.contactPhone || '',
+        stripWhatsAppJidSuffix(conv.contactName || ''),
+        remoteJidFromConversationId(conv.id || '')
+    ];
+    for (const raw of candidates) {
+        if (isLidJid(String(raw)))
+            continue;
+        const d = localDigitsFromWaAddress(String(raw)) || normalizePhoneDigits(String(raw));
+        if (d.length >= 8 && d.length <= 13 && d !== '0') {
+            return { ...conv, contactName: `+${d}` };
+        }
+    }
+    return { ...conv, contactName: 'Contato' };
+}
 export function mergeConversationsPair(a, b) {
     return mergeConversationCluster([a, b]);
 }
@@ -275,7 +320,7 @@ function mergeConversationCluster(cluster) {
         waLastSeenMs: waLastSeenMs || undefined
     };
 }
-function collapseGroup(group) {
+function collapseGroup(group, aliases) {
     if (group.length < 2)
         return group;
     const parent = new Map();
@@ -318,16 +363,25 @@ function collapseGroup(group) {
     }
     const out = [];
     for (const cluster of clusters.values()) {
-        out.push(cluster.length === 1 ? cluster[0] : mergeConversationCluster(cluster));
+        if (cluster.length === 1) {
+            out.push(cluster[0]);
+            continue;
+        }
+        const merged = mergeConversationCluster(cluster);
+        if (aliases) {
+            for (const c of cluster) {
+                if (c.id !== merged.id)
+                    aliases.set(c.id, merged.id);
+            }
+        }
+        out.push(merged);
     }
     return out;
 }
-/**
- * Une threads duplicadas do mesmo contato no mesmo chip (ex.: @lid + @s.whatsapp.net).
- */
-export function collapseConversationsByPhone(list) {
+export function collapseConversationsByPhoneDetailed(list) {
+    const aliases = new Map();
     if (list.length < 2)
-        return list;
+        return { list, aliases };
     const byConn = new Map();
     for (const c of list) {
         const conn = c.connectionId || '_';
@@ -337,11 +391,81 @@ export function collapseConversationsByPhone(list) {
     }
     const result = [];
     for (const group of byConn.values()) {
-        result.push(...collapseGroup(group));
+        result.push(...collapseGroup(group, aliases));
     }
-    return result.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
+    return {
+        list: result.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)),
+        aliases
+    };
 }
-/** ID estável ao unir @lid + telefone — evita loop de setState no Bate-papo. */
+export function collapseConversationsByPhone(list) {
+    return collapseConversationsByPhoneDetailed(list).list;
+}
+export function canonicalizeInboxList(list) {
+    const junkIds = [];
+    const kept = [];
+    for (const c of list) {
+        if (isJunkInboxConversation(c) || isEmptyUnresolvedLidStub(c)) {
+            junkIds.push(c.id);
+            continue;
+        }
+        kept.push(sanitizeInboxConversationDisplay(c));
+    }
+    const collapsed = collapseConversationsByPhoneDetailed(kept);
+    return {
+        list: collapsed.list.map(sanitizeInboxConversationDisplay),
+        aliases: collapsed.aliases,
+        junkIds
+    };
+}
+export function filterPgStubsShadowedByRam(ram, stubs) {
+    const ramIds = new Set(ram.map((c) => c.id));
+    const ramKeys = new Set();
+    for (const c of ram) {
+        for (const k of phoneKeysForConversation(c, true))
+            ramKeys.add(k);
+    }
+    return stubs.filter((s) => {
+        if (ramIds.has(s.id))
+            return false;
+        if (isJunkInboxConversation(s))
+            return false;
+        const keys = phoneKeysForConversation(s, true);
+        if (keys.length === 0)
+            return true;
+        return !keys.some((k) => ramKeys.has(k));
+    });
+}
+function digitsTail8(digits) {
+    return digits.length >= 8 ? digits.slice(-8) : '';
+}
+export function findCanonicalConversationIdForPhone(list, connectionId, phoneDigits) {
+    const target = normalizePhoneDigits(phoneDigits);
+    if (target.length < 8)
+        return null;
+    const targetKeys = new Set(inboxMergeEquivalenceKeys(target));
+    if (targetKeys.size === 0)
+        targetKeys.add(target);
+    const tail = digitsTail8(target);
+    const matches = [];
+    for (const c of list) {
+        if ((c.connectionId || '') !== connectionId)
+            continue;
+        const jid = remoteJidFromConversationId(c.id);
+        const lid = isLidJid(jid);
+        if (tail && !lid) {
+            const hay = `${c.id}${c.contactPhone || ''}${c.waJidAlt || ''}`.replace(/\D/g, '');
+            if (!hay.includes(tail))
+                continue;
+        }
+        const keys = phoneKeysForConversation(c, true);
+        if (keys.some((k) => targetKeys.has(k)))
+            matches.push(c);
+    }
+    if (matches.length === 0)
+        return null;
+    return [...matches].sort(compareConversationsForCanonicalId)[0]?.id ?? null;
+}
 export function resolveStableConversationId(list, selectedId) {
     if (!selectedId)
         return null;
@@ -363,7 +487,6 @@ export function resolveStableConversationId(list, selectedId) {
         return null;
     return best;
 }
-/** Sobe para @s.whatsapp.net quando o id selecionado ainda é @lid na lista. */
 export function upgradeStableConversationId(list, selectedId) {
     if (!selectedId || !list.some((c) => c.id === selectedId))
         return null;

@@ -4,6 +4,7 @@
  * independentemente do conversations_cache.json local.
  */
 import { getZapmassPool } from '../db/postgres.js';
+import { resolvePostgresTenantIdAsync } from '../auth/firebaseUidMap.js';
 import type { Conversation } from '../types.js';
 
 function tagsToArray(tags: string[] | undefined): string[] {
@@ -16,11 +17,13 @@ function tagsToArray(tags: string[] | undefined): string[] {
  * Chamado em debounce a cada mudança na inbox.
  */
 export async function persistInboxConversationsBatch(
-  tenantId: string,
+  tenantIdRaw: string,
   conversations: Conversation[]
 ): Promise<void> {
   const pool = getZapmassPool();
-  if (!pool || !tenantId || conversations.length === 0) return;
+  if (!pool || !tenantIdRaw || conversations.length === 0) return;
+  // tenant_id é UUID: ownerUid Firebase precisa ser convertido (senão o INSERT falhava em silêncio).
+  const tenantId = await resolvePostgresTenantIdAsync(tenantIdRaw);
   try {
     const client = await pool.connect();
     try {
@@ -81,12 +84,13 @@ export async function persistInboxConversationsBatch(
  * Sincroniza com a deleção manual do usuário.
  */
 export async function markInboxConversationsDeleted(
-  tenantId: string,
+  tenantIdRaw: string,
   conversationIds: string[]
 ): Promise<void> {
   const pool = getZapmassPool();
-  if (!pool || !tenantId || conversationIds.length === 0) return;
+  if (!pool || !tenantIdRaw || conversationIds.length === 0) return;
   try {
+    const tenantId = await resolvePostgresTenantIdAsync(tenantIdRaw);
     await pool.query(
       `UPDATE zapmass.wa_inbox_conversations
        SET deleted = true, updated_at = now()
@@ -157,12 +161,13 @@ export async function findPersistedInboxConversationPg(
 }
 
 export async function loadPersistedInboxConversations(
-  tenantId: string,
+  tenantIdRaw: string,
   limit = 2000
 ): Promise<Array<{ conversationId: string; connectionId: string; contactName: string; contactPhone: string; lastMessage: string; lastMsgTs: number; unreadCount: number; tags: string[]; profilePicUrl: string | null }>> {
   const pool = getZapmassPool();
-  if (!pool || !tenantId) return [];
+  if (!pool || !tenantIdRaw) return [];
   try {
+    const tenantId = await resolvePostgresTenantIdAsync(tenantIdRaw);
     const r = await pool.query(
       `SELECT conversation_id, connection_id, contact_name, contact_phone,
               last_message, last_msg_ts, unread_count, tags, profile_pic_url

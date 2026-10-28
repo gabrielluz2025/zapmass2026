@@ -33,6 +33,7 @@
     "isolate:tenant-channels": "tsx scripts/isolate-tenant-channels.ts",
     "normalize:all-contacts": "tsx scripts/normalize-all-contacts.ts",
     "merge:duplicate-threads": "tsx scripts/merge-duplicate-threads.ts",
+    "dedupe:inbox": "tsx scripts/dedupe-inbox-conversations.ts",
     "warmup:optout-cache": "tsx scripts/warmupOptOutCache.ts",
     "classify:pending-replies": "tsx scripts/classify-pending-reply-intents.ts",
     "replay:inbound": "tsx scripts/replay-inbound-connection.ts",

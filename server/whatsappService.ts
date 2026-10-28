@@ -23,6 +23,7 @@ import {
     buildCampaignOwnerLookupUids,
 } from './campaignTenantScope.js';
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
+import { canonicalizeInboxList } from '../src/utils/collapseConversationsByPhone.js';
 import { GEO_UNKNOWN_UF, phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
 import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
 import {
@@ -3392,7 +3393,10 @@ const performConversationsEmit = () => {
         for (const socket of getConnectedSocketsSafe()) {
             const tenantUid = String((socket.data as { uid?: string }).uid ?? 'anonymous');
             const authUid = String((socket.data as { authUid?: string }).authUid ?? tenantUid);
-            socket.emit('conversations-update', conversationsPayloadForViewer(tenantUid, authUid, conversations));
+            socket.emit(
+                'conversations-update',
+                canonicalizeInboxList(conversationsPayloadForViewer(tenantUid, authUid, conversations)).list
+            );
         }
     } catch (e: any) {
         console.error('[CRASH] Erro ao emitir conversations-update:', e?.message || e, e?.stack?.split('\n')[1] || '');

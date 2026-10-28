@@ -1,5 +1,5 @@
 import { vpsDataEnabled } from './auth/dataMode.js';
-import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
+import { resolvePostgresTenantIdAsync } from './auth/firebaseUidMap.js';
 import { getZapmassPool } from './db/postgres.js';
 import {
   appendChatArchiveMessagesFirestore,
@@ -31,7 +31,7 @@ export async function appendChatArchiveMessages(
 ): Promise<void> {
   if (!isWaChatArchiveEnabled() || !ownerUid || !threadId || messages.length === 0) return;
   if (usePostgresChatArchive()) {
-    return appendChatArchiveMessagesPg(resolvePostgresTenantId(ownerUid), threadId, meta, messages);
+    return appendChatArchiveMessagesPg(await resolvePostgresTenantIdAsync(ownerUid), threadId, meta, messages);
   }
   return appendChatArchiveMessagesFirestore(ownerUid, threadId, meta, messages);
 }
@@ -43,7 +43,7 @@ export async function loadChatArchiveMessages(
 ): Promise<ChatMessage[]> {
   if (!isWaChatArchiveEnabled() || !ownerUid || !threadId) return [];
   if (usePostgresChatArchive()) {
-    return loadChatArchiveMessagesPg(resolvePostgresTenantId(ownerUid), threadId, limit);
+    return loadChatArchiveMessagesPg(await resolvePostgresTenantIdAsync(ownerUid), threadId, limit);
   }
   return loadChatArchiveMessagesFirestore(ownerUid, threadId, limit);
 }

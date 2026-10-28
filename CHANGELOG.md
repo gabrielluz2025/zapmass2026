@@ -7,6 +7,20 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.368] - 2026-10-28
+
+### Corrigido
+- **Inbox com identidade autoritativa no servidor** (não depende mais só do colapso no cliente): toda saída de lista (`conversations-update`, `conversation-delta`, `inbox-page`, motor Baileys) passa por `canonicalizeInboxList` — remove lixo, troca rótulo JID/"0" por `+telefone` e funde threads do mesmo telefone + chip (id preferido `@s.whatsapp.net`; nunca por nome).
+- **Ficha "0"**: webhook e HistorySync criavam conversa para `0@s.whatsapp.net`, JID com < 8 dígitos e `@broadcast`; agora são ignorados na entrada (`upsertConversation`, `appendMessageToConversation`, webhook, stubs) e filtrados na saída.
+- **Segunda ficha do mesmo contato (JID como nome + "Video")**: stubs do arquivo PG (thread `p_<telefone>` é do tenant, não do chip) eram adicionados em outro chip mesmo com o contato já na RAM; agora `filterPgStubsShadowedByRam` descarta o stub quando o telefone já existe em qualquer chip. `hydrateInboxStubsFromArchive` idem.
+- **Nome = JID cru**: nova conversa criada por mensagem usava `5547...@s.whatsapp.net` como nome e gravava em `wa_chat_threads.contact_name`; agora usa `+telefone`. Mensagem `fromMe` não usa mais o `pushName` do próprio chip como nome do contato. O upsert do arquivo PG não deixa nome lixo ("0", JID, só telefone, "Contato") sobrescrever nome real.
+- **Dedupe na RAM**: `resolveConversationIdForPhone` escolhe o melhor id (`@s.whatsapp.net` > `@c.us` > `@lid`); merge guarda alias (id antigo → canônico) para webhook `@lid` futuro cair na thread única; dedupe também no boot (cache em disco), após restaurar do PG e a cada upsert (throttle 400 ms).
+- **Postgres**: `persistInboxConversationsBatch`/`loadPersisted…`/`markInboxConversationsDeleted` e leituras do arquivo passam a resolver o tenant UUID de forma assíncrona (`resolvePostgresTenantIdAsync`, com lookup em `users.firebase_uid`).
+
+### Adicionado
+- `POST /api/admin/dedupe-inbox-ram` (`tenantUid`, `dryRun`) e `npm run dedupe:inbox -- [--tenant <uuid>] [--apply]` (soft delete de duplicatas/lixo em `wa_inbox_conversations` + limpeza de nomes em `wa_chat_threads`).
+- Testes: `src/utils/inboxIdentity.test.ts` (caso Gabriel, "0", homônimos, stubs, espelho JS) e `server/evolutionChat.canonicalInbox.test.ts`.
+
 ## [2.3.367] - 2026-10-28
 
 ### Corrigido

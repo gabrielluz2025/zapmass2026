@@ -15,6 +15,8 @@ export function filterEvolutionContactLabel(raw: unknown): string | undefined {
     return undefined;
   }
   if (looksLikeLongLidDigits(t)) return undefined;
+  // "0" e JID cru (`5547...@s.whatsapp.net`) não são nome de contato.
+  if (t === '0' || t.includes('@')) return undefined;
   return t;
 }
 

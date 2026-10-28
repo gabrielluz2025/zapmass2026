@@ -254,6 +254,26 @@ export function registerAdminConnectionsRoutes(app: Express): void {
     res.json({ ok: result.ok, ...result, reconciledBy: auth.uid });
   });
 
+  /**
+   * Dedupe da inbox na RAM (mesmo telefone/chip → 1 thread; remove "0"/JID curto/broadcast).
+   * Body/query: `tenantUid` (opcional; omitido = todos), `dryRun=1` só mede.
+   */
+  app.post('/api/admin/dedupe-inbox-ram', async (req: Request, res: Response) => {
+    const auth = await assertAdminFromBearer(req, res);
+    if (!auth) return;
+
+    if (!useEvolutionEngine()) {
+      res.status(400).json({ ok: false, error: 'Disponível apenas com motor Evolution (API ou Go).' });
+      return;
+    }
+
+    const body = (req.body || {}) as { tenantUid?: string; dryRun?: boolean };
+    const tenantUid = String(body.tenantUid || req.query.tenantUid || '').trim() || undefined;
+    const dryRun = req.query.dryRun === '1' || body.dryRun === true;
+    const stats = evolutionService.dedupeInboxRamForTenant({ tenantUid, dryRun });
+    res.json({ ok: true, tenantUid: tenantUid ?? null, ...stats, requestedBy: auth.uid });
+  });
+
   /** Lista drift Go ↔ ZapMass (órfãs, duplicatas, connecting zumbis). */
   app.get('/api/admin/go-instances/drift', async (req: Request, res: Response) => {
     const auth = await assertAdminFromBearer(req, res);

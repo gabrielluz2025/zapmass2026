@@ -6,7 +6,7 @@ import {
 } from './inboxAssignments.js';
 import { enrichConversationsWithCrmNames } from './contactNameEnrich.js';
 import { enrichConversationsWithCrmPhones } from './contactPhoneEnrich.js';
-import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
+import { resolvePostgresTenantIdAsync } from './auth/firebaseUidMap.js';
 import { usePostgresChatArchive } from './chatArchiveStore.js';
 import {
   INBOX_FIRST_PAGE_SIZE,
@@ -18,8 +18,10 @@ import {
 import { listInboxThreadStubsPg } from './repositories/chatArchiveRepository.js';
 import type { Conversation } from './types.js';
 import {
-  collapseConversationsByPhone,
-  isEmptyUnresolvedLidStub
+  canonicalizeInboxList,
+  filterPgStubsShadowedByRam,
+  isEmptyUnresolvedLidStub,
+  isJunkInboxConversation
 } from '../src/utils/collapseConversationsByPhone.js';
 
 /** Resolve dono de canal legado (`conn_*` sem `uid__`) para `filterByConnectionScope`. */
@@ -91,7 +93,8 @@ function trimConversationListForSocket(list: Conversation[]): Conversation[] {
 }
 
 export function prepareConversationsForSocketEmit(list: Conversation[]): Conversation[] {
-  const visible = collapseConversationsByPhone(list).filter((c) => !isEmptyUnresolvedLidStub(c));
+  // Identidade autoritativa no servidor: lixo fora, rótulos JID/"0" viram telefone, mesmo telefone/chip = 1 linha.
+  const visible = canonicalizeInboxList(list).list;
   return trimConversationListForSocket(slimConversationsForBroadcast(visible)).map((c) => {
     const msgs = Array.isArray(c.messages) ? c.messages : [];
     if (msgs.length <= SOCKET_INBOX_MSG_TAIL) return c;
@@ -137,8 +140,8 @@ export async function socketConversationDeltaPayload(
   if (scoped.length === 0) return null;
   const withPhones = await enrichConversationsWithCrmPhones(tenantUid, scoped);
   const withNames = await enrichConversationsWithCrmNames(tenantUid, withPhones);
-  if (isEmptyUnresolvedLidStub(withNames[0]!)) return null;
-  return prepareSingleConversationForSocketEmit(withNames[0]!);
+  if (isEmptyUnresolvedLidStub(withNames[0]!) || isJunkInboxConversation(withNames[0]!)) return null;
+  return prepareSingleConversationForSocketEmit(withNames[0]!) ?? null;
 }
 
 /** Escopo tenant/staff + nomes CRM + payload enxuto para socket. */
@@ -175,24 +178,22 @@ export async function socketInboxPagePayload(
   );
   if (opts?.cursor == null && usePostgresChatArchive()) {
     try {
-      const pgStubs = await listInboxThreadStubsPg(resolvePostgresTenantId(tenantUid), {
+      const pgStubs = await listInboxThreadStubsPg(await resolvePostgresTenantIdAsync(tenantUid), {
         limit: Math.min(
           2000,
           Math.max(200, (opts?.reset ? INBOX_FIRST_PAGE_SIZE : (opts?.limit ?? INBOX_PAGE_SIZE_DEFAULT)) * 4)
         ),
       });
-      const ramIds = new Set(scoped.map((c) => c.id));
-      for (const stub of pgStubs) {
-        if (!ramIds.has(stub.id)) {
-          scoped.push({ ...stub, connectionOwnerUid: tenantUid });
-        }
+      // Thread do arquivo é por telefone (não por chip): se a RAM já tem o contato em qualquer chip, não duplica.
+      for (const stub of filterPgStubsShadowedByRam(scoped, pgStubs)) {
+        scoped.push({ ...stub, connectionOwnerUid: tenantUid });
       }
     } catch {
       /* ignore */
     }
   }
   // Une @lid + telefone ANTES de paginar (senão cada metade cai numa página e a lista duplica).
-  scoped = collapseConversationsByPhone(scoped).filter((c) => !isEmptyUnresolvedLidStub(c));
+  scoped = canonicalizeInboxList(scoped).list;
   const sorted = sortConversationsByActivity(scoped);
   const pageLimit =
     opts?.limit ??

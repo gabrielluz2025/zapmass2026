@@ -16,7 +16,7 @@ import {
   resolveActiveReplyFlowCampaignId,
   resolveConnectionOwnerUid,
 } from './evolutionService.js';
-import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
+import { resolvePostgresTenantIdAsync } from './auth/firebaseUidMap.js';
 import { findContactByPhoneKey } from './repositories/contactsRepository.js';
 import { listInboxThreadStubsPg } from './repositories/chatArchiveRepository.js';
 import {
@@ -201,7 +201,7 @@ function enrichConversationsForConnectionScope(convs: Conversation[]): Conversat
 }
 
 export async function collectScopedConversationsForIntent(tenantId: string): Promise<Conversation[]> {
-  const pgTenantId = resolvePostgresTenantId(tenantId);
+  const pgTenantId = await resolvePostgresTenantIdAsync(tenantId);
   const live = filterByConnectionScope(tenantId, enrichConversationsForConnectionScope(getConversations()));
   const merged = [...live];
 

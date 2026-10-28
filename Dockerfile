@@ -105,6 +105,7 @@ COPY --from=builder /app/scripts/warmupOptOutCache.ts ./scripts/warmupOptOutCach
 COPY --from=builder /app/scripts/classify-pending-reply-intents.ts ./scripts/classify-pending-reply-intents.ts
 COPY --from=builder /app/scripts/warmup-pool-chip-report.ts ./scripts/warmup-pool-chip-report.ts
 COPY --from=builder /app/scripts/merge-duplicate-threads.ts ./scripts/merge-duplicate-threads.ts
+COPY --from=builder /app/scripts/dedupe-inbox-conversations.ts ./scripts/dedupe-inbox-conversations.ts
 COPY --from=builder /app/VERSION ./VERSION
 
 # Commit do build (healthcheck pós-deploy compara com VITE_GIT_REF).

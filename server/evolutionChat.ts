@@ -22,9 +22,13 @@ import {
     pickContactDisplayName
 } from '../src/utils/contactPhoneLookup.js';
 import {
-    collapseConversationsByPhone,
+    canonicalizeInboxList,
+    filterPgStubsShadowedByRam,
+    findCanonicalConversationIdForPhone,
+    isJunkInboxJid,
     mergeConversationsPair,
-    resolveStableConversationId
+    resolveStableConversationId,
+    sanitizeInboxConversationDisplay
 } from '../src/utils/collapseConversationsByPhone.js';
 import type { GoHistoryConversationStub } from './evolutionProvider/evolutionGoWebhookAdapter.js';
 import { isGoChatFindMessagesBootstrapEnabled, isGoWebhookInboxMode } from './evolutionConfig.js';
@@ -151,6 +155,12 @@ function conversationNeedsGoHistorySync(conv: Conversation | undefined): boolean
 
 export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionChatArchiveCtx) {
     let conversations: Conversation[] = [];
+    /**
+     * id descartado no merge (ex.: `chip:...@lid`) para o id canônico (`chip:55...@s.whatsapp.net`).
+     * Webhook futuro com o id antigo cai direto na thread única (RAM; reconstruído a cada passe de dedupe).
+     */
+    const conversationIdAliases = new Map<string, string>();
+    const MAX_CONVERSATION_ALIASES = 20_000;
     const lastCampaignMessageSentAt = new Map<string, number>();
     const projectRoot = path.resolve(process.cwd());
     const dataDir = path.resolve(projectRoot, process.env.DATA_DIR || 'data');
@@ -165,6 +175,13 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 if (Array.isArray(cached)) {
                     conversations.push(...cached);
                     console.info(`[evolutionChat] Cache restaurado! ${conversations.length} conversas carregadas do disco.`);
+                    // Cache antigo pode carregar duplicatas/lixo de versões anteriores — limpa já na subida.
+                    const cleaned = collapseStoredConversations();
+                    if (cleaned) {
+                        console.info(
+                            `[evolutionChat] Inbox canonicalizada no boot: ${conversations.length} conversas após dedupe/lixo.`
+                        );
+                    }
                 }
             }
         } catch (err: any) {
@@ -314,7 +331,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (opts?.ownerUid) ownerUidForScope = opts.ownerUid;
     }
 
-    // ── Debounce PG persistence ──
+    // -- Debounce PG persistence --
     let pgPersistTimer: ReturnType<typeof setTimeout> | null = null;
     function scheduleInboxPgPersist() {
         if (pgPersistTimer) return;
@@ -339,6 +356,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             const rows = await loadPersistedInboxConversations(tid, 2000);
             if (rows.length === 0) return;
             for (const row of rows) {
+                if (isJunkInboxJid(parseConversationId(row.conversationId)?.remoteJid || '')) continue;
                 conversations.push({
                     id: row.conversationId,
                     connectionId: row.connectionId,
@@ -353,7 +371,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                     profilePicUrl: row.profilePicUrl ?? undefined,
                 });
             }
-            console.info(`[evolutionChat] ${rows.length} conversa(s) restauradas do PostgreSQL.`);
+            collapseStoredConversations();
+            console.info(`[evolutionChat] ${rows.length} conversa(s) restauradas do PostgreSQL (${conversations.length} após dedupe).`);
             saveConversationsToCacheDebounced();
         } catch (e) {
             console.warn('[evolutionChat] Falha ao restaurar inbox do PG:', (e as Error)?.message);
@@ -378,7 +397,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 (!onlyId || c.id === onlyId)
         );
         if (empty.length === 0) return 0;
-        const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+        const { resolvePostgresTenantIdAsync } = await import('./auth/firebaseUidMap.js');
         const { loadArchiveTailByThreadIds, listThreadIdsForPhonePg, listThreadIdsForRemoteJidPg } =
             await import('./repositories/chatArchiveRepository.js');
         type Row = { conv: Conversation; threadIds: string[] };
@@ -390,7 +409,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             if (!owner || owner === 'anonymous') continue;
             const cpGuess = archiveContactPhoneGuess(conv.id, conv);
             const threadIds = collectArchiveThreadIds(conv.id, conv, cpGuess);
-            const tenantId = resolvePostgresTenantId(owner);
+            const tenantId = await resolvePostgresTenantIdAsync(owner);
             const remoteJid = conv.id.includes(':')
                 ? conv.id.slice(conv.id.indexOf(':') + 1)
                 : '';
@@ -426,7 +445,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         }
         let filled = 0;
         for (const [owner, rows] of byOwner) {
-            const tenantId = resolvePostgresTenantId(owner);
+            const tenantId = await resolvePostgresTenantIdAsync(owner);
             const allThreadIds = [
                 ...new Set(rows.flatMap((r) => r.threadIds).filter(Boolean)),
             ];
@@ -465,22 +484,96 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         return filled;
     }
 
+    function rememberConversationAliases(aliases: Map<string, string>): void {
+        if (aliases.size === 0) return;
+        if (conversationIdAliases.size > MAX_CONVERSATION_ALIASES) conversationIdAliases.clear();
+        for (const [from, to] of aliases) {
+            if (from && to && from !== to) conversationIdAliases.set(from, to);
+        }
+    }
+
+    /** Segue alias (@lid para telefone) só quando o id antigo sumiu da RAM e o canônico existe. */
+    function followConversationAlias(conversationId: string): string {
+        if (!conversationIdAliases.has(conversationId)) return conversationId;
+        if (conversations.some((c) => c.id === conversationId)) return conversationId;
+        let cur = conversationId;
+        for (let i = 0; i < 4; i++) {
+            const next = conversationIdAliases.get(cur);
+            if (!next || next === cur) break;
+            cur = next;
+        }
+        if (cur !== conversationId && conversations.some((c) => c.id === cur)) return cur;
+        return conversationId;
+    }
+
+    /**
+     * Passe autoritativo da RAM: remove lixo (`0`, JID curto, broadcast, @lid vazio) e funde threads do
+     * mesmo telefone por chip (id preferido: @s.whatsapp.net). Retorna true se a lista mudou.
+     */
     function collapseStoredConversations(): boolean {
-        const collapsed = collapseConversationsByPhone(conversations);
-        if (collapsed.length >= conversations.length) return false;
+        const result = canonicalizeInboxList(conversations);
+        rememberConversationAliases(result.aliases);
+        if (result.list.length >= conversations.length) return false;
         conversations.length = 0;
-        conversations.push(...collapsed);
+        conversations.push(...result.list);
         return true;
     }
 
+    /**
+     * Dedupe sob demanda (admin / pós-boot). `dryRun` só mede; sem dryRun aplica na RAM, avisa o PG e reemite.
+     */
+    function dedupeInboxRam(opts?: {
+        dryRun?: boolean;
+        matchConnection?: (connectionId: string) => boolean;
+    }): {
+        before: number;
+        after: number;
+        merged: number;
+        junkRemoved: number;
+        removedIds: string[];
+        dryRun: boolean;
+    } {
+        const dryRun = opts?.dryRun === true;
+        const inScope = (c: Conversation) =>
+            !opts?.matchConnection || opts.matchConnection(c.connectionId || '');
+        const scope = conversations.filter(inScope);
+        const result = canonicalizeInboxList(scope);
+        const keptIds = new Set(result.list.map((c) => c.id));
+        const removedIds = scope.map((c) => c.id).filter((id) => !keptIds.has(id));
+        const stats = {
+            before: scope.length,
+            after: result.list.length,
+            merged: result.aliases.size,
+            junkRemoved: result.junkIds.length,
+            removedIds: removedIds.slice(0, 200),
+            dryRun,
+        };
+        if (dryRun || removedIds.length === 0) return stats;
+
+        const scopeSet = new Set(scope);
+        const rest = conversations.filter((c) => !scopeSet.has(c));
+        conversations.length = 0;
+        conversations.push(...rest, ...result.list);
+        conversations.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
+        rememberConversationAliases(result.aliases);
+        if (ownerUidForScope) {
+            void markInboxConversationsDeleted(ownerUidForScope, removedIds).catch(() => undefined);
+        }
+        emitConversationsUpdate();
+        return stats;
+    }
+
     let collapseInboxTimer: ReturnType<typeof setTimeout> | null = null;
-    /** Une @lid + telefone na mesma linha da inbox (evita duplicata recebida vs respondida). */
+    /**
+     * Une @lid + telefone na mesma linha da inbox (evita duplicata recebida vs respondida).
+     * Não reinicia o timer a cada evento: em rajada de HistorySync um timer "debounce" nunca dispararia.
+     */
     function scheduleCollapseInbox(): void {
-        if (collapseInboxTimer) clearTimeout(collapseInboxTimer);
+        if (collapseInboxTimer) return;
         collapseInboxTimer = setTimeout(() => {
             collapseInboxTimer = null;
             if (collapseStoredConversations()) emitConversationsUpdate();
-        }, 120);
+        }, 400);
     }
 
     /** Lista completa — só sync findChats, delete em massa ou rajada grande de deltas. */
@@ -669,7 +762,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const delta = (next.messages || []).filter((m) => m?.id && !prevIds.has(m.id));
         if (delta.length === 0) return;
         void appendChatArchiveMessages(ownerUid, threadId, {
-            contactName: next.contactName || 'Contato',
+            // JID cru / "0" nunca vão para wa_chat_threads.contact_name (a lista de stubs lê esse campo).
+            contactName: sanitizeInboxConversationDisplay(next).contactName || 'Contato',
             contactPhone: archiveContactPhone,
             connectionId: next.connectionId
         }, delta).catch((e: unknown) => {
@@ -692,6 +786,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     });
 
     function upsertConversation(incoming: Conversation, opts?: { skipArchive?: boolean }) {
+        // JID inválido (`0@s.whatsapp.net`, @broadcast, < 8 dígitos) nunca vira ficha na inbox.
+        if (isJunkInboxJid(parseConversationId(incoming.id)?.remoteJid || '')) return;
         const originalId = incoming.id;
         const canonicalId = resolveCanonicalConversationId(
             incoming.connectionId,
@@ -774,6 +870,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (!opts?.skipArchive) {
             persistConversationDeltaArchive(prev ?? undefined, conversations.find((c) => c.id === conv.id) || conv);
         }
+        // Dedupe por (chip, telefone) em toda entrada — não só depois de mensagem de webhook.
+        scheduleCollapseInbox();
     }
 
     function appendMessageToConversation(
@@ -790,6 +888,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         }
     ) {
         const connectionId = meta?.connectionId || conversationId.split(':')[0] || '';
+        if (isJunkInboxJid(parseConversationId(conversationId)?.remoteJid || '')) return;
         const originalId = conversationId;
         conversationId = resolveCanonicalConversationId(connectionId, conversationId, {
             contactPhone: meta?.contactPhone,
@@ -815,7 +914,12 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         }
         let conv = conversations.find((c) => c.id === conversationId);
         if (!conv) {
-            const resolvedName = filterEvolutionName(meta?.contactName) || meta?.contactPhone || conversationId.split(':')[1] || '';
+            // Nunca usar o JID cru como nome ("5547...@s.whatsapp.net") — vira rótulo feio e é gravado no arquivo PG.
+            const resolvedName =
+                filterEvolutionName(meta?.contactName) ||
+                filterEvolutionName(meta?.contactPhone) ||
+                toPhoneDisplay(conversationId.split(':')[1] || '') ||
+                'Contato';
             conv = {
                 id: conversationId,
                 contactName: resolvedName,
@@ -892,14 +996,14 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     function resolveConversationIdForPhone(connectionId: string, phoneDigits: string): string {
         const target = normalizePhoneDigits(phoneDigits);
         if (!target) return buildConversationId(connectionId, `${phoneDigits}@s.whatsapp.net`);
+        // Uma chave por (chip, telefone): entre @lid / @c.us / @s.whatsapp.net vence o JID com telefone.
+        const existing = findCanonicalConversationIdForPhone(conversations, connectionId, target);
+        if (existing) return followConversationAlias(existing);
         const targetKeys = new Set(buildStrongPhoneMergeKeys(target));
         for (const c of conversations) {
             if (c.connectionId !== connectionId) continue;
             const cp = normalizePhoneDigits(c.contactPhone || '');
             if (cp && (cp === target || targetKeys.has(cp))) return c.id;
-            for (const k of buildStrongPhoneMergeKeys(cp)) {
-                if (targetKeys.has(k)) return c.id;
-            }
             const jidPart = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : '';
             const jidDigits = normalizePhoneDigits(jidPart.split('@')[0] || '');
             if (jidDigits && (jidDigits === target || targetKeys.has(jidDigits))) return c.id;
@@ -913,6 +1017,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         conversationId: string,
         peer?: { contactPhone?: string; waJidAlt?: string }
     ): string {
+        // Id já fundido antes (ex.: @lid para telefone): webhook sem PN ainda cai na thread única.
+        conversationId = followConversationAlias(conversationId);
         const parsed = parseConversationId(conversationId);
         if (!parsed || parsed.connectionId !== connectionId) return conversationId;
         const existing = conversations.find((c) => c.id === conversationId);
@@ -931,6 +1037,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     function upsertHistorySyncStub(instance: string, stub: GoHistoryConversationStub): void {
         const remoteJid = String(stub.remoteJid || '').trim();
         if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') return;
+        if (isJunkInboxJid(remoteJid)) return;
         let conversationId = buildConversationId(instance, remoteJid);
         const phone = toPhoneDisplay(remoteJid);
         conversationId = resolveCanonicalConversationId(instance, conversationId, {
@@ -1250,14 +1357,19 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const allowed = new Set((connectionIds || []).filter(Boolean));
         const { usePostgresChatArchive } = await import('./chatArchiveStore.js');
         if (!usePostgresChatArchive()) return 0;
-        const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+        const { resolvePostgresTenantIdAsync } = await import('./auth/firebaseUidMap.js');
         const { listInboxThreadStubsPg } = await import('./repositories/chatArchiveRepository.js');
-        const tenantId = resolvePostgresTenantId(ownerUid);
+        const tenantId = await resolvePostgresTenantIdAsync(ownerUid);
         const stubs = await listInboxThreadStubsPg(tenantId, { limit: 2000 });
         let touched = 0;
+        // Thread do arquivo é por telefone: stub cujo contato já existe na RAM (em qualquer chip) não vira 2ª ficha.
+        const freshStubIds = new Set(filterPgStubsShadowedByRam(conversations, stubs).map((s) => s.id));
+        const ramIdsNow = new Set(conversations.map((c) => c.id));
         for (const stub of stubs) {
             if (restrict && !allowed.has(stub.connectionId)) continue;
             if (deletedConversationIds.has(stub.id)) continue;
+            if (isJunkInboxJid(parseConversationId(stub.id)?.remoteJid || '')) continue;
+            if (!freshStubIds.has(stub.id) && !ramIdsNow.has(stub.id)) continue;
             const canonicalId = resolveCanonicalConversationId(stub.connectionId, stub.id, {
                 contactPhone: stub.contactPhone,
             });
@@ -1285,6 +1397,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const merged = mergeConversationsPair(keep, conversations[dropIdx]!);
         conversations.splice(dropIdx, 1);
         deletedConversationIds.add(dropId);
+        if (merged.id !== dropId) conversationIdAliases.set(dropId, merged.id);
         return merged;
     }
 
@@ -2112,6 +2225,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         const remoteJid = String(msg.key.remoteJid || '');
             if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue;
+            // `0@s.whatsapp.net`, @broadcast, < 8 dígitos: eventos de sistema — antes viravam a ficha "0".
+            if (isJunkInboxJid(remoteJid)) continue;
 
             let conversationId = buildConversationId(instance, remoteJid);
             // skipMedia=false: inclui URL CDN do WhatsApp (https://mmg.whatsapp.net/...)
@@ -2119,7 +2234,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             const chatMsg = evolutionRawToChatMessage(msg, false);
             if (!chatMsg) continue;
 
-            const pushName = msg.pushName || remoteJid.split('@')[0];
+            // Em mensagem enviada por nós (`fromMe`) o pushName é do PRÓPRIO chip, não do contato.
+            const pushName = msg.key.fromMe ? '' : msg.pushName || remoteJid.split('@')[0];
             const rawPeer = peerFromRawMessageRecord(msg as Record<string, unknown>);
             const phoneDigits = rawPeer
                 ? normalizePhoneDigits(rawPeer.contactPhone)
@@ -2134,7 +2250,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             });
         appendMessageToConversation(conversationId, chatMsg, {
             connectionId: instance,
-            contactName: String(pushName),
+            contactName: pushName ? String(pushName) : undefined,
                 contactPhone: phoneDigits.length >= 8 ? `+${phoneDigits}` : rawPeer?.contactPhone || '',
                 waJidAlt: rawPeer?.waJidAlt || chatMsg.waRemoteJidAlt || chatMsg.waSenderPn,
             incrementUnread: !msg.key.fromMe,
@@ -2891,10 +3007,10 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (suffixes.length === 0) return;
 
         try {
-            const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+            const { resolvePostgresTenantIdAsync } = await import('./auth/firebaseUidMap.js');
             const { getZapmassPool } = await import('./db/postgres.js');
             const pool = getZapmassPool();
-            const tenantId = resolvePostgresTenantId(owner);
+            const tenantId = await resolvePostgresTenantIdAsync(owner);
             if (!pool || !tenantId) return;
 
             let text = '';
@@ -3057,6 +3173,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         ensurePhoneStubs,
         flushConversationsCache,
         flushInboxToPg,
+        dedupeInboxRam,
         emitConversationsUpdate,
         emitConversationDelta,
         syncChatsForConnection,

@@ -1411,6 +1411,24 @@ export async function getInboxPageForOwner(
     return { ...page, conversations: visible, total: Math.max(0, page.total - (page.conversations.length - visible.length)) };
 }
 
+/**
+ * Dedupe da inbox na RAM para um tenant (`tenantUid` omitido = todos os chips). Funde threads do mesmo
+ * telefone/chip e remove lixo ("0", JID curto, broadcast, @lid vazio). `dryRun` só mede.
+ */
+export function dedupeInboxRamForTenant(opts?: { tenantUid?: string; dryRun?: boolean }) {
+    const tenant = String(opts?.tenantUid || '').trim();
+    // `dedupeInboxRam` já reemite a lista (notifyConversationsChanged) quando algo mudou.
+    return chatStore.dedupeInboxRam({
+        dryRun: opts?.dryRun === true,
+        matchConnection: tenant
+            ? (connectionId) => {
+                  const owner = resolveConnectionOwnerUid(connectionId);
+                  return !!owner && (owner === tenant || tenantScopeUidsMatch(owner, tenant));
+              }
+            : undefined,
+    });
+}
+
 /** Reemite inbox do RAM para o socket — sem findChats (sync leve ao focar aba / reconectar). */
 export async function hydrateInboxFromArchiveForOwner(ownerUid: string): Promise<number> {
     const uid = String(ownerUid || '').trim();
