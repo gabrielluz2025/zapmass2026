@@ -6,6 +6,44 @@ export function normalizePhoneDigits(raw: string): string {
   return String(raw || '').replace(/\D/g, '');
 }
 
+const WA_JID_SUFFIX_RE = /@(lid|c\.us|s\.whatsapp\.net)$/i;
+
+/** Remove sufixos WhatsApp (@lid, @c.us, @s.whatsapp.net) antes de extrair dígitos. */
+export function stripWhatsAppJidSuffix(raw: string): string {
+  return String(raw || '').trim().replace(WA_JID_SUFFIX_RE, '');
+}
+
+/** Parte local (antes do @) só com dígitos — telefone ou id @lid interno. */
+export function localDigitsFromWaAddress(raw: string): string {
+  const trimmed = String(raw || '').trim();
+  const noSuffix = stripWhatsAppJidSuffix(trimmed);
+  const local = noSuffix.includes('@') ? noSuffix.split('@')[0] : noSuffix;
+  return normalizePhoneDigits(local);
+}
+
+/**
+ * Chave de merge inbox: DDD ≤ 27 trata celular com/sem 9º dígito como o mesmo contato.
+ * Ex.: 554799127001 ↔ 5547999127001 → `br9x:554799127001`
+ */
+export function brInboxMergeKeyIgnoreNinthWhenDddLe27(digits: string): string | null {
+  let d = normalizePhoneDigits(digits);
+  if (!d.startsWith('55') || d.length < 12) return null;
+  const dddNum = parseInt(d.slice(2, 4), 10);
+  if (!Number.isFinite(dddNum) || dddNum > 27) return null;
+  if (d.length === 13 && d[4] === '9') {
+    d = d.slice(0, 4) + d.slice(5);
+  }
+  if (d.length === 12) return `br9x:${d}`;
+  return null;
+}
+
+export function inboxMergeEquivalenceKeys(digits: string): string[] {
+  const set = new Set(buildStrongPhoneMergeKeys(digits));
+  const br9 = brInboxMergeKeyIgnoreNinthWhenDddLe27(digits);
+  if (br9) set.add(br9);
+  return Array.from(set);
+}
+
 export function buildPhoneDigitLookupKeys(digits: string): string[] {
   const set = new Set<string>();
   const pushBrMobileVariants = (x: string) => {

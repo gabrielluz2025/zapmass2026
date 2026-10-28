@@ -174,6 +174,44 @@ type MessageRow = {
   campaign_id: string | null;
 };
 
+/** Histórico unificado de várias threads (mesmo contato @lid + telefone). */
+export async function loadChatArchiveMessagesFromThreadIdsPg(
+  tenantId: string,
+  threadIds: string[],
+  limit: number = 500
+): Promise<ChatMessage[]> {
+  if (!isUuid(tenantId) || threadIds.length === 0) return [];
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const cap = Math.max(1, Math.min(limit, 2000));
+  const ids = [...new Set(threadIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  try {
+    const r = await pool.query<MessageRow>(
+      `SELECT message_id, text, sender, status, type, timestamp_ms::text, media_url,
+              from_campaign, campaign_id
+       FROM zapmass.wa_chat_messages
+       WHERE tenant_id = $1::uuid AND thread_id = ANY($2::text[])
+       ORDER BY timestamp_ms DESC
+       LIMIT $3`,
+      [tenantId, ids, cap]
+    );
+    const byId = new Map<string, ChatMessage>();
+    for (const row of r.rows) {
+      const msg = rowToChatMessage(row.message_id, row);
+      const prev = byId.get(msg.id);
+      if (!prev || (msg.timestampMs || 0) >= (prev.timestampMs || 0)) {
+        byId.set(msg.id, msg);
+      }
+    }
+    return Array.from(byId.values()).sort(
+      (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
+    );
+  } catch (e) {
+    console.warn('[ChatArchive/PG] load multi-thread falhou:', (e as Error)?.message || e);
+    return [];
+  }
+}
+
 export async function loadChatArchiveMessagesPg(
   tenantId: string,
   threadId: string,
@@ -401,6 +439,10 @@ export async function listThreadIdsForPhonePg(tenantId: string, phoneRaw: string
   const variants = contactPhoneLookupVariants(canonicalContactPhoneDigits(phoneRaw));
   if (variants.length === 0) return [];
   const suffixes = [...new Set(variants.map(phoneSuffix8).filter((s) => s.length >= 8))];
+  const jidNeedles = variants.flatMap((v) => [
+    `${v}@s.whatsapp.net`,
+    `${v}@c.us`,
+  ]);
   try {
     const r = await pool.query<{ thread_id: string }>(
       `SELECT DISTINCT thread_id FROM zapmass.wa_chat_threads
@@ -408,8 +450,13 @@ export async function listThreadIdsForPhonePg(tenantId: string, phoneRaw: string
           AND (
             regexp_replace(coalesce(contact_phone, ''), '\\D', '', 'g') = ANY($2::text[])
             OR right(regexp_replace(coalesce(contact_phone, ''), '\\D', '', 'g'), 8) = ANY($3::text[])
+            OR lower(trim(coalesce(contact_phone, ''))) = ANY($4::text[])
+            OR (
+              lower(trim(coalesce(contact_phone, ''))) LIKE '%@lid'
+              AND right(regexp_replace(split_part(lower(trim(contact_phone)), '@', 1), '\\D', '', 'g'), 8) = ANY($3::text[])
+            )
           )`,
-      [tenantId, variants, suffixes]
+      [tenantId, variants, suffixes, jidNeedles]
     );
     return r.rows.map((row) => row.thread_id).filter(Boolean);
   } catch (e) {

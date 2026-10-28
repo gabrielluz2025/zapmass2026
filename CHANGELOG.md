@@ -7,6 +7,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.363] - 2026-10-28
+
+### Adicionado
+- **Script VPS** `merge:duplicate-threads`: une threads Postgres duplicadas (@lid + telefone, DDD ≤ 27) com `--dry-run` / `--apply`.
+
+### Corrigido
+- **Inbox / histórico**: colapso por telefone ignora sufixos WA e 9º dígito (DDD ≤ 27); `load-chat-history` carrega mensagens de todas as threads irmãs no Postgres.
+- **Arquivo Postgres**: busca threads por JID `@s.whatsapp.net` / `@c.us` e `@lid` além das variantes numéricas.
+
 ## [2.3.362] - 2026-10-28
 
 ### Corrigido

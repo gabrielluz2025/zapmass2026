@@ -10,6 +10,17 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.363',
+    date: '28/10/2026',
+    highlights: [
+      { type: 'feat', text: 'Script merge:duplicate-threads (Postgres) para limpar threads @lid + telefone duplicadas' },
+      {
+        type: 'fix',
+        text: 'Inbox/histórico: dedupe agressivo por telefone (sufixos WA, 9º dígito DDD≤27) e carga unificada de threads irmãs',
+      },
+    ],
+  },
+  {
     version: '2.3.362',
     date: '28/10/2026',
     highlights: [{ type: 'fix', text: 'CI: export phonesEquivalentForInboxMerge no .js espelho da inbox' }],

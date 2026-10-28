@@ -1,9 +1,11 @@
 import type { ChatMessage, Conversation } from '../types';
 import {
-  buildStrongPhoneMergeKeys,
+  inboxMergeEquivalenceKeys,
+  localDigitsFromWaAddress,
   looksLikeLongLidDigits,
   normalizePhoneDigits,
-  pickContactDisplayName
+  pickContactDisplayName,
+  stripWhatsAppJidSuffix
 } from './contactPhoneLookup';
 
 function remoteJidFromConversationId(id: string): string {
@@ -66,24 +68,24 @@ export function selectionAnchorFromConversationId(
 
 /** Mesmo contato: @lid / @s.whatsapp.net e 9º dígito BR (via merge keys). */
 export function phonesEquivalentForInboxMerge(a: string, b: string): boolean {
-  const da = normalizePhoneDigits(a);
-  const db = normalizePhoneDigits(b);
+  const da = localDigitsFromWaAddress(a) || normalizePhoneDigits(a);
+  const db = localDigitsFromWaAddress(b) || normalizePhoneDigits(b);
   if (!da || !db || da.length < 8 || db.length < 8) return false;
   if (da === db) return true;
-  const keysA = new Set(buildStrongPhoneMergeKeys(da));
-  for (const k of buildStrongPhoneMergeKeys(db)) {
+  const keysA = new Set(inboxMergeEquivalenceKeys(da));
+  for (const k of inboxMergeEquivalenceKeys(db)) {
     if (keysA.has(k)) return true;
   }
   return false;
 }
 
 function conversationMatchesPhoneDigits(conv: Conversation, phoneDigits: string): boolean {
-  const cp = (conv.contactPhone || '').replace(/\D/g, '');
+  const cp = localDigitsFromWaAddress(conv.contactPhone || '');
   const cid = conv.id.includes(':') ? conv.id.slice(conv.id.indexOf(':') + 1) : conv.id;
-  const jidPart = cid.split('@')[0]?.replace(/\D/g, '') || '';
+  const jidPart = localDigitsFromWaAddress(stripWhatsAppJidSuffix(cid));
   if (phonesEquivalentForInboxMerge(cp, phoneDigits)) return true;
   if (phonesEquivalentForInboxMerge(jidPart, phoneDigits)) return true;
-  const alt = (conv.waJidAlt || '').split('@')[0]?.replace(/\D/g, '') || '';
+  const alt = localDigitsFromWaAddress(conv.waJidAlt || '');
   if (alt && phonesEquivalentForInboxMerge(alt, phoneDigits)) return true;
   return false;
 }
@@ -154,29 +156,28 @@ export function stableWhatsappPicKey(url: string | undefined | null): string {
 function phoneKeysForConversation(conv: Conversation): string[] {
   const keys = new Set<string>();
   const addDigits = (raw: string) => {
-    const d = normalizePhoneDigits(raw);
+    const d = localDigitsFromWaAddress(raw) || normalizePhoneDigits(raw);
     if (d.length < 10 || looksLikeLongLidDigits(d)) return;
-    for (const k of buildStrongPhoneMergeKeys(d)) keys.add(k);
+    for (const k of inboxMergeEquivalenceKeys(d)) keys.add(k);
   };
 
   addDigits(conv.contactPhone || '');
-  const altRaw = conv.waJidAlt || '';
-  if (altRaw) addDigits(altRaw.split('@')[0]);
+  const altRaw = stripWhatsAppJidSuffix(conv.waJidAlt || '');
+  if (altRaw) addDigits(altRaw);
 
-  const jid = remoteJidFromConversationId(conv.id);
-  if (jid && !isLidJid(jid)) addDigits(jid.split('@')[0]);
-  if (jid && isLidJid(jid)) {
-    const local = normalizePhoneDigits(jid.split('@')[0] || '');
+  const jidRaw = remoteJidFromConversationId(conv.id);
+  if (jidRaw && !isLidJid(jidRaw)) addDigits(jidRaw);
+  if (jidRaw && isLidJid(jidRaw)) {
+    const local = localDigitsFromWaAddress(jidRaw);
     if (local.length >= 10 && local.length <= 13) addDigits(local);
     else if (local.length > 13) addDigits(local.slice(-11));
   }
-  if (altRaw.includes('@')) addDigits(altRaw.split('@')[0]);
 
   // Sufixo só em @lid (evita colapsar dois telefones BR distintos pelo mesmo 8 dígitos).
-  if (isLidJid(jid)) {
+  if (isLidJid(jidRaw)) {
     const mergeD =
-      normalizePhoneDigits(conv.contactPhone || '') ||
-      normalizePhoneDigits(jid.split('@')[0] || '');
+      localDigitsFromWaAddress(conv.contactPhone || '') ||
+      localDigitsFromWaAddress(jidRaw);
     const tail = mergeD.length > 13 ? mergeD.slice(-11) : mergeD;
     if (tail.length >= 8) {
       for (const len of [11, 10, 9, 8]) {

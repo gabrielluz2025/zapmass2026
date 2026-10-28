@@ -2,13 +2,18 @@ import { describe, expect, it } from 'vitest';
 import {
   collapseConversationsByPhone,
   compareConversationsForCanonicalId,
+  phonesEquivalentForInboxMerge,
   pickConversationIdForAnchor,
   reconcileConversationSelection,
   resolveStableConversationId,
   selectionAnchorFromConversationId,
 } from './collapseConversationsByPhone';
 import { collapseConversationsByPhone as collapseFromJs } from './collapseConversationsByPhone.js';
-import { buildStrongPhoneMergeKeys } from './contactPhoneLookup';
+import {
+  brInboxMergeKeyIgnoreNinthWhenDddLe27,
+  buildStrongPhoneMergeKeys,
+  inboxMergeEquivalenceKeys,
+} from './contactPhoneLookup';
 import type { Conversation } from '../types';
 
 describe('collapseConversationsByPhone', () => {
@@ -360,6 +365,48 @@ describe('collapseConversationsByPhone', () => {
     const anchor = { connectionId: conn, phoneDigits: phone };
     expect(pickConversationIdForAnchor(list, anchor)).toBe(`${conn}:${phone}@aaa`);
     expect(compareConversationsForCanonicalId(list[1], list[0])).toBeLessThan(0);
+  });
+
+  it('colapsa quando contactPhone guarda JID completo @s.whatsapp.net', () => {
+    const conn = 'conn_jid_cp';
+    const phone = '554799127801';
+    const out = collapseConversationsByPhone([
+      {
+        id: `${conn}:${phone}@lid`,
+        connectionId: conn,
+        contactName: 'A',
+        contactPhone: `${phone}@s.whatsapp.net`,
+        unreadCount: 0,
+        lastMessage: 'a',
+        lastMessageTime: '',
+        lastMessageTimestamp: 100,
+        messages: [],
+        tags: [],
+      },
+      {
+        id: `${conn}:${phone}@s.whatsapp.net`,
+        connectionId: conn,
+        contactName: 'B',
+        contactPhone: `+${phone}`,
+        unreadCount: 0,
+        lastMessage: 'b',
+        lastMessageTime: '',
+        lastMessageTimestamp: 200,
+        messages: [],
+        tags: [],
+      },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.id).toBe(`${conn}:${phone}@s.whatsapp.net`);
+  });
+
+  it('br9x une 9º dígito só para DDD ? 27', () => {
+    expect(brInboxMergeKeyIgnoreNinthWhenDddLe27('551198765432')).toBe('br9x:551198765432');
+    expect(brInboxMergeKeyIgnoreNinthWhenDddLe27('554899127001')).toBeNull();
+    const k12 = inboxMergeEquivalenceKeys('551198765432');
+    const k13 = inboxMergeEquivalenceKeys('5511998765432');
+    expect(k12.some((k) => k13.includes(k))).toBe(true);
+    expect(phonesEquivalentForInboxMerge('551198765432', '5511998765432')).toBe(true);
   });
 
   it('colapsa variantes BR com/sem 9º dígito no mesmo chip', () => {

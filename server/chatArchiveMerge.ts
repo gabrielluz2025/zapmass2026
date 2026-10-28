@@ -130,18 +130,39 @@ async function loadArchivedMessagesWithFallbacks(
 ): Promise<ChatMessage[]> {
   const limit = Math.max(80, Math.min(historyLimit, 1500));
   const threadIds = await resolveArchiveThreadIds(ownerUid, conversationId, convMeta, cpGuess);
+  if (threadIds.length === 0) return [];
+
+  try {
+    const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+    const { loadChatArchiveMessagesFromThreadIdsPg } = await import(
+      './repositories/chatArchiveRepository.js'
+    );
+    const tenantId = resolvePostgresTenantId(ownerUid);
+    const mergedPg = await loadChatArchiveMessagesFromThreadIdsPg(tenantId, threadIds, limit);
+    if (mergedPg.length > 0) return mergedPg;
+  } catch {
+    /* fallback por thread abaixo */
+  }
+
+  const byId = new Map<string, ChatMessage>();
   for (const threadId of threadIds) {
     const archived = await loadChatArchiveMessages(ownerUid, threadId, limit);
-    if (archived.length > 0) return archived;
+    for (const m of archived) {
+      const prev = byId.get(m.id);
+      if (!prev || (m.timestampMs || 0) >= (prev.timestampMs || 0)) byId.set(m.id, m);
+    }
   }
-  if (threadIds.length > 0) {
+  const merged = Array.from(byId.values()).sort(
+    (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
+  );
+  if (merged.length === 0 && threadIds.length > 0) {
     console.info('[chatArchive] nenhuma mensagem nas chaves de thread', {
       conversationId,
       threadIds,
       cpGuess: cpGuess || undefined,
     });
   }
-  return [];
+  return merged.slice(-limit);
 }
 
 export type ChatArchiveMergeHooks = {

@@ -1,7 +1,38 @@
 /** Cruzamento telefone ↔ agenda ZapMass (BR: 55, 9º dígito, sufixos). */
 import { canonicalBrazilMobileKey } from './brPhoneNormalize';
+const WA_JID_SUFFIX_RE = /@(lid|c\.us|s\.whatsapp\.net)$/i;
 export function normalizePhoneDigits(raw) {
     return String(raw || '').replace(/\D/g, '');
+}
+export function stripWhatsAppJidSuffix(raw) {
+    return String(raw || '').trim().replace(WA_JID_SUFFIX_RE, '');
+}
+export function localDigitsFromWaAddress(raw) {
+    const trimmed = String(raw || '').trim();
+    const noSuffix = stripWhatsAppJidSuffix(trimmed);
+    const local = noSuffix.includes('@') ? noSuffix.split('@')[0] : noSuffix;
+    return normalizePhoneDigits(local);
+}
+export function brInboxMergeKeyIgnoreNinthWhenDddLe27(digits) {
+    let d = normalizePhoneDigits(digits);
+    if (!d.startsWith('55') || d.length < 12)
+        return null;
+    const dddNum = parseInt(d.slice(2, 4), 10);
+    if (!Number.isFinite(dddNum) || dddNum > 27)
+        return null;
+    if (d.length === 13 && d[4] === '9') {
+        d = d.slice(0, 4) + d.slice(5);
+    }
+    if (d.length === 12)
+        return `br9x:${d}`;
+    return null;
+}
+export function inboxMergeEquivalenceKeys(digits) {
+    const set = new Set(buildStrongPhoneMergeKeys(digits));
+    const br9 = brInboxMergeKeyIgnoreNinthWhenDddLe27(digits);
+    if (br9)
+        set.add(br9);
+    return Array.from(set);
 }
 export function buildPhoneDigitLookupKeys(digits) {
     const set = new Set();

@@ -50,3 +50,20 @@ docker logs zapmass-api 2>&1 | grep -E 'history-import-ui|Go inbox history sync|
 ```
 
 **API:** `GET /api/tenant/ops-health` → `goHistorySync.inflightConnections` (restarts HistorySync ativos por tenant).
+
+### Limpar threads duplicadas no Postgres (VPS)
+
+Se a inbox ainda mostrar o mesmo contato em dois chips (@lid + telefone) após deploy, o arquivo pode ter threads duplicadas em `wa_chat_threads`:
+
+```bash
+# 1) Sempre dry-run primeiro (só JSON do plano, sem gravar)
+docker exec -w /app zapmass-zapmass-1 npm run merge:duplicate-threads -- --dry-run
+
+# 2) Um tenant específico
+docker exec -w /app zapmass-zapmass-1 npm run merge:duplicate-threads -- --dry-run --tenant <uuid>
+
+# 3) Aplicar (move mensagens → thread canônica, remove duplicatas, reconcilia wa_inbox_conversations)
+docker exec -w /app zapmass-zapmass-1 npm run merge:duplicate-threads -- --apply --tenant <uuid>
+```
+
+Recomendado: dry-run global, revisar contagem de clusters, depois `--apply` por tenant ou global fora do horário de pico.

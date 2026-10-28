@@ -3,6 +3,7 @@ import {
   collapseConversationsByPhone,
   phonesEquivalentForInboxMerge,
 } from './collapseConversationsByPhone';
+import { localDigitsFromWaAddress, stripWhatsAppJidSuffix } from './contactPhoneLookup';
 import { ensureLatestPreviewInMessages } from './chatMessageMerge';
 
 /** Últimas N mensagens no estado em memória após cada `conversations-update` (liste + Contacts/temperatura). */
@@ -176,14 +177,14 @@ function indexForHistoryMerge(prev: Conversation[], conversationId: string): num
   if (direct >= 0) return direct;
   const conn = conversationId.includes(':') ? conversationId.slice(0, conversationId.indexOf(':')) : '';
   const tail = conversationId.includes(':') ? conversationId.slice(conversationId.indexOf(':') + 1) : conversationId;
-  const digits = tail.split('@')[0]?.replace(/\D/g, '') || '';
+  const digits = localDigitsFromWaAddress(stripWhatsAppJidSuffix(tail));
   if (!conn) return -1;
   return prev.findIndex((c) => {
     if (c.connectionId !== conn) return false;
-    const cp = (c.contactPhone || '').replace(/\D/g, '');
+    const cp = localDigitsFromWaAddress(c.contactPhone || '');
     const cid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
-    const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
-    const altD = (c.waJidAlt || '').split('@')[0]?.replace(/\D/g, '') || '';
+    const jidD = localDigitsFromWaAddress(stripWhatsAppJidSuffix(cid));
+    const altD = localDigitsFromWaAddress(c.waJidAlt || '');
     if (digits.length >= 8) {
       if (phonesEquivalentForInboxMerge(cp, digits)) return true;
       if (phonesEquivalentForInboxMerge(jidD, digits)) return true;
