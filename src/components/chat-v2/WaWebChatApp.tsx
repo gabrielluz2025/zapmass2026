@@ -15,6 +15,7 @@ import { useSendChatMedia } from './hooks/useSendChatMedia';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
 import {
   collapseConversationsByPhone,
+  phonesEquivalentForInboxMerge,
   reconcileConversationSelection,
   resolveStableConversationId,
   selectionAnchorFromConversationId,
@@ -588,19 +589,17 @@ export const WaWebChatApp: React.FC<{
       const phoneDigits = String(digits || '').replace(/\D/g, '');
       if (!phoneDigits) return;
 
-      const matchesDigits = (cd: string) => {
-        if (!cd || cd.length < 10 || phoneDigits.length < 10) return false;
-        if (cd === phoneDigits) return true;
-        const a = cd.length >= 10 ? cd.slice(-11) : cd;
-        const b = phoneDigits.length >= 10 ? phoneDigits.slice(-11) : phoneDigits;
-        const a10 = cd.slice(-10);
-        const b10 = phoneDigits.slice(-10);
-        return a === b || (a10.length === 10 && a10 === b10);
+      const conversationMatchesPhone = (c: Conversation) => {
+        const cp = (c.contactPhone || '').replace(/\D/g, '');
+        if (phonesEquivalentForInboxMerge(cp, phoneDigits)) return true;
+        const tail = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
+        const jidD = tail.split('@')[0]?.replace(/\D/g, '') || '';
+        if (phonesEquivalentForInboxMerge(jidD, phoneDigits)) return true;
+        const altD = (c.waJidAlt || '').split('@')[0]?.replace(/\D/g, '') || '';
+        return altD ? phonesEquivalentForInboxMerge(altD, phoneDigits) : false;
       };
 
-      const candidates = sortedConversations.filter((c) =>
-        matchesDigits((c.contactPhone || '').replace(/\D/g, ''))
-      );
+      const candidates = sortedConversations.filter(conversationMatchesPhone);
       if (candidates.length > 0) {
         const preferred = opts?.preferredConnectionId
           ? candidates.find((c) => c.connectionId === opts.preferredConnectionId)
@@ -624,7 +623,7 @@ export const WaWebChatApp: React.FC<{
         : `draft:${phoneDigits}`;
       const agendaHit = contacts.find((ct) => {
         const cd = (ct.phone || '').replace(/\D/g, '');
-        return matchesDigits(cd);
+        return phonesEquivalentForInboxMerge(cd, phoneDigits);
       });
       const displayName =
         (agendaHit?.name || '').trim() || opts?.contactName?.trim() || `+${phoneDigits}`;

@@ -361,4 +361,37 @@ describe('collapseConversationsByPhone', () => {
     expect(pickConversationIdForAnchor(list, anchor)).toBe(`${conn}:${phone}@aaa`);
     expect(compareConversationsForCanonicalId(list[1], list[0])).toBeLessThan(0);
   });
+
+  it('colapsa variantes BR com/sem 9º dígito no mesmo chip', () => {
+    const conn = 'conn_1';
+    const list: Conversation[] = [
+      {
+        id: `${conn}:251174049550446@lid`,
+        connectionId: conn,
+        contactName: 'Contato',
+        contactPhone: '+554799127001',
+        unreadCount: 0,
+        lastMessage: 'oi',
+        lastMessageTime: '',
+        lastMessageTimestamp: 100,
+        messages: [],
+        tags: [],
+      },
+      {
+        id: `${conn}:5547999127001@s.whatsapp.net`,
+        connectionId: conn,
+        contactName: 'Contato',
+        contactPhone: '+5547999127001',
+        unreadCount: 0,
+        lastMessage: 'oi',
+        lastMessageTime: '',
+        lastMessageTimestamp: 200,
+        messages: [],
+        tags: [],
+      },
+    ];
+    const out = collapseConversationsByPhone(list);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.id).toBe(`${conn}:5547999127001@s.whatsapp.net`);
+  });
 });

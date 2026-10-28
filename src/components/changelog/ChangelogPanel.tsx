@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.361',
+    date: '28/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Bate-papo: JID canônico no webhook (LID + 9º dígito BR), fromMe no destinatário certo, histórico e dedupe na inbox',
+      },
+    ],
+  },
+  {
     version: '2.3.360',
     date: '28/10/2026',
     highlights: [

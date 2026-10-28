@@ -67,6 +67,7 @@ import {
 import { resolveCampaignSpintax, campaignRotationIndexFromPhone } from '../shared/campaignSpintax.js';
 import { normalizeOutboundNumber } from './evolutionOutboundPhone.js';
 import {
+    canonicalPhoneRemoteJidFromDigits,
     hasResolvablePhone,
     isLidJid,
     mergeLidPeerFields,
@@ -993,7 +994,11 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (altRaw) add(altRaw.includes('@') ? altRaw : `${altRaw}@s.whatsapp.net`);
         const phone = normalizePhoneDigits(conv?.contactPhone || '');
         if (phone.length >= 10 && phone.length <= 13 && !looksLikeLongLidDigits(phone)) {
-            add(`${phone}@s.whatsapp.net`);
+            const canonJid = canonicalPhoneRemoteJidFromDigits(phone);
+            add(canonJid || `${phone}@s.whatsapp.net`);
+            if (canonJid && canonJid !== `${phone}@s.whatsapp.net`) {
+                add(`${phone}@s.whatsapp.net`);
+            }
         }
         if (conv) {
             for (const other of conversations) {

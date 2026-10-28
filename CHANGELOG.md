@@ -7,6 +7,13 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.361] - 2026-10-28
+
+### Corrigido
+- **Inbox LID / telefone duplicado**: normalização canônica de `remoteJid` no webhook (`MESSAGES_UPSERT`) antes de gravar threads — unifica `@lid` e `@s.whatsapp.net`, 9º dígito BR e corrige `fromMe` quando o JID apontava para o chip conectado em vez do destinatário.
+- **Histórico vazio**: `load-chat-history` / arquivo Postgres busca threads por JID canônico, variantes `p_*`, `lid_*` e `waJidAlt`.
+- **Cliente**: dedupe reforçado na inbox (`collapseConversationsByPhone`, merge de histórico e abrir chat por telefone).
+
 ## [2.3.360] - 2026-10-28
 
 ### Adicionado

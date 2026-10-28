@@ -64,11 +64,28 @@ export function selectionAnchorFromConversationId(
   return phoneDigits.length >= 8 ? { connectionId, phoneDigits } : null;
 }
 
+/** Mesmo contato: @lid / @s.whatsapp.net e 9º dígito BR (via merge keys). */
+export function phonesEquivalentForInboxMerge(a: string, b: string): boolean {
+  const da = normalizePhoneDigits(a);
+  const db = normalizePhoneDigits(b);
+  if (!da || !db || da.length < 8 || db.length < 8) return false;
+  if (da === db) return true;
+  const keysA = new Set(buildStrongPhoneMergeKeys(da));
+  for (const k of buildStrongPhoneMergeKeys(db)) {
+    if (keysA.has(k)) return true;
+  }
+  return false;
+}
+
 function conversationMatchesPhoneDigits(conv: Conversation, phoneDigits: string): boolean {
   const cp = (conv.contactPhone || '').replace(/\D/g, '');
   const cid = conv.id.includes(':') ? conv.id.slice(conv.id.indexOf(':') + 1) : conv.id;
-  const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
-  return cp === phoneDigits || jidD === phoneDigits;
+  const jidPart = cid.split('@')[0]?.replace(/\D/g, '') || '';
+  if (phonesEquivalentForInboxMerge(cp, phoneDigits)) return true;
+  if (phonesEquivalentForInboxMerge(jidPart, phoneDigits)) return true;
+  const alt = (conv.waJidAlt || '').split('@')[0]?.replace(/\D/g, '') || '';
+  if (alt && phonesEquivalentForInboxMerge(alt, phoneDigits)) return true;
+  return false;
 }
 
 /** Melhor id da lista para a âncora (determinístico). */
@@ -346,12 +363,7 @@ export function resolveStableConversationId(
   const digits = tail.split('@')[0]?.replace(/\D/g, '') || '';
   if (digits.length < 8) return null;
 
-  const matches = list.filter((c) => {
-    const cp = (c.contactPhone || '').replace(/\D/g, '');
-    const cid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
-    const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
-    return cp === digits || jidD === digits;
-  });
+  const matches = list.filter((c) => conversationMatchesPhoneDigits(c, digits));
   if (matches.length === 0) return null;
 
   const sorted = [...matches].sort(compareConversationsForCanonicalId);
@@ -375,12 +387,7 @@ export function upgradeStableConversationId(
   const cp = list.find((c) => c.id === selectedId)?.contactPhone?.replace(/\D/g, '') || '';
   const lookupDigits = cp.length >= 8 ? cp : digits;
   if (lookupDigits.length < 8) return null;
-  const matches = list.filter((c) => {
-    const ccp = (c.contactPhone || '').replace(/\D/g, '');
-    const cid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
-    const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
-    return ccp === lookupDigits || jidD === lookupDigits;
-  });
+  const matches = list.filter((c) => conversationMatchesPhoneDigits(c, lookupDigits));
   if (matches.length < 2) return null;
   const sorted = [...matches].sort(compareConversationsForCanonicalId);
   const best = sorted[0]?.id ?? null;

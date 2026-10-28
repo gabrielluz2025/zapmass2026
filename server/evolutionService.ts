@@ -94,7 +94,11 @@ import {
 } from './evolutionContactName.js';
 import { buildPhoneDigitLookupKeys, normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
 import { canonicalBrazilMobileKey, isPlausibleBrazilWhatsAppPhone } from '../src/utils/brPhoneNormalize.js';
-import { LID_SEND_BLOCKED_MSG } from './evolutionLidResolve.js';
+import {
+  LID_SEND_BLOCKED_MSG,
+  normalizeMessagesUpsertPayloadForThreads,
+  normalizeOutboundDigits,
+} from './evolutionLidResolve.js';
 import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
 import {
     ReplyFlowEngine,
@@ -14614,11 +14618,21 @@ export async function handleWebhook(event: any) {
                     }
                 }
 
-                chatStore.handleWebhookMessage(instance, data);
+                const instancePhoneDigits = normalizeOutboundDigits(
+                    connections.get(instance)?.phoneNumber ||
+                        (connectionsSettingsCache[instance] as { phoneNumber?: string } | undefined)
+                            ?.phoneNumber ||
+                        ''
+                );
+                const inboxWebhookData = normalizeMessagesUpsertPayloadForThreads(
+                    data,
+                    instancePhoneDigits
+                );
+                chatStore.handleWebhookMessage(instance, inboxWebhookData);
                 const isHistorySyncBatch =
-                    data &&
-                    typeof data === 'object' &&
-                    (data as Record<string, unknown>).historySync === true;
+                    inboxWebhookData &&
+                    typeof inboxWebhookData === 'object' &&
+                    (inboxWebhookData as Record<string, unknown>).historySync === true;
                 if (isHistorySyncBatch && goInboxHistorySyncInflight.has(instance)) {
                     publishOwnerHistoryImportUi(messageOwnerUid, true, {
                         connectionId: instance,
@@ -14626,7 +14640,7 @@ export async function handleWebhook(event: any) {
                     });
                 }
 
-                const items = normalizeEvolutionWebhookMessages(data);
+                const items = normalizeEvolutionWebhookMessages(inboxWebhookData);
                 for (const msg of items) {
                     if (!msg?.key) continue;
                     const isFromMe = Boolean(msg.key.fromMe);

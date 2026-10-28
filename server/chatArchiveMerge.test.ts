@@ -42,4 +42,23 @@ describe('collectArchiveThreadIds', () => {
     expect(ids).toContain('p_554299870542');
     expect(ids.some((t) => t.startsWith('lid_'))).toBe(true);
   });
+
+  it('inclui variantes p_* para telefone com/sem 9º dígito BR', () => {
+    const conversationId = 'conn_1:554799127001@s.whatsapp.net';
+    const meta: Conversation = {
+      id: conversationId,
+      contactName: 'Contato',
+      contactPhone: '+554799127001',
+      connectionId: 'conn_1',
+      unreadCount: 0,
+      lastMessage: '',
+      lastMessageTime: '',
+      messages: [],
+      tags: [],
+    };
+    const cp = archiveContactPhoneGuess(conversationId, meta);
+    const ids = collectArchiveThreadIds(conversationId, meta, cp);
+    expect(ids).toContain('p_554799127001');
+    expect(ids).toContain('p_5547999127001');
+  });
 });

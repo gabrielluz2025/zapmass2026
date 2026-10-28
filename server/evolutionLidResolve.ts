@@ -13,7 +13,12 @@
  * Nunca enviar campanha/resposta para `@lid` sem telefone plausível — use `hasResolvablePhone`.
  */
 import type { AxiosInstance } from 'axios';
-import { looksLikeLongLidDigits, normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
+import {
+  buildStrongPhoneMergeKeys,
+  looksLikeLongLidDigits,
+  normalizePhoneDigits,
+} from '../src/utils/contactPhoneLookup.js';
+import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
 import type { ChatMessage } from './types.js';
 import { chatRemoteJidFromFindChatsRow, normalizeChatRemoteJid } from './evolutionChatJid.js';
 import { EVO_FIND_MAX_PAGES, EVO_FIND_PAGE_SIZE, evolutionFindPageQuery, extractEvolutionList } from './evolutionFindQuery.js';
@@ -403,6 +408,181 @@ export async function resolveLidPeerFromEvolutionApi(
 }
 
 /** Extrai PN de linha findChats / webhook (campos Evolution). */
+export type CanonicalRemoteJidInput = {
+  remoteJid: string;
+  remoteJidAlt?: string;
+  senderPn?: string;
+  participant?: string;
+  fromMe?: boolean;
+  /** Telefone do chip conectado (só dígitos) — corrige fromMe com remoteJid = próprio número. */
+  instancePhoneDigits?: string;
+};
+
+export type CanonicalRemoteJidResult = {
+  remoteJid: string;
+  phoneDigits: string;
+  waJidAlt?: string;
+  aliasRemoteJids: string[];
+};
+
+function phoneDigitsShareMergeKey(a: string, b: string): boolean {
+  const da = normalizePhoneDigits(a);
+  const db = normalizePhoneDigits(b);
+  if (!da || !db) return false;
+  if (da === db) return true;
+  const keysA = new Set(buildStrongPhoneMergeKeys(da));
+  for (const k of buildStrongPhoneMergeKeys(db)) {
+    if (keysA.has(k)) return true;
+  }
+  return false;
+}
+
+function jidPhoneDigits(jid: string): string {
+  const normalized = normalizeChatRemoteJid(jid);
+  if (!normalized) return '';
+  return normalizePhoneDigits(normalized.split('@')[0] || '');
+}
+
+/** @s.whatsapp.net / @c.us com telefone BR canônico (9º dígito quando aplicável). */
+export function canonicalPhoneRemoteJidFromDigits(digits: string): string | null {
+  const canon = normPhoneKey(digits) || normalizeOutboundDigits(digits);
+  if (!plausiblePhoneDigits(canon) || looksLikeLongLidDigits(canon)) return null;
+  return `${canon}@s.whatsapp.net`;
+}
+
+export function canonicalPhoneRemoteJidFromJid(jid: string): string | null {
+  const normalized = normalizeChatRemoteJid(jid);
+  if (!normalized || isLidJid(normalized)) return null;
+  return canonicalPhoneRemoteJidFromDigits(jidPhoneDigits(normalized));
+}
+
+/**
+ * Um remoteJid canônico por contato: prefere @s.whatsapp.net com telefone BR normalizado;
+ * mantém @lid quando não há PN resolvível. Corrige fromMe espelhando o chip conectado.
+ */
+export function normalizeCanonicalRemoteJid(input: CanonicalRemoteJidInput): CanonicalRemoteJidResult {
+  const rawJid = normalizeChatRemoteJid(input.remoteJid) || String(input.remoteJid || '').trim();
+  const aliasRemoteJids: string[] = [];
+  const addAlias = (jid: string | null | undefined) => {
+    const j = String(jid || '').trim();
+    if (j && j !== rawJid && !aliasRemoteJids.includes(j)) aliasRemoteJids.push(j);
+  };
+  addAlias(rawJid);
+
+  const instanceDigits = normalizeOutboundDigits(input.instancePhoneDigits || '');
+  const sendableAlt = pickSendableWaJidAlt(
+    input.remoteJidAlt,
+    input.senderPn,
+    input.participant
+  );
+  if (sendableAlt) addAlias(sendableAlt);
+
+  let peerJid = rawJid;
+  const remoteDigits = jidPhoneDigits(rawJid);
+  const remoteLooksLikeInstance =
+    Boolean(input.fromMe && instanceDigits) &&
+    remoteDigits &&
+    phoneDigitsShareMergeKey(remoteDigits, instanceDigits);
+
+  if (input.fromMe && (remoteLooksLikeInstance || isLidJid(rawJid))) {
+    for (const candidate of [input.remoteJidAlt, input.senderPn, input.participant, sendableAlt]) {
+      const jid = normalizeChatRemoteJid(candidate);
+      if (!jid || isLidJid(jid)) continue;
+      const d = jidPhoneDigits(jid);
+      if (!d || (instanceDigits && phoneDigitsShareMergeKey(d, instanceDigits))) continue;
+      peerJid = jid;
+      break;
+    }
+  } else if (isLidJid(rawJid) && sendableAlt) {
+    peerJid = sendableAlt;
+  }
+
+  const phoneFromPeer = jidPhoneDigits(peerJid);
+  const phoneFromAlt = sendableAlt ? jidPhoneDigits(sendableAlt) : '';
+  const phoneDigits =
+    normPhoneKey(phoneFromPeer || phoneFromAlt || remoteDigits) ||
+    phoneFromPeer ||
+    phoneFromAlt ||
+    '';
+
+  let remoteJid = rawJid;
+  const canonFromPhone = phoneDigits ? canonicalPhoneRemoteJidFromDigits(phoneDigits) : null;
+  if (canonFromPhone) {
+    if (isLidJid(rawJid) && !aliasRemoteJids.includes(rawJid)) aliasRemoteJids.push(rawJid);
+    remoteJid = canonFromPhone;
+  } else if (!isLidJid(rawJid)) {
+    const canonFromRaw = canonicalPhoneRemoteJidFromJid(rawJid);
+    remoteJid = canonFromRaw || rawJid;
+  }
+
+  const waJidAlt =
+    pickSendableWaJidAlt(sendableAlt, isLidJid(rawJid) ? rawJid : undefined) ||
+    (isLidJid(rawJid) ? rawJid : undefined);
+
+  if (waJidAlt && waJidAlt !== remoteJid) addAlias(waJidAlt);
+
+  return {
+    remoteJid,
+    phoneDigits: plausiblePhoneDigits(phoneDigits) && !looksLikeLongLidDigits(phoneDigits) ? phoneDigits : '',
+    waJidAlt,
+    aliasRemoteJids,
+  };
+}
+
+function applyCanonicalToWebhookMessageKey(
+  key: Record<string, unknown>,
+  instancePhoneDigits: string
+): void {
+  const beforeRemote = String(key.remoteJid || '');
+  const canon = normalizeCanonicalRemoteJid({
+    remoteJid: beforeRemote,
+    remoteJidAlt: key.remoteJidAlt as string | undefined,
+    senderPn: key.senderPn as string | undefined,
+    participant: key.participant as string | undefined,
+    fromMe: key.fromMe === true,
+    instancePhoneDigits,
+  });
+  if (canon.remoteJid && canon.remoteJid !== beforeRemote) {
+    if (isLidJid(beforeRemote) && !key.remoteJidAlt) {
+      key.remoteJidAlt = beforeRemote;
+    }
+    key.remoteJid = canon.remoteJid;
+  }
+  if (canon.waJidAlt && !key.remoteJidAlt) {
+    key.remoteJidAlt = canon.waJidAlt;
+  }
+}
+
+/** Normaliza remoteJid de cada mensagem antes de persistir thread (wa_chat_threads / inbox). */
+export function normalizeMessagesUpsertPayloadForThreads(
+  data: unknown,
+  instancePhoneDigits?: string
+): unknown {
+  const instance = normalizeOutboundDigits(instancePhoneDigits || '');
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      if (item?.key && typeof item.key === 'object') {
+        applyCanonicalToWebhookMessageKey(item.key as Record<string, unknown>, instance);
+      }
+    }
+    return data;
+  }
+  if (!data || typeof data !== 'object') return data;
+  const row = data as Record<string, unknown>;
+  if (Array.isArray(row.messages)) {
+    for (const item of row.messages) {
+      if (item?.key && typeof item.key === 'object') {
+        applyCanonicalToWebhookMessageKey(item.key as Record<string, unknown>, instance);
+      }
+    }
+    return row;
+  }
+  if (row.key && typeof row.key === 'object') {
+    applyCanonicalToWebhookMessageKey(row.key as Record<string, unknown>, instance);
+  }
+  return row;
+}
+
 export function peerFieldsFromEvolutionChatRow(
   chat: Record<string, unknown>,
   existing?: { contactPhone?: string; waJidAlt?: string }

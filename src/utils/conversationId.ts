@@ -1,7 +1,9 @@
+import { normPhoneKey } from './brPhoneNormalize';
+
 /** ID canônico de conversa 1:1 — sempre @s.whatsapp.net (Evolution / WhatsApp Web). */
 export function buildCanonicalConversationId(connectionId: string, phoneDigits: string): string {
   const conn = String(connectionId || '').trim();
-  const digits = String(phoneDigits || '').replace(/\D/g, '');
+  const digits = normPhoneKey(phoneDigits) || String(phoneDigits || '').replace(/\D/g, '');
   if (!conn || digits.length < 8) return '';
   return `${conn}:${digits}@s.whatsapp.net`;
 }

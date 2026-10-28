@@ -1,5 +1,8 @@
 import type { ChatMessage, Conversation } from '../types';
-import { collapseConversationsByPhone } from './collapseConversationsByPhone';
+import {
+  collapseConversationsByPhone,
+  phonesEquivalentForInboxMerge,
+} from './collapseConversationsByPhone';
 import { ensureLatestPreviewInMessages } from './chatMessageMerge';
 
 /** Últimas N mensagens no estado em memória após cada `conversations-update` (liste + Contacts/temperatura). */
@@ -180,8 +183,12 @@ function indexForHistoryMerge(prev: Conversation[], conversationId: string): num
     const cp = (c.contactPhone || '').replace(/\D/g, '');
     const cid = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : c.id;
     const jidD = cid.split('@')[0]?.replace(/\D/g, '') || '';
-    if (digits.length >= 8 && (cp === digits || jidD === digits)) return true;
-    if (digits.length >= 4 && (cp.endsWith(digits) || jidD.endsWith(digits))) return true;
+    const altD = (c.waJidAlt || '').split('@')[0]?.replace(/\D/g, '') || '';
+    if (digits.length >= 8) {
+      if (phonesEquivalentForInboxMerge(cp, digits)) return true;
+      if (phonesEquivalentForInboxMerge(jidD, digits)) return true;
+      if (altD && phonesEquivalentForInboxMerge(altD, digits)) return true;
+    }
     return c.id.endsWith(`:${tail}`) || c.id === conversationId;
   });
 }

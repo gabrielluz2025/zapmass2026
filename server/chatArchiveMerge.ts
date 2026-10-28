@@ -4,6 +4,8 @@ import {
   loadChatArchiveMessages,
   threadIdFromConversationId
 } from './chatArchiveStore.js';
+import { contactPhoneLookupVariants } from './contactIdentity/contactPhone.js';
+import { canonicalPhoneRemoteJidFromDigits } from './evolutionLidResolve.js';
 import type { ChatMessage, Conversation } from './types.js';
 
 /** Chaves de thread no Postgres/Firestore para uma conversa (@lid + telefone + waJidAlt). */
@@ -23,7 +25,18 @@ export function collectArchiveThreadIds(
   const jid = conversationId.includes(':') ? conversationId.slice(conversationId.indexOf(':') + 1) : '';
 
   add(threadIdFromConversationId(conversationId, cpGuess ? `+${cpGuess}` : ''));
-  if (cpGuess) add(`p_${cpGuess}`);
+  if (cpGuess) {
+    add(`p_${cpGuess}`);
+    for (const variant of contactPhoneLookupVariants(cpGuess)) {
+      if (variant) add(`p_${variant}`);
+    }
+    if (connectionId) {
+      const canonJid = canonicalPhoneRemoteJidFromDigits(cpGuess);
+      if (canonJid) {
+        add(threadIdFromConversationId(`${connectionId}:${canonJid}`));
+      }
+    }
+  }
   if (jid.toLowerCase().endsWith('@lid')) {
     const h = createHash('sha256').update(jid).digest('hex');
     add(`lid_${h.slice(0, 24)}`);
@@ -73,7 +86,9 @@ async function resolveArchiveThreadIds(
   if (jid.includes('@')) {
     try {
       const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
-      const { listThreadIdsForRemoteJidPg } = await import('./repositories/chatArchiveRepository.js');
+      const { listThreadIdsForRemoteJidPg, listThreadIdsForPhonePg } = await import(
+        './repositories/chatArchiveRepository.js'
+      );
       const tenantId = resolvePostgresTenantId(ownerUid);
       const byJid = await listThreadIdsForRemoteJidPg(tenantId, jid);
       for (const t of byJid) {
@@ -83,6 +98,19 @@ async function resolveArchiveThreadIds(
       if (altRaw.includes('@')) {
         const altThreads = await listThreadIdsForRemoteJidPg(tenantId, altRaw);
         for (const t of altThreads) {
+          if (t && !threadIds.includes(t)) threadIds.push(t);
+        }
+      }
+      if (cpGuess.length >= 8) {
+        const byPhone = await listThreadIdsForPhonePg(tenantId, cpGuess);
+        for (const t of byPhone) {
+          if (t && !threadIds.includes(t)) threadIds.push(t);
+        }
+      }
+      const canonJid = cpGuess ? canonicalPhoneRemoteJidFromDigits(cpGuess) : null;
+      if (canonJid && canonJid !== jid) {
+        const canonThreads = await listThreadIdsForRemoteJidPg(tenantId, canonJid);
+        for (const t of canonThreads) {
           if (t && !threadIds.includes(t)) threadIds.push(t);
         }
       }
