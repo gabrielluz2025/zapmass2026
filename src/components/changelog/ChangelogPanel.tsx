@@ -10,6 +10,11 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.362',
+    date: '28/10/2026',
+    highlights: [{ type: 'fix', text: 'CI: export phonesEquivalentForInboxMerge no .js espelho da inbox' }],
+  },
+  {
     version: '2.3.361',
     date: '28/10/2026',
     highlights: [

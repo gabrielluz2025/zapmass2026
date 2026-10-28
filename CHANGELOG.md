@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.362] - 2026-10-28
+
+### Corrigido
+- **CI/Vite**: export `phonesEquivalentForInboxMerge` no espelho `.js` de `collapseConversationsByPhone`.
+
 ## [2.3.361] - 2026-10-28
 
 ### Corrigido
