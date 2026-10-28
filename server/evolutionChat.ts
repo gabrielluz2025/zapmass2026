@@ -296,12 +296,19 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         return run;
     };
 
+    let onHistorySyncBatchIdle: ((instance: string) => void) | null = null;
+
     function init(
         socketIO: SocketIOServer,
-        opts?: { notifyConversationsChanged?: () => void; ownerUid?: string }
+        opts?: {
+            notifyConversationsChanged?: () => void;
+            ownerUid?: string;
+            onHistorySyncBatchIdle?: (instance: string) => void;
+        }
     ) {
         io = socketIO;
         notifyConversationsChanged = opts?.notifyConversationsChanged ?? null;
+        onHistorySyncBatchIdle = opts?.onHistorySyncBatchIdle ?? null;
         if (opts?.ownerUid) ownerUidForScope = opts.ownerUid;
     }
 
@@ -445,6 +452,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                         last.timestampMs
                     );
                 }
+                emitConversationDelta(live.id);
                 filled += 1;
             }
         }
@@ -1192,6 +1200,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 historySyncActiveConnections.delete(instance);
                 collapseStoredConversations();
                 emitConversationsUpdate();
+                onHistorySyncBatchIdle?.(instance);
             }, 450)
         );
     }

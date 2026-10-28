@@ -7,6 +7,18 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.357] - 2026-10-28
+
+### Corrigido
+- **Importação presa na inbox (Go)**: `history-sync-status: importing` deixou de ser ligado só por inbox sparse/reemit; limpeza ao bloquear sync (campanha/proteção), ao falhar reconnect, no idle pós-lote HistorySync e no TTL inflight (3 min).
+- **Triplo loading**: arquivo Postgres auto-load silencioso (sem spinner central); importação do celular vira banner em segundo plano quando já há conversas na lista.
+- **Thread**: botão “Sincronizar do celular” não fica mais desabilitado durante importação global; empty state com preview visível durante auto-load.
+
+### Melhorado
+- **Cliente**: TTL 3 min na UI de importação + “Tentar de novo”; logs `[history-import-ui]` no servidor.
+- **Ops**: `goHistorySync.inflightConnections` em `/api/tenant/ops-health`.
+- **Docs**: `docs/chat-inbox-evolution-go.md` (HistorySync vs arquivo, grep VPS).
+
 ## [2.3.356] - 2026-10-28
 
 ### Corrigido

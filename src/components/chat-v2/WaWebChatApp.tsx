@@ -173,8 +173,16 @@ export const WaWebChatApp: React.FC<{
     if (socket?.connected) socket.emit('request-conversations-sync', opts);
   }, [socket]);
 
-  const { socketStatus, syncing, historyImporting, inboxSyncPolicy, inboxWebhookHealth, runResync } =
-    useWaRealtime(socket, requestSync, {
+  const {
+    socketStatus,
+    syncing,
+    historyImporting,
+    historyImportStale,
+    dismissStaleHistoryImport,
+    inboxSyncPolicy,
+    inboxWebhookHealth,
+    runResync,
+  } = useWaRealtime(socket, requestSync, {
     chipsConnected: connectedChannels.length
   });
 
@@ -1545,6 +1553,8 @@ export const WaWebChatApp: React.FC<{
         socketStatus={isBackendConnected ? socketStatus : 'offline'}
         syncing={syncing}
         historyImporting={historyImporting}
+        historyImportStale={historyImportStale}
+        onDismissStaleHistoryImport={dismissStaleHistoryImport}
         historySyncCampaignBlocked={historySyncCampaignBlocked}
         historySyncChipProtectionBlocked={historySyncChipProtectionBlocked}
         historySyncPendingAfterCampaign={historySyncPendingAfterCampaign}
@@ -1636,15 +1646,14 @@ export const WaWebChatApp: React.FC<{
         conversation={selected}
         display={selectedDisplay ?? null}
         avatarSrc={selected ? avatarById.get(selected.id) || '' : ''}
-        loadingHistory={
-          selectedId
-            ? loadingHistoryIds.has(selectedId) || historyAutoLoadingId === selectedId
-            : false
-        }
+        loadingHistory={selectedId ? loadingHistoryIds.has(selectedId) : false}
+        archiveAutoLoading={selectedId ? historyAutoLoadingId === selectedId : false}
         historyExhausted={
           selected && !isGoWebhookInbox ? !!historyExhausted[selected.id] : false
         }
         historyImporting={historyImporting}
+        historyImportStale={historyImportStale}
+        onDismissStaleHistoryImport={dismissStaleHistoryImport}
         canSend={!!selected && selectedChipConnected}
         chipsConnected={connectedChannels.length}
         socketStatus={isBackendConnected ? socketStatus : 'offline'}

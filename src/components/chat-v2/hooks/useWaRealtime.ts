@@ -4,6 +4,15 @@ import type { InboxSyncPolicyPayload } from '../../../../shared/inboxSyncPolicy'
 import { defaultInboxSyncPolicy } from '../../../../shared/inboxSyncPolicy';
 import type { InboxWebhookHealthPayload } from '../../../../shared/inboxWebhookHealth';
 import { defaultInboxWebhookHealth } from '../../../../shared/inboxWebhookHealth';
+import {
+  HISTORY_IMPORT_UI_TTL_MS,
+  applyHistoryImportEvent,
+  historyImportTtlElapsed,
+  initialHistoryImportUiState,
+  isPhoneHistoryImportActive,
+  markHistoryImportStale,
+  type HistoryImportUiState,
+} from '../historyImportUi';
 
 export type WaSocketStatus = 'online' | 'offline' | 'slow';
 
@@ -35,7 +44,12 @@ export function useWaRealtime(
 ) {
   const [socketStatus, setSocketStatus] = useState<WaSocketStatus>('offline');
   const [syncing, setSyncing] = useState(false);
-  const [historyImporting, setHistoryImporting] = useState(false);
+  const [historyImportUi, setHistoryImportUi] = useState<HistoryImportUiState>(() =>
+    initialHistoryImportUiState()
+  );
+  const historyImportUiRef = useRef(historyImportUi);
+  historyImportUiRef.current = historyImportUi;
+  const historyImportTtlTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [inboxSyncPolicy, setInboxSyncPolicy] = useState<InboxSyncPolicyPayload>(() =>
     defaultInboxSyncPolicy()
   );
@@ -67,11 +81,29 @@ export function useWaRealtime(
     [socket, onResync]
   );
 
+  const scheduleHistoryImportTtl = useCallback(() => {
+    if (historyImportTtlTimerRef.current) clearTimeout(historyImportTtlTimerRef.current);
+    const state = historyImportUiRef.current;
+    if (!state.active || state.startedAt == null) return;
+    const remaining = Math.max(500, state.startedAt + HISTORY_IMPORT_UI_TTL_MS - Date.now());
+    historyImportTtlTimerRef.current = setTimeout(() => {
+      historyImportTtlTimerRef.current = null;
+      setHistoryImportUi((prev) => {
+        if (!historyImportTtlElapsed(prev)) return prev;
+        return markHistoryImportStale(prev);
+      });
+    }, remaining);
+  }, []);
+
   useEffect(() => {
     if (!socket) {
       setSocketStatus('offline');
       setSyncing(false);
-      setHistoryImporting(false);
+      setHistoryImportUi(initialHistoryImportUiState());
+      if (historyImportTtlTimerRef.current) {
+        clearTimeout(historyImportTtlTimerRef.current);
+        historyImportTtlTimerRef.current = null;
+      }
       return;
     }
 
@@ -98,7 +130,11 @@ export function useWaRealtime(
     const onDisconnect = () => {
       clearOfflineGrace();
       setSyncing(false);
-      setHistoryImporting(false);
+      setHistoryImportUi(initialHistoryImportUiState());
+      if (historyImportTtlTimerRef.current) {
+        clearTimeout(historyImportTtlTimerRef.current);
+        historyImportTtlTimerRef.current = null;
+      }
       slowStrikeRef.current = 0;
       offlineGraceTimerRef.current = setTimeout(() => {
         offlineGraceTimerRef.current = null;
@@ -173,9 +209,17 @@ export function useWaRealtime(
     socket.on('conversation-delta', onConv);
     socket.on('inbox-page', onConv);
 
-    const onHistorySync = (payload: { importing?: boolean }) => {
-      setHistoryImporting(Boolean(payload?.importing));
-      if (!payload?.importing) markRealtimeActivity();
+    const onHistorySync = (payload: { importing?: boolean; connectionId?: string; reason?: string }) => {
+      setHistoryImportUi((prev) => applyHistoryImportEvent(prev, payload));
+      if (!payload?.importing) {
+        if (historyImportTtlTimerRef.current) {
+          clearTimeout(historyImportTtlTimerRef.current);
+          historyImportTtlTimerRef.current = null;
+        }
+        markRealtimeActivity();
+      } else {
+        scheduleHistoryImportTtl();
+      }
     };
     const onInboxSyncPolicy = (payload: InboxSyncPolicyPayload) => {
       if (payload && typeof payload.phoneFullBlocked === 'boolean') {
@@ -205,9 +249,29 @@ export function useWaRealtime(
       clearInterval(pingTimer);
       clearInterval(lightSyncTimer);
       if (syncingTimerRef.current) clearTimeout(syncingTimerRef.current);
+      if (historyImportTtlTimerRef.current) clearTimeout(historyImportTtlTimerRef.current);
       clearOfflineGrace();
     };
-  }, [socket, runResync]);
+  }, [socket, runResync, scheduleHistoryImportTtl]);
 
-  return { socketStatus, syncing, historyImporting, inboxSyncPolicy, inboxWebhookHealth, runResync };
+  const historyImporting = isPhoneHistoryImportActive(historyImportUi);
+
+  const dismissStaleHistoryImport = useCallback(() => {
+    setHistoryImportUi(initialHistoryImportUiState());
+    if (historyImportTtlTimerRef.current) {
+      clearTimeout(historyImportTtlTimerRef.current);
+      historyImportTtlTimerRef.current = null;
+    }
+  }, []);
+
+  return {
+    socketStatus,
+    syncing,
+    historyImporting,
+    historyImportStale: historyImportUi.stale,
+    dismissStaleHistoryImport,
+    inboxSyncPolicy,
+    inboxWebhookHealth,
+    runResync,
+  };
 }

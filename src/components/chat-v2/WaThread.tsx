@@ -41,8 +41,12 @@ type Props = {
   display: ConversationDisplay | null;
   avatarSrc: string;
   loadingHistory: boolean;
+  /** Auto-load silencioso do arquivo Postgres — não bloqueia a thread. */
+  archiveAutoLoading?: boolean;
   historyExhausted: boolean;
   historyImporting?: boolean;
+  historyImportStale?: boolean;
+  onDismissStaleHistoryImport?: () => void;
   canSend: boolean;
   chipsConnected?: number;
   socketStatus: WaSocketStatus;
@@ -102,8 +106,11 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
   display,
   avatarSrc,
   loadingHistory,
+  archiveAutoLoading = false,
   historyExhausted,
   historyImporting = false,
+  historyImportStale = false,
+  onDismissStaleHistoryImport,
   canSend,
   chipsConnected = 0,
   socketStatus,
@@ -549,25 +556,43 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
                 type="button"
                 className="wa-history-btn"
                 onClick={onLoadOlder}
-                disabled={loadingHistory || historyImporting}
+                disabled={loadingHistory}
               >
-                {loadingHistory || historyImporting ? (
+                {loadingHistory ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <History className="w-4 h-4" />
                 )}
                 {isGoWebhookInbox
-                  ? historyImporting
-                    ? 'Importando do celular…'
-                    : 'Sincronizar do celular'
+                  ? loadingHistory
+                    ? 'Sincronizando do celular…'
+                    : historyImporting
+                      ? 'Importação do celular em andamento…'
+                      : 'Sincronizar do celular'
                   : 'Carregar mensagens anteriores'}
               </button>
               {isGoWebhookInbox ? (
                 <p className="text-[11px] px-3 text-center" style={{ color: 'var(--wa-text-3)' }}>
-                  {historyImporting
-                    ? 'Aguarde — o chip está puxando o histórico do WhatsApp…'
-                    : 'Toque para reconectar o chip e importar mensagens antigas do celular (histórico já salvo no servidor é restaurado ao reconectar)'}
+                  {historyImportStale
+                    ? 'A importação do celular expirou. O histórico salvo no servidor continua disponível — toque em Sincronizar para tentar de novo.'
+                    : historyImporting
+                      ? 'O chip está puxando conversas antigas em segundo plano. Mensagens já salvas no servidor aparecem abaixo.'
+                      : archiveAutoLoading
+                        ? 'Restaurando histórico salvo no servidor…'
+                        : 'Toque para reconectar o chip e importar mensagens antigas do celular (histórico já salvo no servidor é restaurado ao abrir)'}
                 </p>
+              ) : null}
+              {historyImportStale && isGoWebhookInbox ? (
+                <button
+                  type="button"
+                  className="wa-history-btn text-[12px]"
+                  onClick={() => {
+                    onDismissStaleHistoryImport?.();
+                    onLoadOlder();
+                  }}
+                >
+                  Tentar importar do celular de novo
+                </button>
               ) : null}
             </div>
           )}
@@ -577,13 +602,13 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
               <Loader2 className="w-6 h-6 animate-spin opacity-70" aria-hidden />
               <p className="text-center text-[13px]">
                 {threadHasActivity
-                  ? 'Carregando histórico salvo no servidor…'
+                  ? 'Sincronizando histórico do celular…'
                   : 'Carregando mensagens…'}
               </p>
             </div>
           )}
 
-          {messages.length === 0 && !loadingHistory && !historyImporting && (() => {
+          {messages.length === 0 && !loadingHistory && (() => {
             const previewText = (conversation?.lastMessage || '').trim();
             const campaignish = (conversation?.tags ?? []).some((t) =>
               /campanha|disparo/i.test(String(t))

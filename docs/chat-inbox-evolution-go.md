@@ -23,3 +23,18 @@ Ao selecionar um chat, o ZapMass:
 1. Hidrata o arquivo (`hydrate-firestore-chat-archive`) com chaves `@lid`, telefone e `waJidAlt`.
 2. `load-chat-history` faz merge no servidor, une threads irmãs (@lid + telefone) e faz backfill por todas as chaves de thread.
 3. Só então mostra empty state honesto; **“Sincronizar do celular”** dispara HistorySync (pode ser enfileirado em modo proteção).
+
+### Importação do celular (HistorySync) vs arquivo
+
+- **Arquivo Postgres** é mostrado **imediatamente** ao abrir a conversa (auto-load silencioso, sem spinner central).
+- **HistorySync** (whatsmeow) é **opcional e em segundo plano**: o chip reconecta, webhooks `HistorySync` trazem stubs/mensagens; o sinal de conclusão é `OfflineSyncCompleted` (Evolution Go).
+- A UI de “importando” tem **TTL de 3 minutos** (igual ao lock inflight no servidor). Se expirar, aparece **Tentar de novo** — o histórico já salvo no servidor continua visível.
+- O servidor **não** liga `history-sync-status: importing` só porque a inbox está “sparse”; só quando um reconnect/HistorySync inflight está ativo.
+
+**Diagnóstico VPS (logs):**
+
+```bash
+docker logs zapmass-api 2>&1 | grep -E 'history-import-ui|Go inbox history sync|loadChatHistory/go|OfflineSyncCompleted'
+```
+
+**API:** `GET /api/tenant/ops-health` → `goHistorySync.inflightConnections` (restarts HistorySync ativos por tenant).

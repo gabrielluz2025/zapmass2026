@@ -38,6 +38,8 @@ type Props = {
   connections: WhatsAppConnection[];
   syncing: boolean;
   historyImporting?: boolean;
+  historyImportStale?: boolean;
+  onDismissStaleHistoryImport?: () => void;
   /** Disparo RUNNING: servidor não faz restart Go em massa. */
   historySyncCampaignBlocked?: boolean;
   /** Proteção quiet/storm/ban ou env — sem restart automático do celular. */
@@ -85,6 +87,8 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   connections,
   syncing,
   historyImporting = false,
+  historyImportStale = false,
+  onDismissStaleHistoryImport,
   historySyncCampaignBlocked = false,
   historySyncChipProtectionBlocked = false,
   historySyncPendingAfterCampaign = false,
@@ -229,22 +233,39 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
     return null;
   }, [isGoWebhookInbox, chipsConnected, inboxWebhookHealth]);
 
+  const phoneImportBanner = historyImporting && conversations.length > 0;
+
   const statusText = useMemo(() => {
-    if (historyImporting) return 'Importando conversas do WhatsApp…';
+    if (historyImportStale) return 'Importação do celular demorou — tente de novo';
+    if (historyImporting) {
+      return conversations.length > 0
+        ? 'Importação do celular em segundo plano…'
+        : 'Importando conversas do WhatsApp…';
+    }
     if (syncing) return 'Sincronizando…';
     if (isOffline) return 'Servidor desconectado';
     if (isSlow) return 'Conexão instável — sync ativo';
     if (webhookHealthLine) return webhookHealthLine;
     if (chipsConnected > 0) return `${chipsConnected} chip${chipsConnected > 1 ? 's' : ''} ativo${chipsConnected > 1 ? 's' : ''}`;
     return 'Conecte um chip em Conexões';
-  }, [historyImporting, syncing, isOffline, isSlow, chipsConnected, webhookHealthLine]);
+  }, [
+    historyImporting,
+    historyImportStale,
+    conversations.length,
+    syncing,
+    isOffline,
+    isSlow,
+    chipsConnected,
+    webhookHealthLine,
+  ]);
 
   const showWebhookHealthBar =
     isGoWebhookInbox &&
     chipsConnected > 0 &&
     inboxWebhookHealth &&
     inboxWebhookHealth.status !== 'n/a' &&
-    !historyImporting &&
+    !phoneImportBanner &&
+    !historyImportStale &&
     !syncing &&
     !isOffline;
 
@@ -404,13 +425,43 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
       ) : null}
 
       {/* Status compacto — só quando relevante */}
-      {(isOffline || isSlow || syncing || historyImporting || chipsConnected === 0) && (
+      {(isOffline ||
+        isSlow ||
+        syncing ||
+        historyImporting ||
+        historyImportStale ||
+        chipsConnected === 0) && (
         <div
           className="wa-inbox-status"
-          data-state={isOffline ? 'off' : isSlow ? 'slow' : historyImporting ? 'import' : 'on'}
+          data-state={
+            isOffline
+              ? 'off'
+              : isSlow
+                ? 'slow'
+                : historyImportStale
+                  ? 'import-stale'
+                  : historyImporting
+                    ? phoneImportBanner
+                      ? 'import-bg'
+                      : 'import'
+                    : 'on'
+          }
         >
           {isOffline ? <WifiOff className="w-3 h-3 shrink-0" /> : <Wifi className="w-3 h-3 shrink-0" />}
           <span className="flex-1 truncate">{statusText}</span>
+          {historyImportStale ? (
+            <button
+              type="button"
+              className="wa-filter-pill shrink-0"
+              data-active="false"
+              onClick={() => {
+                onDismissStaleHistoryImport?.();
+                onRefresh();
+              }}
+            >
+              Tentar de novo
+            </button>
+          ) : null}
         </div>
       )}
 

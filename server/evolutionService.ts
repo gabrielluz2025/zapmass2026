@@ -1420,6 +1420,36 @@ function ownerHasBlockingActiveCampaign(ownerUid: string): boolean {
     return countActiveCampaignsForOwner(uid) > 0;
 }
 
+/** UI socket: importação HistorySync do celular (com TTL no cliente). */
+export function publishOwnerHistoryImportUi(
+    ownerUid: string,
+    importing: boolean,
+    opts?: { connectionId?: string; reason?: string }
+): void {
+    const uid = String(ownerUid || '').trim();
+    if (!uid || uid === 'anonymous') return;
+    log('info', `[history-import-ui] importing=${importing}`, {
+        ownerUid: uid,
+        connectionId: opts?.connectionId,
+        reason: opts?.reason,
+    });
+    publishOwnerEvent(uid, 'history-sync-status', {
+        importing,
+        connectionId: opts?.connectionId,
+        reason: opts?.reason,
+    });
+}
+
+export function clearOwnerHistoryImportUi(ownerUid: string, reason: string): void {
+    publishOwnerHistoryImportUi(ownerUid, false, { reason });
+}
+
+function clearOwnerHistoryImportIfIdle(ownerUid: string, reason: string): void {
+    const uid = String(ownerUid || '').trim();
+    if (!uid || countOwnerHistorySyncInflight(uid) > 0) return;
+    clearOwnerHistoryImportUi(uid, reason);
+}
+
 /** Go: hidrata arquivo + reconnect nos chips abertos para puxar HistorySync do celular. */
 export async function syncGoInboxFromPhoneForOwner(
     ownerUid: string,
@@ -1438,6 +1468,7 @@ export async function syncGoInboxFromPhoneForOwner(
             activeCampaigns: countActiveCampaignsForOwner(uid),
             hydrated,
         });
+        clearOwnerHistoryImportUi(uid, 'sync_skipped_campaign');
         await reemitConversationsForOwner(uid).catch(() => undefined);
         return { hydrated, triggered: [] };
     }
@@ -1453,6 +1484,7 @@ export async function syncGoInboxFromPhoneForOwner(
             log('info', 'syncGoInboxFromPhoneForOwner: aquecimento ativo — só arquivo, sem restart', {
                 ownerUid: uid,
             });
+            clearOwnerHistoryImportUi(uid, 'sync_skipped_warmup');
             await reemitConversationsForOwner(uid);
             return { hydrated, triggered };
         }
@@ -1462,6 +1494,7 @@ export async function syncGoInboxFromPhoneForOwner(
             log('info', 'syncGoInboxFromPhoneForOwner: perfil quieto/env — só arquivo, sem restart', {
                 ownerUid: uid,
             });
+            clearOwnerHistoryImportUi(uid, 'sync_skipped_chip_protection');
             await reemitConversationsForOwner(uid);
             return { hydrated, triggered };
         }
@@ -1498,6 +1531,8 @@ export async function syncGoInboxFromPhoneForOwner(
         await reemitConversationsForOwner(uid);
         if (triggered.length > 0) {
             await markOwnerFullSyncDone(uid).catch(() => undefined);
+        } else {
+            clearOwnerHistoryImportUi(uid, 'sync_no_restart');
         }
         return { hydrated, triggered };
     })();
@@ -1541,7 +1576,6 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
                 ownerUid: uid,
             });
             publishInboxPageReset(uid, page);
-            publishOwnerEvent(uid, 'history-sync-status', { importing: true });
             enqueueAutomatedPhoneFullSync(uid, 'ram_empty');
             return;
         }
@@ -1576,7 +1610,6 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
                 sparseRatio: Math.round(sparseRatio * 100),
             });
             publishInboxPageReset(uid, page);
-            publishOwnerEvent(uid, 'history-sync-status', { importing: true });
             enqueueAutomatedPhoneFullSync(uid, 'sparse_inbox');
             return;
         }
@@ -2592,9 +2625,9 @@ function applyConnectionStateUpdate(
         chatStore.completeHistorySyncForConnection(instance);
         const ou = resolveOwnerUid(instance);
         if (ou) {
-            publishOwnerEvent(ou, 'history-sync-status', {
+            publishOwnerHistoryImportUi(ou, false, {
                 connectionId: instance,
-                importing: false,
+                reason: 'offline_sync_completed',
             });
             void reemitConversationsForOwner(ou).catch(() => undefined);
             void triggerInboundReplayForConnection(instance).catch((err) =>
@@ -5909,18 +5942,18 @@ async function requestGoInboxHistorySync(
         releaseGoInboxHistorySyncInflight(id);
         const ouExpired = resolveOwnerUid(id);
         if (ouExpired) {
-            publishOwnerEvent(ouExpired, 'history-sync-status', {
+            publishOwnerHistoryImportUi(ouExpired, false, {
                 connectionId: id,
-                importing: false,
+                reason: 'inflight_ttl',
             });
         }
     }, GO_INBOX_HISTORY_SYNC_INFLIGHT_TTL_MS);
     goInboxHistorySyncInflightTimers.set(id, ttlTimer);
 
     if (ou) {
-        publishOwnerEvent(ou, 'history-sync-status', {
+        publishOwnerHistoryImportUi(ou, true, {
             connectionId: id,
-            importing: true,
+            reason: 'reconnect_requested',
         });
     }
 
@@ -5938,9 +5971,9 @@ async function requestGoInboxHistorySync(
         log('warn', `Go inbox history sync falhou: ${id}`, { error: msg });
         releaseGoInboxHistorySyncInflight(id);
         if (ou) {
-            publishOwnerEvent(ou, 'history-sync-status', {
+            publishOwnerHistoryImportUi(ou, false, {
                 connectionId: id,
-                importing: false,
+                reason: 'reconnect_failed',
             });
         }
         return false;
@@ -13450,9 +13483,16 @@ export function init(socketIO: SocketIOServer) {
             import('./chipProtectionService.js').then((m) => m.isAutomatedGoPhoneHistorySyncBlocked(ou)),
         publishPolicy: (ou, payload) =>
             publishOwnerEvent(ou, 'inbox-sync-policy', payload as unknown as Record<string, unknown>),
+        clearHistoryImportUi: (ou, reason) => clearOwnerHistoryImportUi(ou, reason),
     });
     startInboxSyncOrchestratorSweep();
-    chatStore.init(socketIO, { notifyConversationsChanged: emitScopedConversationsUpdate });
+    chatStore.init(socketIO, {
+        notifyConversationsChanged: emitScopedConversationsUpdate,
+        onHistorySyncBatchIdle: (instance) => {
+            const ou = resolveOwnerUid(instance);
+            if (ou) clearOwnerHistoryImportIfIdle(ou, 'history_sync_batch_idle');
+        },
+    });
     ensureReplyFlowEngine();
     initEvolutionWebhookQueue(handleWebhook);
         log('info', 'Evolution WhatsApp engine initialized', {
@@ -14575,10 +14615,10 @@ export async function handleWebhook(event: any) {
                     data &&
                     typeof data === 'object' &&
                     (data as Record<string, unknown>).historySync === true;
-                if (isHistorySyncBatch) {
-                    publishOwnerEvent(messageOwnerUid, 'history-sync-status', {
+                if (isHistorySyncBatch && goInboxHistorySyncInflight.has(instance)) {
+                    publishOwnerHistoryImportUi(messageOwnerUid, true, {
                         connectionId: instance,
-                        importing: true,
+                        reason: 'history_sync_batch',
                     });
                 }
 
@@ -14862,10 +14902,15 @@ export function countActiveCampaignsForOwner(ownerUid: string): number {
 /** Métricas HistorySync (Go) para painel do tenant. */
 export function getOwnerGoHistorySyncOps(ownerUid: string): GoHistorySyncOpsSnapshot & {
     queuePending: boolean;
+    inflightConnections: number;
 } {
     const base = getGoHistorySyncOpsForOwner(ownerUid, GO_HISTORY_SYNC_MAX_CONCURRENT_PER_OWNER);
     const extras = getInboxSyncOpsExtras(ownerUid);
-    return { ...base, queuePending: extras.queuePending };
+    return {
+        ...base,
+        queuePending: extras.queuePending,
+        inflightConnections: countOwnerHistorySyncInflight(ownerUid),
+    };
 }
 
 /** IDs de campanhas que bloqueiam novo disparo (em execução, não pausadas). */

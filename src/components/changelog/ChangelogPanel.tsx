@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.357',
+    date: '28/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Bate-papo Go: fim do “importando” eterno — arquivo Postgres primeiro, HistorySync em segundo plano com TTL e retry',
+      },
+      {
+        type: 'fix',
+        text: 'UI: um progresso honesto (sem triplo spinner); sync do celular não bloqueia lista nem empty state com preview',
+      },
+    ],
+  },
+  {
     version: '2.3.356',
     date: '28/10/2026',
     highlights: [

@@ -46,6 +46,7 @@ export type InboxSyncExecutor = {
   /** Proteção de chip (quiet/storm/ban) — bloqueia restart automático do celular. */
   isChipProtectionBlocking?: (ownerUid: string) => boolean | Promise<boolean>;
   publishPolicy: (ownerUid: string, payload: InboxSyncPolicyPayload) => void;
+  clearHistoryImportUi?: (ownerUid: string, reason: string) => void;
 };
 
 let executor: InboxSyncExecutor | null = null;
@@ -188,6 +189,7 @@ async function drainOwnerQueue(ownerUid: string): Promise<void> {
     (await isPhoneFullBlocked(uid))
   ) {
     markHistorySyncDeferredForOwner(uid);
+    executor.clearHistoryImportUi?.(uid, 'sync_blocked_or_deferred');
     scheduleBlockedRetry(uid);
     return;
   }
@@ -235,6 +237,7 @@ export async function handleOwnerInboxSyncRequest(ownerUid: string, fullSync: bo
   ) {
     await executor.reemitLight(uid);
     publishPolicy(uid);
+    executor.clearHistoryImportUi?.(uid, 'sync_request_blocked');
     scheduleBlockedRetry(uid);
     return;
   }
