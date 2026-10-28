@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.366',
+    date: '28/10/2026',
+    highlights: [
+      {
+        type: 'feat',
+        text: 'Script VPS pg-chat-archive-counts.sh: contagens wa_chat_messages/wa_chat_threads no Postgres (ZAPMASS_DATABASE_URL)',
+      },
+    ],
+  },
+  {
     version: '2.3.365',
     date: '28/10/2026',
     highlights: [

@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.366] - 2026-10-28
+
+### Adicionado
+- **Script VPS** `deployment/pg-chat-archive-counts.sh`: contagens em `zapmass.wa_chat_messages` / `wa_chat_threads` via container Postgres (lê `ZAPMASS_DATABASE_URL` do `.env`).
+
 ## [2.3.365] - 2026-10-28
 
 ### Corrigido
