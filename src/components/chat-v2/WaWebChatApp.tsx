@@ -189,6 +189,7 @@ export const WaWebChatApp: React.FC<{
   const initialFullSyncDoneRef = useRef(false);
   const emptyInboxRecoveryRef = useRef(false);
   const sparseInboxRecoveryRef = useRef(false);
+  const emptyInboxHintToastRef = useRef(false);
 
   useEffect(() => {
     if (!isBackendConnected || !socket?.connected || !tenantUid) return;
@@ -429,6 +430,60 @@ export const WaWebChatApp: React.FC<{
     deferredSearch,
     displayById,
     contactByPhoneKey,
+  ]);
+
+  /** Toast único quando chip online mas inbox continua vazia (webhook / HistorySync). */
+  useEffect(() => {
+    if (inboxTotal > 0 || filtered.length > 0) {
+      emptyInboxHintToastRef.current = false;
+      return;
+    }
+    if (
+      connectedChannels.length === 0 ||
+      !isBackendConnected ||
+      syncing ||
+      historyImporting ||
+      connectionFilterId !== 'ALL' ||
+      unreadOnly ||
+      deferredSearch.trim()
+    ) {
+      return;
+    }
+    const t = window.setTimeout(() => {
+      if (emptyInboxHintToastRef.current || inboxTotal > 0) return;
+      emptyInboxHintToastRef.current = true;
+      if (historySyncPhoneFullBlocked) {
+        const blockedMsg =
+          inboxSyncPolicy.blockReason === 'campaign' || historySyncCampaignBlocked
+            ? 'Campanha ativa: histórico do celular na fila. Mensagens novas chegam ao vivo; use Sincronizar para recarregar o que já está salvo.'
+            : inboxSyncPolicy.blockReason === 'chip_protection'
+              ? 'Proteção de chip: importação pesada pausada. Mensagens novas seguem pelo WhatsApp; toque Sincronizar para sync leve.'
+              : 'Sync pesado enfileirado — aguarde ou use Sincronizar (modo leve).';
+        toast(blockedMsg, { id: 'inbox-empty-hint', icon: 'ℹ️', duration: 7000 });
+        return;
+      }
+      toast(
+        isGoWebhookInbox
+          ? 'Nenhuma conversa no servidor ainda. Reaplicando webhook e importando do WhatsApp — use «Sincronizar» se demorar.'
+          : 'Inbox vazia — toque em Sincronizar para puxar conversas do celular.',
+        { id: 'inbox-empty-hint', icon: 'ℹ️', duration: 6500 }
+      );
+    }, 4800);
+    return () => window.clearTimeout(t);
+  }, [
+    inboxTotal,
+    filtered.length,
+    connectedChannels.length,
+    isBackendConnected,
+    syncing,
+    historyImporting,
+    connectionFilterId,
+    unreadOnly,
+    deferredSearch,
+    historySyncPhoneFullBlocked,
+    inboxSyncPolicy.blockReason,
+    historySyncCampaignBlocked,
+    isGoWebhookInbox,
   ]);
 
   const resolveConversationById = useCallback(

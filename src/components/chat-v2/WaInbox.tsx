@@ -457,11 +457,11 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
                     ? 'Aguardando conversas do WhatsApp'
                     : 'Sua inbox está vazia'}
             </p>
-            <p className="text-xs max-w-[240px]" style={{ color: 'var(--wa-text-3)' }}>
+            <p className="text-xs max-w-[280px]" style={{ color: 'var(--wa-text-3)' }}>
               {chipsConnected === 0
                 ? 'Vá em Conexões e escaneie o QR do WhatsApp.'
                 : isGoWebhookInbox
-                    ? 'Conversas do celular e dos disparos aparecem aqui. Use Sincronizar se a lista ainda estiver vazia.'
+                    ? 'No Evolution Go a lista vem por webhook (tempo real) e importação do celular. Após deploy do servidor, o webhook é reaplicado sozinho; se continuar vazio, use Sincronizar.'
                   : 'Novas mensagens aparecerão aqui automaticamente.'}
             </p>
             {!syncing && !historyImporting && chipsConnected > 0 && connectionFilterId === 'ALL' && !unreadOnly && (

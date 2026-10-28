@@ -1531,6 +1531,8 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
             log('info', 'reemitConversationsForOwner: Go RAM vazia — HistorySync do celular', {
                 ownerUid: uid,
             });
+            publishInboxPageReset(uid, page);
+            publishOwnerEvent(uid, 'history-sync-status', { importing: true });
             enqueueAutomatedPhoneFullSync(uid, 'ram_empty');
             return;
         }
@@ -1564,6 +1566,8 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
                 sparseEmpty,
                 sparseRatio: Math.round(sparseRatio * 100),
             });
+            publishInboxPageReset(uid, page);
+            publishOwnerEvent(uid, 'history-sync-status', { importing: true });
             enqueueAutomatedPhoneFullSync(uid, 'sparse_inbox');
             return;
         }
@@ -7978,11 +7982,44 @@ async function createConnectionInternal(
 // Sem este cache, reconexões rápidas de Socket.IO disparam N chamadas por segundo.
 const _webhookEnsureLastRun = new Map<string, number>();
 const WEBHOOK_ENSURE_MIN_INTERVAL_MS = 30_000;
+/** Uma passada serial pós-boot — Evolution Go pode manter URL antiga após restart do ZapMass. */
+let goBootWebhookRefreshDone = false;
+
+function publishInboxPageReset(
+    ownerUid: string,
+    page: Awaited<ReturnType<typeof getInboxPageForOwner>>
+): void {
+    publishOwnerEvent(ownerUid, 'inbox-page', {
+        ...page,
+        reset: true,
+    } as unknown as Record<string, unknown>);
+}
+
+/**
+ * Reaplica webhookUrl (POST /instance/connect, immediate:false) nos chips já open — serial, 1× por boot.
+ * Sem isso, após deploy/restart do ZapMass a Evolution continua postando na URL morta e a inbox fica vazia.
+ */
+async function reregisterGoWebhooksForOpenChipsOnBoot(): Promise<void> {
+    if (!isEvolutionGoEngine() || goBootWebhookRefreshDone) return;
+    goBootWebhookRefreshDone = true;
+    const openIds = [...connections.entries()]
+        .filter(([, c]) => String(c.status || '').toLowerCase() === 'open')
+        .map(([id]) => id);
+    if (openIds.length === 0) return;
+    log('info', `[GoWebhook] Re-registro pós-boot (${openIds.length} chip(s) open, sem reconnect WhatsApp)`);
+    for (const id of openIds) {
+        await ensureGoInstanceWebhook(id, { allowWhenOpen: true }).catch(() => undefined);
+        await new Promise((r) => setTimeout(r, 450));
+    }
+}
 
 /**
  * Configura webhook para receber eventos da instância
  */
-async function ensureGoInstanceWebhook(instanceName: string): Promise<void> {
+async function ensureGoInstanceWebhook(
+    instanceName: string,
+    opts?: { allowWhenOpen?: boolean }
+): Promise<void> {
     if (!isEvolutionGoEngine()) return;
     if (!connections.has(instanceName) && !getGoInstanceUuid(instanceName)) return;
     const last = _webhookEnsureLastRun.get(instanceName) ?? 0;
@@ -7991,9 +8028,9 @@ async function ensureGoInstanceWebhook(instanceName: string): Promise<void> {
     // Não chamar /instance/connect em chips já conectados: no Evolution Go, esse endpoint
     // pode causar transição breve para 'connecting' → o reconcileConnectionHealth captura
     // o estado intermediário e dispara um reconnect desnecessário (oscilação abrir/fechar).
-    // Chips open já têm webhook registrado; só precisamos reaplicar após close/restart.
+    // Exceção: allowWhenOpen (boot serial) — immediate:false no adapter, só atualiza webhookUrl.
     const memStatus = connections.get(instanceName)?.status;
-    if (memStatus === 'open') return;
+    if (memStatus === 'open' && !opts?.allowWhenOpen) return;
 
     const goUuid = await ensureGoInstanceUuidResolved(instanceName);
     if (!goUuid) {
@@ -8015,9 +8052,9 @@ async function ensureGoInstanceWebhook(instanceName: string): Promise<void> {
 /**
  * Configura webhook para receber eventos da instância
  */
-async function setupWebhook(instanceName: string) {
+async function setupWebhook(instanceName: string, opts?: { allowWhenOpen?: boolean }) {
     if (isEvolutionGoEngine()) {
-        await ensureGoInstanceWebhook(instanceName);
+        await ensureGoInstanceWebhook(instanceName, opts);
         return;
     }
     try {
@@ -13425,6 +13462,9 @@ export function init(socketIO: SocketIOServer) {
         const { refreshTenantUsersCache } = await import('./reconcileConnectionOwners.js');
         await refreshTenantUsersCache();
         await hydrateInstancesFromEvolution();
+        await reregisterGoWebhooksForOpenChipsOnBoot().catch((e: Error) =>
+            log('warn', 'reregisterGoWebhooksForOpenChipsOnBoot falhou', { error: e?.message })
+        );
         const pruned = chatStore.pruneConversationsWithoutResolvableOwner(resolveOwnerUid);
         if (pruned > 0) {
             log('warn', 'Conversas sem ownerUid removidas do cache local', { pruned });

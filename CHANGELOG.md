@@ -7,6 +7,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.353] - 2026-10-28
+
+### Corrigido
+- **Bate-papo vazio com chip Online (Evolution Go)**: após restart/deploy do ZapMass, reaplica `webhookUrl` nos chips já conectados (1× por boot, sem reconnect WhatsApp) — a Evolution deixava de enviar `MESSAGES_UPSERT` para URL morta.
+- **Sync da inbox**: ao enfileirar HistorySync com RAM vazia, o servidor passa a emitir `inbox-page` + status de importação (antes a UI ficava sem resposta do socket).
+- **Fotos de perfil em conversas @lid (Meta)**: busca avatar pelo telefone/`waJidAlt` resolvido em vez de abortar no JID @lid.
+
+### Melhorado
+- **Bate-papo**: toast e texto de empty state quando chip conectado mas inbox vazia (campanha/proteção/sync enfileirado); botão Sincronizar continua disponível.
+
 ## [2.3.352] - 2026-10-23
 
 ### Melhorado

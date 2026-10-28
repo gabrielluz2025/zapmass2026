@@ -2615,9 +2615,30 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         const conv = conversations.find((c) => c.id === conversationId);
         if (conv?.profilePicUrl?.startsWith('data:')) return conv.profilePicUrl;
-        if (isLidJid(parsed.remoteJid)) return conv?.profilePicUrl || null;
 
-        const picCooldownKey = `${parsed.connectionId}:${parsed.remoteJid}`;
+        let fetchJid = parsed.remoteJid;
+        if (isLidJid(parsed.remoteJid)) {
+            const peer = {
+                contactPhone: conv?.contactPhone,
+                waJidAlt: conv?.waJidAlt,
+            };
+            if (hasResolvablePhone(peer)) {
+                const digits = String(peer.contactPhone || '').replace(/\D/g, '');
+                fetchJid = `${digits}@s.whatsapp.net`;
+            } else if (peer.waJidAlt && peer.waJidAlt.includes('@') && !isLidJid(peer.waJidAlt)) {
+                fetchJid = peer.waJidAlt;
+            } else {
+                const fromMsgs = conv ? peerFromStoredMessages(conv.messages) : null;
+                if (fromMsgs && hasResolvablePhone(fromMsgs)) {
+                    const digits = String(fromMsgs.contactPhone || '').replace(/\D/g, '');
+                    fetchJid = `${digits}@s.whatsapp.net`;
+                } else {
+                    return conv?.profilePicUrl || null;
+                }
+            }
+        }
+
+        const picCooldownKey = `${parsed.connectionId}:${fetchJid}`;
         const cooldownUntil = profilePicFailUntil.get(picCooldownKey) || 0;
         if (Date.now() < cooldownUntil) return conv?.profilePicUrl || null;
         if (conv?.profilePicUrl?.startsWith('http')) {
@@ -2630,7 +2651,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         }
 
         const inst = evoInst(parsed.connectionId);
-        const remoteJid = parsed.remoteJid;
+        const remoteJid = fetchJid;
         const numberCandidates = [
             remoteJid,
             remoteJid.replace(/@.+$/, ''),

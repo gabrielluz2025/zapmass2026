@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.353',
+    date: '28/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Bate-papo Go: webhook reaplicado após deploy (inbox vazia com chip Online); inbox-page ao enfileirar HistorySync; avatares @lid',
+      },
+      {
+        type: 'improvement',
+        text: 'Empty state e toast quando inbox vazia com chip conectado — orienta Sincronizar ou aguardar fila',
+      },
+    ],
+  },
+  {
     version: '2.3.352',
     date: '23/10/2026',
     highlights: [
