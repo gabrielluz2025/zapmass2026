@@ -7,6 +7,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.356] - 2026-10-28
+
+### Corrigido
+- **Spinner infinito “Carregando histórico salvo…”**: auto-load deixou de reiniciar a cada atualização da inbox (socket); tempo máximo ~55s e empty state acionável após giveup.
+- **Auto-load silencioso**: não aciona mais `loadingHistoryIds` (spinner manual fica só em “Sincronizar do celular”).
+- **Arquivo Postgres @lid**: busca threads pelo JID em `wa_chat_threads.contact_phone` além de `lid_*`/`p_*`; tail do backfill até 400 msgs/thread.
+
+### Melhorado
+- **Diagnóstico**: logs `[chatArchive]` / `[loadChatHistory/go]` quando preview existe mas nenhuma chave de thread devolve mensagem.
+
 ## [2.3.355] - 2026-10-28
 
 ### Corrigido

@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.356',
+    date: '28/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Bate-papo: fim do spinner infinito ao abrir chat com preview; auto-load estável e limite de tempo',
+      },
+      {
+        type: 'fix',
+        text: 'Go: arquivo @lid — lookup de thread por JID no Postgres + backfill com mais mensagens',
+      },
+    ],
+  },
+  {
     version: '2.3.355',
     date: '28/10/2026',
     highlights: [

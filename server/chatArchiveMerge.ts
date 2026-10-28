@@ -60,6 +60,39 @@ export function archiveContactPhoneGuess(
   );
 }
 
+async function resolveArchiveThreadIds(
+  ownerUid: string,
+  conversationId: string,
+  convMeta: Conversation | undefined,
+  cpGuess: string
+): Promise<string[]> {
+  const threadIds = collectArchiveThreadIds(conversationId, convMeta, cpGuess);
+  const jid = conversationId.includes(':')
+    ? conversationId.slice(conversationId.indexOf(':') + 1)
+    : '';
+  if (jid.includes('@')) {
+    try {
+      const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+      const { listThreadIdsForRemoteJidPg } = await import('./repositories/chatArchiveRepository.js');
+      const tenantId = resolvePostgresTenantId(ownerUid);
+      const byJid = await listThreadIdsForRemoteJidPg(tenantId, jid);
+      for (const t of byJid) {
+        if (t && !threadIds.includes(t)) threadIds.push(t);
+      }
+      const altRaw = String(convMeta?.waJidAlt || '').trim();
+      if (altRaw.includes('@')) {
+        const altThreads = await listThreadIdsForRemoteJidPg(tenantId, altRaw);
+        for (const t of altThreads) {
+          if (t && !threadIds.includes(t)) threadIds.push(t);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return threadIds;
+}
+
 async function loadArchivedMessagesWithFallbacks(
   ownerUid: string,
   conversationId: string,
@@ -68,9 +101,17 @@ async function loadArchivedMessagesWithFallbacks(
   historyLimit: number
 ): Promise<ChatMessage[]> {
   const limit = Math.max(80, Math.min(historyLimit, 1500));
-  for (const threadId of collectArchiveThreadIds(conversationId, convMeta, cpGuess)) {
+  const threadIds = await resolveArchiveThreadIds(ownerUid, conversationId, convMeta, cpGuess);
+  for (const threadId of threadIds) {
     const archived = await loadChatArchiveMessages(ownerUid, threadId, limit);
     if (archived.length > 0) return archived;
+  }
+  if (threadIds.length > 0) {
+    console.info('[chatArchive] nenhuma mensagem nas chaves de thread', {
+      conversationId,
+      threadIds,
+      cpGuess: cpGuess || undefined,
+    });
   }
   return [];
 }

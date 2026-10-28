@@ -30,6 +30,13 @@ import {
   materializeThreadMessages,
   mergeSiblingThreadMessages,
 } from '../../utils/threadMessageMaterialize';
+import {
+  conversationHasInboxActivity,
+  HISTORY_AUTO_LOAD_MAX_ATTEMPTS,
+  HISTORY_AUTO_LOAD_MAX_MS,
+  historyAutoLoadBackoffMs,
+  shouldStartHistoryAutoLoad,
+} from './chatHistoryAutoLoad';
 import type { ChatMessage, Conversation } from '../../types';
 import { WaInbox } from './WaInbox';
 import { WaThread } from './WaThread';
@@ -822,12 +829,14 @@ export const WaWebChatApp: React.FC<{
 
       if (isGoWebhookInbox) {
         loadingHistoryById.current.add(conversationId);
-        setLoadingHistoryIds((prev) => {
-          if (prev.has(conversationId)) return prev;
-          const next = new Set(prev);
-          next.add(conversationId);
-          return next;
-        });
+        if (!silent) {
+          setLoadingHistoryIds((prev) => {
+            if (prev.has(conversationId)) return prev;
+            const next = new Set(prev);
+            next.add(conversationId);
+            return next;
+          });
+        }
         try {
           if (!silent) {
             toast('Sincronizando histórico do celular…', { icon: '📲', duration: 2800 });
@@ -863,12 +872,14 @@ export const WaWebChatApp: React.FC<{
           return grew || total > 0 || (res.messages?.length ?? 0) > 0;
         } finally {
           loadingHistoryById.current.delete(conversationId);
-          setLoadingHistoryIds((prev) => {
-            if (!prev.has(conversationId)) return prev;
-            const next = new Set(prev);
-            next.delete(conversationId);
-            return next;
-          });
+          if (!silent) {
+            setLoadingHistoryIds((prev) => {
+              if (!prev.has(conversationId)) return prev;
+              const next = new Set(prev);
+              next.delete(conversationId);
+              return next;
+            });
+          }
         }
       }
 
@@ -940,37 +951,54 @@ export const WaWebChatApp: React.FC<{
     ]
   );
 
+  const loadMoreHistoryRef = useRef(loadMoreHistory);
+  loadMoreHistoryRef.current = loadMoreHistory;
+  const resolveConversationByIdRef = useRef(resolveConversationById);
+  resolveConversationByIdRef.current = resolveConversationById;
+
   useEffect(() => {
-    if (!selected?.id || !socket?.connected) return;
-    const id = selected.id;
+    const id = selected?.id;
+    if (!id || !socket?.connected) return;
     const msgCount = selected.messages?.length || 0;
-    const hasActivity =
-      Boolean((selected.lastMessage || '').trim()) ||
-      (selected.unreadCount || 0) > 0 ||
-      (selected.lastMessageTimestamp || 0) > 0;
+    const hasActivity = conversationHasInboxActivity(selected);
     if (msgCount > 0) {
       historyInitializedRef.current.add(id);
       historyAutoLoadRef.current.set(id, 'done');
+      setHistoryAutoLoadingId((cur) => (cur === id ? null : cur));
       return;
     }
-    if (!hasActivity) return;
     const autoStatus = historyAutoLoadRef.current.get(id);
-    if (autoStatus === 'done' || autoStatus === 'giveup') return;
+    if (
+      !shouldStartHistoryAutoLoad({
+        conversationId: id,
+        socketConnected: true,
+        msgCount,
+        hasActivity,
+        autoStatus,
+      })
+    ) {
+      return;
+    }
 
     let cancelled = false;
+    const startedAt = Date.now();
     setHistoryAutoLoadingId(id);
     void (async () => {
       try {
-        for (let attempt = 1; attempt <= 4 && !cancelled; attempt++) {
-          await loadMoreHistory(id, true);
-          const loaded = (resolveConversationById(id)?.messages?.length ?? 0) > 0;
+        for (let attempt = 1; attempt <= HISTORY_AUTO_LOAD_MAX_ATTEMPTS && !cancelled; attempt++) {
+          if (Date.now() - startedAt >= HISTORY_AUTO_LOAD_MAX_MS) break;
+          await loadMoreHistoryRef.current(id, true);
+          const loaded =
+            (resolveConversationByIdRef.current(id)?.messages?.length ?? 0) > 0;
           if (loaded) {
             historyAutoLoadRef.current.set(id, 'done');
             historyInitializedRef.current.add(id);
             return;
           }
-          if (attempt < 4) {
-            await new Promise((r) => window.setTimeout(r, 1200 * attempt));
+          if (attempt < HISTORY_AUTO_LOAD_MAX_ATTEMPTS) {
+            const waitMs = historyAutoLoadBackoffMs(attempt);
+            if (Date.now() - startedAt + waitMs >= HISTORY_AUTO_LOAD_MAX_MS) break;
+            await new Promise((r) => window.setTimeout(r, waitMs));
           }
         }
         if (!cancelled) historyAutoLoadRef.current.set(id, 'giveup');
@@ -982,16 +1010,7 @@ export const WaWebChatApp: React.FC<{
       cancelled = true;
       setHistoryAutoLoadingId((cur) => (cur === id ? null : cur));
     };
-  }, [
-    selected?.id,
-    selected?.messages?.length,
-    selected?.lastMessage,
-    selected?.unreadCount,
-    selected?.lastMessageTimestamp,
-    socket?.connected,
-    loadMoreHistory,
-    resolveConversationById,
-  ]);
+  }, [selected?.id, selected?.messages?.length, socket?.connected]);
 
   const isSelectedDraft = useMemo(() => {
     if (!selected?.id) return false;

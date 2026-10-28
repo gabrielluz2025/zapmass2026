@@ -370,9 +370,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         );
         if (empty.length === 0) return 0;
         const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
-        const { loadArchiveTailByThreadIds, listThreadIdsForPhonePg } = await import(
-            './repositories/chatArchiveRepository.js'
-        );
+        const { loadArchiveTailByThreadIds, listThreadIdsForPhonePg, listThreadIdsForRemoteJidPg } =
+            await import('./repositories/chatArchiveRepository.js');
         type Row = { conv: Conversation; threadIds: string[] };
         const byOwner = new Map<string, Row[]>();
         for (const conv of empty) {
@@ -382,8 +381,28 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             if (!owner || owner === 'anonymous') continue;
             const cpGuess = archiveContactPhoneGuess(conv.id, conv);
             const threadIds = collectArchiveThreadIds(conv.id, conv, cpGuess);
+            const tenantId = resolvePostgresTenantId(owner);
+            const remoteJid = conv.id.includes(':')
+                ? conv.id.slice(conv.id.indexOf(':') + 1)
+                : '';
+            if (remoteJid.includes('@')) {
+                const jidThreads = await listThreadIdsForRemoteJidPg(tenantId, remoteJid).catch(
+                    () => [] as string[]
+                );
+                for (const t of jidThreads) {
+                    if (t && !threadIds.includes(t)) threadIds.push(t);
+                }
+            }
+            const altJid = String(conv.waJidAlt || '').trim();
+            if (altJid.includes('@')) {
+                const altThreads = await listThreadIdsForRemoteJidPg(tenantId, altJid).catch(
+                    () => [] as string[]
+                );
+                for (const t of altThreads) {
+                    if (t && !threadIds.includes(t)) threadIds.push(t);
+                }
+            }
             if (cpGuess.length >= 8) {
-                const tenantId = resolvePostgresTenantId(owner);
                 const phoneThreads = await listThreadIdsForPhonePg(tenantId, cpGuess).catch(
                     () => [] as string[]
                 );
@@ -2401,6 +2420,20 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             }
             const total = conv?.messages?.length || 0;
             const outMsgs = conv ? prepareConversationHistoryForClient(conv, requested) : msgs;
+            if (
+                total === 0 &&
+                conv &&
+                ((conv.lastMessage || '').trim() || (conv.lastMessageTimestamp || 0) > 0)
+            ) {
+                const cpGuess = archiveContactPhoneGuess(conversationId, conv);
+                const threadIds = collectArchiveThreadIds(conversationId, conv, cpGuess);
+                console.info('[loadChatHistory/go] thread vazio com preview no inbox', {
+                    conversationId,
+                    threadIds,
+                    cpGuess: cpGuess || undefined,
+                    historySyncTriggered,
+                });
+            }
             return { ok: true, total, messages: outMsgs, historySyncTriggered };
         }
 

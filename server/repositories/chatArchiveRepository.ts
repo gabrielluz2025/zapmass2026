@@ -369,6 +369,30 @@ function phoneSuffix8(digits: string): string {
   return d.length >= 8 ? d.slice(-8) : d;
 }
 
+/** Threads cujo `contact_phone` guarda o JID completo (ex.: Meta @lid no metadata da thread). */
+export async function listThreadIdsForRemoteJidPg(
+  tenantId: string,
+  remoteJid: string
+): Promise<string[]> {
+  if (!isUuid(tenantId)) return [];
+  const jid = String(remoteJid || '').trim();
+  if (!jid.includes('@')) return [];
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  try {
+    const r = await pool.query<{ thread_id: string }>(
+      `SELECT DISTINCT thread_id FROM zapmass.wa_chat_threads
+        WHERE tenant_id = $1::uuid
+          AND lower(trim(coalesce(contact_phone, ''))) = lower($2)`,
+      [tenantId, jid]
+    );
+    return r.rows.map((row) => row.thread_id).filter(Boolean);
+  } catch (e) {
+    console.warn('[ChatArchive/PG] threads por JID falhou:', (e as Error)?.message || e);
+    return [];
+  }
+}
+
 /** Threads cujo telefone bate com variantes BR (mesmo contato, chips diferentes). */
 export async function listThreadIdsForPhonePg(tenantId: string, phoneRaw: string): Promise<string[]> {
   if (!isUuid(tenantId)) return [];
@@ -424,7 +448,7 @@ export async function loadArchiveTailByThreadIds(
   if (!isUuid(tenantId) || threadIds.length === 0) return out;
   const pool = getZapmassPool();
   if (!pool) return out;
-  const cap = Math.max(1, Math.min(perThread, 80));
+  const cap = Math.max(1, Math.min(perThread, 400));
   const ids = [...new Set(threadIds.map((id) => String(id || '').trim()).filter(Boolean))];
   const CHUNK = 200;
   for (let i = 0; i < ids.length; i += CHUNK) {
