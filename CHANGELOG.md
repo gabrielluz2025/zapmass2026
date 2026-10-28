@@ -7,6 +7,11 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.364] - 2026-10-28
+
+### Corrigido
+- **Docker**: inclui `scripts/merge-duplicate-threads.ts` na imagem de produção (comando `npm run merge:duplicate-threads` na VPS).
+
 ## [2.3.363] - 2026-10-28
 
 ### Adicionado

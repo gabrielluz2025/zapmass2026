@@ -10,6 +10,16 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.364',
+    date: '28/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Docker: script merge:duplicate-threads disponível dentro do container (npm run merge:duplicate-threads)',
+      },
+    ],
+  },
+  {
     version: '2.3.363',
     date: '28/10/2026',
     highlights: [
