@@ -6,7 +6,8 @@ import {
 } from './chatArchiveStore.js';
 import type { ChatMessage, Conversation } from './types.js';
 
-function collectArchiveThreadIds(
+/** Chaves de thread no Postgres/Firestore para uma conversa (@lid + telefone + waJidAlt). */
+export function collectArchiveThreadIds(
   conversationId: string,
   convMeta: Conversation | undefined,
   cpGuess: string
@@ -36,6 +37,27 @@ function collectArchiveThreadIds(
     }
   }
   return out;
+}
+
+/** Dígitos do contato para busca cruzada p_* / telefone no arquivo. */
+export function archiveContactPhoneGuess(
+  conversationId: string,
+  convMeta: Conversation | undefined
+): string {
+  const jid = conversationId.includes(':')
+    ? conversationId.slice(conversationId.indexOf(':') + 1)
+    : '';
+  const altRaw = String(convMeta?.waJidAlt || '').trim();
+  const altPhone =
+    altRaw && !altRaw.toLowerCase().endsWith('@lid')
+      ? altRaw.split('@')[0]?.replace(/\D/g, '') || ''
+      : '';
+  const cpDigits = String(convMeta?.contactPhone || '').replace(/\D/g, '');
+  return (
+    (cpDigits.length >= 10 && cpDigits.length <= 13 ? cpDigits : '') ||
+    (altPhone.length >= 10 && altPhone.length <= 13 ? altPhone : '') ||
+    (jid.toLowerCase().endsWith('@lid') ? '' : jid.split('@')[0]?.replace(/\D/g, '') || '')
+  );
 }
 
 async function loadArchivedMessagesWithFallbacks(
@@ -84,11 +106,7 @@ export async function mergeChatArchiveIntoConversation(
     altRaw && !altRaw.toLowerCase().endsWith('@lid')
       ? altRaw.split('@')[0]?.replace(/\D/g, '') || ''
       : '';
-  const cpDigits = String(convMeta?.contactPhone || '').replace(/\D/g, '');
-  const cpGuess =
-    (cpDigits.length >= 10 && cpDigits.length <= 13 ? cpDigits : '') ||
-    (altPhone.length >= 10 && altPhone.length <= 13 ? altPhone : '') ||
-    (jid.toLowerCase().endsWith('@lid') ? '' : jid.split('@')[0]?.replace(/\D/g, '') || '');
+  const cpGuess = archiveContactPhoneGuess(conversationId, convMeta);
   const archived = await loadArchivedMessagesWithFallbacks(
     ownerUid,
     conversationId,

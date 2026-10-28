@@ -251,10 +251,10 @@ export async function listInboxThreadStubsPg(
         if (cp.includes('@')) {
           remoteJid = cp;
         } else {
-          const digits = cp.replace(/\D/g, '');
-          if (digits.length >= 8) remoteJid = `${digits}@lid`;
+          // Não inventar JID @lid a partir de telefone — quebra lookup vs webhook real.
+          continue;
         }
-        if (!remoteJid) continue;
+        if (!remoteJid.toLowerCase().endsWith('@lid')) continue;
         const id = `${conn}:${remoteJid}`;
         const ts = Number(row.updated_ms) || Date.now();
         out.push({
@@ -370,7 +370,7 @@ function phoneSuffix8(digits: string): string {
 }
 
 /** Threads cujo telefone bate com variantes BR (mesmo contato, chips diferentes). */
-async function listThreadIdsForPhonePg(tenantId: string, phoneRaw: string): Promise<string[]> {
+export async function listThreadIdsForPhonePg(tenantId: string, phoneRaw: string): Promise<string[]> {
   if (!isUuid(tenantId)) return [];
   const pool = getZapmassPool();
   if (!pool) return [];

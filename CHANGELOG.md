@@ -7,6 +7,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.355] - 2026-10-28
+
+### Corrigido
+- **Bate-papo Go — lista com preview mas thread vazio**: backfill do arquivo Postgres usa todas as chaves de thread (@lid + telefone + `waJidAlt`), não só `threadIdFromConversationId` com telefone (que apontava para `p_*` errado em contatos @lid).
+- **Abrir conversa**: `load-chat-history` no Go reidrata arquivo, une threads irmãs e faz backfill focado na conversa antes de devolver mensagens.
+- **UI**: spinner “Carregando histórico salvo…” ao abrir chat com atividade; empty state menos alarmista; auto-retry com hydrate silencioso.
+
+### Melhorado
+- **Stubs @lid do arquivo**: deixa de inventar JID `{telefone}@lid` quando o contato real é Meta LID.
+
 ## [2.3.354] - 2026-10-28
 
 ### Melhorado

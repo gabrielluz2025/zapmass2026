@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.355',
+    date: '28/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Bate-papo Go: histórico do Postgres ao abrir chat (@lid + telefone); lista deixa de abrir thread vazio com preview',
+      },
+      {
+        type: 'improvement',
+        text: 'Thread: loading ao restaurar arquivo; empty state mais claro quando não há mensagens salvas',
+      },
+    ],
+  },
+  {
     version: '2.3.354',
     date: '28/10/2026',
     highlights: [

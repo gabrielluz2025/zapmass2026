@@ -128,6 +128,7 @@ export const WaWebChatApp: React.FC<{
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [connectionFilterId, setConnectionFilterId] = useState<string | 'ALL'>('ALL');
   const [loadingHistoryIds, setLoadingHistoryIds] = useState<Set<string>>(() => new Set());
+  const [historyAutoLoadingId, setHistoryAutoLoadingId] = useState<string | null>(null);
   const [historyExhausted, setHistoryExhausted] = useState<Record<string, boolean>>({});
   const [mobileShowThread, setMobileShowThread] = useState(false);
   const [showContactInfo, setShowContactInfo] = useState(false);
@@ -831,6 +832,11 @@ export const WaWebChatApp: React.FC<{
           if (!silent) {
             toast('Sincronizando histórico do celular…', { icon: '📲', duration: 2800 });
             runResync({ full: true, force: true });
+          } else {
+            await hydrateFirestoreChatArchive(conversationId, 1500).catch(() => ({
+              ok: false,
+              total: 0,
+            }));
           }
           let res = await loadChatHistory(conversationId, 1500, true);
           const msgCountAfterLoad = (res.messages?.length ?? res.total ?? 0) as number;
@@ -952,23 +958,29 @@ export const WaWebChatApp: React.FC<{
     if (autoStatus === 'done' || autoStatus === 'giveup') return;
 
     let cancelled = false;
+    setHistoryAutoLoadingId(id);
     void (async () => {
-      for (let attempt = 1; attempt <= 3 && !cancelled; attempt++) {
-        await loadMoreHistory(id, true);
-        const loaded = (resolveConversationById(id)?.messages?.length ?? 0) > 0;
-        if (loaded) {
-          historyAutoLoadRef.current.set(id, 'done');
-          historyInitializedRef.current.add(id);
-          return;
+      try {
+        for (let attempt = 1; attempt <= 4 && !cancelled; attempt++) {
+          await loadMoreHistory(id, true);
+          const loaded = (resolveConversationById(id)?.messages?.length ?? 0) > 0;
+          if (loaded) {
+            historyAutoLoadRef.current.set(id, 'done');
+            historyInitializedRef.current.add(id);
+            return;
+          }
+          if (attempt < 4) {
+            await new Promise((r) => window.setTimeout(r, 1200 * attempt));
+          }
         }
-        if (attempt < 3) {
-          await new Promise((r) => window.setTimeout(r, 1500 * attempt));
-        }
+        if (!cancelled) historyAutoLoadRef.current.set(id, 'giveup');
+      } finally {
+        if (!cancelled) setHistoryAutoLoadingId((cur) => (cur === id ? null : cur));
       }
-      if (!cancelled) historyAutoLoadRef.current.set(id, 'giveup');
     })();
     return () => {
       cancelled = true;
+      setHistoryAutoLoadingId((cur) => (cur === id ? null : cur));
     };
   }, [
     selected?.id,
@@ -1605,7 +1617,11 @@ export const WaWebChatApp: React.FC<{
         conversation={selected}
         display={selectedDisplay ?? null}
         avatarSrc={selected ? avatarById.get(selected.id) || '' : ''}
-        loadingHistory={selectedId ? loadingHistoryIds.has(selectedId) : false}
+        loadingHistory={
+          selectedId
+            ? loadingHistoryIds.has(selectedId) || historyAutoLoadingId === selectedId
+            : false
+        }
         historyExhausted={
           selected && !isGoWebhookInbox ? !!historyExhausted[selected.id] : false
         }

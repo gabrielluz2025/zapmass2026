@@ -89,6 +89,8 @@ import {
     isFullInboxSyncEnabled,
 } from '../shared/chatSyncConfig.js';
 import {
+    archiveContactPhoneGuess,
+    collectArchiveThreadIds,
     hydrateChatArchiveForConversation as mergeHydrateChatArchive,
     mergeChatArchiveIntoConversation
 } from './chatArchiveMerge.js';
@@ -353,45 +355,76 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
      * Conversas que ficaram só com o número: puxa o texto já gravado no arquivo
      * (wa_chat_messages) de volta para a thread.
      */
-    async function backfillEmptyThreadsFromArchive(): Promise<number> {
+    async function backfillEmptyThreadsFromArchive(opts?: {
+        onlyConversationId?: string;
+        perThread?: number;
+    }): Promise<number> {
         if (!archiveCtx) return 0;
+        const onlyId = String(opts?.onlyConversationId || '').trim();
+        const perThread = Math.max(24, Math.min(400, opts?.perThread ?? 120));
         const empty = conversations.filter(
-            (c) => c.connectionId && (c.messages?.length || 0) === 0
+            (c) =>
+                c.connectionId &&
+                (c.messages?.length || 0) === 0 &&
+                (!onlyId || c.id === onlyId)
         );
         if (empty.length === 0) return 0;
         const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
-        const { loadArchiveTailByThreadIds } = await import('./repositories/chatArchiveRepository.js');
-        const byOwner = new Map<string, Array<{ conv: Conversation; threadId: string }>>();
+        const { loadArchiveTailByThreadIds, listThreadIdsForPhonePg } = await import(
+            './repositories/chatArchiveRepository.js'
+        );
+        type Row = { conv: Conversation; threadIds: string[] };
+        const byOwner = new Map<string, Row[]>();
         for (const conv of empty) {
             const owner =
                 archiveCtx.resolveConnectionOwnerUid(conv.connectionId) ||
                 archiveCtx.ownerUidFromConnectionId(conv.connectionId);
             if (!owner || owner === 'anonymous') continue;
-            const threadId = threadIdFromConversationId(conv.id, conv.contactPhone);
-            if (!threadId) continue;
+            const cpGuess = archiveContactPhoneGuess(conv.id, conv);
+            const threadIds = collectArchiveThreadIds(conv.id, conv, cpGuess);
+            if (cpGuess.length >= 8) {
+                const tenantId = resolvePostgresTenantId(owner);
+                const phoneThreads = await listThreadIdsForPhonePg(tenantId, cpGuess).catch(
+                    () => [] as string[]
+                );
+                for (const t of phoneThreads) {
+                    if (t && !threadIds.includes(t)) threadIds.push(t);
+                }
+            }
+            if (threadIds.length === 0) continue;
             const bucket = byOwner.get(owner) || [];
-            bucket.push({ conv, threadId });
+            bucket.push({ conv, threadIds });
             byOwner.set(owner, bucket);
         }
         let filled = 0;
         for (const [owner, rows] of byOwner) {
             const tenantId = resolvePostgresTenantId(owner);
-            const tails = await loadArchiveTailByThreadIds(
-                tenantId,
-                rows.map((r) => r.threadId),
-                24
-            );
+            const allThreadIds = [
+                ...new Set(rows.flatMap((r) => r.threadIds).filter(Boolean)),
+            ];
+            const tails = await loadArchiveTailByThreadIds(tenantId, allThreadIds, perThread);
             for (const row of rows) {
-                const msgs = tails.get(row.threadId);
-                if (!msgs?.length) continue;
                 const live = conversations.find((c) => c.id === row.conv.id);
                 if (!live || (live.messages?.length || 0) > 0) continue;
-                live.messages = msgs;
+                const byId = new Map<string, ChatMessage>();
+                for (const threadId of row.threadIds) {
+                    for (const m of tails.get(threadId) || []) {
+                        if (m?.id) byId.set(m.id, m);
+                    }
+                }
+                const msgs = Array.from(byId.values()).sort(
+                    (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
+                );
+                if (msgs.length === 0) continue;
+                live.messages = msgs.slice(-MAX_MESSAGES);
                 const last = msgs[msgs.length - 1];
                 if ((last?.text || '').trim()) live.lastMessage = last.text;
                 if (last?.timestamp) live.lastMessageTime = last.timestamp;
                 if (last?.timestampMs) {
-                    live.lastMessageTimestamp = Math.max(live.lastMessageTimestamp || 0, last.timestampMs);
+                    live.lastMessageTimestamp = Math.max(
+                        live.lastMessageTimestamp || 0,
+                        last.timestampMs
+                    );
                 }
                 filled += 1;
             }
@@ -1091,7 +1124,19 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             emitConversationDelta(conversationId);
             return conv!.messages.length;
         }
-        if (isGoWebhookInboxMode()) return conv?.messages?.length || 0;
+        if (isGoWebhookInboxMode()) {
+            if ((conv?.messages?.length || 0) === 0) {
+                await backfillEmptyThreadsFromArchive({
+                    onlyConversationId: conversationId,
+                    perThread: limit,
+                });
+                conv = conversations.find((c) => c.id === conversationId);
+                if ((conv?.messages?.length || 0) > 0) {
+                    emitConversationDelta(conversationId);
+                }
+            }
+            return conv?.messages?.length || 0;
+        }
         const jids = remoteJidsForMessageFetch(conv, parsed.remoteJid);
         const fetched = await fetchMessagesFromAlternateJids(parsed.connectionId, jids, limit);
         if (fetched.length === 0) return conv?.messages?.length || 0;
@@ -2318,12 +2363,19 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (isGoWebhookInboxMode()) {
             conv = conversations.find((c) => c.id === conversationId);
             if ((conv?.messages?.length || 0) === 0) {
-                await backfillEmptyThreadsFromArchive();
+                await mergeChatArchiveIntoConversation(conversationId, requested, evoChatArchiveHooks());
+                absorbSiblingThreadMessages(conversationId);
+                await backfillEmptyThreadsFromArchive({
+                    onlyConversationId: conversationId,
+                    perThread: requested,
+                });
                 conv = conversations.find((c) => c.id === conversationId);
                 if ((conv?.messages?.length || 0) === 0 && archiveCtx) {
                     await mergeChatArchiveIntoConversation(conversationId, requested, evoChatArchiveHooks());
                     conv = conversations.find((c) => c.id === conversationId);
                 }
+                absorbSiblingThreadMessages(conversationId);
+                conv = conversations.find((c) => c.id === conversationId);
                 if ((conv?.messages?.length || 0) > 0) {
                     emitConversationDelta(conversationId);
                 }

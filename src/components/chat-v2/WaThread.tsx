@@ -572,14 +572,18 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
             </div>
           )}
 
-          {messages.length === 0 && loadingHistory && !threadHasActivity && (
+          {messages.length === 0 && loadingHistory && (
             <div className="flex flex-col items-center gap-2 py-12" style={{ color: 'var(--wa-text-3)' }}>
               <Loader2 className="w-6 h-6 animate-spin opacity-70" aria-hidden />
-              <p className="text-center text-[13px]">Carregando mensagens…</p>
+              <p className="text-center text-[13px]">
+                {threadHasActivity
+                  ? 'Carregando histórico salvo no servidor…'
+                  : 'Carregando mensagens…'}
+              </p>
             </div>
           )}
 
-          {messages.length === 0 && !loadingHistory && (() => {
+          {messages.length === 0 && !loadingHistory && !historyImporting && (() => {
             const previewText = (conversation?.lastMessage || '').trim();
             const campaignish = (conversation?.tags ?? []).some((t) =>
               /campanha|disparo/i.test(String(t))
@@ -617,7 +621,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
                   ? 'Nova conversa — envie a primeira mensagem pelo canal escolhido abaixo.'
                   : threadHasActivity
                     ? isGoWebhookInbox
-                      ? 'Histórico ainda não carregou — toque em “Sincronizar do celular” ou aguarde alguns segundos.'
+                      ? 'Nenhuma mensagem salva ainda para este contato. Toque em “Sincronizar do celular” para importar do WhatsApp (modo proteção pode enfileirar sync pesado).'
                       : 'Histórico ainda não carregou — toque em “Carregar mensagens anteriores” ou aguarde alguns segundos.'
                     : 'Nenhuma mensagem nesta conversa ainda.'}
               </p>
