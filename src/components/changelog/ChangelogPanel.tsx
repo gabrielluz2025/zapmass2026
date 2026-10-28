@@ -10,6 +10,24 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.367',
+    date: '28/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Arquivo de chat no Postgres: gravação usava UID Firebase em vez de tenant UUID e era descartada em silêncio (wa_chat_* vazio)',
+      },
+      {
+        type: 'fix',
+        text: 'Inbox: une @lid + telefone pelo PN das mensagens, colapsa antes de paginar e oculta fichas @lid vazias sem telefone',
+      },
+      {
+        type: 'fix',
+        text: 'Abrir conversa com id antigo (@lid) usa o id canônico existente — sem 2ª ficha vazia',
+      },
+    ],
+  },
+  {
     version: '2.3.366',
     date: '28/10/2026',
     highlights: [

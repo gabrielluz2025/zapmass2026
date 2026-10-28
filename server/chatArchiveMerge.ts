@@ -6,6 +6,7 @@ import {
 } from './chatArchiveStore.js';
 import { contactPhoneLookupVariants } from './contactIdentity/contactPhone.js';
 import { canonicalPhoneRemoteJidFromDigits } from './evolutionLidResolve.js';
+import { resolveStableConversationId } from '../src/utils/collapseConversationsByPhone.js';
 import type { ChatMessage, Conversation } from './types.js';
 
 /** Chaves de thread no Postgres/Firestore para uma conversa (@lid + telefone + waJidAlt). */
@@ -239,6 +240,11 @@ export async function mergeChatArchiveIntoConversation(
   const conversations = hooks.getConversations();
   let conv = conversations.find((c) => c.id === conversationId);
   if (!conv) {
+    // Mesmo contato já existe sob outro id (@lid ↔ telefone): grava lá em vez de criar 2ª ficha.
+    const siblingId = resolveStableConversationId(conversations, conversationId);
+    if (siblingId && siblingId !== conversationId && siblingId.startsWith(`${connectionId}:`)) {
+      return mergeChatArchiveIntoConversation(siblingId, historyLimit, hooks);
+    }
     hooks.allowDeletedConversation(conversationId);
     const last = mergedArchive[mergedArchive.length - 1];
     const contactPhone =

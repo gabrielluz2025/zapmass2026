@@ -23,7 +23,8 @@ import {
 } from '../src/utils/contactPhoneLookup.js';
 import {
     collapseConversationsByPhone,
-    mergeConversationsPair
+    mergeConversationsPair,
+    resolveStableConversationId
 } from '../src/utils/collapseConversationsByPhone.js';
 import type { GoHistoryConversationStub } from './evolutionProvider/evolutionGoWebhookAdapter.js';
 import { isGoChatFindMessagesBootstrapEnabled, isGoWebhookInboxMode } from './evolutionConfig.js';
@@ -671,7 +672,12 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             contactName: next.contactName || 'Contato',
             contactPhone: archiveContactPhone,
             connectionId: next.connectionId
-        }, delta).catch(() => undefined);
+        }, delta).catch((e: unknown) => {
+            console.warn('[chatArchive] falha ao gravar delta', {
+                threadId,
+                err: e instanceof Error ? e.message : String(e),
+            });
+        });
     };
 
     const evoChatArchiveHooks = () => ({
@@ -2364,6 +2370,19 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     }> {
         let parsed = parseConversationId(conversationId);
         if (!parsed) return { ok: false, total: 0, error: 'conversationId inválido.' };
+
+        // Cliente pode abrir o id @lid/antigo que já foi unido ao id do telefone — não criar 2ª ficha.
+        if (!conversations.some((c) => c.id === conversationId)) {
+            const stableId = resolveStableConversationId(conversations, conversationId);
+            if (
+                stableId &&
+                stableId !== conversationId &&
+                stableId.startsWith(`${parsed.connectionId}:`)
+            ) {
+                conversationId = stableId;
+                parsed = parseConversationId(conversationId) ?? parsed;
+            }
+        }
 
         if (deletedConversationIds.has(conversationId)) {
             return { ok: true, total: 0, messages: [], error: 'Conversa removida da lista.' };

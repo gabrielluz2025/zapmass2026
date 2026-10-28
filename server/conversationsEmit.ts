@@ -17,7 +17,10 @@ import {
 } from './inboxPagination.js';
 import { listInboxThreadStubsPg } from './repositories/chatArchiveRepository.js';
 import type { Conversation } from './types.js';
-import { collapseConversationsByPhone } from '../src/utils/collapseConversationsByPhone.js';
+import {
+  collapseConversationsByPhone,
+  isEmptyUnresolvedLidStub
+} from '../src/utils/collapseConversationsByPhone.js';
 
 /** Resolve dono de canal legado (`conn_*` sem `uid__`) para `filterByConnectionScope`. */
 export type ConnectionOwnerResolver = (connectionId: string) => string | undefined;
@@ -88,7 +91,8 @@ function trimConversationListForSocket(list: Conversation[]): Conversation[] {
 }
 
 export function prepareConversationsForSocketEmit(list: Conversation[]): Conversation[] {
-  return trimConversationListForSocket(slimConversationsForBroadcast(collapseConversationsByPhone(list))).map((c) => {
+  const visible = collapseConversationsByPhone(list).filter((c) => !isEmptyUnresolvedLidStub(c));
+  return trimConversationListForSocket(slimConversationsForBroadcast(visible)).map((c) => {
     const msgs = Array.isArray(c.messages) ? c.messages : [];
     if (msgs.length <= SOCKET_INBOX_MSG_TAIL) return c;
     return { ...c, messages: msgs.slice(-SOCKET_INBOX_MSG_TAIL) };
@@ -133,6 +137,7 @@ export async function socketConversationDeltaPayload(
   if (scoped.length === 0) return null;
   const withPhones = await enrichConversationsWithCrmPhones(tenantUid, scoped);
   const withNames = await enrichConversationsWithCrmNames(tenantUid, withPhones);
+  if (isEmptyUnresolvedLidStub(withNames[0]!)) return null;
   return prepareSingleConversationForSocketEmit(withNames[0]!);
 }
 
@@ -186,6 +191,8 @@ export async function socketInboxPagePayload(
       /* ignore */
     }
   }
+  // Une @lid + telefone ANTES de paginar (senão cada metade cai numa página e a lista duplica).
+  scoped = collapseConversationsByPhone(scoped).filter((c) => !isEmptyUnresolvedLidStub(c));
   const sorted = sortConversationsByActivity(scoped);
   const pageLimit =
     opts?.limit ??

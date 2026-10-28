@@ -1,4 +1,5 @@
 import { vpsDataEnabled } from './auth/dataMode.js';
+import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
 import { getZapmassPool } from './db/postgres.js';
 import {
   appendChatArchiveMessagesFirestore,
@@ -18,6 +19,10 @@ export function usePostgresChatArchive(): boolean {
   return vpsDataEnabled() && !!getZapmassPool();
 }
 
+/**
+ * No Postgres o tenant é UUID; o chat usa `ownerUid` Firebase. Sem converter, o repositório
+ * descartava a gravação em silêncio (`isUuid`) e wa_chat_threads/messages ficavam vazios.
+ */
 export async function appendChatArchiveMessages(
   ownerUid: string,
   threadId: string,
@@ -26,7 +31,7 @@ export async function appendChatArchiveMessages(
 ): Promise<void> {
   if (!isWaChatArchiveEnabled() || !ownerUid || !threadId || messages.length === 0) return;
   if (usePostgresChatArchive()) {
-    return appendChatArchiveMessagesPg(ownerUid, threadId, meta, messages);
+    return appendChatArchiveMessagesPg(resolvePostgresTenantId(ownerUid), threadId, meta, messages);
   }
   return appendChatArchiveMessagesFirestore(ownerUid, threadId, meta, messages);
 }
@@ -38,7 +43,7 @@ export async function loadChatArchiveMessages(
 ): Promise<ChatMessage[]> {
   if (!isWaChatArchiveEnabled() || !ownerUid || !threadId) return [];
   if (usePostgresChatArchive()) {
-    return loadChatArchiveMessagesPg(ownerUid, threadId, limit);
+    return loadChatArchiveMessagesPg(resolvePostgresTenantId(ownerUid), threadId, limit);
   }
   return loadChatArchiveMessagesFirestore(ownerUid, threadId, limit);
 }

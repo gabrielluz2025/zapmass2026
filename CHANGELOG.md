@@ -7,6 +7,15 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.367] - 2026-10-28
+
+### Corrigido
+- **Arquivo PG vazio (`wa_chat_threads`/`wa_chat_messages` = 0)**: `chatArchiveStore` passava o UID Firebase ao repositório Postgres, que exige UUID (`isUuid`) e descartava a gravação em silêncio. Agora converte com `resolvePostgresTenantId` em gravar/ler; falha de gravação do delta passa a logar `[chatArchive] falha ao gravar delta`.
+- **Inbox duplicada**: `collapseConversationsByPhone` também usa o telefone gravado nas mensagens do `@lid` (`waRemoteJidAlt`, `waSenderPn` só em recebidas) para unir com a thread `@s.whatsapp.net`.
+- **Paginação da inbox**: `socketInboxPagePayload` colapsa `@lid` + telefone **antes** de paginar (metades em páginas diferentes não duplicam mais).
+- **Fichas vazias “Contato …0542”**: `@lid` sem telefone, sem mensagem, sem preview e sem não lidas não vai mais no `conversations-update`/delta (continua na RAM para prefetch).
+- **Abrir chat não cria 2ª ficha**: `loadChatHistory` e `mergeChatArchiveIntoConversation` redirecionam id antigo (`@lid`) para o id canônico já existente no mesmo chip.
+
 ## [2.3.366] - 2026-10-28
 
 ### Adicionado

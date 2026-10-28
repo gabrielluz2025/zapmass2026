@@ -153,7 +153,8 @@ export function stableWhatsappPicKey(url: string | undefined | null): string {
   }
 }
 
-function phoneKeysForConversation(conv: Conversation): string[] {
+/** `resolvedOnly`: ignora dígitos derivados do próprio @lid (só telefone realmente resolvido). */
+function phoneKeysForConversation(conv: Conversation, resolvedOnly = false): string[] {
   const keys = new Set<string>();
   const addDigits = (raw: string) => {
     const d = localDigitsFromWaAddress(raw) || normalizePhoneDigits(raw);
@@ -167,14 +168,29 @@ function phoneKeysForConversation(conv: Conversation): string[] {
 
   const jidRaw = remoteJidFromConversationId(conv.id);
   if (jidRaw && !isLidJid(jidRaw)) addDigits(jidRaw);
-  if (jidRaw && isLidJid(jidRaw)) {
+  if (jidRaw && isLidJid(jidRaw) && !resolvedOnly) {
     const local = localDigitsFromWaAddress(jidRaw);
     if (local.length >= 10 && local.length <= 13) addDigits(local);
     else if (local.length > 13) addDigits(local.slice(-11));
   }
 
-  // Sufixo só em @lid (evita colapsar dois telefones BR distintos pelo mesmo 8 dígitos).
+  // Thread @lid sem telefone no cabeçalho: usa PN gravado nas mensagens (webhook remoteJidAlt/senderPn).
+  // senderPn só em mensagens recebidas (nas enviadas seria o próprio chip).
   if (isLidJid(jidRaw)) {
+    const msgs = conv.messages || [];
+    for (let i = msgs.length - 1, seen = 0; i >= 0 && seen < 40; i--, seen++) {
+      const m = msgs[i];
+      if (m?.waRemoteJidAlt && !isLidJid(m.waRemoteJidAlt)) {
+        addDigits(stripWhatsAppJidSuffix(m.waRemoteJidAlt));
+      }
+      if (m?.sender === 'them' && m.waSenderPn && !isLidJid(m.waSenderPn)) {
+        addDigits(stripWhatsAppJidSuffix(m.waSenderPn));
+      }
+    }
+  }
+
+  // Sufixo só em @lid (evita colapsar dois telefones BR distintos pelo mesmo 8 dígitos).
+  if (isLidJid(jidRaw) && !resolvedOnly) {
     const mergeD =
       localDigitsFromWaAddress(conv.contactPhone || '') ||
       localDigitsFromWaAddress(jidRaw);
@@ -187,6 +203,14 @@ function phoneKeysForConversation(conv: Conversation): string[] {
   }
 
   return Array.from(keys);
+}
+
+/** @lid sem telefone, sem texto e sem mensagens: ficha vazia (“Contato …0542”) que não deve ir para a lista. */
+export function isEmptyUnresolvedLidStub(conv: Conversation): boolean {
+  if (!isLidJid(remoteJidFromConversationId(conv.id))) return false;
+  if ((conv.messages?.length || 0) > 0 || (conv.lastMessage || '').trim()) return false;
+  if ((conv.unreadCount || 0) > 0) return false;
+  return phoneKeysForConversation(conv, true).length === 0;
 }
 
 /** Une duas threads do mesmo contato (usado no servidor ao redirecionar @lid → JID com telefone). */

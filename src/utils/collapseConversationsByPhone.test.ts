@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   collapseConversationsByPhone,
   compareConversationsForCanonicalId,
+  isEmptyUnresolvedLidStub,
   phonesEquivalentForInboxMerge,
   pickConversationIdForAnchor,
   reconcileConversationSelection,
@@ -400,7 +401,7 @@ describe('collapseConversationsByPhone', () => {
     expect(out[0]!.id).toBe(`${conn}:${phone}@s.whatsapp.net`);
   });
 
-  it('br9x une 9º dígito só para DDD ? 27', () => {
+  it('br9x une 9ï¿½ dï¿½gito sï¿½ para DDD ? 27', () => {
     expect(brInboxMergeKeyIgnoreNinthWhenDddLe27('551198765432')).toBe('br9x:551198765432');
     expect(brInboxMergeKeyIgnoreNinthWhenDddLe27('554899127001')).toBeNull();
     const k12 = inboxMergeEquivalenceKeys('551198765432');
@@ -409,7 +410,7 @@ describe('collapseConversationsByPhone', () => {
     expect(phonesEquivalentForInboxMerge('551198765432', '5511998765432')).toBe(true);
   });
 
-  it('colapsa variantes BR com/sem 9º dígito no mesmo chip', () => {
+  it('colapsa variantes BR com/sem 9ï¿½ dï¿½gito no mesmo chip', () => {
     const conn = 'conn_1';
     const list: Conversation[] = [
       {
@@ -440,5 +441,41 @@ describe('collapseConversationsByPhone', () => {
     const out = collapseConversationsByPhone(list);
     expect(out).toHaveLength(1);
     expect(out[0]!.id).toBe(`${conn}:5547999127001@s.whatsapp.net`);
+  });
+
+  const base = (over: Partial<Conversation>): Conversation => ({
+    id: '',
+    connectionId: 'c1',
+    contactName: '',
+    contactPhone: '',
+    unreadCount: 0,
+    lastMessage: '',
+    lastMessageTime: '',
+    lastMessageTimestamp: 0,
+    messages: [],
+    tags: [],
+    ...over,
+  });
+
+  it('une @lid ao telefone via waRemoteJidAlt gravado nas mensagens', () => {
+    const out = collapseConversationsByPhone([
+      base({
+        id: 'c1:251174049550446@lid',
+        contactName: 'Fulano',
+        messages: [
+          { id: 'm1', text: 'oi', timestamp: '1', sender: 'them', timestampMs: 1, status: 'delivered', type: 'text', waRemoteJidAlt: '5547999127001@s.whatsapp.net' },
+        ],
+      }),
+      base({ id: 'c1:5547999127001@s.whatsapp.net', contactName: 'Fulano', contactPhone: '+5547999127001' }),
+    ]);
+    expect(out).toHaveLength(1);
+  });
+
+  it('isEmptyUnresolvedLidStub: so @lid vazio sem telefone', () => {
+    expect(isEmptyUnresolvedLidStub(base({ id: 'c1:251174049550446@lid', contactName: 'Contato' }))).toBe(true);
+    expect(isEmptyUnresolvedLidStub(base({ id: 'c1:251174049550446@lid', lastMessage: 'oi' }))).toBe(false);
+    expect(
+      isEmptyUnresolvedLidStub(base({ id: 'c1:5547999127001@s.whatsapp.net', contactPhone: '+5547999127001' }))
+    ).toBe(false);
   });
 });

@@ -136,7 +136,7 @@ function normalizedInboxName(name) {
         .replace(/\s+/g, ' ')
         .trim();
 }
-function phoneKeysForConversation(conv) {
+function phoneKeysForConversation(conv, resolvedOnly = false) {
     const keys = new Set();
     const addDigits = (raw) => {
         const d = localDigitsFromWaAddress(raw) || normalizePhoneDigits(raw);
@@ -152,7 +152,7 @@ function phoneKeysForConversation(conv) {
     const jidRaw = remoteJidFromConversationId(conv.id);
     if (jidRaw && !isLidJid(jidRaw))
         addDigits(jidRaw);
-    if (jidRaw && isLidJid(jidRaw)) {
+    if (jidRaw && isLidJid(jidRaw) && !resolvedOnly) {
         const local = localDigitsFromWaAddress(jidRaw);
         if (local.length >= 10 && local.length <= 13)
             addDigits(local);
@@ -160,6 +160,18 @@ function phoneKeysForConversation(conv) {
             addDigits(local.slice(-11));
     }
     if (isLidJid(jidRaw)) {
+        const msgs = conv.messages || [];
+        for (let i = msgs.length - 1, seen = 0; i >= 0 && seen < 40; i--, seen++) {
+            const m = msgs[i];
+            if (m?.waRemoteJidAlt && !isLidJid(m.waRemoteJidAlt)) {
+                addDigits(stripWhatsAppJidSuffix(m.waRemoteJidAlt));
+            }
+            if (m?.sender === 'them' && m.waSenderPn && !isLidJid(m.waSenderPn)) {
+                addDigits(stripWhatsAppJidSuffix(m.waSenderPn));
+            }
+        }
+    }
+    if (isLidJid(jidRaw) && !resolvedOnly) {
         const mergeD = localDigitsFromWaAddress(conv.contactPhone || '') ||
             localDigitsFromWaAddress(jidRaw);
         const tail = mergeD.length > 13 ? mergeD.slice(-11) : mergeD;
@@ -171,6 +183,16 @@ function phoneKeysForConversation(conv) {
         }
     }
     return Array.from(keys);
+}
+/** @lid sem telefone, sem texto e sem mensagens: ficha vazia que não deve ir para a lista. */
+export function isEmptyUnresolvedLidStub(conv) {
+    if (!isLidJid(remoteJidFromConversationId(conv.id)))
+        return false;
+    if ((conv.messages?.length || 0) > 0 || (conv.lastMessage || '').trim())
+        return false;
+    if ((conv.unreadCount || 0) > 0)
+        return false;
+    return phoneKeysForConversation(conv, true).length === 0;
 }
 /** Une duas threads do mesmo contato (usado no servidor ao redirecionar @lid → JID com telefone). */
 export function mergeConversationsPair(a, b) {
