@@ -1,3 +1,17 @@
+/**
+ * Resolução LID ↔ telefone (Meta / whatsmeow).
+ *
+ * WhatsApp pode endereçar chats como `@lid` (Hidden User) em vez de `@s.whatsapp.net`.
+ * O mesmo contato pode aparecer nos dois formatos — a inbox deve unificar por telefone
+ * quando existir mapeamento PN↔LID (whatsmeow `LIDStore`, sync em HistorySync /
+ * LIDMigrationMappingSyncPayload). Ver docs/chat-inbox-evolution-go.md.
+ *
+ * Ordem de resolução no ZapMass:
+ * 1. Campos sendáveis do webhook (`remoteJidAlt`, `senderPn`, `participant`) via `pickSendableWaJidAlt`.
+ * 2. Campos da Evolution em findChats/findMessages (`resolveLidPeerFromEvolutionApi`).
+ * 3. Mensagens já persistidas na thread (`peerFromStoredMessages`).
+ * Nunca enviar campanha/resposta para `@lid` sem telefone plausível — use `hasResolvablePhone`.
+ */
 import type { AxiosInstance } from 'axios';
 import { looksLikeLongLidDigits, normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
 import type { ChatMessage } from './types.js';

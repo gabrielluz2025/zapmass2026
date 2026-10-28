@@ -10,6 +10,20 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.354',
+    date: '28/10/2026',
+    highlights: [
+      {
+        type: 'improvement',
+        text: 'Bate-papo Go: health check de webhook (re-registro automático), indicador na inbox, API de diagnóstico e doc chat-inbox-evolution-go',
+      },
+      {
+        type: 'improvement',
+        text: 'Avatares com retry/backoff; estratégia @lid documentada no servidor',
+      },
+    ],
+  },
+  {
     version: '2.3.353',
     date: '28/10/2026',
     highlights: [

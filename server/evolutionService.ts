@@ -26,6 +26,15 @@ import {
 } from './evolutionProvider/goRouteAdapter.js';
 import { normalizeEvolutionGoWebhookIfNeeded } from './evolutionProvider/evolutionGoWebhookAdapter.js';
 import {
+    bindEvolutionWebhookHealthRedis,
+    buildInboxWebhookHealthForOwner,
+    classifyWebhookEventKind,
+    recordEvolutionWebhookActivity,
+    snapshotAllWebhookActivity,
+    startEvolutionWebhookHealthMonitor,
+} from './evolutionWebhookHealth.js';
+import type { InboxWebhookHealthPayload } from '../shared/inboxWebhookHealth.js';
+import {
     assertEvolutionGoLicensed,
     evolutionGoLicenseUserMessage,
     isEvolutionGoLicenseError,
@@ -13465,6 +13474,28 @@ export function init(socketIO: SocketIOServer) {
         await reregisterGoWebhooksForOpenChipsOnBoot().catch((e: Error) =>
             log('warn', 'reregisterGoWebhooksForOpenChipsOnBoot falhou', { error: e?.message })
         );
+        bindEvolutionWebhookHealthRedis(getRedisConnectionForOps);
+        startEvolutionWebhookHealthMonitor({
+            listOpenConnections: () => {
+                const rows: Array<{ id: string; ownerUid: string; lastOpenAt?: number }> = [];
+                for (const [id, conn] of connections.entries()) {
+                    if (String(conn.status || '').toLowerCase() !== 'open') continue;
+                    const ownerUid = resolveOwnerUid(id);
+                    if (!ownerUid) continue;
+                    rows.push({ id, ownerUid, lastOpenAt: conn.lastOpenAt });
+                }
+                return rows;
+            },
+            reregisterWebhook: (connectionId) =>
+                setupWebhook(connectionId, { allowWhenOpen: true }),
+            publishOwnerHealth: (ownerUid, payload) =>
+                publishOwnerEvent(
+                    ownerUid,
+                    'inbox-webhook-health',
+                    payload as unknown as Record<string, unknown>
+                ),
+            engineLabel: () => evolutionConfig.engine,
+        });
         const pruned = chatStore.pruneConversationsWithoutResolvableOwner(resolveOwnerUid);
         if (pruned > 0) {
             log('warn', 'Conversas sem ownerUid removidas do cache local', { pruned });
@@ -14449,6 +14480,26 @@ async function processInboundAutomationMessage(params: InboundProcessParams): Pr
     });
 }
 
+export function getInboxWebhookHealthForOwner(ownerUid: string): InboxWebhookHealthPayload {
+    const uid = String(ownerUid || '').trim();
+    const scoped = filterByConnectionScope(uid, getConnections());
+    const open = scoped
+        .filter((c) => String(c.status || '').toUpperCase() === 'CONNECTED')
+        .map((c) => {
+            const mem = connections.get(c.id);
+            return { id: c.id, lastOpenAt: mem?.lastOpenAt };
+        });
+    return buildInboxWebhookHealthForOwner(uid, open, evolutionConfig.engine);
+}
+
+/** Telemetria admin — último webhook visto por instância (RAM + Redis). */
+export function getEvolutionWebhookActivitySnapshot(): Record<
+    string,
+    { lastAnyMs: number; lastInboxMs: number }
+> {
+    return snapshotAllWebhookActivity();
+}
+
 export async function handleWebhook(event: any) {
     // Garante que nenhum webhook trava o event loop indefinidamente (ex: Redis lento).
     const timeoutId = setTimeout(() => {
@@ -14461,6 +14512,10 @@ export async function handleWebhook(event: any) {
         const instance = resolveInstanceName(event?.instance ?? event?.instanceName);
         const data = event?.data ?? event;
         const eventName = String(event?.event || '').toUpperCase().replace(/\./g, '_');
+
+        if (instance) {
+            recordEvolutionWebhookActivity(instance, classifyWebhookEventKind(eventName));
+        }
 
         switch (eventName) {
             case 'QRCODE_UPDATED': {

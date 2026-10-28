@@ -2658,35 +2658,44 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             remoteJid.replace(/@.+$/, '').replace(/\D/g, ''),
         ].filter((n, i, arr) => n && arr.indexOf(n) === i);
 
-        for (const number of numberCandidates) {
+        const profilePicBackoffMs = [0, 350, 900, 2200];
+        for (let attempt = 0; attempt < profilePicBackoffMs.length; attempt++) {
+            const waitMs = profilePicBackoffMs[attempt];
+            if (waitMs > 0) {
+                await new Promise((r) => setTimeout(r, waitMs));
+            }
+            for (const number of numberCandidates) {
+                try {
+                    const response = await api.post(`/chat/fetchProfilePictureUrl/${inst}`, { number });
+                    const pic = await normalizeProfilePictureUrl(parseProfilePicturePayload(response.data));
+                    if (pic) {
+                        if (conv) {
+                            conv.profilePicUrl = pic;
+                            if (!opts?.silentEmit) emitConversationDelta(conversationId);
+                        }
+                        return pic;
+                    }
+                } catch {
+                    /* tenta próximo formato / retry */
+                }
+            }
             try {
-                const response = await api.post(`/chat/fetchProfilePictureUrl/${inst}`, { number });
+                const response = await api.post(`/chat/fetchProfile/${inst}`, { number: remoteJid });
                 const pic = await normalizeProfilePictureUrl(parseProfilePicturePayload(response.data));
                 if (pic) {
-                if (conv) {
+                    if (conv) {
                         conv.profilePicUrl = pic;
                         if (!opts?.silentEmit) emitConversationDelta(conversationId);
                     }
                     return pic;
                 }
-            } catch {
-                /* tenta próximo formato */
-            }
-        }
-
-        try {
-            const response = await api.post(`/chat/fetchProfile/${inst}`, { number: remoteJid });
-            const pic = await normalizeProfilePictureUrl(parseProfilePicturePayload(response.data));
-            if (pic) {
-                if (conv) {
-                    conv.profilePicUrl = pic;
-                    if (!opts?.silentEmit) emitConversationDelta(conversationId);
+            } catch (error: unknown) {
+                const msg = error instanceof Error ? error.message : String(error);
+                if (attempt === profilePicBackoffMs.length - 1) {
+                    profilePicFailUntil.set(picCooldownKey, Date.now() + 15 * 60_000);
+                    console.warn('[EvolutionChat] fetchProfilePicture:', msg);
                 }
-                return pic;
             }
-        } catch (error: any) {
-            profilePicFailUntil.set(picCooldownKey, Date.now() + 15 * 60_000);
-            console.warn('[EvolutionChat] fetchProfilePicture:', error?.message || error);
         }
         return null;
     }

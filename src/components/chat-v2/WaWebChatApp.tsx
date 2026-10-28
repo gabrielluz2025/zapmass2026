@@ -165,7 +165,8 @@ export const WaWebChatApp: React.FC<{
     if (socket?.connected) socket.emit('request-conversations-sync', opts);
   }, [socket]);
 
-  const { socketStatus, syncing, historyImporting, inboxSyncPolicy, runResync } = useWaRealtime(socket, requestSync, {
+  const { socketStatus, syncing, historyImporting, inboxSyncPolicy, inboxWebhookHealth, runResync } =
+    useWaRealtime(socket, requestSync, {
     chipsConnected: connectedChannels.length
   });
 
@@ -1517,6 +1518,7 @@ export const WaWebChatApp: React.FC<{
         historySyncChipProtectionBlocked={historySyncChipProtectionBlocked}
         historySyncPendingAfterCampaign={historySyncPendingAfterCampaign}
         isGoWebhookInbox={isGoWebhookInbox}
+        inboxWebhookHealth={inboxWebhookHealth}
         chipsConnected={connectedChannels.length}
         connections={connections}
         onSearch={setSearch}

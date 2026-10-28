@@ -1212,6 +1212,9 @@ const registerSocketHandlers = () => {
         } else {
           await evolutionService.syncConnectionsForOwner(uid).catch(() => undefined);
         }
+        if (isGoWebhookInboxMode()) {
+          socket.emit('inbox-webhook-health', evolutionService.getInboxWebhookHealthForOwner(uid));
+        }
       } else {
         socket.emit(
           'conversations-update',

@@ -7,6 +7,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.354] - 2026-10-28
+
+### Melhorado
+- **Bate-papo (Evolution Go)**: monitor periódico de webhook — re-registra URL se chip `open` ficar sem evento de inbox por horas (`GO_WEBHOOK_INBOX_STALE_HOURS`, padrão 6); último webhook por chip em Redis (diagnóstico).
+- **UI inbox**: indicador «Webhook ok / aguardando mensagens»; empty state com links para docs Evolution Go e Meta.
+- **Avatares**: retry com backoff em `fetchProfilePictureUrl` / `fetchProfile`.
+- **LID (@lid)**: documentação da estratégia de resolução em `evolutionLidResolve.ts`.
+- **Docs**: `docs/chat-inbox-evolution-go.md` (URLs oficiais).
+- **API**: `GET /api/tenant/inbox-webhook-health` e campo `inboxWebhook` em `/api/tenant/ops-health`.
+
 ## [2.3.353] - 2026-10-28
 
 ### Corrigido

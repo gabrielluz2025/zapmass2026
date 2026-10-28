@@ -10,9 +10,16 @@ import { listContacts } from './repositories/contactsRepository.js';
 import { listContactLists } from './repositories/contactListsRepository.js';
 import { getQueueHealthMetrics } from './campaignJobsResilience.js';
 import { WHATSAPP_RISK_VERSION } from '../shared/whatsappLegal.js';
-import { cancelQueuedCampaignSendsForPhone, getOwnerGoHistorySyncOps } from './evolutionService.js';
+import {
+  cancelQueuedCampaignSendsForPhone,
+  getConnections,
+  getEvolutionWebhookActivitySnapshot,
+  getInboxWebhookHealthForOwner,
+  getOwnerGoHistorySyncOps,
+} from './evolutionService.js';
 import { clearContactOptOut, processContactOptOut } from './contactOptOutService.js';
 import { isGoWebhookInboxMode } from './evolutionConfig.js';
+import { filterByConnectionScope } from './connectionScopeServer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DLQ_FILE = path.join(__dirname, '../data/dead_letter_queue.json');
@@ -43,6 +50,31 @@ export function registerTenantExtrasRoutes(app: Express): void {
       queue: queue ?? { pending: 0, sending: 0, failed: 0, dead: 0, sent_last_hour: 0, backpressureActive: false },
       redisUsedPct: redisPct,
       goHistorySync: isGoWebhookInboxMode() ? getOwnerGoHistorySyncOps(ctx.tenantId) : null,
+      inboxWebhook: isGoWebhookInboxMode()
+        ? getInboxWebhookHealthForOwner(ctx.tenantId)
+        : null,
+    });
+  });
+
+  /** Diagnóstico webhook → inbox (Evolution Go). */
+  app.get('/api/tenant/inbox-webhook-health', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    if (!isGoWebhookInboxMode()) {
+      return res.json({ ok: true, health: null });
+    }
+    const scopedIds = new Set(
+      filterByConnectionScope(ctx.tenantId, getConnections()).map((c) => c.id)
+    );
+    const fullSnap = getEvolutionWebhookActivitySnapshot();
+    const activitySnapshot: Record<string, { lastAnyMs: number; lastInboxMs: number }> = {};
+    for (const id of scopedIds) {
+      if (fullSnap[id]) activitySnapshot[id] = fullSnap[id];
+    }
+    res.json({
+      ok: true,
+      health: getInboxWebhookHealthForOwner(ctx.tenantId),
+      activitySnapshot,
     });
   });
 

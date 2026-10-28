@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Socket } from 'socket.io-client';
 import type { InboxSyncPolicyPayload } from '../../../../shared/inboxSyncPolicy';
 import { defaultInboxSyncPolicy } from '../../../../shared/inboxSyncPolicy';
+import type { InboxWebhookHealthPayload } from '../../../../shared/inboxWebhookHealth';
+import { defaultInboxWebhookHealth } from '../../../../shared/inboxWebhookHealth';
 
 export type WaSocketStatus = 'online' | 'offline' | 'slow';
 
@@ -36,6 +38,9 @@ export function useWaRealtime(
   const [historyImporting, setHistoryImporting] = useState(false);
   const [inboxSyncPolicy, setInboxSyncPolicy] = useState<InboxSyncPolicyPayload>(() =>
     defaultInboxSyncPolicy()
+  );
+  const [inboxWebhookHealth, setInboxWebhookHealth] = useState<InboxWebhookHealthPayload>(() =>
+    defaultInboxWebhookHealth('evolution-go')
   );
   const pingSentAtRef = useRef(0);
   const slowStrikeRef = useRef(0);
@@ -179,6 +184,12 @@ export function useWaRealtime(
     };
     socket.on('history-sync-status', onHistorySync);
     socket.on('inbox-sync-policy', onInboxSyncPolicy);
+    const onWebhookHealth = (payload: InboxWebhookHealthPayload) => {
+      if (payload && typeof payload.status === 'string') {
+        setInboxWebhookHealth(payload);
+      }
+    };
+    socket.on('inbox-webhook-health', onWebhookHealth);
 
     return () => {
       socket.off('connect', onConnect);
@@ -189,6 +200,7 @@ export function useWaRealtime(
       socket.off('inbox-page', onConv);
       socket.off('history-sync-status', onHistorySync);
       socket.off('inbox-sync-policy', onInboxSyncPolicy);
+      socket.off('inbox-webhook-health', onWebhookHealth);
       document.removeEventListener('visibilitychange', onVis);
       clearInterval(pingTimer);
       clearInterval(lightSyncTimer);
@@ -197,5 +209,5 @@ export function useWaRealtime(
     };
   }, [socket, runResync]);
 
-  return { socketStatus, syncing, historyImporting, inboxSyncPolicy, runResync };
+  return { socketStatus, syncing, historyImporting, inboxSyncPolicy, inboxWebhookHealth, runResync };
 }

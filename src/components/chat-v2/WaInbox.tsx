@@ -9,6 +9,11 @@ import {
   unreadCount
 } from './lib/conversationDisplay';
 import type { WaSocketStatus } from './hooks/useWaRealtime';
+import type { InboxWebhookHealthPayload } from '../../../shared/inboxWebhookHealth';
+import {
+  CHAT_INBOX_EVOLUTION_GO_WEBHOOKS_URL,
+  CHAT_INBOX_META_WHATSAPP_OVERVIEW_URL,
+} from '../../constants/chatInboxHelp';
 import { WaConvRow } from './WaConvRow';
 import type { InboxSmartTab } from '../../utils/chatInboxPrefs';
 import type { ConversationOrigin } from './lib/conversationOrigin';
@@ -39,6 +44,7 @@ type Props = {
   historySyncChipProtectionBlocked?: boolean;
   historySyncPendingAfterCampaign?: boolean;
   isGoWebhookInbox?: boolean;
+  inboxWebhookHealth?: InboxWebhookHealthPayload | null;
   onSearch: (q: string) => void;
   onToggleUnread: () => void;
   onRefresh: () => void;
@@ -83,6 +89,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   historySyncChipProtectionBlocked = false,
   historySyncPendingAfterCampaign = false,
   isGoWebhookInbox = false,
+  inboxWebhookHealth = null,
   onSearch,
   onToggleUnread,
   onRefresh,
@@ -208,14 +215,38 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   const isSlow = socketStatus === 'slow';
   const isOffline = socketStatus === 'offline';
 
+  const webhookHealthLine = useMemo(() => {
+    if (!isGoWebhookInbox || chipsConnected <= 0 || !inboxWebhookHealth) return null;
+    if (inboxWebhookHealth.status === 'stale') {
+      return 'Webhook: reparando entrega (servidor reaplicou URL)';
+    }
+    if (inboxWebhookHealth.status === 'waiting') {
+      return 'Webhook ok — aguardando mensagens do WhatsApp';
+    }
+    if (inboxWebhookHealth.status === 'ok') {
+      return 'Webhook ok — mensagens em tempo real';
+    }
+    return null;
+  }, [isGoWebhookInbox, chipsConnected, inboxWebhookHealth]);
+
   const statusText = useMemo(() => {
     if (historyImporting) return 'Importando conversas do WhatsApp…';
     if (syncing) return 'Sincronizando…';
     if (isOffline) return 'Servidor desconectado';
     if (isSlow) return 'Conexão instável — sync ativo';
+    if (webhookHealthLine) return webhookHealthLine;
     if (chipsConnected > 0) return `${chipsConnected} chip${chipsConnected > 1 ? 's' : ''} ativo${chipsConnected > 1 ? 's' : ''}`;
     return 'Conecte um chip em Conexões';
-  }, [historyImporting, syncing, isOffline, isSlow, chipsConnected]);
+  }, [historyImporting, syncing, isOffline, isSlow, chipsConnected, webhookHealthLine]);
+
+  const showWebhookHealthBar =
+    isGoWebhookInbox &&
+    chipsConnected > 0 &&
+    inboxWebhookHealth &&
+    inboxWebhookHealth.status !== 'n/a' &&
+    !historyImporting &&
+    !syncing &&
+    !isOffline;
 
   const smartTabs: { id: InboxSmartTab; label: string; badge?: number }[] = [
     { id: 'all', label: 'Tudo' },
@@ -356,6 +387,22 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
         </div>
       ) : null}
 
+      {showWebhookHealthBar ? (
+        <div
+          className="wa-inbox-status px-3 py-2 text-[11px] leading-snug"
+          data-state={inboxWebhookHealth?.status === 'stale' ? 'import' : 'on'}
+          style={{
+            background:
+              inboxWebhookHealth?.status === 'stale'
+                ? 'rgba(245,158,11,0.12)'
+                : 'rgba(34,197,94,0.08)',
+            color: 'var(--text-2)',
+          }}
+        >
+          {webhookHealthLine}
+        </div>
+      ) : null}
+
       {/* Status compacto — só quando relevante */}
       {(isOffline || isSlow || syncing || historyImporting || chipsConnected === 0) && (
         <div
@@ -464,6 +511,28 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
                     ? 'No Evolution Go a lista vem por webhook (tempo real) e importação do celular. Após deploy do servidor, o webhook é reaplicado sozinho; se continuar vazio, use Sincronizar.'
                   : 'Novas mensagens aparecerão aqui automaticamente.'}
             </p>
+            {isGoWebhookInbox && chipsConnected > 0 ? (
+              <p className="text-[11px] max-w-[300px] flex flex-wrap gap-x-3 gap-y-1 justify-center">
+                <a
+                  href={CHAT_INBOX_EVOLUTION_GO_WEBHOOKS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline opacity-80 hover:opacity-100"
+                  style={{ color: 'var(--wa-text-3)' }}
+                >
+                  Webhooks Evolution Go
+                </a>
+                <a
+                  href={CHAT_INBOX_META_WHATSAPP_OVERVIEW_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline opacity-80 hover:opacity-100"
+                  style={{ color: 'var(--wa-text-3)' }}
+                >
+                  Meta / WhatsApp
+                </a>
+              </p>
+            ) : null}
             {!syncing && !historyImporting && chipsConnected > 0 && connectionFilterId === 'ALL' && !unreadOnly && (
               <div className="flex flex-col gap-2 mt-1">
                 <button
