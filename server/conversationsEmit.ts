@@ -94,7 +94,16 @@ function trimConversationListForSocket(list: Conversation[]): Conversation[] {
 
 export function prepareConversationsForSocketEmit(list: Conversation[]): Conversation[] {
   // Identidade autoritativa no servidor: lixo fora, rótulos JID/"0" viram telefone, mesmo telefone/chip = 1 linha.
-  const visible = canonicalizeInboxList(list).list;
+  const canonical = canonicalizeInboxList(list);
+  const visible = canonical.list;
+  if (process.env.INBOX_DEBUG_DUPES === '1' && (canonical.aliases.size > 0 || canonical.junkIds.length > 0)) {
+    console.debug('[inbox-dedupe] emit', {
+      in: list.length,
+      out: visible.length,
+      merged: Array.from(canonical.aliases.entries()).slice(0, 20),
+      junk: canonical.junkIds.slice(0, 20)
+    });
+  }
   return trimConversationListForSocket(slimConversationsForBroadcast(visible)).map((c) => {
     const msgs = Array.isArray(c.messages) ? c.messages : [];
     if (msgs.length <= SOCKET_INBOX_MSG_TAIL) return c;

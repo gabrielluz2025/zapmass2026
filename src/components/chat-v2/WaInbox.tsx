@@ -401,8 +401,8 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
           data-state="import"
           style={{ background: 'rgba(148,163,184,0.15)', color: 'var(--text-2)' }}
         >
-          Modo proteção: sync pesado do celular pausado para não derrubar o canal. Use Atualizar só se
-          precisar; mensagens novas seguem pelo WhatsApp normalmente.
+          Modo proteção: sync automático do celular pausado para não derrubar o canal. Atualizar /
+          «Sincronizar do celular» continuam funcionando (1 chip por vez); mensagens novas seguem ao vivo.
         </div>
       ) : historySyncPendingAfterCampaign && isGoWebhookInbox ? (
         <div

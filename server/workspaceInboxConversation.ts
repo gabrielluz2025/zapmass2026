@@ -1,4 +1,4 @@
-import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
+import { resolvePostgresTenantIdAsync } from './auth/firebaseUidMap.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { threadIdFromConversationId } from './chatArchiveFirestore.js';
@@ -91,7 +91,7 @@ async function resolveFromArchivePg(tenantUid: string, conversationId: string): 
   if (!usePostgresChatArchive() || !vpsDataEnabled()) return null;
   const pool = getZapmassPool();
   if (!pool) return null;
-  const pgTenant = resolvePostgresTenantId(tenantUid);
+  const pgTenant = await resolvePostgresTenantIdAsync(tenantUid);
   const phoneGuess = phoneDigitsFromConversationId(conversationId);
   const threadId = threadIdFromConversationId(
     conversationId,
@@ -197,7 +197,7 @@ export async function resolveWorkspaceInboxConversation(
   if (fromRam) return fromRam;
 
   const phoneKeys = phoneKeysFromConversationId(id);
-  const pgTenant = resolvePostgresTenantId(tenantUid);
+  const pgTenant = await resolvePostgresTenantIdAsync(tenantUid);
   const fromPersisted = await findPersistedInboxConversationPg(pgTenant, id, phoneKeys);
   if (fromPersisted) return fromPersisted;
 

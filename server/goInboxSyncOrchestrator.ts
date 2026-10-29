@@ -13,7 +13,13 @@ import {
 
 export type InboxSyncIntentMode = 'light' | 'phone_full';
 
-type QueuedIntent = { mode: InboxSyncIntentMode; source: string; at: number };
+type QueuedIntent = {
+  mode: InboxSyncIntentMode;
+  source: string;
+  at: number;
+  /** Clique do usuário (Sincronizar/Atualizar): sticky — intents automáticos posteriores não podem apagar. */
+  userInitiated: boolean;
+};
 
 const COALESCE_MS = Math.max(
   2_000,
@@ -63,13 +69,22 @@ function mergeIntent(prev: QueuedIntent | undefined, next: QueuedIntent): Queued
   if (!prev) return next;
   const mode =
     prev.mode === 'phone_full' || next.mode === 'phone_full' ? 'phone_full' : 'light';
-  return { mode, source: next.source, at: Math.max(prev.at, next.at) };
+  const userInitiated = prev.userInitiated || next.userInitiated;
+  // Mantém a origem do usuário: recovery automático (thread_sparse etc.) chega logo depois do clique
+  // e antes sobrescrevia source, perdendo userInitiated e re-bloqueando pelo modo proteção.
+  const source = userInitiated && !next.userInitiated ? prev.source : next.source;
+  return { mode, source, at: Math.max(prev.at, next.at), userInitiated };
 }
 
-function enqueue(ownerUid: string, mode: InboxSyncIntentMode, source: string): void {
+function enqueue(
+  ownerUid: string,
+  mode: InboxSyncIntentMode,
+  source: string,
+  userInitiated = false
+): void {
   const uid = uidNorm(ownerUid);
   if (!uid || uid === 'anonymous') return;
-  const next: QueuedIntent = { mode, source, at: Date.now() };
+  const next: QueuedIntent = { mode, source, at: Date.now(), userInitiated };
   queueByOwner.set(uid, mergeIntent(queueByOwner.get(uid), next));
   if (mode === 'phone_full') markHistorySyncDeferredForOwner(uid);
 }
@@ -184,7 +199,7 @@ async function drainOwnerQueue(ownerUid: string): Promise<void> {
     return;
   }
 
-  const userInitiated = intent.source === 'socket';
+  const userInitiated = intent.userInitiated;
   if (
     executor.isCampaignBlocking(uid) ||
     executor.isWarmupBlocking?.(uid) ||
@@ -201,7 +216,7 @@ async function drainOwnerQueue(ownerUid: string): Promise<void> {
     if (intent.mode === 'light') {
       await executor!.reemitLight(uid);
     } else {
-      const userInitiated = intent.source === 'socket';
+      const userInitiated = intent.userInitiated;
       await executor!.syncFromPhone(uid, {
         force: userInitiated,
         userInitiated,
@@ -230,7 +245,8 @@ export async function handleOwnerInboxSyncRequest(ownerUid: string, fullSync: bo
     return;
   }
 
-  enqueue(uid, 'phone_full', 'socket');
+  // Clique manual: ignora modo proteção/Go default (campanha RUNNING e aquecimento continuam bloqueando).
+  enqueue(uid, 'phone_full', 'socket', true);
   void resolveChipPhoneSyncBlocked(uid);
   if (executor.isCampaignBlocking(uid) || executor.isWarmupBlocking?.(uid)) {
     await executor.reemitLight(uid);

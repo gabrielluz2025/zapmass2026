@@ -7,6 +7,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 - **MINOR**: Funcionalidade nova, compatível com versão anterior
 - **PATCH**: Correções de bugs
 
+## [2.3.369] - 2026-10-29
+
+### Corrigido
+- **Mesmo contato em 2 linhas (nome e prévia idênticos)**: `canonicalizeInboxList`/`collapseConversationsByPhone` agora unem "gêmeas" no mesmo chip — mesmo nome real (não `+telefone`/"Contato"), mesma prévia e atividade ≤ 12 h, onde exatamente um lado não tem telefone resolvido (ex.: `@lid` cru ou fantasma que o navegador guardou + `@s.whatsapp.net` / stub do arquivo PG). Dois `@lid` crus, dois telefones diferentes ou chips diferentes **não** são unidos. Ids repetidos no mesmo payload também viram 1 linha. `filterPgStubsShadowedByRam` descarta stub gêmeo de `@lid` da RAM. O Bate-papo (`WaWebChatApp`) passa a usar `canonicalizeInboxList` (belt-and-suspenders no cliente). Log opcional: `INBOX_DEBUG_DUPES=1`.
+- **"Sincronizar do celular" não puxava nada em modo proteção**: (1) `handleRefresh` pedia só sync leve (`full:false`) quando bloqueado; agora sempre `full:true`. (2) No orquestrador, o recovery automático (`thread_sparse`, disparado por `load-chat-history` logo após o clique) sobrescrevia a origem `socket` e o sync manual virava automático → barrado pela proteção. `userInitiated` agora é sticky na fila (`mergeIntent`). Campanha ativa e aquecimento continuam enfileirando (sem restart).
+- **HistorySync → arquivo**: `chatArchiveMerge`, `workspaceInboxConversation` e o prefetch de campanha liam o arquivo PG com `resolvePostgresTenantId` síncrono (UUID derivado) enquanto a gravação usa `resolvePostgresTenantIdAsync` (`users.firebase_uid`); agora tudo usa o async.
+
+### Testes
+- `collapseConversationsByPhone.twins.test.ts` (gêmeas → 1 linha, casos que não podem unir) e `goInboxSyncOrchestrator.test.ts` (clique manual passa com proteção ligada; automático sozinho continua bloqueado; campanha enfileira).
+
 ## [2.3.368] - 2026-10-28
 
 ### Corrigido

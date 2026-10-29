@@ -10,6 +10,28 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.3.369',
+    date: '29/10/2026',
+    highlights: [
+      {
+        type: 'fix',
+        text: 'Inbox: mesma conversa em 2 linhas (nome + prévia idênticos, ex.: @lid sem telefone + @s.whatsapp.net) agora vira 1 só — servidor e navegador; ids repetidos no payload também são unidos',
+      },
+      {
+        type: 'fix',
+        text: 'Sincronizar do celular: clique manual (Atualizar / botão da conversa) vale mesmo em "modo proteção" — o recovery automático chegando logo depois não apaga mais o userInitiated; campanha ativa continua enfileirando',
+      },
+      {
+        type: 'fix',
+        text: 'Atualizar em modo proteção/campanha agora pede sync completo (antes só pedia sync leve e nunca puxava do celular)',
+      },
+      {
+        type: 'fix',
+        text: 'Arquivo PG: leitura de histórico ao abrir conversa usa o tenant UUID resolvido de forma assíncrona (HistorySync gravava num tenant e a leitura buscava em outro)',
+      },
+    ],
+  },
+  {
     version: '2.3.368',
     date: '28/10/2026',
     highlights: [

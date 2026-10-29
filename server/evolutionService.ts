@@ -16509,9 +16509,9 @@ export async function triggerInboundReplayForConnection(connectionId: string): P
                         .catch(() => 0);
                     try {
                         const { getZapmassPool } = await import('./db/postgres.js');
-                        const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+                        const { resolvePostgresTenantIdAsync } = await import('./auth/firebaseUidMap.js');
                         const pool = getZapmassPool();
-                        const tenantId = resolvePostgresTenantId(ownerUid);
+                        const tenantId = await resolvePostgresTenantIdAsync(ownerUid);
                         if (pool && tenantId) {
                             const r = await pool.query<{ to_number: string; last_sent: Date; msg_text: string | null }>(
                                 `SELECT DISTINCT ON (to_number)

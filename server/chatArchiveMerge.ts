@@ -86,11 +86,11 @@ async function resolveArchiveThreadIds(
     : '';
   if (jid.includes('@')) {
     try {
-      const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+      const { resolvePostgresTenantIdAsync } = await import('./auth/firebaseUidMap.js');
       const { listThreadIdsForRemoteJidPg, listThreadIdsForPhonePg } = await import(
         './repositories/chatArchiveRepository.js'
       );
-      const tenantId = resolvePostgresTenantId(ownerUid);
+      const tenantId = await resolvePostgresTenantIdAsync(ownerUid);
       const byJid = await listThreadIdsForRemoteJidPg(tenantId, jid);
       for (const t of byJid) {
         if (t && !threadIds.includes(t)) threadIds.push(t);
@@ -134,11 +134,11 @@ async function loadArchivedMessagesWithFallbacks(
   if (threadIds.length === 0) return [];
 
   try {
-    const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+    const { resolvePostgresTenantIdAsync } = await import('./auth/firebaseUidMap.js');
     const { loadChatArchiveMessagesFromThreadIdsPg } = await import(
       './repositories/chatArchiveRepository.js'
     );
-    const tenantId = resolvePostgresTenantId(ownerUid);
+    const tenantId = await resolvePostgresTenantIdAsync(ownerUid);
     const mergedPg = await loadChatArchiveMessagesFromThreadIdsPg(tenantId, threadIds, limit);
     if (mergedPg.length > 0) return mergedPg;
   } catch {
@@ -208,11 +208,11 @@ export async function mergeChatArchiveIntoConversation(
   let phoneArchived: ChatMessage[] = [];
   if (cpGuess.length >= 8) {
     try {
-      const { resolvePostgresTenantId } = await import('./auth/firebaseUidMap.js');
+      const { resolvePostgresTenantIdAsync } = await import('./auth/firebaseUidMap.js');
       const { loadChatArchiveMessagesByPhone } = await import(
         './repositories/chatArchiveRepository.js'
       );
-      const pgTenant = resolvePostgresTenantId(ownerUid);
+      const pgTenant = await resolvePostgresTenantIdAsync(ownerUid);
       phoneArchived = await loadChatArchiveMessagesByPhone(pgTenant, cpGuess, historyLimit);
     } catch {
       phoneArchived = [];

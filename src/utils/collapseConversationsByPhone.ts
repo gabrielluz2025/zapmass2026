@@ -366,7 +366,64 @@ function mergeConversationCluster(cluster: Conversation[]): Conversation {
   };
 }
 
-function collapseGroup(group: Conversation[], aliases?: Map<string, string>): Conversation[] {
+/** Janela máxima entre as últimas mensagens de duas threads "gêmeas" (mesmo nome + mesma prévia). */
+const TWIN_MAX_TS_DIFF_MS = 12 * 60 * 60 * 1000;
+
+function normalizeTwinName(name: string | undefined | null): string {
+  return String(name ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Chave de "gêmea": mesmo chip + mesmo nome de exibição real + mesma prévia.
+ * Vazia quando o nome é genérico (`+55…`, "Contato", só dígitos, @lid cru) ou não há prévia —
+ * nesses casos nunca juntamos por nome.
+ */
+function twinKeyForConversation(conv: Conversation): string {
+  const name = normalizeTwinName(conv.contactName);
+  if (name.length < 2 || name === 'contato' || name.startsWith('+') || name.includes('@')) return '';
+  if (/^[\d\s().-]+$/.test(name) || looksLikeLongLidDigits(name)) return '';
+  const preview = String(conv.lastMessage || '').trim().toLowerCase();
+  if (!preview) return '';
+  return `${name}\u0001${preview}`;
+}
+
+/**
+ * Mesmo contato com dois ids sem chave de telefone em comum (ex.: `@lid` sem PN resolvido + stub
+ * `@s.whatsapp.net` do arquivo PG, ou fantasma `@lid` que o cliente guardou). Só funde se UM dos
+ * lados não tem telefone resolvido (senão seriam dois telefones diferentes) e as atividades são próximas.
+ */
+function areTwinConversations(a: Conversation, b: Conversation): boolean {
+  const tsA = newestActivityMs(a);
+  const tsB = newestActivityMs(b);
+  const sameTime =
+    (a.lastMessageTime && a.lastMessageTime === b.lastMessageTime) ||
+    (tsA > 0 && tsB > 0 && Math.abs(tsA - tsB) <= TWIN_MAX_TS_DIFF_MS);
+  if (!sameTime) return false;
+  const unresolvedA = phoneKeysForConversation(a, true).length === 0;
+  const unresolvedB = phoneKeysForConversation(b, true).length === 0;
+  // Exatamente um lado sem telefone: dois @lid crus com mesmo nome/prévia podem ser pessoas diferentes.
+  return unresolvedA !== unresolvedB;
+}
+
+/** Une ids repetidos no mesmo chip (payload com a mesma thread 2×). */
+function mergeSameIdConversations(group: Conversation[]): Conversation[] {
+  const byId = new Map<string, Conversation[]>();
+  for (const c of group) {
+    const arr = byId.get(c.id);
+    if (arr) arr.push(c);
+    else byId.set(c.id, [c]);
+  }
+  if (byId.size === group.length) return group;
+  return Array.from(byId.values()).map((arr) => (arr.length === 1 ? arr[0] : mergeConversationCluster(arr)));
+}
+
+function collapseGroup(rawGroup: Conversation[], aliases?: Map<string, string>): Conversation[] {
+  const group = mergeSameIdConversations(rawGroup);
   if (group.length < 2) return group;
 
   const parent = new Map<number, number>();
@@ -396,6 +453,24 @@ function collapseGroup(group: Conversation[], aliases?: Map<string, string>): Co
       const prev = keyToIdx.get(k);
       if (prev != null) unite(i, prev);
       else keyToIdx.set(k, i);
+    }
+  }
+
+  // Gêmeas por nome + prévia (ver areTwinConversations) — bucket evita O(n²) na inbox grande.
+  const twinBuckets = new Map<string, number[]>();
+  for (let i = 0; i < group.length; i++) {
+    const tk = twinKeyForConversation(group[i]);
+    if (!tk) continue;
+    const arr = twinBuckets.get(tk);
+    if (arr) arr.push(i);
+    else twinBuckets.set(tk, [i]);
+  }
+  for (const idxs of twinBuckets.values()) {
+    if (idxs.length < 2) continue;
+    for (let x = 0; x < idxs.length; x++) {
+      for (let y = x + 1; y < idxs.length; y++) {
+        if (areTwinConversations(group[idxs[x]], group[idxs[y]])) unite(idxs[x], idxs[y]);
+      }
     }
   }
 
@@ -493,15 +568,25 @@ export function canonicalizeInboxList(list: Conversation[]): {
 export function filterPgStubsShadowedByRam(ram: Conversation[], stubs: Conversation[]): Conversation[] {
   const ramIds = new Set(ram.map((c) => c.id));
   const ramKeys = new Set<string>();
+  /** RAM sem telefone resolvido (@lid cru): stub gêmeo (mesmo chip + nome + prévia) é a mesma pessoa. */
+  const ramUnresolvedTwins = new Set<string>();
   for (const c of ram) {
-    for (const k of phoneKeysForConversation(c, true)) ramKeys.add(k);
+    const keys = phoneKeysForConversation(c, true);
+    for (const k of keys) ramKeys.add(k);
+    if (keys.length === 0) {
+      const tk = twinKeyForConversation(c);
+      if (tk) ramUnresolvedTwins.add(`${c.connectionId || '_'}\u0002${tk}`);
+    }
   }
   return stubs.filter((s) => {
     if (ramIds.has(s.id)) return false;
     if (isJunkInboxConversation(s)) return false;
     const keys = phoneKeysForConversation(s, true);
     if (keys.length === 0) return true;
-    return !keys.some((k) => ramKeys.has(k));
+    if (keys.some((k) => ramKeys.has(k))) return false;
+    const tk = twinKeyForConversation(s);
+    if (tk && ramUnresolvedTwins.has(`${s.connectionId || '_'}\u0002${tk}`)) return false;
+    return true;
   });
 }
 

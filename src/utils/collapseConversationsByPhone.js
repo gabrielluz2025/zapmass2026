@@ -320,7 +320,52 @@ function mergeConversationCluster(cluster) {
         waLastSeenMs: waLastSeenMs || undefined
     };
 }
-function collapseGroup(group, aliases) {
+const TWIN_MAX_TS_DIFF_MS = 12 * 60 * 60 * 1000;
+function normalizeTwinName(name) {
+    return String(name ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+function twinKeyForConversation(conv) {
+    const name = normalizeTwinName(conv.contactName);
+    if (name.length < 2 || name === 'contato' || name.startsWith('+') || name.includes('@'))
+        return '';
+    if (/^[\d\s().-]+$/.test(name) || looksLikeLongLidDigits(name))
+        return '';
+    const preview = String(conv.lastMessage || '').trim().toLowerCase();
+    if (!preview)
+        return '';
+    return `${name}\u0001${preview}`;
+}
+function areTwinConversations(a, b) {
+    const tsA = newestActivityMs(a);
+    const tsB = newestActivityMs(b);
+    const sameTime = (a.lastMessageTime && a.lastMessageTime === b.lastMessageTime) ||
+        (tsA > 0 && tsB > 0 && Math.abs(tsA - tsB) <= TWIN_MAX_TS_DIFF_MS);
+    if (!sameTime)
+        return false;
+    const unresolvedA = phoneKeysForConversation(a, true).length === 0;
+    const unresolvedB = phoneKeysForConversation(b, true).length === 0;
+    return unresolvedA !== unresolvedB;
+}
+function mergeSameIdConversations(group) {
+    const byId = new Map();
+    for (const c of group) {
+        const arr = byId.get(c.id);
+        if (arr)
+            arr.push(c);
+        else
+            byId.set(c.id, [c]);
+    }
+    if (byId.size === group.length)
+        return group;
+    return Array.from(byId.values()).map((arr) => (arr.length === 1 ? arr[0] : mergeConversationCluster(arr)));
+}
+function collapseGroup(rawGroup, aliases) {
+    const group = mergeSameIdConversations(rawGroup);
     if (group.length < 2)
         return group;
     const parent = new Map();
@@ -352,6 +397,27 @@ function collapseGroup(group, aliases) {
                 unite(i, prev);
             else
                 keyToIdx.set(k, i);
+        }
+    }
+    const twinBuckets = new Map();
+    for (let i = 0; i < group.length; i++) {
+        const tk = twinKeyForConversation(group[i]);
+        if (!tk)
+            continue;
+        const arr = twinBuckets.get(tk);
+        if (arr)
+            arr.push(i);
+        else
+            twinBuckets.set(tk, [i]);
+    }
+    for (const idxs of twinBuckets.values()) {
+        if (idxs.length < 2)
+            continue;
+        for (let x = 0; x < idxs.length; x++) {
+            for (let y = x + 1; y < idxs.length; y++) {
+                if (areTwinConversations(group[idxs[x]], group[idxs[y]]))
+                    unite(idxs[x], idxs[y]);
+            }
         }
     }
     const clusters = new Map();
@@ -421,9 +487,16 @@ export function canonicalizeInboxList(list) {
 export function filterPgStubsShadowedByRam(ram, stubs) {
     const ramIds = new Set(ram.map((c) => c.id));
     const ramKeys = new Set();
+    const ramUnresolvedTwins = new Set();
     for (const c of ram) {
-        for (const k of phoneKeysForConversation(c, true))
+        const keys = phoneKeysForConversation(c, true);
+        for (const k of keys)
             ramKeys.add(k);
+        if (keys.length === 0) {
+            const tk = twinKeyForConversation(c);
+            if (tk)
+                ramUnresolvedTwins.add(`${c.connectionId || '_'}\u0002${tk}`);
+        }
     }
     return stubs.filter((s) => {
         if (ramIds.has(s.id))
@@ -433,7 +506,12 @@ export function filterPgStubsShadowedByRam(ram, stubs) {
         const keys = phoneKeysForConversation(s, true);
         if (keys.length === 0)
             return true;
-        return !keys.some((k) => ramKeys.has(k));
+        if (keys.some((k) => ramKeys.has(k)))
+            return false;
+        const tk = twinKeyForConversation(s);
+        if (tk && ramUnresolvedTwins.has(`${s.connectionId || '_'}\u0002${tk}`))
+            return false;
+        return true;
     });
 }
 function digitsTail8(digits) {

@@ -14,7 +14,7 @@ import { useClientCrm } from '../chat/useClientCrm';
 import { useSendChatMedia } from './hooks/useSendChatMedia';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
 import {
-  collapseConversationsByPhone,
+  canonicalizeInboxList,
   phonesEquivalentForInboxMerge,
   reconcileConversationSelection,
   resolveStableConversationId,
@@ -310,7 +310,8 @@ export const WaWebChatApp: React.FC<{
   const mergedConversations = useMemo(() => {
     const realIds = new Set(conversations.map((c) => c.id));
     const drafts = draftConversations.filter((d) => !realIds.has(d.id));
-    return collapseConversationsByPhone(dedupeConversationsById([...conversations, ...drafts]));
+    // Belt-and-suspenders: mesma identidade canônica do servidor (lixo fora, ids repetidos, gêmeas 1×).
+    return canonicalizeInboxList(dedupeConversationsById([...conversations, ...drafts])).list;
   }, [conversations, draftConversations]);
 
   // collapseConversationsByPhone une @lid + telefone do mesmo contato no mesmo chip.
@@ -1204,14 +1205,20 @@ export const WaWebChatApp: React.FC<{
 
   const handleRefresh = useCallback(() => {
     if (historySyncPhoneFullBlocked) {
-      runResync({ full: false, force: true });
-      const msg =
-        inboxSyncPolicy.blockReason === 'campaign' || historySyncCampaignBlocked
-          ? 'Campanha ativa — sync pesado na fila até terminar o disparo.'
-          : inboxSyncPolicy.blockReason === 'chip_protection'
-            ? 'Proteção de chip ativa — só sync leve agora; histórico pesado quando liberar.'
-            : 'Sync pesado pausado — o servidor enfileira e aplica sozinho quando for seguro.';
-      toast(msg, { icon: '⚠️', duration: 4500 });
+      const campaignOrWarmup =
+        inboxSyncPolicy.blockReason === 'campaign' ||
+        inboxSyncPolicy.blockReason === 'warmup' ||
+        historySyncCampaignBlocked;
+      // Sempre pede full: o servidor enfileira (campanha/aquecimento) ou executa na hora com
+      // userInitiated (modo proteção só bloqueia o sync AUTOMÁTICO, não o clique do usuário).
+      runResync({ full: true, force: true });
+      if (!campaignOrWarmup && selectedId) void loadMoreHistory(selectedId, true);
+      const msg = campaignOrWarmup
+        ? 'Campanha ativa — sync pesado na fila até terminar o disparo.'
+        : inboxSyncPolicy.blockReason === 'chip_protection'
+          ? 'Sincronização manual solicitada — importando do celular (o modo proteção só pausa o sync automático).'
+          : 'Sync pesado pausado — o servidor enfileira e aplica sozinho quando for seguro.';
+      toast(msg, { icon: campaignOrWarmup ? '⚠️' : '📲', duration: 4500 });
       return;
     }
     runResync({ full: true, force: true });
